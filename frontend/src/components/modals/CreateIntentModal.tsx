@@ -3,11 +3,9 @@
 import { useState, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import * as Dialog from "@radix-ui/react-dialog";
-import * as Checkbox from "@radix-ui/react-checkbox";
 import { useIndexes } from "@/contexts/APIContext";
-import { Index } from "@/lib/types";
 import { Textarea } from "../ui/textarea";
-import { ChevronDown, ChevronUp, Check } from "lucide-react";
+import { ChevronDown, ChevronUp, EyeOff, Globe } from "lucide-react";
 
 interface VerifiableProof {
   id: string;
@@ -22,9 +20,8 @@ interface VerifiableProof {
 interface CreateIntentModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onSubmit: (intent: { payload: string; indexIds: string[]; attachments: File[]; isPublic: boolean }) => void;
+  onSubmit: (intent: { payload: string; attachments: File[]; isIncognito: boolean }) => void;
   initialPayload?: string;
-  initialIndexIds?: string[];
   indexId?: string; // Add indexId prop for getIntentPreview call
 }
 
@@ -33,15 +30,11 @@ export default function CreateIntentModal({
   onOpenChange, 
   onSubmit,
   initialPayload = '',
-  initialIndexIds = [],
   indexId
 }: CreateIntentModalProps) {
   const [payload, setPayload] = useState(initialPayload);
-  const [selectedIndexes, setSelectedIndexes] = useState<string[]>(initialIndexIds);
-  const [availableIndexes, setAvailableIndexes] = useState<Index[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
-  const [loading, setLoading] = useState(true);
   const indexesService = useIndexes();
   // const [relevantContent, setRelevantContent] = useState<string[]>([]);
   const [attachments, setAttachments] = useState<File[]>([]);
@@ -50,31 +43,11 @@ export default function CreateIntentModal({
   const [expandedProofs, setExpandedProofs] = useState<Set<string>>(new Set());
   const [hasInitialized, setHasInitialized] = useState(false);
   const [isLoadingPreview, setIsLoadingPreview] = useState(false);
-  const [isPublic, setIsPublic] = useState(false);
-
-  // Fetch indexes when modal opens
-  const fetchIndexes = useCallback(async () => {
-    try {
-      const response = await indexesService.getIndexes();
-      setAvailableIndexes(response.indexes || []);
-    } catch (error) {
-      console.error('Error fetching indexes:', error);
-    } finally {
-      setLoading(false);
-    }
-  }, [indexesService]);
-
-  useEffect(() => {
-    if (open) {
-      fetchIndexes();
-    }
-  }, [open, fetchIndexes]);
+  const [isIncognito, setIsIncognito] = useState(false);
 
   // Initialize form data when modal opens
   useEffect(() => {
     if (open && !hasInitialized) {
-      // Set initial indexes
-      setSelectedIndexes([...initialIndexIds]);
       
       // Set initial payload immediately
       if (initialPayload) {
@@ -102,19 +75,18 @@ export default function CreateIntentModal({
       
       setHasInitialized(true);
     }
-  }, [open, hasInitialized, initialIndexIds, initialPayload, indexId, indexesService]);
+  }, [open, hasInitialized, initialPayload, indexId, indexesService]);
 
   // Reset when modal closes
   useEffect(() => {
     if (!open) {
       setHasInitialized(false);
       setPayload('');
-      setSelectedIndexes([]);
       setAttachments([]);
       setIsSuccess(false);
       setIsProcessing(false);
       setIsLoadingPreview(false);
-      setIsPublic(false);
+      setIsIncognito(false);
     }
   }, [open]);
 
@@ -123,11 +95,10 @@ export default function CreateIntentModal({
     setIsProcessing(true);
     
     try {
-      await onSubmit({ payload, indexIds: selectedIndexes, attachments, isPublic });
+      await onSubmit({ payload, attachments, isIncognito });
       setPayload('');
-      setSelectedIndexes([]);
       setAttachments([]);
-      setIsPublic(false);
+      setIsIncognito(false);
       setIsSuccess(true);
       
       setTimeout(() => {
@@ -139,15 +110,7 @@ export default function CreateIntentModal({
     } finally {
       setIsProcessing(false);
     }
-  }, [payload, selectedIndexes, attachments, isPublic, onSubmit, onOpenChange]);
-
-  const toggleIndex = useCallback((indexId: string) => {
-    setSelectedIndexes(prev => 
-      prev.includes(indexId) 
-        ? prev.filter(id => id !== indexId)
-        : [...prev, indexId]
-    );
-  }, []);
+  }, [payload, attachments, isIncognito, onSubmit, onOpenChange]);
 
   const handleFileDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -242,35 +205,43 @@ export default function CreateIntentModal({
 
                   {/* Visibility Section */}
                   <div>
-                    <label className="text-md font-medium font-ibm-plex-mono text-black">
-                      <div className="mb-2">Visibility</div>
-                    </label>
-                    <div className="flex items-center space-x-4">
-                      <div className="flex items-center space-x-2">
-                        <input
-                          type="radio"
-                          id="private"
-                          name="visibility"
-                          checked={!isPublic}
-                          onChange={() => setIsPublic(false)}
-                          className="text-blue-600"
-                        />
-                        <label htmlFor="private" className="text-sm text-gray-700 cursor-pointer">
-                          Private - Only visible to selected index members
-                        </label>
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-3 mb-2">
+                          <h3 className="text-md font-medium font-ibm-plex-mono text-black">Incognito Mode</h3>
+                          <div className="flex items-center gap-2 text-sm text-gray-600">
+                            {!isIncognito ? (
+                              <>
+                                <Globe className="h-4 w-4" />
+                              </>
+                            ) : (
+                              <>
+                                <EyeOff className="h-4 w-4" />
+                              </>
+                            )}
+                          </div>
+                        </div>
+                        <p className="text-sm text-gray-600">
+                          {!isIncognito 
+                            ? "Your intent is visible to relevant people"
+                            : "Your intent stays hidden - no one can see you"
+                          }
+                        </p>
                       </div>
-                      <div className="flex items-center space-x-2">
-                        <input
-                          type="radio"
-                          id="public"
-                          name="visibility"
-                          checked={isPublic}
-                          onChange={() => setIsPublic(true)}
-                          className="text-blue-600"
-                        />
-                        <label htmlFor="public" className="text-sm text-gray-700 cursor-pointer">
-                          Public - Visible to everyone
-                        </label>
+                      <div className="flex items-center gap-3 ml-4">
+                        <button
+                          type="button"
+                          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 cursor-pointer ${
+                            isIncognito ? 'bg-blue-600' : 'bg-gray-300'
+                          }`}
+                          onClick={() => setIsIncognito(!isIncognito)}
+                        >
+                          <span
+                            className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                              isIncognito ? 'translate-x-6' : 'translate-x-1'
+                            }`}
+                          />
+                        </button>
                       </div>
                     </div>
                   </div>
@@ -417,41 +388,7 @@ export default function CreateIntentModal({
                     </>
                   )}
 
-                  {/* Indexes Section */}
-                  <div>
-                    <label className="text-md font-medium font-ibm-plex-mono text-black">
-                      <div className="mb-2">Share when this intent is matched</div>
-                    </label>
-                    <div className="space-y-2">
-                      {loading ? (
-                        <div className="text-center py-4 text-gray-500">Loading indexes...</div>
-                      ) : availableIndexes.length === 0 ? (
-                        <div className="text-center py-4 text-gray-500">No indexes available</div>
-                      ) : (
-                        availableIndexes.map((index) => (
-                          <div key={index.id} className="flex items-center space-x-2 p-2 hover:bg-gray-50 rounded-md">
-                            <Checkbox.Root
-                              id={`index-${index.id}`}
-                              checked={selectedIndexes.includes(index.id)}
-                              onCheckedChange={() => toggleIndex(index.id)}
-                              className="flex h-4 w-4 items-center justify-center rounded border border-gray-300 data-[state=checked]:bg-blue-600 data-[state=checked]:border-blue-600"
-                            >
-                              <Checkbox.Indicator className="text-white">
-                                <Check className="h-3 w-3" />
-                              </Checkbox.Indicator>
-                            </Checkbox.Root>
-                            <label
-                              htmlFor={`index-${index.id}`}
-                              className="text-sm text-gray-800 font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
-                            >
-                              {index.title}
-                              <span className="text-gray-500 text-xs ml-2">({index._count?.members || 0} members)</span>
-                            </label>
-                          </div>
-                        ))
-                      )}
-                    </div>
-                  </div>
+
 
                   {/* Examples Section */}
                   <div className="bg-yellow-50 p-4 border border-gray-200">
@@ -484,13 +421,9 @@ export default function CreateIntentModal({
                 <div className="text-center py-8 space-y-6">
                   <h2 className="text-xl font-bold text-gray-900 font-ibm-plex-mono">Intent Successfully Created!</h2>
                   <p className="text-gray-600">
-                    Your intent has been broadcasted across {selectedIndexes.length} selected {selectedIndexes.length === 1 ? 'index' : 'indexes'}.
+                    Your intent has been registered.
                   </p>
                   <div className="grid grid-cols-3 gap-4">
-                    <div className="border border-gray-200 p-4 rounded-md bg-white">
-                      <p className="text-2xl font-bold text-gray-900">{selectedIndexes.length}</p>
-                      <p className="text-sm text-gray-600">Indexes Searched</p>
-                    </div>
                     <div className="border border-gray-200 p-4 rounded-md bg-white">
                       <p className="text-2xl font-bold text-gray-900">~24h</p>
                       <p className="text-sm text-gray-600">Estimated Time</p>

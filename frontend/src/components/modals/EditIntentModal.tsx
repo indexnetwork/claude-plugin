@@ -3,16 +3,14 @@
 import { useState, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import * as Dialog from "@radix-ui/react-dialog";
-import * as Checkbox from "@radix-ui/react-checkbox";
-import { useIndexes } from "@/contexts/APIContext";
-import { Index, Intent } from "@/lib/types";
+import { Intent } from "@/lib/types";
 import { Textarea } from "../ui/textarea";
-import { Check } from "lucide-react";
+import { EyeOff, Globe } from "lucide-react";
 
 interface EditIntentModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onSubmit: (intent: { id: string; payload: string; indexIds: string[] }) => void;
+  onSubmit: (intent: { id: string; payload: string; isIncognito: boolean }) => void;
   intent: Intent | null;
 }
 
@@ -23,37 +21,17 @@ export default function EditIntentModal({
   intent
 }: EditIntentModalProps) {
   const [payload, setPayload] = useState('');
-  const [selectedIndexes, setSelectedIndexes] = useState<string[]>([]);
-  const [availableIndexes, setAvailableIndexes] = useState<Index[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const indexesService = useIndexes();
   const [hasInitialized, setHasInitialized] = useState(false);
+  const [isIncognito, setIsIncognito] = useState(false);
 
-  // Fetch indexes when modal opens
-  const fetchIndexes = useCallback(async () => {
-    try {
-      const response = await indexesService.getIndexes();
-      setAvailableIndexes(response.indexes || []);
-    } catch (error) {
-      console.error('Error fetching indexes:', error);
-    } finally {
-      setLoading(false);
-    }
-  }, [indexesService]);
-
-  useEffect(() => {
-    if (open) {
-      fetchIndexes();
-    }
-  }, [open, fetchIndexes]);
 
   // Initialize form data when modal opens
   useEffect(() => {
     if (open && intent && !hasInitialized) {
       setPayload(intent.payload || '');
-      setSelectedIndexes(intent.indexes?.map(idx => idx.indexId) || []);
+      setIsIncognito(intent.isIncognito);
       setHasInitialized(true);
     }
   }, [open, intent, hasInitialized]);
@@ -63,9 +41,9 @@ export default function EditIntentModal({
     if (!open) {
       setHasInitialized(false);
       setPayload('');
-      setSelectedIndexes([]);
       setIsSuccess(false);
       setIsProcessing(false);
+      setIsIncognito(false);
     }
   }, [open]);
 
@@ -79,7 +57,7 @@ export default function EditIntentModal({
       await onSubmit({ 
         id: intent.id,
         payload, 
-        indexIds: selectedIndexes
+        isIncognito: isIncognito
       });
       setIsSuccess(true);
       
@@ -92,15 +70,7 @@ export default function EditIntentModal({
     } finally {
       setIsProcessing(false);
     }
-  }, [intent, payload, selectedIndexes, onSubmit, onOpenChange]);
-
-  const toggleIndex = useCallback((indexId: string) => {
-    setSelectedIndexes(prev => 
-      prev.includes(indexId) 
-        ? prev.filter(id => id !== indexId)
-        : [...prev, indexId]
-    );
-  }, []);
+  }, [intent, payload, isIncognito, onSubmit, onOpenChange]);
 
   if (!intent) return null;
 
@@ -139,43 +109,49 @@ export default function EditIntentModal({
                     </div>
                   </div>
 
-
-
-                  {/* Indexes Section */}
+                  {/* Visibility Section */}
                   <div>
-                    <label className="text-md font-medium font-ibm-plex-mono text-black">
-                      <div className="mb-2">Share when this intent is matched</div>
-                    </label>
-                    <div className="space-y-2">
-                      {loading ? (
-                        <div className="text-center py-4 text-gray-500">Loading indexes...</div>
-                      ) : availableIndexes.length === 0 ? (
-                        <div className="text-center py-4 text-gray-500">No indexes available</div>
-                      ) : (
-                        availableIndexes.map((index) => (
-                          <div key={index.id} className="flex items-center space-x-2 p-2 hover:bg-gray-50 rounded-md">
-                            <Checkbox.Root
-                              id={`index-${index.id}`}
-                              checked={selectedIndexes.includes(index.id)}
-                              onCheckedChange={() => toggleIndex(index.id)}
-                              className="flex h-4 w-4 items-center justify-center rounded border border-gray-300 data-[state=checked]:bg-blue-600 data-[state=checked]:border-blue-600"
-                            >
-                              <Checkbox.Indicator className="text-white">
-                                <Check className="h-3 w-3" />
-                              </Checkbox.Indicator>
-                            </Checkbox.Root>
-                            <label
-                              htmlFor={`index-${index.id}`}
-                              className="text-sm text-gray-800 font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
-                            >
-                              {index.title}
-                              <span className="text-gray-500 text-xs ml-2">({index._count?.members || 0} members)</span>
-                            </label>
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-3 mb-2">
+                          <h3 className="text-md font-medium font-ibm-plex-mono text-black">Incognito Mode</h3>
+                          <div className="flex items-center gap-2 text-sm text-gray-600">
+                            {isIncognito ? (
+                              <>
+                                <EyeOff className="h-4 w-4" />
+                              </>
+                            ) : (
+                              <>
+                                <Globe className="h-4 w-4" />
+                              </>
+                            )}
                           </div>
-                        ))
-                      )}
+                        </div>
+                        <p className="text-sm text-gray-600">
+                          {isIncognito 
+                            ? "Your intent stays hidden - no one can see you"
+                            : "Your intent is visible to relevant people"
+                          }
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-3 ml-4">
+                        <button
+                          type="button"
+                          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 cursor-pointer ${
+                            isIncognito ? 'bg-blue-600' : 'bg-gray-300'
+                          }`}
+                          onClick={() => setIsIncognito(!isIncognito)}
+                        >
+                          <span
+                            className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                              isIncognito ? 'translate-x-6' : 'translate-x-1'
+                            }`}
+                          />
+                        </button>
+                      </div>
                     </div>
                   </div>
+
                 </form>
               ) : isProcessing ? (
                 <div className="text-center py-8 space-y-6">

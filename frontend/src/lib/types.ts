@@ -65,6 +65,7 @@ export interface Intent {
   id: string;
   payload: string;
   summary?: string | null;
+  isIncognito: boolean;
   createdAt: string;
   updatedAt: string;
   archivedAt?: string | null;
@@ -172,11 +173,12 @@ export interface UpdateIndexRequest {
 export interface CreateIntentRequest {
   payload: string;
   indexIds: string[];
-  isPublic?: boolean;
+  isIncognito?: boolean;
 }
 
 export interface UpdateIntentRequest {
   payload?: string;
+  isIncognito?: boolean;
 }
 
 export interface UpdateProfileRequest {
