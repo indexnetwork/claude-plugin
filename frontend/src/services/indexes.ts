@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { useAuthenticatedAPI } from '../lib/api';
+import { useAuthenticatedAPI, apiClient } from '../lib/api';
 import { 
   Index, 
   IndexFile, 
@@ -31,34 +31,10 @@ export interface SuggestedIntent {
   isAdded?: boolean;
 }
 
-// Helper function to format file size (currently unused)
-// function formatFileSize(sizeInBytes: number): string {
-//   const units = ['B', 'KB', 'MB', 'GB'];
-//   let size = sizeInBytes;
-//   let unitIndex = 0;
-//   
-//   while (size >= 1024 && unitIndex < units.length - 1) {
-//     size /= 1024;
-//     unitIndex++;
-//   }
-//   
-//   return `${size.toFixed(1)} ${units[unitIndex]}`;
-// }
-
-// Helper function to format date (currently unused)
-// function formatDate(dateString: string): string {
-//   return new Date(dateString).toLocaleDateString('en-US', {
-//     year: 'numeric',
-//     month: 'short',
-//     day: 'numeric'
-//   });
-// }
-
 // Service functions that accept API instance as parameter
 export const createIndexesService = (api: ReturnType<typeof useAuthenticatedAPI>) => ({
   // Get all indexes with pagination
   getIndexes: async (page: number = 1, limit: number = 10): Promise<PaginatedResponse<Index>> => {
-    console.log('getIndexes', page, limit);
     const response = await api.get<PaginatedResponse<Index>>(`/indexes?page=${page}&limit=${limit}`);
     return response;
   },
@@ -215,9 +191,18 @@ export const createIndexesService = (api: ReturnType<typeof useAuthenticatedAPI>
 
 });
 
-// Legacy service object for backward compatibility - but this will cause hook errors!
-// Keeping for any existing code that might import it directly
+// Non-authenticated service for public endpoints
 export const indexesService = {
+  // Get index by share code (public access, no auth required)
+  getIndexByShareCode: async (code: string): Promise<Index> => {
+    const response = await apiClient.get<APIResponse<Index>>(`/indexes/share/${code}`);
+    if (!response.index) {
+      throw new Error('Index not found');
+    }
+    return response.index;
+  },
+
+  // Legacy methods that require authentication
   getIndexes: () => { throw new Error('Use useIndexService() hook instead of indexesService directly'); },
   getIndex: () => { throw new Error('Use useIndexService() hook instead of indexesService directly'); },
   createIndex: () => { throw new Error('Use useIndexService() hook instead of indexesService directly'); },

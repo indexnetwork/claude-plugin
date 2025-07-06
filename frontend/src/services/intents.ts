@@ -6,7 +6,7 @@ import {
   CreateIntentRequest, 
   UpdateIntentRequest,
   IntentStakesByUserResponse,
-  StakesByUserResponse
+  StakesByUserResponse,
 } from '../lib/types';
 
 // Transform config agents to match Agent interface
@@ -77,6 +77,20 @@ export const createIntentsService = (api: ReturnType<typeof import('../lib/api')
   // Get all stakes for the user
   getAllStakes: async (): Promise<StakesByUserResponse[]> => {
     const response = await api.get<StakesByUserResponse[]>(`/stakes/by-user`);
+    return response;
+  },
+
+  // Get stakes by index code for a shared index
+  getStakesByIndexCode: async (code: string): Promise<StakesByUserResponse[]> => {
+    const response = await api.get<StakesByUserResponse[]>(`/stakes/index/${code}/by-user`);
+    return response;
+  },
+
+  // Run vibecheck analysis for an index
+  runVibeCheck: async (code: string, intentPayload: string): Promise<{ synthesis: string; score: number }> => {
+    const response = await api.post<{ synthesis: string; score: number }>(`/stakes/index/${code}/vibecheck`, {
+      intent_payload: intentPayload
+    });
     return response;
   },
 
