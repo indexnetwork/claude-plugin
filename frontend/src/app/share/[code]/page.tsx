@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useEffect, use, useCallback, useRef } from "react";
+import { useState, useEffect, use, useCallback } from "react";
 import { Button } from "@/components/ui/button";
-import { Upload, ArrowUpRight } from "lucide-react";
+import { ArrowUpRight } from "lucide-react";
 import { Index } from "@/lib/types";
 import Image from "next/image";
 import ClientLayout from "@/components/ClientLayout";
@@ -12,11 +12,13 @@ import { useConnections, useIndexes, useIntents } from '@/contexts/APIContext';
 import { indexesService as publicIndexesService } from '@/services/indexes';
 import { useAuthenticatedAPI } from '@/lib/api';
 import { User, APIResponse } from '@/lib/types';
-import { vibecheckService } from '@/services/vibecheck';
+
 import ReactMarkdown from "react-markdown";
 import { formatDate } from "@/lib/utils";
 import * as Dialog from "@radix-ui/react-dialog";
 import { useRouter } from 'next/navigation';
+import IntentForm from '@/components/IntentForm';
+import { intentSuggestionsService } from '@/services/intentSuggestions';
 
 interface SharePageProps {
   params: Promise<{
@@ -35,11 +37,10 @@ type SharePageState = {
   
   // Data
   uploadedFiles: File[];
-  vibeCheckResults: { aiSynthesis?: string; score?: number };
+  vibeCheckResults: { aiSynthesis?: string; score?: number; suggestedIntents?: { payload: string; confidence: number }[] };
   error: string | null;
   
   // Flags
-  isDragging: boolean;
   autoRequestConnection: boolean;
   currentStep: string;
   connectionRequestSent: boolean;
@@ -54,7 +55,6 @@ export default function SharePage({ params }: SharePageProps) {
     uploadedFiles: [],
     vibeCheckResults: {},
     error: null,
-    isDragging: false,
     autoRequestConnection: false,
     currentStep: '',
     connectionRequestSent: false,
@@ -65,7 +65,6 @@ export default function SharePage({ params }: SharePageProps) {
   const connectionsService = useConnections();
   const indexesService = useIndexes();
   const intentsService = useIntents();
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
 
   // Main flow effect - handles all the complex logic in one place
@@ -83,9 +82,14 @@ export default function SharePage({ params }: SharePageProps) {
               const storedVibeCheck = localStorage.getItem(`vibecheck_${resolvedParams.code}`);
               if (storedVibeCheck) {
                 const parsed = JSON.parse(storedVibeCheck);
+                const storedResults = parsed.results[0] || {};
                 setState(prev => ({ 
                   ...prev, 
-                  vibeCheckResults: parsed.results[0] || {},
+                  vibeCheckResults: {
+                    aiSynthesis: storedResults.aiSynthesis,
+                    score: storedResults.score,
+                    suggestedIntents: storedResults.suggestedIntents || []
+                  },
                   step: 'vibecheck-results',
                   autoRequestConnection: parsed.autoRequest || false
                 }));
@@ -94,33 +98,7 @@ export default function SharePage({ params }: SharePageProps) {
             break;
 
           case 'vibecheck-running':
-            if (state.uploadedFiles.length > 0) {
-              const vibeCheckResult = await vibecheckService.runVibeCheckWithFiles(resolvedParams.code, state.uploadedFiles);
-              if (vibeCheckResult.success) {
-                setState(prev => ({
-                  ...prev,
-                  vibeCheckResults: { 
-                    aiSynthesis: vibeCheckResult.synthesis || '', 
-                    score: vibeCheckResult.score || 0 
-                  },
-                  step: 'vibecheck-results'
-                }));
-                
-                // Store temp files in localStorage for later retrieval
-                if (vibeCheckResult.tempFiles) {
-                  localStorage.setItem(`vibecheck_${resolvedParams.code}`, JSON.stringify({
-                    results: [{ 
-                      aiSynthesis: vibeCheckResult.synthesis || '', 
-                      score: vibeCheckResult.score || 0 
-                    }],
-                    tempFiles: vibeCheckResult.tempFiles,
-                    autoRequest: state.autoRequestConnection
-                  }));
-                }
-              } else {
-                setState(prev => ({ ...prev, step: 'error', error: vibeCheckResult.error || 'Vibecheck failed' }));
-              }
-            }
+            // This case is now handled by handleIntentFormSubmit, no need for separate logic
             break;
 
           case 'auth-required':
@@ -130,7 +108,11 @@ export default function SharePage({ params }: SharePageProps) {
                 const stored = localStorage.getItem(`vibecheck_${resolvedParams.code}`);
                 const existing = stored ? JSON.parse(stored) : {};
                 localStorage.setItem(`vibecheck_${resolvedParams.code}`, JSON.stringify({
-                  results: [state.vibeCheckResults],
+                  results: [{
+                    aiSynthesis: state.vibeCheckResults.aiSynthesis,
+                    score: state.vibeCheckResults.score,
+                    suggestedIntents: state.vibeCheckResults.suggestedIntents || []
+                  }],
                   tempFiles: existing.tempFiles || [],
                   autoRequest: state.autoRequestConnection
                 }));
@@ -183,17 +165,24 @@ export default function SharePage({ params }: SharePageProps) {
                 }
               }
 
-              // Get and add suggested intents
-              setState(prev => ({ ...prev, currentStep: 'Creating intents...' }));
-              const suggestedIntentsResponse = await indexesService.getSuggestedIntents(newIndex.id);
-              const intentsToAdd = (suggestedIntentsResponse.intents || []).slice(0, 2);
-              
-              for (const suggestedIntent of intentsToAdd) {
-                await intentsService.createIntent({
-                  payload: suggestedIntent.payload,
-                  indexIds: [newIndex.id],
-                  isIncognito: false
-                });
+              // Add suggested intents from vibecheck
+              const storedData = localStorage.getItem(`vibecheck_${resolvedParams.code}`);
+              if (storedData) {
+                const parsed = JSON.parse(storedData);
+                const suggestedIntents = parsed.results[0]?.suggestedIntents || [];
+                
+                if (suggestedIntents.length > 0) {
+                  setState(prev => ({ ...prev, currentStep: 'Creating intents...' }));
+                  const intentsToAdd = suggestedIntents.slice(0, 3); // Take top 3
+                  
+                  for (const suggestedIntent of intentsToAdd) {
+                    await intentsService.createIntent({
+                      payload: suggestedIntent.payload,
+                      indexIds: [newIndex.id],
+                      isIncognito: false
+                    });
+                  }
+                }
               }
 
               // Request connection
@@ -289,15 +278,54 @@ export default function SharePage({ params }: SharePageProps) {
   }, [state.step]);
 
   // Event handlers
-  const handleFileUpload = useCallback(async (files: File[]) => {
-    if (!state.index || files.length === 0) return;
+  const handleIntentFormSubmit = useCallback(async (data: { payload: string; files: File[]; vibeCheckIndex?: string }) => {
+    if (!state.index || (!data.payload.trim() && data.files.length === 0)) return;
     
     setState(prev => ({ 
       ...prev, 
-      uploadedFiles: files, 
+      uploadedFiles: data.files, 
       step: 'vibecheck-running' 
     }));
-  }, [state.index]);
+
+    try {
+      // Use intent suggestions service with vibe check
+      const result = await intentSuggestionsService.generateSuggestions({
+        payload: data.payload.trim() || undefined,
+        files: data.files,
+        indexCode: resolvedParams.code // Use the share code as the index code
+      });
+
+      if (result.success) {
+        setState(prev => ({
+          ...prev,
+          vibeCheckResults: { 
+            aiSynthesis: result.synthesis || '', 
+            score: result.score || 0,
+            suggestedIntents: result.suggestedIntents || []
+          },
+          step: 'vibecheck-results'
+        }));
+        
+        // Store temp files in localStorage for later retrieval
+        if (result.tempFiles) {
+          localStorage.setItem(`vibecheck_${resolvedParams.code}`, JSON.stringify({
+            results: [{ 
+              aiSynthesis: result.synthesis || '', 
+              score: result.score || 0,
+              suggestedIntents: result.suggestedIntents || []
+            }],
+            tempFiles: result.tempFiles,
+            autoRequest: state.autoRequestConnection
+          }));
+        }
+      } else {
+        setState(prev => ({ ...prev, step: 'error', error: result.error || 'Intent suggestion failed' }));
+      }
+    } catch (error) {
+      console.error('Intent suggestion error:', error);
+      setState(prev => ({ ...prev, step: 'error', error: 'Failed to process request' }));
+    }
+  }, [state.index, resolvedParams.code, state.autoRequestConnection]);
 
   const handleRequestConnection = useCallback(() => {
     if (!ready || !authenticated) {
@@ -337,36 +365,7 @@ export default function SharePage({ params }: SharePageProps) {
     localStorage.removeItem(`vibecheck_${resolvedParams.code}`);
   }, [resolvedParams.code]);
 
-  // Drag and drop handlers
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    setState(prev => ({ ...prev, isDragging: true }));
-  };
-
-  const handleDragLeave = (e: React.DragEvent) => {
-    e.preventDefault();
-    setState(prev => ({ ...prev, isDragging: false }));
-  };
-
-  const handleDrop = async (e: React.DragEvent) => {
-    e.preventDefault();
-    setState(prev => ({ ...prev, isDragging: false }));
-    
-    const droppedFiles = Array.from(e.dataTransfer.files);
-    await handleFileUpload(droppedFiles);
-  };
-
-  const handleFileInputChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const selectedFiles = Array.from(e.target.files || []);
-    await handleFileUpload(selectedFiles);
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
-    }
-  };
-
-  const handleBrowseClick = () => {
-    fileInputRef.current?.click();
-  };
+  // Remove old file upload handlers - now using IntentForm
 
   // Render based on state
   if (state.step === 'loading') {
@@ -473,7 +472,7 @@ export default function SharePage({ params }: SharePageProps) {
               
               {state.step === 'ready' && (
                 <>
-                  <div className="mt-4 p-4 bg-white border border-gray-200 rounded-lg">
+                  <div className="mt-4 p-4 bg-white border border-gray-200 rounded-xs">
                     <div className="flex items-start space-x-4">
                       <div className="flex-1">
                         <h3 className="font-medium text-gray-700 mb-2">Drop your files and get instant vibe check.</h3>
@@ -483,33 +482,13 @@ export default function SharePage({ params }: SharePageProps) {
                       </div>
                     </div>
                   </div>
-
-                  <div>
-                     <input
-                       ref={fileInputRef}
-                       type="file"
-                       multiple
-                       onChange={handleFileInputChange}
-                       className="hidden"
-                       accept=".pdf,.doc,.docx,.txt,.md,.json,.csv,.xlsx,.xls,.ppt,.pptx"
-                     />
-                     <div 
-                       className={`mt-4 border-2 border-dashed p-6 flex flex-col items-center justify-center transition-colors cursor-pointer ${
-                         state.isDragging 
-                           ? "border-gray-400 bg-gray-100" 
-                           : "border-gray-200 bg-gray-50 hover:bg-gray-100"
-                       }`}
-                       onDragOver={handleDragOver}
-                       onDragLeave={handleDragLeave}
-                       onDrop={handleDrop}
-                       onClick={handleBrowseClick}
-                     >
-                       <Upload className="h-8 w-8 text-gray-400 mb-2" />
-                       <p className="text-sm text-gray-600 text-center">
-                         Drag & drop your files here, or click to browse
-                       </p>
-                     </div>
-                   </div>
+                  <IntentForm
+                    onSubmit={handleIntentFormSubmit}
+                    isSubmitting={false}
+                    submitButtonText="Get Vibe Check"
+                    placeholder="Describe your work, goals, or what you're looking for (optional)..."
+                    vibeCheckIndex={resolvedParams.code}
+                  />
                 </>
               )}
 
@@ -552,7 +531,6 @@ export default function SharePage({ params }: SharePageProps) {
                         <div className="flex items-center gap-4">
                           <div>
                             <div className="font-semibold text-gray-900 text-right">{state.index?.user?.name || 'User'}</div>
-                            <div className="text-sm text-gray-500 text-right">Index Owner</div>
                           </div>
                           <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center">
                             <span className="text-lg font-bold text-blue-600">{(state.index?.user?.name || 'U').charAt(0)}</span>

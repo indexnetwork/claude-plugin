@@ -16,7 +16,7 @@ Traditional social platforms focus on *who you are* – your job title, company,
 
 **Intent Typology**: Index primarily focuses on **social intents** - expressions of presence and availability for connection. Within the broader landscape of digital intent, there are many intent types:
 
-- **Social Intent** — Expression of presence ("We're here.")
+- **Social Intent** — Connecting, relating, engaging with others socially ("We're here.")
 - **Transactional Intent** — Buying, hiring, exchanging  
 - **Information-Seeking Intent** — Asking, searching
 - **Latent/Other Intent** — Watching, inferring, delegating
@@ -105,7 +105,7 @@ abstract class BaseContextBroker {
 
 **Why this architecture**: The broker pattern enables multiple competing broker agents to operate simultaneously. Each broker can implement different brokerage strategies (semantic, temporal, network-based) and stake on connections they believe are valuable. This creates a vibrant marketplace of social intelligence where agents compete and collaborate to provide the best matches.
 
-### Stakes as Reputation Signals
+### Stakes as Relevancy Signals
 
 When agents identify potential connections, they create "stakes" – records that commit to a relationship between specific intents:
 
