@@ -1,15 +1,14 @@
 import { Router, Response } from 'express';
 import { query, param, validationResult } from 'express-validator';
-import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
-import { v4 as uuidv4 } from 'uuid';
 import db from '../lib/db';
 import { files } from '../lib/schema';
 import { authenticatePrivy, AuthRequest } from '../middleware/auth';
 import { eq, isNull, and, count, desc } from 'drizzle-orm';
 import { getUploadsPath } from '../lib/paths';
-import { processUploadedFiles } from '../lib/file-processing';
+import { processUploadedFiles } from '../lib/uploads';
+import { createUploadClient } from '../lib/uploads';
 import { addGenerateIntentsJob } from '../lib/queue/llm-queue';
 
 // Extend the Request interface to include generatedFileId
@@ -23,32 +22,7 @@ declare global {
 
 const router = Router();
 
-// Configure multer for file uploads (library scope)
-const baseUploadDir = getUploadsPath('files');
-if (!fs.existsSync(baseUploadDir)) fs.mkdirSync(baseUploadDir, { recursive: true });
-
-const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    const userId = (req as AuthRequest).user!.id;
-    const userDir = getUploadsPath('files', userId);
-    if (!fs.existsSync(userDir)) fs.mkdirSync(userDir, { recursive: true });
-    cb(null, userDir);
-  },
-  filename: function (req, file, cb) {
-    // Generate UUID that will be used as file ID
-    const fileId = uuidv4();
-    const extension = path.extname(file.originalname);
-    req.generatedFileId = fileId;
-    cb(null, fileId + extension);
-  }
-});
-
-const upload = multer({ 
-  storage: storage,
-  limits: {
-    fileSize: 100 * 1024 * 1024, // 100MB limit
-  },
-});
+// Multer will be created per request in the route handler
 
 // List files (user scoped)
 router.get('/', authenticatePrivy, [
@@ -129,7 +103,15 @@ router.get('/:fileId', authenticatePrivy, [param('fileId').isUUID()],
 );
 
 // Upload file to user library
-router.post('/', authenticatePrivy, upload.single('file'),
+router.post('/', authenticatePrivy, 
+  (req: AuthRequest, res: Response, next: any) => {
+    try {
+      const upload = createUploadClient('library', req.user!.id);
+      upload.single('file')(req as any, res as any, next);
+    } catch (error) {
+      next(error);
+    }
+  },
   async (req: AuthRequest, res: Response) => {
     try {
       const errors = validationResult(req);
@@ -140,6 +122,8 @@ router.post('/', authenticatePrivy, upload.single('file'),
       if (!req.file) {
         return res.status(400).json({ error: 'No file uploaded' });
       }
+
+      // Files are already validated by multer fileFilter and limits
 
       const newFile = await db.insert(files).values({
         id: req.generatedFileId,
@@ -261,7 +245,7 @@ async function generateIntentsForUpload(options: {
   multerFile: Express.Multer.File;
 }) {
   const { userId, fileRecord, multerFile } = options;
-  const content = await processUploadedFiles([multerFile]);
+  const { content } = await processUploadedFiles([multerFile]);
   if (!content.trim()) {
     console.log(`🤖 Skipping intent generation for ${fileRecord.id} (no readable content)`);
     return;

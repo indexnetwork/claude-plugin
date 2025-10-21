@@ -2,7 +2,6 @@ import { useMemo } from 'react';
 import { useAuthenticatedAPI, apiClient } from '../lib/api';
 import { 
   Index, 
-  Intent,
   PaginatedResponse, 
   APIResponse, 
   CreateIndexRequest, 
@@ -37,6 +36,12 @@ export const createIndexesService = (api: ReturnType<typeof useAuthenticatedAPI>
     return response;
   },
 
+  // Discover public indexes (indexes that anyone can join)
+  discoverPublicIndexes: async (page: number = 1, limit: number = 10): Promise<PaginatedResponse<Index & { isMember?: boolean }>> => {
+    const response = await api.get<PaginatedResponse<Index & { isMember?: boolean }>>(`/indexes/discover/public?page=${page}&limit=${limit}`);
+    return response;
+  },
+
   // Get single index by ID
   getIndex: async (id: string): Promise<Index> => {
     const response = await api.get<APIResponse<Index>>(`/indexes/${id}`);
@@ -49,6 +54,15 @@ export const createIndexesService = (api: ReturnType<typeof useAuthenticatedAPI>
   // Get index by share code (public access)
   getIndexByShareCode: async (code: string): Promise<Index> => {
     const response = await api.get<APIResponse<Index>>(`/indexes/share/${code}`);
+    if (!response.index) {
+      throw new Error('Index not found');
+    }
+    return response.index;
+  },
+
+  // Get public index by ID (public access - only works for public indexes)
+  getPublicIndexById: async (id: string): Promise<Index> => {
+    const response = await api.get<APIResponse<Index>>(`/indexes/public/${id}`);
     if (!response.index) {
       throw new Error('Index not found');
     }
@@ -96,17 +110,6 @@ export const createIndexesService = (api: ReturnType<typeof useAuthenticatedAPI>
     await api.delete(`/indexes/${indexId}/members/${userId}`);
   },
 
-  // Update member permissions
-  updateMemberPermissions: async (indexId: string, userId: string, permissions: string[]): Promise<Member> => {
-    const response = await api.patch<{ member: Member; message: string }>(`/indexes/${indexId}/members/${userId}`, { 
-      permissions 
-    });
-    if (!response.member) {
-      throw new Error('Failed to update member permissions');
-    }
-    return response.member;
-  },
-
   // Get members of an index
   getMembers: async (indexId: string): Promise<Member[]> => {
     const response = await api.get<{ members: Member[] }>(`/indexes/${indexId}/members`);
@@ -114,7 +117,7 @@ export const createIndexesService = (api: ReturnType<typeof useAuthenticatedAPI>
   },
 
   // Permissions Management
-  // Update index permissions (joinPolicy, allowGuestVibeCheck)
+  // Update index permissions (joinPolicy)
   updatePermissions: async (indexId: string, permissions: { joinPolicy?: 'anyone' | 'invite_only'; allowGuestVibeCheck?: boolean }): Promise<Index> => {
     const response = await api.patch<APIResponse<Index>>(`/indexes/${indexId}/permissions`, permissions);
     if (!response.index) {
@@ -143,68 +146,67 @@ export const createIndexesService = (api: ReturnType<typeof useAuthenticatedAPI>
     return response.users || [];
   },
 
-  // Leave index (remove current user as member)
-  leaveIndex: async (indexId: string, userId: string): Promise<void> => {
-    await api.delete(`/indexes/${indexId}/members/${userId}`);
-  },
-
-  // Get suggested intents for an index
-  getSuggestedIntents: async (indexId: string): Promise<{
-    intents: { payload: string; confidence: number }[];
-    fromCache?: boolean;
-    processingTime?: number;
-  }> => {
-    const response = await api.get<{
-      intents: { payload: string; confidence: number }[];
-      fromCache: boolean;
-      processingTime?: number;
-    }>(`/indexes/${indexId}/suggested_intents`);
+  // Join a public index
+  joinIndex: async (indexId: string): Promise<{ index: Index; membership?: Member; alreadyMember?: boolean }> => {
+    const response = await api.post<{ 
+      message: string; 
+      index: Index; 
+      membership?: Member;
+      alreadyMember?: boolean;
+    }>(`/indexes/${indexId}/join`);
     return {
-      intents: response.intents,
-      fromCache: response.fromCache,
-      processingTime: response.processingTime
+      index: response.index,
+      membership: response.membership,
+      alreadyMember: response.alreadyMember
     };
   },
 
-  // Get intent preview with contextual integrity processing
-  getIntentPreview: async (indexId: string, payload: string): Promise<string> => {
-    const response = await api.get<{ payload: string }>(`/indexes/${indexId}/suggested_intents/preview?payload=${encodeURIComponent(payload)}`);
-    return response.payload;
+  // Accept invitation and join index
+  acceptInvitation: async (code: string): Promise<{ index: Index; membership: Member; alreadyMember?: boolean }> => {
+    const response = await api.post<{ 
+      message: string; 
+      index: Index; 
+      membership: Member;
+      alreadyMember?: boolean;
+    }>(`/indexes/invitation/${code}/accept`);
+    return {
+      index: response.index,
+      membership: response.membership,
+      alreadyMember: response.alreadyMember
+    };
   },
 
-  // Replace a single suggestion with a new one
-  replaceSuggestion: async (indexId: string, removedSuggestion: string): Promise<{
-    newSuggestion: { payload: string; confidence: number };
-  }> => {
-    const response = await api.post<{
-      newSuggestion: { payload: string; confidence: number };
-    }>(`/indexes/${indexId}/suggested_intents/replace?removedSuggestion=${encodeURIComponent(removedSuggestion)}`);
-    return response;
+  // Member Intents Management
+  // Get member intents for an index
+  getMemberIntents: async (indexId: string): Promise<Array<{
+    id: string;
+    payload: string;
+    summary?: string | null;
+    createdAt: string;
+    sourceType: 'file' | 'link' | 'integration';
+    sourceId: string;
+    sourceName: string;
+    sourceValue: string | null;
+    sourceMeta: string | null;
+  }>> => {
+    const response = await api.get<{ intents: Array<{
+      id: string;
+      payload: string;
+      summary?: string | null;
+      createdAt: string;
+      sourceType: 'file' | 'link' | 'integration';
+      sourceId: string;
+      sourceName: string;
+      sourceValue: string | null;
+      sourceMeta: string | null;
+    }> }>(`/indexes/${indexId}/member-intents`);
+    return response.intents || [];
   },
 
-  // Get intents for a specific index with pagination
-  getIndexIntents: async (indexId: string, page: number = 1, limit: number = 10, archived: boolean = false): Promise<PaginatedResponse<Intent>> => {
-    const params = new URLSearchParams({
-      page: page.toString(),
-      limit: limit.toString(),
-      archived: archived.toString()
-    });
-    
-    const response = await api.get<PaginatedResponse<Intent>>(`/indexes/${indexId}/intents?${params}`);
-    return response;
-  },
-
-  // Legacy methods for backward compatibility (these would need intent service integration)
-  addSuggestedIntent: async (indexId: string, intentId: string): Promise<boolean> => {
-    try {
-      await api.post(`/intents/${intentId}/indexes`, { indexIds: [indexId] });
-      return true;
-    } catch {
-      return false;
-    }
-  },
-
-
+  // Remove member intent from index
+  removeMemberIntent: async (indexId: string, intentId: string): Promise<void> => {
+    await api.delete(`/indexes/${indexId}/member-intents/${intentId}`);
+  }
 });
 
 // Non-authenticated service for public endpoints
@@ -212,6 +214,15 @@ export const indexesService = {
   // Get index by share code (public access, no auth required)
   getIndexByShareCode: async (code: string): Promise<Index> => {
     const response = await apiClient.get<APIResponse<Index>>(`/indexes/share/${code}`);
+    if (!response.index) {
+      throw new Error('Index not found');
+    }
+    return response.index;
+  },
+
+  // Get public index by ID (public access, no auth required - only works for public indexes)
+  getPublicIndexById: async (id: string): Promise<Index> => {
+    const response = await apiClient.get<APIResponse<Index>>(`/indexes/public/${id}`);
     if (!response.index) {
       throw new Error('Index not found');
     }

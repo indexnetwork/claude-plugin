@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, forwardRef, useImperativeHandle } from "react";
 import { Paperclip, Radio } from "lucide-react";
 import { useAPI } from "@/contexts/APIContext";
 import { usePrivy } from "@privy-io/react-auth";
 import { useNotifications } from "@/contexts/NotificationContext";
+import { validateFiles, getSupportedFileExtensions } from "../lib/file-validation";
 
 interface DiscoveryFormProps {
   onSubmit?: (intents: Array<{id: string; payload: string; summary?: string; createdAt: string}>) => void;
@@ -17,7 +18,11 @@ interface AttachmentItem {
   file: File;
 }
 
-export default function DiscoveryForm({ onSubmit }: DiscoveryFormProps) {
+export interface DiscoveryFormRef {
+  handleFileDrop: (files: FileList) => void;
+}
+
+const DiscoveryForm = forwardRef<DiscoveryFormRef, DiscoveryFormProps>(({ onSubmit }, ref) => {
   const [inputFocused, setInputFocused] = useState(false);
   const [attachments, setAttachments] = useState<AttachmentItem[]>([]);
   const [isFileDialogOpen, setIsFileDialogOpen] = useState(false);
@@ -26,17 +31,181 @@ export default function DiscoveryForm({ onSubmit }: DiscoveryFormProps) {
   const contentRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const processingTimer = useRef<NodeJS.Timeout | null>(null);
+  const undoStack = useRef<Array<{html: string; attachments: AttachmentItem[]; cursorPos: {start: number; end: number} | null}>>([]);
+  const redoStack = useRef<Array<{html: string; attachments: AttachmentItem[]; cursorPos: {start: number; end: number} | null}>>([]);
+  const isUndoRedoing = useRef(false);
   const { discoverService, intentsService } = useAPI();
   const { getAccessToken } = usePrivy();
   const { success, error } = useNotifications();
 
+  // Expose methods to parent via ref
+  useImperativeHandle(ref, () => ({
+    handleFileDrop: (files: FileList) => {
+      if (files.length > 0) {
+        const file = files[0];
+        
+        // Validate combined file set
+        const nextFiles = [...attachments.map(a => a.file), file];
+        const validation = validateFiles(nextFiles, 'general');
+        if (!validation.isValid) {
+          error(validation.message || 'Invalid file');
+          return;
+        }
+        
+        const newAttachment: AttachmentItem = {
+          id: Date.now().toString(),
+          type: 'file',
+          name: file.name,
+          file: file
+        };
+        setAttachments(prev => [...prev, newAttachment]);
+        setInputFocused(true);
+        
+        // Insert attachment at cursor position
+        setTimeout(() => {
+          contentRef.current?.focus();
+          insertAttachment(newAttachment);
+        }, 0);
+      }
+    }
+  }));
+
   // URL regex - stops at spaces and invalid characters (including unicode spaces)
   const URLInTextRegex = /https?:\/\/[a-zA-Z0-9.-]+(?::[0-9]+)?(?:\/[a-zA-Z0-9._~:/?#[\]@!$&'()*+,;=%]*)?/g;
+
+  // Save current state to undo stack
+  const saveToUndoStack = () => {
+    if (isUndoRedoing.current || !contentRef.current) return;
+    
+    const currentHtml = contentRef.current.innerHTML;
+    const currentCursorPos = saveSelection();
+    const currentAttachments = JSON.parse(JSON.stringify(attachments)); // Deep copy
+    
+    undoStack.current.push({
+      html: currentHtml,
+      attachments: currentAttachments,
+      cursorPos: currentCursorPos
+    });
+    
+    // Limit undo stack size to 50
+    if (undoStack.current.length > 50) {
+      undoStack.current.shift();
+    }
+    
+    // Clear redo stack when new action is performed
+    redoStack.current = [];
+  };
+
+  // Undo operation
+  const performUndo = () => {
+    if (undoStack.current.length === 0 || !contentRef.current) return;
+    
+    isUndoRedoing.current = true;
+    
+    // Save current state to redo stack
+    const currentHtml = contentRef.current.innerHTML;
+    const currentCursorPos = saveSelection();
+    const currentAttachments = JSON.parse(JSON.stringify(attachments));
+    
+    redoStack.current.push({
+      html: currentHtml,
+      attachments: currentAttachments,
+      cursorPos: currentCursorPos
+    });
+    
+    // Pop from undo stack and restore
+    const previousState = undoStack.current.pop();
+    if (previousState) {
+      contentRef.current.innerHTML = previousState.html;
+      setAttachments(previousState.attachments);
+      
+      // Focus and restore cursor position
+      contentRef.current.focus();
+      if (previousState.cursorPos) {
+        // Use requestAnimationFrame to ensure DOM is updated
+        requestAnimationFrame(() => {
+          restoreSelection(previousState.cursorPos!);
+        });
+      } else {
+        // If no cursor position saved, move to end
+        requestAnimationFrame(() => {
+          const selection = window.getSelection();
+          if (selection && contentRef.current) {
+            const range = document.createRange();
+            range.selectNodeContents(contentRef.current);
+            range.collapse(false);
+            selection.removeAllRanges();
+            selection.addRange(range);
+          }
+        });
+      }
+    }
+    
+    isUndoRedoing.current = false;
+  };
+
+  // Redo operation
+  const performRedo = () => {
+    if (redoStack.current.length === 0 || !contentRef.current) return;
+    
+    isUndoRedoing.current = true;
+    
+    // Save current state to undo stack
+    const currentHtml = contentRef.current.innerHTML;
+    const currentCursorPos = saveSelection();
+    const currentAttachments = JSON.parse(JSON.stringify(attachments));
+    
+    undoStack.current.push({
+      html: currentHtml,
+      attachments: currentAttachments,
+      cursorPos: currentCursorPos
+    });
+    
+    // Pop from redo stack and restore
+    const nextState = redoStack.current.pop();
+    if (nextState) {
+      contentRef.current.innerHTML = nextState.html;
+      setAttachments(nextState.attachments);
+      
+      // Focus and restore cursor position
+      contentRef.current.focus();
+      if (nextState.cursorPos) {
+        // Use requestAnimationFrame to ensure DOM is updated
+        requestAnimationFrame(() => {
+          restoreSelection(nextState.cursorPos!);
+        });
+      } else {
+        // If no cursor position saved, move to end
+        requestAnimationFrame(() => {
+          const selection = window.getSelection();
+          if (selection && contentRef.current) {
+            const range = document.createRange();
+            range.selectNodeContents(contentRef.current);
+            range.collapse(false);
+            selection.removeAllRanges();
+            selection.addRange(range);
+          }
+        });
+      }
+    }
+    
+    isUndoRedoing.current = false;
+  };
 
   // Handle file selection
   const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
+      // Validate combined file set to enforce cumulative limits
+      const nextFiles = [...attachments.map(a => a.file), file];
+      const validation = validateFiles(nextFiles, 'general');
+      if (!validation.isValid) {
+        error(validation.message || 'Invalid file');
+        event.target.value = '';
+        setIsFileDialogOpen(false);
+        return;
+      }
+      
       const newAttachment: AttachmentItem = {
         id: Date.now().toString(),
         type: 'file',
@@ -138,38 +307,63 @@ export default function DiscoveryForm({ onSubmit }: DiscoveryFormProps) {
     if (!contentRef.current || !position || !document.createRange || !window.getSelection) return;
 
     const range = document.createRange();
-    range.setStart(contentRef.current, 0);
-    range.collapse(true);
-
-    let foundStart = false;
-    let stop = false;
     let charIndex = 0;
-    const nodeStack: ChildNode[] = [contentRef.current];
-
-    while (!stop && nodeStack.length > 0) {
-      const node = nodeStack.pop()!;
+    let foundStart = false;
+    let foundEnd = false;
+    
+    // Helper function to traverse all text nodes
+    const traverseNodes = (node: Node): boolean => {
+      if (foundEnd) return true;
       
-      if (node.nodeType === 1) { // element
-        for (let i = node.childNodes.length - 1; i >= 0; i--) {
-          nodeStack.push(node.childNodes[i] as ChildNode);
-        }
-      } else if (node.nodeType === 3) { // text
-        const nextCharIndex = charIndex + (node.textContent?.length || 0);
+      if (node.nodeType === Node.TEXT_NODE) {
+        const textNode = node as Text;
+        const textLength = textNode.textContent?.length || 0;
+        const nextCharIndex = charIndex + textLength;
+        
         if (!foundStart && position.start >= charIndex && position.start <= nextCharIndex) {
-          range.setStart(node, position.start - charIndex);
+          range.setStart(textNode, Math.min(position.start - charIndex, textLength));
           foundStart = true;
         }
+        
         if (foundStart && position.end >= charIndex && position.end <= nextCharIndex) {
-          range.setEnd(node, position.end - charIndex);
-          stop = true;
+          range.setEnd(textNode, Math.min(position.end - charIndex, textLength));
+          foundEnd = true;
+          return true;
         }
+        
         charIndex = nextCharIndex;
+      } else if (node.nodeType === Node.ELEMENT_NODE) {
+        // Skip attachment tags when counting characters
+        if ((node as Element).classList?.contains('attachment-tag')) {
+          return false;
+        }
+        
+        for (let i = 0; i < node.childNodes.length; i++) {
+          if (traverseNodes(node.childNodes[i])) {
+            return true;
+          }
+        }
       }
-    }
+      
+      return false;
+    };
 
+    traverseNodes(contentRef.current);
+
+    // If we found a valid range, apply it
     if (foundStart) {
       const selection = window.getSelection();
       if (selection) {
+        selection.removeAllRanges();
+        selection.addRange(range);
+      }
+    } else {
+      // Fallback: place cursor at the end
+      const selection = window.getSelection();
+      if (selection) {
+        const range = document.createRange();
+        range.selectNodeContents(contentRef.current);
+        range.collapse(false);
         selection.removeAllRanges();
         selection.addRange(range);
       }
@@ -435,9 +629,22 @@ export default function DiscoveryForm({ onSubmit }: DiscoveryFormProps) {
                 ref={contentRef}
                 contentEditable
                 suppressContentEditableWarning
-                onInput={scheduleContentProcessing}
+                onInput={(e) => {
+                  scheduleContentProcessing();
+                  
+                  // Clean up empty content to ensure placeholder shows
+                  const target = e.currentTarget;
+                  const text = target.innerText.trim();
+                  if (!text && attachments.length === 0) {
+                    target.innerHTML = '';
+                  }
+                }}
                 onPaste={(e) => {
                   e.preventDefault();
+                  
+                  // Save state before paste
+                  saveToUndoStack();
+                  
                   // Get plain text from clipboard
                   const text = e.clipboardData?.getData('text/plain') || '';
                   
@@ -480,6 +687,25 @@ export default function DiscoveryForm({ onSubmit }: DiscoveryFormProps) {
                   }
                 }}
                 onKeyDown={async (e) => {
+                  // Handle undo (Cmd+Z or Ctrl+Z)
+                  if ((e.metaKey || e.ctrlKey) && e.key === 'z' && !e.shiftKey) {
+                    e.preventDefault();
+                    performUndo();
+                    return;
+                  }
+                  
+                  // Handle redo (Cmd+Shift+Z or Ctrl+Shift+Z)
+                  if ((e.metaKey || e.ctrlKey) && e.key === 'z' && e.shiftKey) {
+                    e.preventDefault();
+                    performRedo();
+                    return;
+                  }
+                  
+                  // Save state before any modification
+                  if (!e.metaKey && !e.ctrlKey && e.key.length === 1) {
+                    saveToUndoStack();
+                  }
+                  
                   if (e.key === 'Enter' && !e.shiftKey) {
                     e.preventDefault();
                     await handleDiscoverySubmit();
@@ -490,6 +716,9 @@ export default function DiscoveryForm({ onSubmit }: DiscoveryFormProps) {
                     setInputFocused(false);
                     contentRef.current?.blur();
                   } else if (e.key === 'Backspace' || e.key === 'Delete') {
+                    // Save state before deletion
+                    saveToUndoStack();
+                    
                     // Handle attachment deletion
                     const selection = window.getSelection();
                     if (selection && selection.rangeCount > 0 && selection.isCollapsed) {
@@ -596,7 +825,7 @@ export default function DiscoveryForm({ onSubmit }: DiscoveryFormProps) {
                       type="file"
                       onChange={handleFileSelect}
                       className="hidden"
-                      accept=".pdf,.doc,.docx,.txt,.md,.ppt,.pptx"
+                      accept={getSupportedFileExtensions('general')}
                     />
                     <p className="text-xs text-gray-500 font-ibm-plex-mono">
                       upload your pitch deck, one-pager, or paste a link.
@@ -663,4 +892,8 @@ export default function DiscoveryForm({ onSubmit }: DiscoveryFormProps) {
       </div>
     </div>
   );
-}
+});
+
+DiscoveryForm.displayName = 'DiscoveryForm';
+
+export default DiscoveryForm;

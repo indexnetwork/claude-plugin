@@ -2,7 +2,14 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
-import 'dotenv/config';
+import dotenv from 'dotenv';
+import path from 'path';
+
+// Load environment-specific .env file
+const envFile = `.env.${process.env.NODE_ENV || 'development'}`;
+dotenv.config({ path: path.resolve(process.cwd(), envFile) });
+
+console.log('process.env', process.env);
 import { initializeBrokers } from './agents/context_brokers/connector';
 import { queueProcessor } from './lib/queue/processor';
 
@@ -13,12 +20,12 @@ import fileRoutes from './routes/files';
 import indexRoutes from './routes/indexes';
 import uploadRoutes from './routes/upload';
 import connectionRoutes from './routes/connections';
-import vibecheckRoutes from './routes/vibecheck';
 import synthesisRoutes from './routes/synthesis';
 import integrationRoutes from './routes/integrations';
 import discoverRoutes from './routes/discover';
 import linksRoutes from './routes/links';
 import syncRoutes from './routes/sync';
+import queueRoutes from './routes/queue';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -54,9 +61,9 @@ app.use('/api/indexes', indexRoutes);
 app.use('/api/integrations', integrationRoutes);
 app.use('/api/sync', syncRoutes);
 
-app.use('/api/vibecheck', vibecheckRoutes);
 app.use('/api/synthesis', synthesisRoutes);
 app.use('/api/discover', discoverRoutes);
+app.use('/api/queue', queueRoutes);
 
 // Error handling middleware
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {

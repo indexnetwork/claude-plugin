@@ -18,9 +18,10 @@ interface HeaderProps {
   showNavigation?: boolean;
   onToggleSidebar?: () => void;
   isSidebarOpen?: boolean;
+  showHeaderButtons?: boolean;
 }
 
-export default function Header({ showNavigation = true, onToggleSidebar, isSidebarOpen }: HeaderProps) {
+export default function Header({ showNavigation = true, onToggleSidebar, isSidebarOpen, showHeaderButtons = true }: HeaderProps) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -45,9 +46,6 @@ export default function Header({ showNavigation = true, onToggleSidebar, isSideb
       // Store in localStorage
       localStorage.setItem('alpha', alphaParam);
       setIsAlpha(alphaParam === 'true');
-    } else if (pathname?.startsWith('/vibecheck/') || pathname?.startsWith('/matchlist/')) {
-      localStorage.setItem('alpha', 'true');
-      setIsAlpha(true);
     } else {
       // Get from localStorage only once on mount
       const storedAlpha = localStorage.getItem('alpha');
@@ -57,14 +55,17 @@ export default function Header({ showNavigation = true, onToggleSidebar, isSideb
 
   // Handle onboarding check when user data is available
   useEffect(() => {
-    if (user?.id && authenticated) {
-      const onboardingCompleted = localStorage.getItem(`onboarding:${user.id}:isCompleted`);
-      if (!onboardingCompleted) {
+    if (user?.id && authenticated && pathname !== '/onboarding') {
+      // Check if user has completed onboarding using database field
+      const hasCompletedOnboarding = user.onboarding?.completedAt;
+      
+      // Only redirect if user hasn't completed onboarding AND hasn't filled their intro
+      if (!hasCompletedOnboarding) {
         router.push('/onboarding');
         return;
       }
     }
-  }, [user?.id, authenticated, router]);
+  }, [user?.id, user?.onboarding?.completedAt, user?.intro, authenticated, pathname, router]);
 
   const handleCreateIndex = useCallback(async (indexData: { name: string; prompt?: string; joinPolicy?: 'anyone' | 'invite_only' }) => {
     try {
@@ -187,7 +188,7 @@ export default function Header({ showNavigation = true, onToggleSidebar, isSideb
             </div>
           </Link>
         </div>
-        {isAlpha ? (
+        {showHeaderButtons && (
           authenticated ? (
             <div className="relative" ref={dropdownRef}>
               <div 
@@ -263,7 +264,7 @@ export default function Header({ showNavigation = true, onToggleSidebar, isSideb
                 </div>
               )}
             </div>
-          ) : (
+          ) : isAlpha ? (
             <Button 
               variant="outline" 
               className="flex items-center px-3 py-5"
@@ -272,16 +273,16 @@ export default function Header({ showNavigation = true, onToggleSidebar, isSideb
               <LogIn className="h-5 w-5" />
               <span className="hidden sm:inline mx-2">Login</span>
             </Button>
+          ) : (
+            <Button 
+              variant="outline" 
+              className="flex items-center px-3 py-5"
+              onClick={() => window.open("https://forms.gle/nTNBKYC2gZZMnujh9", "_blank")}
+            >
+              <UserPlus className="h-5 w-5" />
+              <span className="hidden sm:inline mx-2">Join the waitlist</span>
+            </Button>
           )
-        ) : (
-          <Button 
-            variant="outline" 
-            className="flex items-center px-3 py-5"
-            onClick={() => window.open("https://forms.gle/nTNBKYC2gZZMnujh9", "_blank")}
-          >
-            <UserPlus className="h-5 w-5" />
-            <span className="hidden sm:inline mx-2">Join the waitlist</span>
-          </Button>
         )}
       </header>
 
@@ -306,28 +307,7 @@ export default function Header({ showNavigation = true, onToggleSidebar, isSideb
             );
           })}
 
-          { false && 
-          <Link href="/stake" className="cursor-pointer">
-            <div className="flex flex-col items-center cursor-pointer">
-              <div className="w-18 h-18 flex items-center justify-center cursor-pointer">
-                <svg 
-                  width={44}
-                  height={44}
-                  viewBox="0 0 24 24" 
-                  fill="none" 
-                  xmlns="http://www.w3.org/2000/svg"
-                  className="object-contain p-1"
-                >
-                  <path d="M12 2L2 7l10 5 10-5-10-5z" stroke={pathname?.startsWith("/stake") ? "#f59e0b" : "#6b7280"} strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/>
-                  <path d="M2 17l10 5 10-5" stroke={pathname?.startsWith("/stake") ? "#f59e0b" : "#6b7280"} strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/>
-                  <path d="M2 12l10 5 10-5" stroke={pathname?.startsWith("/stake") ? "#f59e0b" : "#6b7280"} strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/>
-                </svg>
-              </div>
-              <span className={`text-sm font-ibm-plex-mono ${pathname?.startsWith("/stake") ? "text-amber-500 font-medium" : "text-gray-500"}`}>
-                Brokers
-              </span>
-            </div>
-          </Link>}
+         
         </div>
       </div>
       }

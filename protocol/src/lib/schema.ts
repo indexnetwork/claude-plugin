@@ -9,6 +9,15 @@ export const connectionAction = pgEnum('connection_action', [
 // Polymorphic source type for intents
 export const sourceType = pgEnum('source_type', ['file', 'integration', 'link', 'discovery_form']);
 
+// Onboarding state type
+export interface OnboardingState {
+  completedAt?: string;  // ISO timestamp when completed
+  flow?: 1 | 2 | 3;
+  currentStep?: 'profile' | 'connections' | 'create_index' | 'invite_members' | 'join_indexes';
+  indexId?: string;  // Persisted index ID for flow 2
+  invitationCode?: string;  // Store which invitation was used (reference only)
+}
+
 // Tables
 export const users = pgTable('users', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -18,6 +27,7 @@ export const users = pgTable('users', {
   name: text('name').notNull(),
   intro: text('intro'),
   avatar: text('avatar'),
+  onboarding: json('onboarding').$type<OnboardingState>().default({}),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
   deletedAt: timestamp('deleted_at'),
@@ -113,7 +123,8 @@ export const userIntegrations = pgTable('integrations', {
   redirectUrl: text('redirect_url'),
   connectedAt: timestamp('connected_at'),
   lastSyncAt: timestamp('last_sync_at'),
-  indexId: uuid('index_id').notNull().references(() => indexes.id),
+  indexId: uuid('index_id').references(() => indexes.id), // Optional: only required when enableUserAttribution is true
+  enableUserAttribution: boolean('enable_user_attribution').default(false),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
   deletedAt: timestamp('deleted_at')

@@ -29,8 +29,6 @@ export const authenticatePrivy = async (req: AuthRequest, res: Response, next: N
       return res.status(401).json({ error: 'Invalid access token' });
     }
 
-    console.log('Claims userId:', claims.userId);
-
     // Validate userId before making Privy API call
     if (!claims.userId || typeof claims.userId !== 'string') {
       console.error('Invalid userId in claims:', claims.userId);
@@ -91,7 +89,8 @@ export const authenticatePrivy = async (req: AuthRequest, res: Response, next: N
           email: userEmail,
           name: userName,
           intro: null,
-          avatar: null
+          avatar: null,
+          onboarding: {}
         }).returning({
           id: users.id,
           privyId: users.privyId,
@@ -102,9 +101,38 @@ export const authenticatePrivy = async (req: AuthRequest, res: Response, next: N
         user = newUser;
       } catch (e: any) {
         if (e && (e.code === '23505' || String(e?.message || '').includes('users_email_unique'))) {
-          return res.status(409).json({ error: 'Email already in use' });
+          // Email already exists - user might have changed login method in Privy
+          // Find the existing user by email and update their privyId
+          const existingUserByEmail = await db.select({
+            id: users.id,
+            privyId: users.privyId,
+            email: users.email,
+            name: users.name,
+            deletedAt: users.deletedAt
+          }).from(users).where(eq(users.email, userEmail)).limit(1);
+          
+          if (existingUserByEmail.length > 0) {
+            // Update the privyId to the new one
+            const updated = await db.update(users)
+              .set({ 
+                privyId: claims.userId,
+                updatedAt: new Date()
+              })
+              .where(eq(users.id, existingUserByEmail[0].id))
+              .returning({
+                id: users.id,
+                privyId: users.privyId,
+                email: users.email,
+                name: users.name,
+                deletedAt: users.deletedAt
+              });
+            user = updated;
+          } else {
+            return res.status(409).json({ error: 'Email already in use' });
+          }
+        } else {
+          throw e;
         }
-        throw e;
       }
     } else {
       // Update existing user's email if it has changed

@@ -5,12 +5,12 @@ import { indexes, users, indexMembers, intentIndexes, intents } from '../lib/sch
 import { authenticatePrivy, AuthRequest } from '../middleware/auth';
 import { eq, isNull, isNotNull, and, count, desc, or, ilike, exists, sql } from 'drizzle-orm';
 import { 
-  checkIndexAccess, 
   checkIndexOwnership, 
-  getIndexWithPermissions, 
   getUserAccessibleIndexIds,
-  checkIndexIntentWriteAccess,
+  checkMultipleIndexesMembership,
   validateOwnershipChange,
+  validateInvitationCode,
+  checkUserIndexAccess,
   EVERYONE_USER_ID
 } from '../lib/index-access';
 import { Events } from '../lib/events';
@@ -21,6 +21,113 @@ import crypto from 'crypto';
 
 
 const router = Router();
+
+// Discover public indexes (indexes that anyone can join)
+router.get('/discover/public',
+  authenticatePrivy,
+  [
+    query('page').optional().isInt({ min: 1 }).toInt(),
+    query('limit').optional().isInt({ min: 1, max: 100 }).toInt(),
+  ],
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({ errors: errors.array() });
+      }
+
+      const page = Number(req.query.page) || 1;
+      const limit = Number(req.query.limit) || 10;
+      const skip = (page - 1) * limit;
+      const userId = req.user!.id;
+
+      // Find public indexes (joinPolicy: 'anyone')
+      const whereCondition = and(
+        isNull(indexes.deletedAt),
+        sql`${indexes.permissions}->>'joinPolicy' = 'anyone'`
+      );
+
+      const [indexesResult, totalResult] = await Promise.all([
+        db.select({
+          id: indexes.id,
+          title: indexes.title,
+          prompt: indexes.prompt,
+          permissions: indexes.permissions,
+          createdAt: indexes.createdAt,
+          updatedAt: indexes.updatedAt,
+          ownerId: indexMembers.userId,
+          userName: users.name,
+          userEmail: users.email,
+          userAvatar: users.avatar
+        }).from(indexes)
+          .innerJoin(indexMembers, and(
+            eq(indexes.id, indexMembers.indexId),
+            sql`'owner' = ANY(${indexMembers.permissions})`
+          ))
+          .innerJoin(users, eq(indexMembers.userId, users.id))
+          .where(whereCondition)
+          .orderBy(desc(indexes.createdAt))
+          .offset(skip)
+          .limit(limit),
+
+        db.select({ count: count() })
+          .from(indexes)
+          .where(whereCondition)
+      ]);
+
+      // Get member counts and check if user is already a member
+      const indexesWithDetails = await Promise.all(
+        indexesResult.map(async (index) => {
+          const [memberCount, userMembership] = await Promise.all([
+            db.select({ count: count() })
+              .from(indexMembers)
+              .where(eq(indexMembers.indexId, index.id)),
+            db.select({ userId: indexMembers.userId })
+              .from(indexMembers)
+              .where(and(
+                eq(indexMembers.indexId, index.id),
+                eq(indexMembers.userId, userId)
+              ))
+              .limit(1)
+          ]);
+          
+          return {
+            id: index.id,
+            title: index.title,
+            prompt: index.prompt,
+            permissions: index.permissions,
+            createdAt: index.createdAt,
+            updatedAt: index.updatedAt,
+            user: {
+              id: index.ownerId,
+              name: index.userName,
+              email: index.userEmail,
+              avatar: index.userAvatar
+            },
+            _count: {
+              members: memberCount[0].count,
+              files: 0
+            },
+            isMember: userMembership.length > 0
+          };
+        })
+      );
+
+      return res.json({
+        indexes: indexesWithDetails,
+        pagination: {
+          current: page,
+          total: Math.ceil(Number(totalResult[0].count) / limit),
+          count: indexesWithDetails.length,
+          totalCount: Number(totalResult[0].count)
+        }
+      });
+    } catch (error) {
+      console.error('Discover public indexes error:', error);
+      return res.status(500).json({ error: 'Failed to discover public indexes' });
+    }
+  }
+);
 
 // Get all indexes with pagination
 router.get('/', 
@@ -213,7 +320,7 @@ router.get('/:id',
 
       const { id } = req.params;
 
-      const accessCheck = await checkIndexAccess(id, req.user!.id);
+      const accessCheck = await checkUserIndexAccess(id, req.user!.id);
       if (!accessCheck.hasAccess) {
         return res.status(accessCheck.status!).json({ error: accessCheck.error });
       }
@@ -315,7 +422,7 @@ router.post('/',
       const finalJoinPolicy = joinPolicy || 'invite_only';
       const permissions = {
         joinPolicy: finalJoinPolicy,
-        invitationLink: finalJoinPolicy === 'invite_only' ? { code: crypto.randomUUID() } : null,
+        invitationLink: { code: crypto.randomUUID() }, // Always generate share code
         allowGuestVibeCheck: false
       };
 
@@ -539,7 +646,7 @@ router.post('/:id/members',
       }
 
       // Validate permissions
-      const validPermissions = ['can-write', 'can-read', 'can-discover', 'can-write-intents', 'owner'];
+      const validPermissions = ['owner', 'member'];
       const invalidPermissions = permissions.filter((p: string) => !validPermissions.includes(p));
       if (invalidPermissions.length > 0) {
         return res.status(400).json({ 
@@ -712,7 +819,7 @@ router.patch('/:id/members/:userId',
       }
 
       // Validate permissions
-      const validPermissions = ['can-write', 'can-read', 'can-discover', 'can-write-intents', 'owner'];
+      const validPermissions = ['owner', 'member'];
       const invalidPermissions = permissions.filter((p: string) => !validPermissions.includes(p));
       if (invalidPermissions.length > 0) {
         return res.status(400).json({ 
@@ -807,14 +914,27 @@ router.patch('/:id/permissions',
 
       // Update permissions
       const finalJoinPolicy = joinPolicy || currentPermissions.joinPolicy;
+      
+      // Determine invitation link based on joinPolicy transitions:
+      // - Switching TO private (from public): Generate NEW code for security
+      // - Switching TO public (from private): Keep existing code for stability
+      // - Staying private: Keep existing code
+      // - Staying public: Keep existing code
+      let invitationLink;
+      if (finalJoinPolicy === 'invite_only' && currentPermissions.joinPolicy === 'anyone') {
+        // Switching from public to private: generate new code
+        invitationLink = { code: crypto.randomUUID() };
+      } else {
+        // All other cases: preserve existing code or generate if missing
+        invitationLink = currentPermissions.invitationLink || { code: crypto.randomUUID() };
+      }
+      
       const updatedPermissions = {
         joinPolicy: finalJoinPolicy,
         allowGuestVibeCheck: allowGuestVibeCheck !== undefined 
           ? allowGuestVibeCheck 
           : currentPermissions.allowGuestVibeCheck,
-        invitationLink: finalJoinPolicy === 'invite_only'
-          ? (currentPermissions.invitationLink || { code: crypto.randomUUID() })
-          : null
+        invitationLink
       };
 
       const updatedIndex = await db.update(indexes)
@@ -877,7 +997,7 @@ router.patch('/:id/regenerate-invitation',
 
       // Only regenerate if it's invite_only
       if (currentPermissions.joinPolicy !== 'invite_only') {
-        return res.status(400).json({ error: 'Can only regenerate invitation links for private indexes' });
+        return res.status(400).json({ error: 'Can only regenerate invitation links for private networks' });
       }
 
       // Generate new invitation link
@@ -926,7 +1046,7 @@ router.get('/:id/members',
 
       const { id } = req.params;
 
-      const accessCheck = await checkIndexAccess(id, req.user!.id);
+      const accessCheck = await checkUserIndexAccess(id, req.user!.id);
       if (!accessCheck.hasAccess) {
         return res.status(accessCheck.status!).json({ error: accessCheck.error });
       }
@@ -966,13 +1086,13 @@ router.get('/:id/member-settings',
       const { id } = req.params;
 
       // Use existing access control method
-      const accessCheck = await checkIndexAccess(id, req.user!.id);
+      const accessCheck = await checkUserIndexAccess(id, req.user!.id);
       if (!accessCheck.hasAccess) {
         return res.status(accessCheck.status!).json({ error: accessCheck.error });
       }
 
       const indexData = accessCheck.indexData!;
-      const isOwner = accessCheck.memberPermissions?.includes('owner') || false;
+      const isOwner = accessCheck.permissions?.includes('owner') || false;
 
       // Get full index data for title and prompt
       const indexInfo = await db.select({
@@ -1025,7 +1145,7 @@ router.put('/:id/member-settings',
       const { prompt, autoAssign } = req.body;
 
       // Use existing access control method
-      const accessCheck = await checkIndexAccess(id, req.user!.id);
+      const accessCheck = await checkUserIndexAccess(id, req.user!.id);
       if (!accessCheck.hasAccess) {
         return res.status(accessCheck.status!).json({ error: accessCheck.error });
       }
@@ -1057,6 +1177,65 @@ router.put('/:id/member-settings',
   }
 );
 
+// Access public index by ID (public endpoint - only works for public indexes)
+router.get('/public/:id',
+  [
+    param('id').isUUID(),
+  ],
+  async (req: Request, res: Response) => {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({ errors: errors.array() });
+      }
+
+      const { id } = req.params;
+
+      const index = await db.select({
+        id: indexes.id,
+        title: indexes.title,
+        permissions: indexes.permissions,
+        createdAt: indexes.createdAt,
+        updatedAt: indexes.updatedAt
+      }).from(indexes)
+        .where(and(eq(indexes.id, id), isNull(indexes.deletedAt)))
+        .limit(1);
+
+      if (index.length === 0) {
+        return res.status(404).json({ error: 'Index not found' });
+      }
+
+      const indexResult = index[0];
+
+      // Only allow access to public indexes
+      if (indexResult.permissions?.joinPolicy !== 'anyone') {
+        return res.status(403).json({ error: 'This index is private. You need an invitation to join.' });
+      }
+
+      // Get member count
+      const memberCount = await db.select({ count: count() })
+        .from(indexMembers)
+        .where(eq(indexMembers.indexId, id));
+      
+      const result = {
+        id: indexResult.id,
+        title: indexResult.title,
+        createdAt: indexResult.createdAt,
+        updatedAt: indexResult.updatedAt,
+        permissions: indexResult.permissions,
+        _count: {
+          members: memberCount[0]?.count || 0
+        }
+      };
+
+      return res.json({ index: result });
+    } catch (error) {
+      console.error('Get public index by ID error:', error);
+      return res.status(500).json({ error: 'Failed to fetch index' });
+    }
+  }
+);
+
 // Access index by share code (public endpoint)
 router.get('/share/:code',
   [
@@ -1071,53 +1250,253 @@ router.get('/share/:code',
 
       const { code } = req.params;
 
-      const accessCheck = await getIndexWithPermissions({ code });
-      if (!accessCheck.hasAccess) {
-        return res.status(accessCheck.status!).json({ error: accessCheck.error });
+      // Validate invitation code (does not check user membership)
+      const codeValidation = await validateInvitationCode(code);
+      if (!codeValidation.valid) {
+        return res.status(codeValidation.status!).json({ error: codeValidation.error });
       }
 
-
-      const indexData = accessCheck.indexData!;
+      const indexId = codeValidation.indexId!;
 
       const index = await db.select({
         id: indexes.id,
         title: indexes.title,
         permissions: indexes.permissions,
         createdAt: indexes.createdAt,
-        updatedAt: indexes.updatedAt,
-        ownerId: indexMembers.userId,
-        userName: users.name,
-        userEmail: users.email,
-        userAvatar: users.avatar
+        updatedAt: indexes.updatedAt
       }).from(indexes)
-        .innerJoin(indexMembers, and(
-          eq(indexes.id, indexMembers.indexId),
-          sql`'owner' = ANY(${indexMembers.permissions})`
-        ))
-        .innerJoin(users, eq(indexMembers.userId, users.id))
-        .where(and(eq(indexes.id, indexData.id), isNull(indexes.deletedAt)))
+        .where(and(eq(indexes.id, indexId), isNull(indexes.deletedAt)))
         .limit(1);
 
+      if (index.length === 0) {
+        return res.status(404).json({ error: 'Index not found' });
+      }
+
+      // Get member count
+      const memberCount = await db.select({ count: count() })
+        .from(indexMembers)
+        .where(eq(indexMembers.indexId, indexId));
+
       const indexResult = index[0];
-      
       
       const result = {
         id: indexResult.id,
         title: indexResult.title,
         createdAt: indexResult.createdAt,
         updatedAt: indexResult.updatedAt,
-        user: {
-          id: indexResult.ownerId,
-          name: indexResult.userName,
-          avatar: indexResult.userAvatar
-        },
         permissions: indexResult.permissions,
+        _count: {
+          members: memberCount[0]?.count || 0
+        }
       };
 
       return res.json({ index: result });
     } catch (error) {
       console.error('Get index by share code error:', error);
       return res.status(500).json({ error: 'Failed to fetch index' });
+    }
+  }
+);
+
+// Join a public index
+router.post('/:id/join',
+  authenticatePrivy,
+  [param('id').isUUID()],
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({ errors: errors.array() });
+      }
+
+      const { id } = req.params;
+      const userId = req.user!.id;
+
+      // Check if index exists
+      const indexData = await db.select({
+        id: indexes.id,
+        title: indexes.title,
+        prompt: indexes.prompt,
+        permissions: indexes.permissions
+      }).from(indexes)
+        .where(and(eq(indexes.id, id), isNull(indexes.deletedAt)))
+        .limit(1);
+
+      if (indexData.length === 0) {
+        return res.status(404).json({ error: 'Index not found' });
+      }
+
+      const index = indexData[0];
+
+      // Check if index is public
+      if (index.permissions?.joinPolicy !== 'anyone') {
+        return res.status(403).json({ error: 'This index is private. You need an invitation to join.' });
+      }
+
+      // Check if user is already a member
+      const existingMember = await db.select({ userId: indexMembers.userId })
+        .from(indexMembers)
+        .where(and(eq(indexMembers.indexId, id), eq(indexMembers.userId, userId)))
+        .limit(1);
+
+      if (existingMember.length > 0) {
+        return res.status(200).json({ 
+          message: 'You are already a member of this index',
+          index: {
+            id: index.id,
+            title: index.title,
+            prompt: index.prompt,
+            permissions: index.permissions
+          },
+          alreadyMember: true
+        });
+      }
+
+      // Add user as member
+      await db.insert(indexMembers).values({
+        indexId: id,
+        userId,
+        permissions: ['member'],
+        prompt: index.prompt || null,
+        autoAssign: true
+      });
+
+      // Get membership details
+      const memberData = await db.select({
+        indexId: indexMembers.indexId,
+        userId: indexMembers.userId,
+        permissions: indexMembers.permissions,
+        createdAt: indexMembers.createdAt
+      }).from(indexMembers)
+        .where(and(eq(indexMembers.indexId, id), eq(indexMembers.userId, userId)))
+        .limit(1);
+
+      return res.status(201).json({
+        message: 'Successfully joined index',
+        index: {
+          id: index.id,
+          title: index.title,
+          prompt: index.prompt,
+          permissions: index.permissions
+        },
+        membership: memberData[0],
+        alreadyMember: false
+      });
+    } catch (error) {
+      console.error('Join index error:', error);
+      return res.status(500).json({ error: 'Failed to join index' });
+    }
+  }
+);
+
+// Accept invitation and join private index
+router.post('/invitation/:code/accept',
+  authenticatePrivy,
+  [param('code').isUUID()],
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({ errors: errors.array() });
+      }
+
+      const { code } = req.params;
+      const userId = req.user!.id;
+
+      // Validate invitation code (does not check user membership)
+      const codeValidation = await validateInvitationCode(code);
+      if (!codeValidation.valid) {
+        return res.status(codeValidation.status!).json({ error: codeValidation.error });
+      }
+
+      const indexId = codeValidation.indexId!;
+      const indexData = codeValidation.indexData!;
+
+      // Double-check this is an invite_only index
+      if (indexData.permissions?.joinPolicy !== 'invite_only') {
+        return res.status(403).json({ error: 'This invitation link is no longer valid' });
+      }
+
+      // Check if user is already a member using real membership check
+      const userAccess = await checkUserIndexAccess(indexId, userId);
+      
+      if (userAccess.hasAccess) {
+        // User is already a member, return the index info
+        const fullIndex = await db.select({
+          id: indexes.id,
+          title: indexes.title,
+          prompt: indexes.prompt,
+          permissions: indexes.permissions,
+          createdAt: indexes.createdAt,
+          updatedAt: indexes.updatedAt
+        }).from(indexes)
+          .where(eq(indexes.id, indexId))
+          .limit(1);
+
+        const result = {
+          id: fullIndex[0].id,
+          title: fullIndex[0].title,
+          prompt: fullIndex[0].prompt,
+          permissions: fullIndex[0].permissions,
+          createdAt: fullIndex[0].createdAt,
+          updatedAt: fullIndex[0].updatedAt
+        };
+
+        return res.json({
+          message: 'You are already a member of this index',
+          index: result,
+          alreadyMember: true
+        });
+      }
+
+      // Add user as member
+      await db.insert(indexMembers).values({
+        indexId: indexId,
+        userId,
+        permissions: ['member'],
+        prompt: indexData.prompt || null,
+        autoAssign: true
+      });
+
+      // Get full index data without owner info
+      const fullIndex = await db.select({
+        id: indexes.id,
+        title: indexes.title,
+        prompt: indexes.prompt,
+        permissions: indexes.permissions,
+        createdAt: indexes.createdAt,
+        updatedAt: indexes.updatedAt
+      }).from(indexes)
+        .where(eq(indexes.id, indexId))
+        .limit(1);
+
+      // Get membership details
+      const memberData = await db.select({
+        indexId: indexMembers.indexId,
+        userId: indexMembers.userId,
+        permissions: indexMembers.permissions,
+        createdAt: indexMembers.createdAt
+      }).from(indexMembers)
+        .where(and(eq(indexMembers.indexId, indexId), eq(indexMembers.userId, userId)))
+        .limit(1);
+
+      const result = {
+        id: fullIndex[0].id,
+        title: fullIndex[0].title,
+        prompt: fullIndex[0].prompt,
+        permissions: fullIndex[0].permissions,
+        createdAt: fullIndex[0].createdAt,
+        updatedAt: fullIndex[0].updatedAt
+      };
+
+      return res.status(201).json({
+        message: 'Successfully joined index via invitation',
+        index: result,
+        membership: memberData[0]
+      });
+    } catch (error) {
+      console.error('Accept invitation error:', error);
+      return res.status(500).json({ error: 'Failed to accept invitation' });
     }
   }
 );
@@ -1149,7 +1528,7 @@ router.delete('/:indexId/intents/:intentId',
       }
 
       // Verify user has intent write access to the index being removed
-      const accessCheck = await checkIndexIntentWriteAccess(indexId, req.user!.id);
+      const accessCheck = await checkUserIndexAccess(indexId, req.user!.id);
       
       if (!accessCheck.hasAccess) {
         return res.status(accessCheck.status || 403).json({ 
@@ -1187,54 +1566,6 @@ router.delete('/:indexId/intents/:intentId',
   }
 );
 
-// Create intent via share code
-router.post('/share/:code/intents',
-  authenticatePrivy,
-  [
-    param('code').isUUID(),
-    body('payload').trim().isLength({ min: 1 }),
-    body('isIncognito').optional().isBoolean(),
-  ],
-  async (req: AuthRequest, res: Response) => {
-    try {
-      const errors = validationResult(req);
-      if (!errors.isEmpty()) {
-        return res.status(400).json({ errors: errors.array() });
-      }
-
-      const { code } = req.params;
-      const { payload, isIncognito = false } = req.body;
-
-      // Check access to the shared index
-      const accessCheck = await getIndexWithPermissions({ code });
-      if (!accessCheck.hasAccess) {
-        return res.status(accessCheck.status!).json({ error: accessCheck.error });
-      }
-
-      const sharedIndexData = accessCheck.indexData!;
-
-      // Check if the shared index has can-write-intents permission
-      if (!accessCheck.memberPermissions?.includes('can-write-intents')) {
-        return res.status(403).json({ error: 'Shared index does not allow intent creation' });
-      }
-
-      const newIntent = await IntentService.createIntent({
-        payload,
-        userId: req.user!.id,
-        isIncognito,
-        indexIds: [sharedIndexData.id]
-      });
-
-      return res.status(201).json({
-        message: 'Intent created successfully via shared index',
-        intent: newIntent
-      });
-    } catch (error) {
-      console.error('Create intent via share code error:', error);
-      return res.status(500).json({ error: 'Failed to create intent via shared index' });
-    }
-  }
-);
 
 // Get intents for a specific index with pagination
 router.get('/:indexId/intents',
@@ -1259,17 +1590,17 @@ router.get('/:indexId/intents',
       const showArchived = req.query.archived === 'true';
 
       // Check access to the index
-      const accessCheck = await checkIndexAccess(indexId, req.user!.id);
+      const accessCheck = await checkUserIndexAccess(indexId, req.user!.id);
       if (!accessCheck.hasAccess) {
         return res.status(accessCheck.status || 403).json({ error: accessCheck.error });
       }
 
-      // Check if user has read permission (owner has all permissions by default)
-      const isOwner = accessCheck.memberPermissions?.includes('owner') || false;
-      const hasReadPermission = accessCheck.memberPermissions?.includes('can-read');
+      // Check if user has member or owner access
+      const isOwner = accessCheck.permissions?.includes('owner') || false;
+      const isMember = accessCheck.permissions?.includes('member') || false;
       
-      if (!isOwner && !hasReadPermission) {
-        return res.status(403).json({ error: 'Read access denied' });
+      if (!isOwner && !isMember) {
+        return res.status(403).json({ error: 'Access denied' });
       }
 
       // Build base conditions for intents in this index
@@ -1358,7 +1689,7 @@ router.get('/:id/member-intents',
       const { id } = req.params;
 
       // Use existing access control method
-      const accessCheck = await checkIndexAccess(id, req.user!.id);
+      const accessCheck = await checkUserIndexAccess(id, req.user!.id);
       if (!accessCheck.hasAccess) {
         return res.status(accessCheck.status!).json({ error: accessCheck.error });
       }
@@ -1482,13 +1813,13 @@ router.post('/:id/member-intents/:intentId',
       const { id, intentId } = req.params;
 
       // Use existing access control method
-      const accessCheck = await checkIndexAccess(id, req.user!.id);
+      const accessCheck = await checkUserIndexAccess(id, req.user!.id);
       if (!accessCheck.hasAccess) {
         return res.status(accessCheck.status!).json({ error: accessCheck.error });
       }
 
       const indexData = accessCheck.indexData!;
-      const isOwner = accessCheck.memberPermissions?.includes('owner') || false;
+      const isOwner = accessCheck.permissions?.includes('owner') || false;
 
       // Check if intent exists and belongs to the user
       const intent = await db.select({ id: intents.id, userId: intents.userId })
@@ -1548,13 +1879,13 @@ router.delete('/:id/member-intents/:intentId',
       const { id, intentId } = req.params;
 
       // Use existing access control method
-      const accessCheck = await checkIndexAccess(id, req.user!.id);
+      const accessCheck = await checkUserIndexAccess(id, req.user!.id);
       if (!accessCheck.hasAccess) {
         return res.status(accessCheck.status!).json({ error: accessCheck.error });
       }
 
       const indexData = accessCheck.indexData!;
-      const isOwner = accessCheck.memberPermissions?.includes('owner') || false;
+      const isOwner = accessCheck.permissions?.includes('owner') || false;
 
       // Check if intent exists and belongs to the user
       const intent = await db.select({ id: intents.id, userId: intents.userId })

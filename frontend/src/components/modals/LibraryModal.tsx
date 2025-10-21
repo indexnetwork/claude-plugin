@@ -6,14 +6,18 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useNotifications } from "@/contexts/NotificationContext";
-import { useAuthenticatedAPI } from "@/lib/api";
 import ReactMarkdown from 'react-markdown';
 import { useAPI } from "@/contexts/APIContext";
+import { useAuthenticatedAPI } from "@/lib/api";
 import { useDiscoveryFilter } from "@/contexts/DiscoveryFilterContext";
 import { formatDate } from "@/lib/utils";
 import { SyncProviderName } from "@/services/sync";
 import IntentList from "@/components/IntentList";
 import { IntegrationName, getIntegrationsList } from "@/config/integrations";
+import { validateFiles, getSupportedFileExtensions, formatFileSize } from "../../lib/file-validation";
+import { getFileCategoryBadge } from '../../lib/file-validation';
+import { useAuthContext } from "@/contexts/AuthContext";
+import { QueueStatus } from "@/services/queue";
 
 type Props = {
   open: boolean;
@@ -35,10 +39,11 @@ type LibrarySourceIntent = {
 
 export default function LibraryModal({ open, onOpenChange, onChanged }: Props) {
   const { success, error } = useNotifications();
-  const api = useAuthenticatedAPI();
-  const { syncService } = useAPI();
+  const { syncService, filesService, linksService, intentsService, integrationsService, indexesService } = useAPI();
+  const api = useAuthenticatedAPI(); // Keep for specialized endpoints
   const router = useRouter();
   const { setDiscoveryIntents } = useDiscoveryFilter();
+  const { user: currentUser } = useAuthContext();
   const [isUploading, setIsUploading] = useState(false);
   const [linkUrl, setLinkUrl] = useState("");
   const [isAddingLink, setIsAddingLink] = useState(false);
@@ -82,21 +87,30 @@ export default function LibraryModal({ open, onOpenChange, onChanged }: Props) {
     name: string;
   } | null>(null);
   const [selectedIndexForConnection, setSelectedIndexForConnection] = useState<string>('');
-  const [userIndexes, setUserIndexes] = useState<Array<{ id: string; title: string }>>([]);
+  const [enableUserAttribution, setEnableUserAttribution] = useState<boolean>(false);
+  const [ownedIndexes, setOwnedIndexes] = useState<Array<{ id: string; title: string; isOwner: boolean }>>([]);
   
   // Source filtering state - now supports multiple sources
   const [activeSourceFilters, setActiveSourceFilters] = useState<Set<string>>(new Set());
+  
+  // Queue status state
+  const [queueStatus, setQueueStatus] = useState<QueueStatus | null>(null);
 
   const loadLists = useCallback(async () => {
     try {
       const [f, l] = await Promise.all([
-        api.get<{ files: typeof files }>(`/files`).then(r => r.files || []),
-        api.get<{ links: typeof links }>(`/links`).then(r => r.links || [])
+        filesService.getFiles(),
+        linksService.getLinks()
       ]);
-      setFiles(f);
+      setFiles(f.map(file => ({
+        ...file,
+        size: String(file.size),
+        createdAt: file.createdAt || new Date().toISOString(),
+        url: file.url || ''
+      })));
       setLinks(l);
     } catch {}
-  }, [api]);
+  }, [filesService, linksService]);
 
   const toggleSelected = useCallback((id: string, checked: boolean) => {
     setSelectedIds(prev => {
@@ -180,13 +194,13 @@ export default function LibraryModal({ open, onOpenChange, onChanged }: Props) {
   const finalizeDeletion = useCallback(async (batch: { kind: 'file' | 'link'; item: { id: string } }[], intentIds: string[] = []) => {
     try {
       const deletions = batch.map(({ kind, item }) => kind === 'file'
-        ? api.delete(`/files/${item.id}`)
-        : api.delete(`/links/${item.id}`)
+        ? filesService.deleteFile(item.id)
+        : linksService.deleteLink(item.id)
       );
       const uniqueIntentIds = Array.from(new Set(intentIds));
       if (uniqueIntentIds.length > 0) {
         uniqueIntentIds.forEach(id => {
-          deletions.push(api.patch(`/intents/${id}/archive`));
+          deletions.push(intentsService.archiveIntent(id));
         });
       }
       await Promise.all(deletions);
@@ -197,7 +211,7 @@ export default function LibraryModal({ open, onOpenChange, onChanged }: Props) {
     } catch {
       error('Failed to delete some items or archive related intents');
     }
-  }, [api, success, error, onChanged]);
+  }, [filesService, linksService, intentsService, success, error, onChanged]);
 
 
   const queueDeletion = useCallback((items: { kind: 'file' | 'link'; item: { id: string } }[], intentIds: string[] = []) => {
@@ -278,20 +292,7 @@ export default function LibraryModal({ open, onOpenChange, onChanged }: Props) {
   // Integrations (compact section)
   const loadIntegrations = useCallback(async () => {
     try {
-      const response = await api.get<{ 
-        integrations: Array<{ 
-          id: string; // integrationId (UUID)
-          type: string; // integration type (slack, discord, etc.)
-          name: string; 
-          connected: boolean; 
-          indexId?: string | null;
-        }>;
-        availableTypes: Array<{
-          type: string;
-          name: string;
-          toolkit: string;
-        }>;
-      }>('/integrations');
+      const response = await integrationsService.getIntegrations();
       
       const connectedIntegrations = response.integrations || [];
       const availableTypes = response.availableTypes || [];
@@ -316,15 +317,45 @@ export default function LibraryModal({ open, onOpenChange, onChanged }: Props) {
       setIntegrations(getIntegrationsList());
       setIntegrationsLoaded(true);
     }
-  }, [api]);
+  }, [integrationsService]);
 
-  const loadUserIndexes = useCallback(async () => {
+  const loadOwnedIndexes = useCallback(async () => {
     try {
-      const response = await api.get<{ indexes: Array<{ id: string; title: string }> }>('/indexes');
-      setUserIndexes(response.indexes || []);
+      const response = await indexesService.getIndexes(1, 100);
+      const indexes = response.indexes || [];
+
+      console.log('indexes', response);
+      // Filter to only owned indexes and add isOwner flag
+      setOwnedIndexes(
+        indexes
+          .filter(idx => currentUser && idx.user && idx.user.id === currentUser.id)
+          .map(idx => ({ id: idx.id, title: idx.title, isOwner: true }))
+      );
     } catch (error) {
       console.error('Failed to fetch user indexes:', error);
-      setUserIndexes([]);
+      setOwnedIndexes([]);
+    }
+  }, [indexesService, currentUser]);
+
+  const loadQueueStatus = useCallback(async (options?: { silent?: boolean }) => {
+    try {
+      const response = await api.get<{ jobCounts?: Record<string, { pending: number; active: number; completed: number }>; totalPending?: number }>('/queue/status');
+      // Map the response from jobCounts to friendly property names
+      if (response?.jobCounts) {
+        const status: QueueStatus = {
+          indexIntent: response.jobCounts['index_intent'] || { pending: 0, active: 0, completed: 0 },
+          generateIntents: response.jobCounts['generate_intents'] || { pending: 0, active: 0, completed: 0 },
+          semanticRelevancy: response.jobCounts['broker_semantic_relevancy'] || { pending: 0, active: 0, completed: 0 },
+          totalPending: response.totalPending || 0
+        };
+        setQueueStatus(status);
+      }
+    } catch (error) {
+      if (!options?.silent) {
+        console.error('Failed to fetch queue status:', error);
+      }
+      // Set default state on error
+      setQueueStatus(null);
     }
   }, [api]);
 
@@ -336,18 +367,18 @@ export default function LibraryModal({ open, onOpenChange, onChanged }: Props) {
       const incoming = res.intents ?? [];
 
       const prevIds = knownIntentIds.current;
-      const nextIds = new Set(incoming.map(item => item.id));
+      const nextIds = new Set(incoming.map((item: LibrarySourceIntent) => item.id));
       const isInitialLoad = prevIds.size === 0;
 
       if (!isInitialLoad) {
-        const freshIds = incoming.filter(item => !prevIds.has(item.id)).map(item => item.id);
+        const freshIds = incoming.filter((item: LibrarySourceIntent) => !prevIds.has(item.id)).map((item: LibrarySourceIntent) => item.id);
         if (freshIds.length > 0) {
           setNewIntentIds(prev => {
             const next = new Set(prev);
-            freshIds.forEach(id => next.add(id));
+            freshIds.forEach((id: string) => next.add(id));
             return next;
           });
-          freshIds.forEach(id => {
+          freshIds.forEach((id: string) => {
             const existing = highlightTimers.current.get(id);
             if (existing) clearTimeout(existing);
             const timeout = setTimeout(() => {
@@ -375,14 +406,14 @@ export default function LibraryModal({ open, onOpenChange, onChanged }: Props) {
 
   const handleArchiveIntent = useCallback(async (intent: LibrarySourceIntent) => {
     try {
-      await api.patch(`/intents/${intent.id}/archive`);
+      await intentsService.archiveIntent(intent.id);
       success('Intent archived');
       // Refresh intents after archiving
       await loadLibraryIntents();
     } catch {
       error('Failed to archive intent');
     }
-  }, [api, success, error, loadLibraryIntents]);
+  }, [intentsService, success, error, loadLibraryIntents]);
 
   const handleOpenIntentSource = useCallback((intent: LibrarySourceIntent) => {
     // Set the discovery intent filter
@@ -409,7 +440,7 @@ export default function LibraryModal({ open, onOpenChange, onChanged }: Props) {
     
     try {
       setPendingIntegration(type);
-      await api.delete(`/integrations/${item.id}`);
+      await integrationsService.disconnectIntegration(item.id!);
       setIntegrations(prev => prev.map(x => x.type === type ? { ...x, connected: false, id: null } : x));
       success(`${item.name} disconnected`);
     } catch (err) {
@@ -418,16 +449,18 @@ export default function LibraryModal({ open, onOpenChange, onChanged }: Props) {
     } finally {
       setPendingIntegration(null);
     }
-  }, [api, integrations, success, error]);
+  }, [integrationsService, integrations, success, error]);
 
-  const handleConnectIntegration = useCallback(async (type: IntegrationName, indexId: string) => {
+  const handleConnectIntegration = useCallback(async (type: IntegrationName, indexId: string | null, enableUserAttribution: boolean) => {
     const item = integrations.find(i => i.type === type);
     if (!item) return;
     
     try {
       setPendingIntegration(type);
       const popup = typeof window !== 'undefined' ? window.open('', `oauth_${type}`, 'width=560,height=720') : null;
-      const res = await api.post<{ redirectUrl?: string; integrationId?: string }>(`/integrations/connect/${type}`, { indexId });
+      const payload: { indexId?: string; enableUserAttribution: boolean } = { enableUserAttribution };
+      if (indexId) payload.indexId = indexId;
+      const res = await integrationsService.connectIntegration(type, payload);
       const redirect = res.redirectUrl;
       const integrationId = res.integrationId;
       
@@ -449,9 +482,7 @@ export default function LibraryModal({ open, onOpenChange, onChanged }: Props) {
           }
           
           try {
-            const s = await api.get<{ status: 'pending' | 'connected'; connectedAt?: string }>(
-              `/integrations/${integrationId}/status`
-            );
+            const s = await integrationsService.getIntegrationStatus(integrationId);
             
             if (s.status === 'connected') {
               clearInterval(poll);
@@ -480,7 +511,7 @@ export default function LibraryModal({ open, onOpenChange, onChanged }: Props) {
       error(`Failed to connect ${item.name}`);
       setPendingIntegration(null);
     }
-  }, [api, integrations, success, error]);
+  }, [integrationsService, integrations, success, error]);
 
   const handleSourceFilter = useCallback((integrationType: string) => {
     setActiveSourceFilters(prev => {
@@ -500,17 +531,25 @@ export default function LibraryModal({ open, onOpenChange, onChanged }: Props) {
 
   const handleFilesSelected = useCallback(async (f: FileList | null) => {
     if (!f || f.length === 0) return;
+    
+    // Validate files before uploading
+    const files = Array.from(f);
+    const validation = validateFiles(files, 'general');
+    if (!validation.isValid) {
+      error(validation.message || 'Invalid file');
+      return;
+    }
+    
     setIsUploading(true);
     try {
-      const uploadedFiles = await Promise.all(Array.from(f).map(async file => {
-        const res = await api.uploadFile<{ file: { id: string; name: string; size: string; type: string; createdAt: string; url: string } }>(`/files`, file);
-        return res.file;
+      const uploadedFiles = await Promise.all(files.map(async (file: File) => {
+        return await filesService.uploadFile(file);
       }));
       
       onChanged?.();
       
       // Reset all filters and only select the newly uploaded files
-      const newFileIds = uploadedFiles.map(file => `f-${file.id}`);
+      const newFileIds = uploadedFiles.map((file) => `f-${file.id}`);
       setSelectedIds(new Set(newFileIds));
       setActiveSourceFilters(new Set());
 
@@ -521,7 +560,7 @@ export default function LibraryModal({ open, onOpenChange, onChanged }: Props) {
       setIsUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
     }
-  }, [api, onChanged, loadLists, loadLibraryIntents]);
+  }, [onChanged, loadLists, loadLibraryIntents, error, filesService]);
 
   const handleAddLink = useCallback(async () => {
     if (!linkUrl) return;
@@ -534,12 +573,12 @@ export default function LibraryModal({ open, onOpenChange, onChanged }: Props) {
     
     try {
       setIsAddingLink(true);
-      const res = await api.post<{ link: { id: string; url: string; createdAt?: string; lastSyncAt?: string | null; lastStatus?: string | null; lastError?: string | null; contentUrl?: string } }>(`/links`, { url: normalizedUrl });
+      const link = await linksService.createLink(normalizedUrl);
       setLinkUrl("");
       onChanged?.();
 
-      if (res.link?.id) {
-        setSelectedIds(new Set([`l-${res.link.id}`]));
+      if (link?.id) {
+        setSelectedIds(new Set([`l-${link.id}`]));
         setActiveSourceFilters(new Set());
       }      
       await loadLists();
@@ -554,7 +593,7 @@ export default function LibraryModal({ open, onOpenChange, onChanged }: Props) {
     } finally {
       setIsAddingLink(false);
     }
-  }, [api, linkUrl, onChanged, loadLists, loadLibraryIntents, success, error]);
+  }, [linkUrl, onChanged, loadLists, loadLibraryIntents, success, error, linksService]);
 
   const handleSyncIntegration = useCallback(async (integrationType: string) => {
     try {
@@ -611,7 +650,8 @@ export default function LibraryModal({ open, onOpenChange, onChanged }: Props) {
       loadLists();
       loadIntegrations();
       loadLibraryIntents();
-      loadUserIndexes();
+      loadOwnedIndexes();
+      loadQueueStatus();
     }
     if (!open && wasOpen.current) {
       wasOpen.current = false;
@@ -631,9 +671,10 @@ export default function LibraryModal({ open, onOpenChange, onChanged }: Props) {
     setActiveMobileSection('library');
     const interval = setInterval(() => {
       void loadLibraryIntents({ silent: true });
-    }, 5000);
+      void loadQueueStatus({ silent: true });
+    }, 1000);
     return () => clearInterval(interval);
-  }, [open, loadLibraryIntents]);
+  }, [open, loadLibraryIntents, loadQueueStatus]);
 
   useEffect(() => () => {
     highlightTimers.current.forEach(clearTimeout);
@@ -852,6 +893,7 @@ export default function LibraryModal({ open, onOpenChange, onChanged }: Props) {
                       multiple
                       className="hidden"
                       id="library-file-upload"
+                      accept={getSupportedFileExtensions('general')}
                       onChange={(e) => handleFilesSelected(e.target.files)}
                     />
                     <button
@@ -921,7 +963,7 @@ export default function LibraryModal({ open, onOpenChange, onChanged }: Props) {
                       id: `f-${f.id}`,
                       kind: 'file' as const,
                       title: f.name,
-                      sub: `${formatSize(f.size)} • ${formatDate(f.createdAt).split(',')[0]}`,
+                      sub: `${formatFileSize(typeof f.size === 'bigint' ? Number(f.size) : Number(f.size.toString()))} • ${formatDate(f.createdAt).split(',')[0]}`,
                       createdAt: new Date(f.createdAt).getTime(),
                       raw: f,
                     })),
@@ -933,7 +975,7 @@ export default function LibraryModal({ open, onOpenChange, onChanged }: Props) {
                       onClick: async () => {
                         const id = l.id;
                         setPreview({ id, title: l.url });
-                        const res = await api.get<{ content?: string; pending?: boolean; url?: string; lastStatus?: string | null; lastSyncAt?: string | null }>(`/links/${id}/content`);
+                        const res = await linksService.getLinkContent(id);
                         if (res?.content) setPreview({ id, title: l.url, content: res.content });
                       },
                       createdAt: (l.lastSyncAt ? new Date(l.lastSyncAt).getTime() : (l.createdAt ? new Date(l.createdAt).getTime() : 0)),
@@ -971,7 +1013,7 @@ export default function LibraryModal({ open, onOpenChange, onChanged }: Props) {
                           )}
                           {item.kind === 'file' && (
                             <span className="text-[10px] px-1.5 py-0.5 border border-[#E0E0E0] rounded-sm font-ibm-plex-mono text-[#333] bg-[#F5F5F5]">
-                              {fileBadge(item.raw.type, item.raw.name || '')}
+                              {getFileCategoryBadge(item.raw.name || '', item.raw.type)}
                             </span>
                           )}
                           {/* Icon for links only */}
@@ -1053,6 +1095,27 @@ export default function LibraryModal({ open, onOpenChange, onChanged }: Props) {
                   </div>
                 </div>
                 <div className="pt-3 flex-1 pr-3 space-y-3 p-3 pt-0 overflow-y-scroll">
+                  {queueStatus?.generateIntents && ((queueStatus.generateIntents.pending ?? 0) > 0 || (queueStatus.generateIntents.active ?? 0) > 0) && (
+                    <div className="mb-3 text-[10px] font-ibm-plex-mono text-[#666] bg-[#F8F9FA] px-2 py-1.5 rounded-sm border border-[#E0E0E0]">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="flex items-center gap-1">
+                          {(queueStatus.generateIntents.active ?? 0) > 0 && (
+                            <span className="h-1.5 w-1.5 bg-[#0A8F5A] rounded-full animate-pulse"></span>
+                          )}
+                          Generating Intents
+                        </span>
+                        <span className="font-medium">
+                          {(queueStatus.generateIntents.active ?? 0) > 0 && (
+                            `${queueStatus.generateIntents.active} task${queueStatus.generateIntents.active === 1 ? '' : 's'} active`
+                          )}
+                          {(queueStatus.generateIntents.active ?? 0) > 0 && (queueStatus.generateIntents.pending ?? 0) > 0 && ' • '}
+                          {(queueStatus.generateIntents.pending ?? 0) > 0 && (
+                            `${queueStatus.generateIntents.pending} task${queueStatus.generateIntents.pending === 1 ? '' : 's'} pending`
+                          )}
+                        </span>
+                      </div>
+                    </div>
+                  )}
                   <IntentList
                     intents={visibleIntents}
                     isLoading={isLoadingIntents}
@@ -1139,6 +1202,7 @@ export default function LibraryModal({ open, onOpenChange, onChanged }: Props) {
             if (!v) {
               setConfigureIntegration(null);
               setSelectedIndexForConnection('');
+              setEnableUserAttribution(false);
             }
           }}>
             <Dialog.Portal>
@@ -1148,75 +1212,140 @@ export default function LibraryModal({ open, onOpenChange, onChanged }: Props) {
                   Configure {configureIntegration?.name}
                 </Dialog.Title>
                 
-                <div className="mt-4 mb-4">
-                  <label className="block text-sm font-medium text-[#333] mb-2 font-ibm-plex-mono">
-                    Select Index
-                  </label>
-                  <select
-                    value={selectedIndexForConnection}
-                    onChange={(e) => setSelectedIndexForConnection(e.target.value)}
-                    className="w-full p-2 border border-[#BBBBBB] rounded-sm font-ibm-plex-mono text-sm focus:ring-2 focus:ring-[rgba(0,109,75,0.35)] focus:border-[#006D4B] bg-white text-[#333]"
-                  >
-                    <option value="">Choose an index...</option>
-                    {userIndexes.map((index) => (
-                      <option key={index.id} value={index.id}>
-                        {index.title}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                {/* User Attribution Toggle - hide for LinkedIn */}
+                {configureIntegration?.type !== 'linkedin' && ownedIndexes.length > 0 && (
+                  <div className="mt-4 mb-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <div>
+                        <label className="block text-sm font-medium text-[#333] font-ibm-plex-mono">
+                          User Attribution
+                        </label>
+                        <p className="text-xs text-gray-600 font-ibm-plex-mono mt-0.5">
+                          {enableUserAttribution 
+                            ? `Add ${configureIntegration?.name} users automatically as index members.` 
+                            : `Agents will generate intents based on your ${configureIntegration?.name} data.`}
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => {
+                          setEnableUserAttribution(!enableUserAttribution);
+                          if (enableUserAttribution) {
+                            setSelectedIndexForConnection('');
+                          }
+                        }}
+                        className={`relative h-6 w-11 rounded-full transition-colors duration-200 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(0,109,75,0.35)] focus-visible:ring-offset-0 ${
+                          enableUserAttribution ? 'bg-[#006D4B]' : 'bg-[#D9D9D9]'
+                        }`}
+                        aria-pressed={enableUserAttribution}
+                        aria-label="Toggle user attribution"
+                      >
+                        <span
+                          className={`absolute top-[1px] left-[1px] h-[22px] w-[22px] rounded-full bg-white transition-transform duration-200 shadow-sm ${
+                            enableUserAttribution ? 'translate-x-5' : 'translate-x-0'
+                          }`}
+                        />
+                      </button>
+                    </div>
+                  </div>
+                )}
+                
+                {/* Index Selector - only visible when attribution enabled */}
+                {enableUserAttribution && (
+                  <div className="mb-4">
+                    <label className="block text-sm font-medium text-[#333] mb-2 font-ibm-plex-mono">
+                      Select Index
+                    </label>
+                    <p className="text-xs text-gray-600 font-ibm-plex-mono mb-2">
+                      Select where you&apos;d like to connect your {configureIntegration?.name} data
+                    </p>
+                    <select
+                      value={selectedIndexForConnection}
+                      onChange={(e) => setSelectedIndexForConnection(e.target.value)}
+                      className="w-full p-2 border border-[#BBBBBB] rounded-sm font-ibm-plex-mono text-sm focus:ring-2 focus:ring-[rgba(0,109,75,0.35)] focus:border-[#006D4B] bg-white text-[#333]"
+                    >
+                      <option value="">Choose an index...</option>
+                      {ownedIndexes.map((index) => (
+                        <option key={index.id} value={index.id}>
+                          {index.title}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
 
-                <div className="mb-4 p-4 bg-[#E3F2FD] border border-[#BBDEFB] rounded-sm space-y-3">
-                  <div className="flex items-start gap-2">
-                    <div className="w-4 h-4 rounded-full bg-[#1976D2] flex-shrink-0 mt-0.5">
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" className="p-0.5">
-                        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
-                        <circle cx="12" cy="7" r="4"></circle>
-                      </svg>
+                {/* Info Box - changes based on attribution setting */}
+                {enableUserAttribution ? (
+                  <div className="mb-4 p-4 bg-[#E3F2FD] border border-[#BBDEFB] rounded-sm space-y-3">
+                    <h4 className="text-sm font-medium text-[#1976D2] font-ibm-plex-mono mb-2">What happens next:</h4>
+                    
+                    <div className="flex items-start gap-2">
+                      <div className="w-4 h-4 rounded-full bg-[#1976D2] flex-shrink-0 mt-0.5">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" className="p-0.5">
+                          <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                          <circle cx="12" cy="7" r="4"></circle>
+                        </svg>
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium text-[#1976D2] font-ibm-plex-mono mb-1">
+                          Auto-add Members
+                        </p>
+                        <p className="text-xs text-[#1565C0] font-ibm-plex-mono">
+                          People from {configureIntegration?.name} will automatically join the selected index.
+                        </p>
+                      </div>
                     </div>
-                    <div>
-                      <p className="text-sm font-medium text-[#1976D2] font-ibm-plex-mono mb-1">
-                        Auto-add Members
-                      </p>
-                      <p className="text-xs text-[#1565C0] font-ibm-plex-mono">
-                        People from {configureIntegration?.name} will automatically become members of the selected index
-                      </p>
+                    
+                    <div className="flex items-start gap-2">
+                      <div className="w-4 h-4 rounded-full bg-[#1976D2] flex-shrink-0 mt-0.5">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" className="p-0.5">
+                          <path d="M9 11l3 3L22 4"></path>
+                          <path d="M21 12c0 4.97-4.03 9-9 9s-9-4.03-9-9 4.03-9 9-9c1.67 0 3.22.46 4.56 1.26"></path>
+                        </svg>
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium text-[#1976D2] font-ibm-plex-mono mb-1">
+                          Generate Intents
+                        </p>
+                        <p className="text-xs text-[#1565C0] font-ibm-plex-mono">
+                          We&apos;ll analyze their {configureIntegration?.name} data to understand key topics and goals.
+                        </p>
+                      </div>
+                    </div>
+                    
+                    <div className="flex items-start gap-2">
+                      <div className="w-4 h-4 rounded-full bg-[#1976D2] flex-shrink-0 mt-0.5">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" className="p-0.5">
+                          <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"></path>
+                        </svg>
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium text-[#1976D2] font-ibm-plex-mono mb-1">
+                          Enable Discovery
+                        </p>
+                        <p className="text-xs text-[#1565C0] font-ibm-plex-mono">
+                          Others in this index can discover shared interests to spark collaboration.
+                        </p>
+                      </div>
                     </div>
                   </div>
-                  
-                  <div className="flex items-start gap-2">
-                    <div className="w-4 h-4 rounded-full bg-[#1976D2] flex-shrink-0 mt-0.5">
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" className="p-0.5">
-                        <path d="M9 11l3 3L22 4"></path>
-                        <path d="M21 12c0 4.97-4.03 9-9 9s-9-4.03-9-9 4.03-9 9-9c1.67 0 3.22.46 4.56 1.26"></path>
-                      </svg>
-                    </div>
-                    <div>
-                      <p className="text-sm font-medium text-[#1976D2] font-ibm-plex-mono mb-1">
-                        Generate Intents
-                      </p>
-                      <p className="text-xs text-[#1565C0] font-ibm-plex-mono">
-                        Agent will analyze their data and create intents associated with this index
-                      </p>
-                    </div>
-                  </div>
-                  
-                  <div className="flex items-start gap-2">
-                    <div className="w-4 h-4 rounded-full bg-[#1976D2] flex-shrink-0 mt-0.5">
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" className="p-0.5">
-                        <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"></path>
-                      </svg>
-                    </div>
-                    <div>
-                      <p className="text-sm font-medium text-[#1976D2] font-ibm-plex-mono mb-1">
-                        Enable Discovery
-                      </p>
-                      <p className="text-xs text-[#1565C0] font-ibm-plex-mono">
-                        Their intents will be discoverable by other members of this index to surface mutual interests
-                      </p>
+                ) : (
+                  <div className="mb-4 p-4 bg-[#F5F5F5] border border-[#E0E0E0] rounded-sm">
+                    <div className="flex items-start gap-2">
+                      <div className="w-4 h-4 rounded-full bg-[#757575] flex-shrink-0 mt-0.5">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" className="p-0.5">
+                          <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                          <circle cx="12" cy="7" r="4"></circle>
+                        </svg>
+                      </div>
+                      <div>
+
+                        <p className="text-xs text-[#757575] font-ibm-plex-mono">
+                          Agents will generate intents based on your {configureIntegration?.name} data.
+                        </p>
+                      </div>
                     </div>
                   </div>
-                </div>
+                )}
 
                 <div className="flex justify-end space-x-3">
                   <Button
@@ -1225,6 +1354,7 @@ export default function LibraryModal({ open, onOpenChange, onChanged }: Props) {
                     onClick={() => {
                       setConfigureIntegration(null);
                       setSelectedIndexForConnection('');
+                      setEnableUserAttribution(false);
                     }}
                     className="font-ibm-plex-mono"
                   >
@@ -1233,11 +1363,15 @@ export default function LibraryModal({ open, onOpenChange, onChanged }: Props) {
                   <Button
                     type="button"
                     onClick={() => {
-                      if (configureIntegration && selectedIndexForConnection) {
-                        handleConnectIntegration(configureIntegration.type, selectedIndexForConnection);
+                      if (configureIntegration && (selectedIndexForConnection || !enableUserAttribution)) {
+                        handleConnectIntegration(
+                          configureIntegration.type, 
+                          enableUserAttribution ? selectedIndexForConnection : null,
+                          enableUserAttribution
+                        );
                       }
                     }}
-                    disabled={!selectedIndexForConnection || !!pendingIntegration}
+                    disabled={(enableUserAttribution && !selectedIndexForConnection) || !!pendingIntegration}
                     className="bg-[#006D4B] text-white hover:bg-[#005A3E] disabled:opacity-50 font-ibm-plex-mono"
                   >
                     {pendingIntegration ? 'Connecting...' : 'Connect'}
@@ -1252,35 +1386,7 @@ export default function LibraryModal({ open, onOpenChange, onChanged }: Props) {
   );
 }
 
-// Helpers: size formatting and file badge
-function formatSize(size: string): string {
-  // If already human-readable, return as-is
-  if (/\d+\s?(KB|MB|GB|B)$/i.test(size)) return size;
-  const n = Number(size);
-  if (Number.isNaN(n)) return size;
-  const units = ['B','KB','MB','GB'];
-  let v = n; let i = 0;
-  while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
-  return `${v.toFixed(v < 10 && i > 0 ? 1 : 0)} ${units[i]}`;
-}
 
-function fileBadge(mime: string | undefined, name: string): string {
-  const ext = (name.split('.').pop() || '').toLowerCase();
-  if (ext === 'pdf') return 'PDF';
-  if (['doc','docx','rtf','odt'].includes(ext)) return 'DOC';
-  if (['xls','xlsx','csv'].includes(ext)) return 'SHEET';
-  if (['ppt','pptx','key'].includes(ext)) return 'SLIDE';
-  if (['png','jpg','jpeg','gif','svg','webp'].includes(ext)) return 'IMG';
-  if (['mp4','mov','avi','mkv','webm'].includes(ext)) return 'VID';
-  if (['mp3','wav','m4a','flac'].includes(ext)) return 'AUD';
-  if (['zip','rar','7z','tar','gz'].includes(ext)) return 'ARCH';
-  if (['md','txt','json','yaml','yml'].includes(ext)) return 'TXT';
-  if (mime?.includes('pdf')) return 'PDF';
-  if (mime?.startsWith('image/')) return 'IMG';
-  if (mime?.startsWith('video/')) return 'VID';
-  if (mime?.startsWith('audio/')) return 'AUD';
-  return 'FILE';
-}
 
 
 // Deletion helpers

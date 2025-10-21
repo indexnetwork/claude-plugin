@@ -1,20 +1,21 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { Index } from '@/lib/types';
 import { Plus } from 'lucide-react';
 import { useNotifications } from '@/contexts/NotificationContext';
+import { useAPI } from '@/contexts/APIContext';
 import { useAuthenticatedAPI } from '@/lib/api';
 import { useIndexesState } from '@/contexts/IndexesContext';
 import { Button } from '@/components/ui/button';
-import { createIntentsService } from '@/services/intents';
 import IntentList from '@/components/IntentList';
+import { QueueStatus } from '@/services/queue';
 
 interface MemberIntent {
   id: string;
   payload: string;
-  summary?: string;
+  summary?: string | null;
   createdAt: string;
   sourceType?: 'file' | 'link' | 'integration';
   sourceId?: string;
@@ -58,11 +59,12 @@ export default function MemberSettingsModal({ open, onOpenChange, index }: Membe
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
   const [suggestionsFetched, setSuggestionsFetched] = useState(false);
   const [activeMobileSection, setActiveMobileSection] = useState<'settings' | 'intents'>('settings');
+  const [queueStatus, setQueueStatus] = useState<QueueStatus | null>(null);
 
   const { success, error } = useNotifications();
   const { removeIndex } = useIndexesState();
-  const api = useAuthenticatedAPI();
-  const intentsService = useMemo(() => createIntentsService(api), [api]);
+  const { indexesService, intentsService } = useAPI();
+  const api = useAuthenticatedAPI(); // Keep for specialized endpoints
 
   // Check if there are unsaved changes
   const hasUnsavedChanges = prompt !== originalPrompt;
@@ -83,16 +85,37 @@ export default function MemberSettingsModal({ open, onOpenChange, index }: Membe
   const fetchMemberIntents = useCallback(async () => {
     try {
       setLoadingIndexed(true);
-      const response = await api.get<{ intents: MemberIntent[] }>(
-        `/indexes/${index.id}/member-intents`
-      );
-      setIndexedIntents(response.intents);
+      const intents = await indexesService.getMemberIntents(index.id);
+      setIndexedIntents(intents);
     } catch (err) {
       console.error('Failed to fetch member intents:', err);
     } finally {
       setLoadingIndexed(false);
     }
-  }, [api, index.id]);
+  }, [indexesService, index.id]);
+
+  // Fetch queue status
+  const fetchQueueStatus = useCallback(async (options?: { silent?: boolean }) => {
+    try {
+      const response = await api.get<{ jobCounts?: Record<string, { pending: number; active: number; completed: number }>; totalPending?: number }>('/queue/status');
+      // Map the response from jobCounts to friendly property names
+      if (response?.jobCounts) {
+        const status: QueueStatus = {
+          indexIntent: response.jobCounts['index_intent'] || { pending: 0, active: 0, completed: 0 },
+          generateIntents: response.jobCounts['generate_intents'] || { pending: 0, active: 0, completed: 0 },
+          semanticRelevancy: response.jobCounts['broker_semantic_relevancy'] || { pending: 0, active: 0, completed: 0 },
+          totalPending: response.totalPending || 0
+        };
+        setQueueStatus(status);
+      }
+    } catch (error) {
+      if (!options?.silent) {
+        console.error('Failed to fetch queue status:', error);
+      }
+      // Set default state on error
+      setQueueStatus(null);
+    }
+  }, [api]);
 
   // Fetch tag suggestions
   const fetchTagSuggestions = useCallback(async () => {
@@ -119,24 +142,29 @@ export default function MemberSettingsModal({ open, onOpenChange, index }: Membe
     if (open) {
       fetchMemberSettings();
       fetchMemberIntents();
+      fetchQueueStatus();
       setUsedTags(new Set());
       setSuggestedTags([]);
       setSuggestionsFetched(false);
     }
-  }, [open, fetchMemberSettings, fetchMemberIntents]);
+  }, [open, fetchMemberSettings, fetchMemberIntents, fetchQueueStatus]);
 
-  // Auto-refresh intents every 3 seconds
+  // Auto-refresh intents and queue status every second
   useEffect(() => {
     if (!open) return;
     
-    const interval = setInterval(() => {
-      api.get<{ intents: MemberIntent[] }>(`/indexes/${index.id}/member-intents`)
-        .then(response => setIndexedIntents(response.intents))
-        .catch(err => console.error('Failed to refresh member intents:', err));
-    }, 2000);
+    const interval = setInterval(async () => {
+      try {
+        const intents = await indexesService.getMemberIntents(index.id);
+        setIndexedIntents(intents);
+        void fetchQueueStatus({ silent: true });
+      } catch (err) {
+        console.error('Failed to refresh member intents:', err);
+      }
+    }, 1000);
 
     return () => clearInterval(interval);
-  }, [api, index.id, open]);
+  }, [indexesService, index.id, open, fetchQueueStatus]);
 
   // Fetch tag suggestions once when modal opens
   useEffect(() => {
@@ -176,7 +204,7 @@ export default function MemberSettingsModal({ open, onOpenChange, index }: Membe
         prompt: prompt.trim() || null,
         autoAssign: true // Temporary: always set to true for now
       });
-      success('Settings saved');
+      success('Member settings updated');
       setOriginalPrompt(prompt);
       await fetchMemberSettings();
     } catch {
@@ -189,7 +217,7 @@ export default function MemberSettingsModal({ open, onOpenChange, index }: Membe
   const handleRemoveIntent = async (intentId: string) => {
     setRemovingIntents(prev => new Set([...prev, intentId]));
     try {
-      await api.delete(`/indexes/${index.id}/member-intents/${intentId}`);
+      await indexesService.removeMemberIntent(index.id, intentId);
       success('Intent removed from index');
       await fetchMemberIntents();
     } catch {
@@ -339,6 +367,25 @@ export default function MemberSettingsModal({ open, onOpenChange, index }: Membe
               </div>
               
               <div className="pt-3 flex-1 pr-3 space-y-3 p-3 pt-0 overflow-y-scroll">
+                {/* Queue Status */}
+                {queueStatus?.indexIntent && ((queueStatus.indexIntent.pending ?? 0) > 0 || (queueStatus.indexIntent.active ?? 0) > 0) && (
+                  <div className="mb-3 text-[10px] font-ibm-plex-mono text-[#666] bg-[#F8F9FA] px-2 py-1.5 rounded-sm border border-[#E0E0E0]">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="flex items-center gap-1">
+                        {(queueStatus.indexIntent.active ?? 0) > 0 && (
+                          <span className="h-1.5 w-1.5 bg-[#0A8F5A] rounded-full animate-pulse"></span>
+                        )}
+                        Indexing Intents
+                      </span>
+                      <span className="font-medium">
+                        {(() => {
+                          const total = (queueStatus.indexIntent.active ?? 0) + (queueStatus.indexIntent.pending ?? 0);
+                          return `${total} task${total === 1 ? '' : 's'}`;
+                        })()}
+                      </span>
+                    </div>
+                  </div>
+                )}
                 <IntentList
                   intents={indexedIntents}
                   isLoading={loadingIndexed}

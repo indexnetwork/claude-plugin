@@ -1,3 +1,12 @@
+// Onboarding state type
+export interface OnboardingState {
+  completedAt?: string | null;  // ISO timestamp when completed
+  flow?: 1 | 2 | 3;
+  currentStep?: 'profile' | 'connections' | 'create_index' | 'invite_members' | 'join_indexes';
+  indexId?: string | null;  // Persisted index ID for flow 2
+  invitationCode?: string;  // Store which invitation was used (reference only)
+}
+
 // User types
 export interface User {
   id: string;
@@ -6,6 +15,7 @@ export interface User {
   name: string;
   intro: string | null;
   avatar: string | null;
+  onboarding?: OnboardingState;
   createdAt: string;
   updatedAt: string;
 }
@@ -17,10 +27,10 @@ export interface Index {
   prompt?: string | null;
   permissions?: {
     joinPolicy: 'anyone' | 'invite_only';
+    allowGuestVibeCheck?: boolean;
     invitationLink: {
       code: string;
     } | null;
-    allowGuestVibeCheck: boolean;
   } | null;
   createdAt: string;
   updatedAt: string;

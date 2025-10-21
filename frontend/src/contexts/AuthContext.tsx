@@ -90,7 +90,7 @@ function AuthProviderInner({ children }: { children: ReactNode }) {
     
     const isHomePage = pathname === '/';
     const isOnboardingPage = pathname === '/onboarding';
-    const isPublicPage = pathname.startsWith('/vibecheck') || pathname.startsWith('/simulation') || pathname.startsWith('/matchlist');
+    const isPublicPage = pathname.startsWith('/simulation') || pathname.startsWith('/l') || pathname.startsWith('/i');
     
     // Determine if we need to redirect
     const shouldRedirectToIndexes = authenticated && isHomePage;
@@ -125,8 +125,10 @@ function AuthProviderInner({ children }: { children: ReactNode }) {
       }}
     >
       {isLoading ? (
-        <div className="min-h-screen flex items-center justify-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
+        <div className="min-h-screen flex items-center justify-center bg-white">
+          <video autoPlay loop muted playsInline className="w-40 h-40">
+            <source src="/loading-tree.m4v" type="video/mp4" />
+          </video>
         </div>
       ) : error ? (
         <div className="min-h-screen flex items-center justify-center">

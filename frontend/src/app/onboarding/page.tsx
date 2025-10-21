@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useRouter, useSearchParams } from "next/navigation";
 import Image from "next/image";
-import { User, AvatarUploadResponse, APIResponse } from "@/lib/types";
+import { Index } from "@/lib/types";
 import { useAuthenticatedAPI } from "@/lib/api";
 import { getAvatarUrl } from "@/lib/file-utils";
 import { useNotifications } from "@/contexts/NotificationContext";
@@ -16,9 +16,14 @@ import { useIndexService } from "@/services/indexes";
 import { useIntegrationsService } from "@/services/integrations";
 import { IntegrationName, getIntegrationsList } from "@/config/integrations";
 import LibraryModal from "@/components/modals/LibraryModal";
+import { validateFiles, getSupportedFileExtensions, formatFileSize, getFileCategoryBadge } from "@/lib/file-validation";
+import { formatDate } from "@/lib/utils";
+import { useIndexesState } from "@/contexts/IndexesContext";
+import { useAuth as useAuthService, useFiles, useLinks } from "@/contexts/APIContext";
+import { QueueStatus } from "@/services/queue";
 
-type OnboardingStep = 'profile' | 'connections' | 'create_index' | 'invite_members' | 'indexes' | 'join_indexes';
-type OnboardingFlow = 1 | 2;
+type OnboardingStep = 'profile' | 'connections' | 'create_index' | 'invite_members' | 'join_indexes';
+type OnboardingFlow = 1 | 2 | 3;
 
 interface IntegrationState {
   id: string | null;           // The actual integration UUID
@@ -27,6 +32,55 @@ interface IntegrationState {
   connected: boolean;
   indexId?: string | null;
 }
+
+// Flow configuration
+interface FlowConfig {
+  steps: OnboardingStep[];
+  features: {
+    showSlackDiscord: boolean;
+    enableUserAttribution: boolean;
+    requireIndexId: boolean;
+  };
+  descriptions: {
+    connections: string;
+  };
+}
+
+const FLOW_CONFIGS: Record<OnboardingFlow, FlowConfig> = {
+  1: { // Personal flow
+    steps: ['profile', 'connections', 'join_indexes'],
+    features: {
+      showSlackDiscord: false,
+      enableUserAttribution: false,
+      requireIndexId: false,
+    },
+    descriptions: {
+      connections: "Link the places you already work and share. Nobody gets notified, and it's only used to understand what you're looking for.",
+    },
+  },
+  2: { // Community flow
+    steps: ['profile', 'create_index', 'connections', 'invite_members'],
+    features: {
+      showSlackDiscord: true,
+      enableUserAttribution: true,
+      requireIndexId: true,
+    },
+    descriptions: {
+      connections: "Link the platforms where your people already works and shares. Nobody gets notified for now. We recommend connecting every account you use regularly so Index has a full picture of your ecosystem.",
+    },
+  },
+  3: { // Invitation flow
+    steps: ['profile', 'connections'],
+    features: {
+      showSlackDiscord: false,
+      enableUserAttribution: false,
+      requireIndexId: false,
+    },
+    descriptions: {
+      connections: "Link the places you already work and share. Nobody gets notified, and it's only used to understand what you're looking for.",
+    },
+  },
+};
 
 export default function OnboardingPage() {
   const [currentStep, setCurrentStep] = useState<OnboardingStep>('profile');
@@ -37,8 +91,12 @@ export default function OnboardingPage() {
   const api = useAuthenticatedAPI();
   const indexService = useIndexService();
   const integrationsService = useIntegrationsService();
+  const filesService = useFiles();
+  const linksService = useLinks();
+  const authService = useAuthService();
   const { success, error } = useNotifications();
   const { user, refetchUser } = useAuthContext();
+  const { refreshIndexes } = useIndexesState();
 
   // Profile step states
   const [name, setName] = useState('');
@@ -50,16 +108,23 @@ export default function OnboardingPage() {
   // Connections step states
   const [integrations, setIntegrations] = useState<IntegrationState[]>([]);
   const [integrationsLoaded, setIntegrationsLoaded] = useState(false);
+  const [integrationsIndexId, setIntegrationsIndexId] = useState<string | undefined>(undefined);
   const [pendingIntegration, setPendingIntegration] = useState<string | null>(null);
+  const [queueStatus, setQueueStatus] = useState<QueueStatus | null>(null);
 
   // Library step states
   const [linkUrl, setLinkUrl] = useState("");
   const [isAddingLink, setIsAddingLink] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
-  const [files, setFiles] = useState<Array<{ id: string; name: string; size: string; type: string }>>([]);
-  const [links, setLinks] = useState<Array<{ id: string; url: string }>>([]);
+  const [files, setFiles] = useState<Array<{ id: string; name: string; size: string; type: string; createdAt?: string }>>([]);
+  const [links, setLinks] = useState<Array<{ id: string; url: string; createdAt?: string }>>([]);
 
-  // Mock indexes for the final step
+  // Public indexes for join_indexes step
+  const [publicIndexes, setPublicIndexes] = useState<Array<Index & { isMember?: boolean }>>([]);
+  const [publicIndexesLoaded, setPublicIndexesLoaded] = useState(false);
+  const [isJoiningIndex, setIsJoiningIndex] = useState<string | null>(null);
+
+  // Mock indexes for the final step (fallback if no public indexes)
   const mockIndexes = [
     { id: 'index-early', name: 'Index Early', description: 'AI, Web3, Decentralization', members: 1250 },
     { id: 'techstars', name: 'Techstars Universe', description: 'AI, Web3, Decentralization', members: 890 },
@@ -90,32 +155,15 @@ export default function OnboardingPage() {
   // Load integrations status
   const loadIntegrations = useCallback(async () => {
     try {
-      // Determine if we should filter by indexId
-      let url = '/integrations';
+      const config = FLOW_CONFIGS[currentFlow];
       
-      if (currentFlow === 2) {
-        // In flow_2, we need to filter by indexId
-        const indexId = (user?.id ? localStorage.getItem(`onboarding:${user.id}:index`) : null) || createdIndex?.id;
-        if (indexId) {
-          url = `/integrations?indexId=${indexId}`;
-        }
+      // Determine if we should filter by indexId based on flow config
+      let queryIndexId: string | undefined;
+      if (config.features.requireIndexId) {
+        queryIndexId = user?.onboarding?.indexId || createdIndex?.id || undefined;
       }
-      // In flow_1, we don't filter by indexId (show all integrations)
       
-      const response = await api.get<{ 
-        integrations: Array<{ 
-          id: string; // integrationId (UUID)
-          type: string; // integration type (slack, discord, etc.)
-          name: string; 
-          connected: boolean; 
-          indexId?: string | null;
-        }>;
-        availableTypes: Array<{
-          type: string;
-          name: string;
-          toolkit: string;
-        }>;
-      }>(url);
+      const response = await integrationsService.getIntegrations(queryIndexId);
       
       const connectedIntegrations = response.integrations || [];
       const availableTypes = response.availableTypes || [];
@@ -134,13 +182,15 @@ export default function OnboardingPage() {
       
       setIntegrations(updatedIntegrations);
       setIntegrationsLoaded(true);
+      setIntegrationsIndexId(queryIndexId);
     } catch (error) {
       console.error('Failed to fetch integrations:', error);
       // Fallback to default integrations if API fails
       setIntegrations(getIntegrationsList());
       setIntegrationsLoaded(true);
+      setIntegrationsIndexId(undefined);
     }
-  }, [api, currentFlow, createdIndex?.id, user?.id]);
+  }, [integrationsService, currentFlow, createdIndex?.id, user?.onboarding?.indexId]);
 
   // Load index summary for invite members step
   const loadIndexSummary = useCallback(async () => {
@@ -150,8 +200,8 @@ export default function OnboardingPage() {
         setSummaryLoaded(false);
       }
       
-      // Get indexId from localStorage or createdIndex state
-      const indexId = (user?.id ? localStorage.getItem(`onboarding:${user.id}:index`) : null) || createdIndex?.id;
+      // Get indexId from user onboarding state or createdIndex state
+      const indexId = user?.onboarding?.indexId || createdIndex?.id;
       
       if (!indexId) {
         setCurrentStep('create_index');
@@ -200,17 +250,34 @@ export default function OnboardingPage() {
         setSummaryLoaded(true);
       }
     }
-  }, [api, createdIndex?.id, summaryLoaded, displayIntents, displayMembers, displayTotalIntents, user?.id]);
+  }, [api, createdIndex?.id, summaryLoaded, displayIntents, displayMembers, displayTotalIntents, user?.onboarding?.indexId]);
 
-  // Detect flow from query string
+  // Detect flow from query string, user onboarding state, or default
   useEffect(() => {
     const f = searchParams.get('f');
+    
+    // Only f=2 is allowed to override flow
     if (f === '2') {
       setCurrentFlow(2);
+      // Reset onboarding to flow 2 if user's current flow is different
+      if (user && user.onboarding?.flow !== 2) {
+        authService.updateOnboardingState({
+          flow: 2,
+          currentStep: 'profile',
+          indexId: null, // Clear any previous index
+          completedAt: null // Mark as not completed
+        }).then(() => {
+          refetchUser();
+        }).catch((err) => {
+          console.error('Failed to reset onboarding to flow 2:', err);
+        });
+      }
+    } else if (user?.onboarding?.flow) {
+      setCurrentFlow(user.onboarding.flow);
     } else {
       setCurrentFlow(1);
     }
-  }, [searchParams]);
+  }, [searchParams, user?.onboarding?.flow, user, authService, refetchUser]);
 
   // Initialize form fields when user data is available and determine starting step
   useEffect(() => {
@@ -218,54 +285,138 @@ export default function OnboardingPage() {
       setName(user.name || '');
       setIntro(user.intro || '');
       
-      // Check if we should skip steps based on user state and localStorage
-      // Order: intro first, index second, integrations third
-      const storedIndexId = user.id ? localStorage.getItem(`onboarding:${user.id}:index`) : null;
+      const config = FLOW_CONFIGS[currentFlow];
+      const f = searchParams.get('f');
       
-      if (currentFlow === 2) {
-        // In flow_2: profile -> create_index -> connections -> invite_members
-        if (!user.intro) {
-          // Start with profile step if intro not filled
-          setCurrentStep('profile');
-        } else if (!storedIndexId) {
-          // Intro filled but no index created yet - go to create_index
-          setCurrentStep('create_index');
-        } else {
-          // Both intro filled and index created - go to connections (integrations)
-          setCurrentStep('connections');
-        }
-        
-        // If storedIndexId exists, we know an index was created (but don't restore full state)
-        // The actual index data will be fetched from API if needed
+      // If onboarding is already completed, redirect to inbox UNLESS f=2 is present
+      if (user.onboarding?.completedAt && f !== '2') {
+        router.push('/inbox');
+        return;
+      }
+      
+      
+      // If user has a saved step in onboarding state, resume from there
+      if (user.onboarding?.currentStep && config.steps.includes(user.onboarding.currentStep)) {
+        setCurrentStep(user.onboarding.currentStep);
+        return;
+      }
+      
+      // Start with profile if intro not filled
+      if (!user.intro) {
+        setCurrentStep('profile');
+        return;
+      }
+      
+      // For flows requiring index creation, check if index exists
+      if (config.steps.includes('create_index') && !user.onboarding?.indexId) {
+        setCurrentStep('create_index');
+        return;
+      }
+      
+      // Otherwise, go to connections (next step after profile/create_index)
+      const profileIndex = config.steps.indexOf('profile');
+      const nextAfterProfile = config.steps[profileIndex + 1];
+      
+      // For community flow with index already created, skip to connections
+      if (config.steps.includes('create_index') && user.onboarding?.indexId) {
+        const createIndexIdx = config.steps.indexOf('create_index');
+        setCurrentStep(config.steps[createIndexIdx + 1] || nextAfterProfile);
       } else {
-        // In flow_1: profile -> connections -> join_indexes
-        if (!user.intro) {
-          // Start with profile step if intro not filled
-          setCurrentStep('profile');
-        } else {
-          // Intro filled - go to connections
-          setCurrentStep('connections');
-        }
+        setCurrentStep(nextAfterProfile);
       }
     }
-  }, [user, currentFlow]);
+  }, [user, currentFlow, router, searchParams]);
 
   // Load integrations when appropriate
   useEffect(() => {
-    // Only load integrations when on connections step
     if (currentStep === 'connections') {
-      // For flow_1, always load (no indexId needed)
-      // For flow_2, only load if we have an indexId
-      if (currentFlow === 1) {
-        loadIntegrations();
-      } else if (currentFlow === 2) {
-        const indexId = (user?.id ? localStorage.getItem(`onboarding:${user.id}:index`) : null) || createdIndex?.id;
-        if (indexId) {
+      const config = FLOW_CONFIGS[currentFlow];
+      
+      // Determine current indexId
+      let currentIndexId: string | undefined;
+      if (config.features.requireIndexId) {
+        currentIndexId = user?.onboarding?.indexId || createdIndex?.id || undefined;
+      }
+      
+      // Load integrations if not loaded yet OR if the indexId has changed
+      const indexIdChanged = currentIndexId !== integrationsIndexId;
+      const shouldLoad = !integrationsLoaded || indexIdChanged;
+      
+      if (shouldLoad) {
+        // If flow requires indexId, only load when we have one
+        if (config.features.requireIndexId) {
+          if (currentIndexId) {
+            loadIntegrations();
+          }
+        } else {
+          // No indexId required, load immediately
           loadIntegrations();
         }
       }
+    } else {
+      // Reset loaded state when leaving connections step
+      if (integrationsLoaded) {
+        setIntegrationsLoaded(false);
+        setIntegrationsIndexId(undefined);
+      }
     }
-  }, [currentStep, currentFlow, loadIntegrations, createdIndex?.id, user?.id]);
+  }, [currentStep, currentFlow, createdIndex?.id, user?.onboarding?.indexId, integrationsLoaded, integrationsIndexId, loadIntegrations]);
+
+  // Poll queue status when on connections step
+  useEffect(() => {
+    const fetchQueueStatus = async () => {
+      try {
+        const response = await api.get<{ jobCounts?: Record<string, { pending: number; active: number; completed: number }>; totalPending?: number }>('/queue/status');
+        // Map the response from jobCounts to friendly property names
+        if (response?.jobCounts) {
+          const status: QueueStatus = {
+            indexIntent: response.jobCounts['index_intent'] || { pending: 0, active: 0, completed: 0 },
+            generateIntents: response.jobCounts['generate_intents'] || { pending: 0, active: 0, completed: 0 },
+            semanticRelevancy: response.jobCounts['broker_semantic_relevancy'] || { pending: 0, active: 0, completed: 0 },
+            totalPending: response.totalPending || 0
+          };
+          setQueueStatus(status);
+        }
+      } catch {
+        // Silently fail - queue status is not critical
+        setQueueStatus(null);
+      }
+    };
+
+    if (currentStep === 'connections') {
+      // Initial fetch
+      fetchQueueStatus();
+      
+      // Poll every 3 seconds
+      const interval = setInterval(() => {
+        fetchQueueStatus();
+      }, 1000);
+      
+      return () => clearInterval(interval);
+    } else {
+      // Reset when leaving connections step
+      setQueueStatus(null);
+    }
+  }, [currentStep, api]);
+
+  // Load public indexes when on join_indexes step
+  useEffect(() => {
+    const loadPublicIndexes = async () => {
+      if (currentStep === 'join_indexes' && !publicIndexesLoaded) {
+        try {
+          const response = await indexService.discoverPublicIndexes(1, 20);
+          setPublicIndexes(response.indexes || []);
+          setPublicIndexesLoaded(true);
+        } catch (error) {
+          console.error('Failed to load public indexes:', error);
+          // Keep mock data as fallback
+          setPublicIndexesLoaded(true);
+        }
+      }
+    };
+
+    loadPublicIndexes();
+  }, [currentStep, publicIndexesLoaded, indexService]);
 
   // Load index summary when reaching invite_members step and reload every second
   useEffect(() => {
@@ -284,13 +435,20 @@ export default function OnboardingPage() {
   }, [currentStep, loadIndexSummary]);
 
   const uploadAvatar = async (file: File): Promise<string> => {
-    const result = await api.uploadFile<AvatarUploadResponse>('/upload/avatar', file, undefined, 'avatar');
-    return result.avatarFilename;
+    return await authService.uploadAvatar(file);
   };
 
   const handleAvatarChange = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
+      // Validate avatar file
+      const validation = validateFiles([file], 'avatar');
+      if (!validation.isValid) {
+        error(validation.message || 'Invalid file');
+        e.target.value = '';
+        return;
+      }
+      
       setAvatarFile(file);
       const reader = new FileReader();
       reader.onload = () => setAvatarPreview(reader.result as string);
@@ -298,39 +456,23 @@ export default function OnboardingPage() {
     }
   };
 
-  // Navigation helpers based on flow
+  // Navigation helpers using flow configuration
+  const flowConfig = FLOW_CONFIGS[currentFlow];
+  
   const getNextStep = (currentStep: OnboardingStep): OnboardingStep => {
-    if (currentFlow === 1) {
-      switch (currentStep) {
-        case 'profile': return 'connections';
-        case 'connections': return 'join_indexes';
-        default: return 'join_indexes';
-      }
-    } else { // flow_2
-      switch (currentStep) {
-        case 'profile': return 'create_index';
-        case 'create_index': return 'connections';
-        case 'connections': return 'invite_members';
-        default: return 'invite_members';
-      }
+    const currentIndex = flowConfig.steps.indexOf(currentStep);
+    if (currentIndex >= 0 && currentIndex < flowConfig.steps.length - 1) {
+      return flowConfig.steps[currentIndex + 1];
     }
+    return currentStep; // Stay on current step if it's the last one
   };
 
   const getPreviousStep = (currentStep: OnboardingStep): OnboardingStep => {
-    if (currentFlow === 1) {
-      switch (currentStep) {
-        case 'connections': return 'profile';
-        case 'join_indexes': return 'connections';
-        default: return 'profile';
-      }
-    } else { // flow_2
-      switch (currentStep) {
-        case 'create_index': return 'profile';
-        case 'connections': return 'create_index';
-        case 'invite_members': return 'connections';
-        default: return 'profile';
-      }
+    const currentIndex = flowConfig.steps.indexOf(currentStep);
+    if (currentIndex > 0) {
+      return flowConfig.steps[currentIndex - 1];
     }
+    return flowConfig.steps[0]; // Return to first step if already at the beginning
   };
 
   const handleProfileSubmit = async () => {
@@ -344,22 +486,25 @@ export default function OnboardingPage() {
         avatarFilename = await uploadAvatar(avatarFile);
       }
       
-      const response = await api.patch<APIResponse<User>>('/auth/profile', {
+      const updatedUser = await authService.updateProfile({
         name: name.trim(),
         intro: intro.trim(),
         avatar: avatarFilename || undefined,
       });
       
-      if (response.user) {
+      if (updatedUser) {
+        // Save onboarding state: flow and next step
+        const nextStep = getNextStep('profile');
+        await authService.updateOnboardingState({
+          flow: currentFlow,
+          currentStep: nextStep
+        });
+        
         // Refetch user data in AuthContext to keep it in sync
         await refetchUser();
         
-        // For flow1, complete onboarding after profile step
-        if (currentFlow === 1) {
-          await handleCompleteOnboarding();
-        } else {
-          setCurrentStep(getNextStep('profile'));
-        }
+        // Move to next step based on current flow
+        setCurrentStep(nextStep);
       }
     } catch (err) {
       console.error('Error updating profile:', err);
@@ -384,16 +529,23 @@ export default function OnboardingPage() {
       } else {
         const popup = typeof window !== 'undefined' ? window.open('', `oauth_${type}`, 'width=560,height=720') : null;
         
-        // Get indexId from localStorage or createdIndex state
-        const indexId = (user?.id ? localStorage.getItem(`onboarding:${user.id}:index`) : null) || createdIndex?.id;
+        const config = FLOW_CONFIGS[currentFlow];
         
-        // indexId is required by the backend API
-        if (!indexId) {
-          error('Index ID is required to connect integrations');
-          return;
+        // Build payload based on flow configuration
+        const payload: { indexId?: string; enableUserAttribution: boolean } = {
+          enableUserAttribution: config.features.enableUserAttribution
+        };
+        
+        if (config.features.requireIndexId) {
+          const indexId = user?.onboarding?.indexId || createdIndex?.id;
+          if (!indexId) {
+            error('Index ID is required to connect integrations');
+            return;
+          }
+          payload.indexId = indexId;
         }
         
-        const res = await integrationsService.connectIntegration(type, { indexId });
+        const res = await integrationsService.connectIntegration(type, payload);
         const redirect = res.redirectUrl;
         const integrationId = res.integrationId;
         
@@ -440,24 +592,38 @@ export default function OnboardingPage() {
     } finally {
       setPendingIntegration(null);
     }
-  }, [integrationsService, integrations, success, error, loadIntegrations, createdIndex?.id, user?.id]);
+  }, [integrationsService, integrations, success, error, loadIntegrations, createdIndex?.id, currentFlow, user?.onboarding?.indexId]);
 
   const handleFilesSelected = useCallback(async (f: FileList | null) => {
     if (!f || f.length === 0) return;
+    
+    // Validate files before uploading
+    const files = Array.from(f);
+    const validation = validateFiles(files, 'general');
+    if (!validation.isValid) {
+      error(validation.message || 'Invalid file');
+      return;
+    }
+    
     setIsUploading(true);
     try {
-      const uploadedFiles = await Promise.all(Array.from(f).map(async file => {
-        const res = await api.uploadFile<{ file: { id: string; name: string; size: string; type: string } }>(`/files`, file);
-        return res.file;
+      const uploadedFiles = await Promise.all(files.map(async (file: File) => {
+        return await filesService.uploadFile(file);
       }));
-      setFiles(prev => [...prev, ...uploadedFiles]);
+      setFiles(prev => [...prev, ...uploadedFiles.map(f => ({
+        id: f.id,
+        name: f.name,
+        size: String(f.size),
+        type: f.type,
+        createdAt: f.createdAt || new Date().toISOString()
+      }))]);
       success(`${uploadedFiles.length} file(s) uploaded`);
     } catch {
       error('Failed to upload files');
     } finally {
       setIsUploading(false);
     }
-  }, [api, success, error]);
+  }, [filesService, success, error]);
 
   const handleAddLink = useCallback(async () => {
     if (!linkUrl.trim()) return;
@@ -469,8 +635,12 @@ export default function OnboardingPage() {
     
     try {
       setIsAddingLink(true);
-      const res = await api.post<{ link: { id: string; url: string } }>(`/links`, { url: normalizedUrl });
-      setLinks(prev => [...prev, res.link]);
+      const link = await linksService.createLink(normalizedUrl);
+      setLinks(prev => [...prev, {
+        id: link.id,
+        url: link.url,
+        createdAt: link.createdAt || new Date().toISOString()
+      }]);
       setLinkUrl("");
       success('Link added successfully');
     } catch {
@@ -478,7 +648,27 @@ export default function OnboardingPage() {
     } finally {
       setIsAddingLink(false);
     }
-  }, [api, linkUrl, success, error]);
+  }, [linksService, linkUrl, success, error]);
+
+  const handleDeleteFile = useCallback(async (fileId: string) => {
+    try {
+      await filesService.deleteFile(fileId);
+      setFiles(prev => prev.filter(f => f.id !== fileId));
+      success('File deleted');
+    } catch {
+      error('Failed to delete file');
+    }
+  }, [filesService, success, error]);
+
+  const handleDeleteLink = useCallback(async (linkId: string) => {
+    try {
+      await linksService.deleteLink(linkId);
+      setLinks(prev => prev.filter(l => l.id !== linkId));
+      success('Link deleted');
+    } catch {
+      error('Failed to delete link');
+    }
+  }, [linksService, success, error]);
 
   const handleCreateIndex = async () => {
     if (!indexName.trim() || !user?.id) return;
@@ -500,11 +690,21 @@ export default function OnboardingPage() {
       
       setCreatedIndex(indexData);
       
-      // Store only indexId in localStorage for future onboarding sessions (user-specific)
-      localStorage.setItem(`onboarding:${user.id}:index`, indexData.id);
+      // Save index ID to onboarding state in database
+      const nextStep = getNextStep('create_index');
+      await authService.updateOnboardingState({
+        indexId: indexData.id,
+        currentStep: nextStep
+      });
+      
+      // Refresh indexes context to include the newly created index
+      await refreshIndexes();
+      
+      // Refetch user to get updated onboarding state
+      await refetchUser();
       
       success('Index created successfully!');
-      setCurrentStep(getNextStep('create_index'));
+      setCurrentStep(nextStep);
     } catch (err) {
       console.error('Error creating index:', err);
       error('Failed to create index');
@@ -531,11 +731,18 @@ export default function OnboardingPage() {
     
     try {
       setIsLoading(true);
-      // Mark onboarding as completed and clean up temporary data (user-specific)
-      localStorage.setItem(`onboarding:${user.id}:isCompleted`, Date.now().toString());
       
-      // Clean up onboarding-specific localStorage items
-      localStorage.removeItem(`onboarding:${user.id}:index`);
+      // NO LONGER NEEDED - invitation already accepted before onboarding started!
+      // Just mark onboarding as completed
+      await authService.updateOnboardingState({
+        completedAt: new Date().toISOString()
+      });
+      
+      // Refresh indexes to ensure sidebar shows newly joined indexes
+      await refreshIndexes();
+      
+      // Refetch user to get updated onboarding state
+      await refetchUser();
       
       router.push('/inbox');
     } catch (error) {
@@ -551,7 +758,7 @@ export default function OnboardingPage() {
         return (
           <div className="max-w-3xl mx-auto">
             <div className="mb-8">
-              <h1 className="text-2xl font-bold text-black mb-4 font-ibm-plex-mono">Tell us who you are.</h1>
+              <h1 className="text-2xl font-bold text-black mb-2 font-ibm-plex-mono">Introduce yourself</h1>
               <p className="text-black text-[14px] font-ibm-plex-mono">
                 Set up your profile to get started with Index Network.
               </p>
@@ -591,7 +798,7 @@ export default function OnboardingPage() {
                   <input
                     ref={fileInputRef}
                     type="file"
-                    accept="image/*"
+                    accept={getSupportedFileExtensions('avatar')}
                     onChange={handleAvatarChange}
                     className="hidden"
                   />
@@ -599,10 +806,10 @@ export default function OnboardingPage() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-black mb-3 font-ibm-plex-mono">Name Surname</label>
+                <label className="block text-sm font-medium text-black mb-3 font-ibm-plex-mono">Name</label>
                 <Input
                   type="text"
-                  placeholder="Enter your name"
+                  placeholder="John Doe"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   className="w-full"
@@ -635,86 +842,124 @@ export default function OnboardingPage() {
       case 'connections':
         return (
           <div className="max-w-3xl mx-auto">
-            <div className="mb-8">
-              <h1 className="text-2xl font-bold text-black mb-4 font-ibm-plex-mono">Connect your accounts</h1>
-              <p className="text-black text-[14px] font-ibm-plex-mono">
-                {currentFlow === 1
-                  ? "Link the places you already work and share. Nobody gets notified, and it's only used to understand what you're looking for."
-                  : "Link the platforms where your people already works and shares. Nobody gets notified for now. We recommend connecting every account you use regularly so Index has a full picture of your ecosystem."}
+            <div className="mb-4">
+              <h1 className="text-2xl font-bold text-black mb-2 font-ibm-plex-mono">Connect your context</h1>
+              <p className="text-black text-[14px] font-ibm-plex-mono mb-6">
+                Help Index understand what you're working on and looking for by connecting your accounts and sharing relevant content.
               </p>
+              
+              {/* Queue Status */}
+              {queueStatus?.generateIntents && ((queueStatus.generateIntents.pending ?? 0) > 0 || (queueStatus.generateIntents.active ?? 0) > 0) && (
+                <div className="mb-3 text-[10px] font-ibm-plex-mono text-[#666] bg-[#F8F9FA] px-2 py-1.5 rounded-sm border border-[#E0E0E0]">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="flex items-center gap-1">
+                      {(queueStatus.generateIntents.active ?? 0) > 0 && (
+                        <span className="h-1.5 w-1.5 bg-[#0A8F5A] rounded-full animate-pulse"></span>
+                      )}
+                      Generating Intents
+                    </span>
+                    <span className="font-medium">
+                      {(queueStatus.generateIntents.active ?? 0) > 0 && (
+                        `${queueStatus.generateIntents.active} task${queueStatus.generateIntents.active === 1 ? '' : 's'} active`
+                      )}
+                      {(queueStatus.generateIntents.active ?? 0) > 0 && (queueStatus.generateIntents.pending ?? 0) > 0 && ' • '}
+                      {(queueStatus.generateIntents.pending ?? 0) > 0 && (
+                        `${queueStatus.generateIntents.pending} task${queueStatus.generateIntents.pending === 1 ? '' : 's'} pending`
+                      )}
+                    </span>
+                  </div>
+                </div>
+              )}
+              
+              <h2 className="text-lg font-bold text-black font-ibm-plex-mono">Connect accounts</h2>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
-              {integrations.map((integration) => (
-                <div key={integration.type} className="border border-b-2 border-[#000] p-4 bg-white">
-                  <div className="flex items-center justify-between mb-0">
-                    <div className="flex items-center gap-3">
-                      <Image 
-                        src={`/integrations/${integration.type}.png?3`} 
-                        width={24} 
-                        height={24} 
-                        alt={integration.name}
-                      />
-                      <span className="font-small text-black font-ibm-plex-mono text-[14px]">{integration.name}</span>
-                    </div>
-                    {!integrationsLoaded ? (
-                      // Show loading placeholder for toggle only
-                      <div className="w-11 h-6 bg-[#F5F5F5] rounded-full animate-pulse" />
-                    ) : (
-                      <button
-                        onClick={() => toggleIntegration(integration.type)}
-                        disabled={pendingIntegration === integration.type}
-                        className={`relative h-6 w-11 rounded-full transition-colors duration-200 ${
-                          integration.connected ? 'bg-[#006D4B]' : 'bg-[#D9D9D9]'
-                        } ${pendingIntegration === integration.type ? 'opacity-70' : ''}`}
-                      >
-                        <span
-                          className={`absolute top-[1px] left-[1px] h-[22px] w-[22px] rounded-full bg-white transition-transform duration-200 shadow-sm ${
-                            integration.connected ? 'translate-x-5' : 'translate-x-0'
-                          }`}
-                        />
-                        {pendingIntegration === integration.type && (
-                          <span className="absolute inset-0 grid place-items-center">
-                          <span
-                            className={`h-3 w-3 border-2 border-white/70 border-t-transparent rounded-full animate-spin`}
-                            style={{
-                              marginLeft: integration.connected ? "-20px" : "20px"
-                            }}
+              {integrations
+                .filter((integration) => {
+                  // Filter out Slack/Discord if not enabled for this flow
+                  if (!flowConfig.features.showSlackDiscord && (integration.type === 'slack' || integration.type === 'discord')) {
+                    return false;
+                  }
+                  return true;
+                })
+                .map((integration) => {
+                  return (
+                    <div 
+                      key={integration.type} 
+                      className="border border-b-2 border-[#000] p-4 bg-white"
+                    >
+                      <div className="flex items-center justify-between mb-0">
+                        <div className="flex items-center gap-3">
+                          <Image 
+                            src={`/integrations/${integration.type}.png?3`} 
+                            width={24} 
+                            height={24} 
+                            alt={integration.name}
                           />
-                        </span>
+                          <span className="font-small text-black font-ibm-plex-mono text-[14px]">{integration.name}</span>
+                        </div>
+                        {!integrationsLoaded ? (
+                          // Show loading placeholder for toggle only
+                          <div className="w-11 h-6 bg-[#F5F5F5] rounded-full animate-pulse" />
+                        ) : (
+                          <button
+                            onClick={() => toggleIntegration(integration.type)}
+                            disabled={pendingIntegration === integration.type}
+                            className={`relative h-6 w-11 rounded-full transition-colors duration-200 ${
+                              integration.connected ? 'bg-[#006D4B]' : 'bg-[#D9D9D9]'
+                            } ${pendingIntegration === integration.type ? 'opacity-70' : ''}`}
+                          >
+                            <span
+                              className={`absolute top-[1px] left-[1px] h-[22px] w-[22px] rounded-full bg-white transition-transform duration-200 shadow-sm ${
+                                integration.connected ? 'translate-x-5' : 'translate-x-0'
+                              }`}
+                            />
+                            {pendingIntegration === integration.type && (
+                              <span className="absolute inset-0 grid place-items-center">
+                              <span
+                                className={`h-3 w-3 border-2 border-white/70 border-t-transparent rounded-full animate-spin`}
+                                style={{
+                                  marginLeft: integration.connected ? "-20px" : "20px"
+                                }}
+                              />
+                            </span>
+                            )}
+                          </button>
                         )}
-                      </button>
-                    )}
-                  </div>
-                </div>
-              ))}
+                      </div>
+                    </div>
+                  );
+                })}
             </div>
 
-            {currentFlow === 1 && (
-              <div className="mb-8">
-                <h2 className="text-lg font-bold text-black mb-4 font-ibm-plex-mono">
-                  Add context files & links
-                  </h2>
-                
-                <p className="text-black text-[14px] font-ibm-plex-mono mb-6">
-                  Add text-based context – for example, a <strong>research note</strong>, a <strong>draft proposal</strong>, or a <strong>blogpost</strong> you wrote or found inspiring.
-                </p>
+            <div className="mb-2">
+              <h2 className="text-lg font-bold text-black mb-2 font-ibm-plex-mono">
+                Add from files & web
+              </h2>
+              
+              <p className="text-black text-[14px] font-ibm-plex-mono mb-6">
+                Upload documents or add links to content that represents your work and interests—like research notes, articles, proposals, or blog posts.
+              </p>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-2 md:gap-3 mb-4">
-                  <div className="border border-[#E0E0E0] rounded-lg">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2 md:gap-3">
+                  {/* File upload */}
+                  <div className="border border-[#E0E0E0] rounded-sm">
                     <div className="relative w-full">
                       <input
                         ref={fileInputRef}
                         type="file"
                         multiple
                         className="hidden"
+                        id="onboarding-file-upload"
+                        accept={getSupportedFileExtensions('general')}
                         onChange={(e) => handleFilesSelected(e.target.files)}
                       />
                       <button
                         type="button"
                         onClick={() => fileInputRef.current?.click()}
                         disabled={isUploading}
-                        className="w-full h-10 px-3 py-2 text-sm font-ibm-plex-mono bg-white text-black hover:bg-[#F0F0F0] transition-colors disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(0,109,75,0.35)] focus-visible:ring-offset-0 rounded-lg flex items-center justify-center gap-1.5"
+                        className="w-full h-10 px-3 py-2 text-sm font-ibm-plex-mono bg-white text-[#333] hover:bg-[#F0F0F0] transition-colors disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(0,109,75,0.35)] focus-visible:ring-offset-0 rounded-sm flex items-center justify-center gap-1.5"
                       >
                         {isUploading ? (
                           <>
@@ -734,7 +979,8 @@ export default function OnboardingPage() {
                     </div>
                   </div>
 
-                  <div className="border border-[#E0E0E0] rounded-lg">
+                  {/* Link input */}
+                  <div className="border border-[#E0E0E0] rounded-sm">
                     <div className="relative w-full">
                       <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-sm pointer-events-none">
                         🔗
@@ -744,7 +990,7 @@ export default function OnboardingPage() {
                         value={linkUrl}
                         onChange={(e) => setLinkUrl(e.target.value)}
                         onKeyDown={(e) => { if (e.key === "Enter") handleAddLink(); }}
-                        className="text-sm bg-white rounded-lg font-ibm-plex-mono w-full pl-10 pr-10 focus:ring-2 focus:ring-[rgba(0,0,0,0.1)] border-0"
+                        className="text-sm bg-white rounded-sm font-ibm-plex-mono w-full pl-10 pr-10 focus:ring-2 focus:ring-[rgba(0,0,0,0.1)] border-0"
                       />
                       {isAddingLink ? (
                         <div className="absolute right-3 top-1/2 transform -translate-y-1/2 w-6 h-6 border-2 border-[#DDDDDD] border-t-transparent rounded-full animate-spin" />
@@ -752,7 +998,7 @@ export default function OnboardingPage() {
                         <button
                           onClick={handleAddLink}
                           disabled={!linkUrl}
-                          className="absolute right-2 top-1/2 transform -translate-y-1/2 p-1 hover:bg-[#F0F0F0] rounded-lg cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(0,109,75,0.35)] focus-visible:ring-offset-0"
+                          className="absolute right-2 top-1/2 transform -translate-y-1/2 p-1 hover:bg-[#F0F0F0] rounded-sm cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(0,109,75,0.35)] focus-visible:ring-offset-0"
                           aria-label="Add URL"
                         >
                           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-[#666]">
@@ -766,31 +1012,79 @@ export default function OnboardingPage() {
                 </div>
 
                 {(files.length > 0 || links.length > 0) && (
-                  <div className="space-y-2">
+                  <div className="space-y-2 pt-3 max-h-[300px] overflow-y-auto">
                     {files.map((file) => (
-                      <div key={file.id} className="flex items-center gap-2 p-2 bg-[#F8F9FA] rounded-lg">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-[#666]">
-                          <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"></path>
-                          <polyline points="14,2 14,8 20,8"></polyline>
-                        </svg>
-                        <span className="text-sm text-black font-ibm-plex-mono">{file.name}</span>
+                      <div
+                        key={file.id}
+                        className="group w-full border rounded-sm px-2.5 py-2 transition-colors md:px-3 border-[#E0E0E0] bg-white hover:border-[#CCCCCC]"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2 min-w-0 flex-1">
+                            <span className="text-[10px] px-1.5 py-0.5 border border-[#E0E0E0] rounded-sm font-ibm-plex-mono text-[#333] bg-[#F5F5F5]">
+                              {getFileCategoryBadge(file.name, file.type)}
+                            </span>
+                            <span className="text-sm text-[#333] truncate font-medium">{file.name}</span>
+                          </div>
+                          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-150">
+                            <button
+                              className="group p-1 hover:bg-[#F0F0F0] rounded-sm cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(0,109,75,0.35)] focus-visible:ring-offset-0"
+                              onClick={() => handleDeleteFile(file.id)}
+                              aria-label="Delete file"
+                            >
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-[#666] group-hover:text-[#333] transition-colors duration-150 ease-in-out">
+                                <polyline points="3,6 5,6 21,6"></polyline>
+                                <path d="m19,6v14a2,2 0 0,1 -2,2H7a2,2 0 0,1 -2,-2V6m3,0V4a2,2 0 0,1 2,-2h4a2,2 0 0,1 2,2v2"></path>
+                                <line x1="10" y1="11" x2="10" y2="17"></line>
+                                <line x1="14" y1="11" x2="14" y2="17"></line>
+                              </svg>
+                            </button>
+                          </div>
+                        </div>
+                        <div className="text-xs text-[#666] mt-1 truncate font-ibm-plex-mono">
+                          {formatFileSize(typeof file.size === 'bigint' ? Number(file.size) : (typeof file.size === 'string' ? parseInt(file.size) : file.size))} • {file.createdAt ? formatDate(file.createdAt).split(',')[0] : 'Recently added'}
+                        </div>
                       </div>
                     ))}
                     {links.map((link) => (
-                      <div key={link.id} className="flex items-center gap-2 p-2 bg-[#F8F9FA] rounded-lg">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-[#666]">
-                          <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path>
-                          <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path>
-                        </svg>
-                        <span className="text-sm text-black font-ibm-plex-mono truncate">{link.url}</span>
+                      <div
+                        key={link.id}
+                        className="group w-full border rounded-sm px-2.5 py-2 transition-colors md:px-3 border-[#E0E0E0] bg-white hover:border-[#CCCCCC]"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2 min-w-0 flex-1">
+                            <div className="flex-shrink-0">
+                              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-[#666]">
+                                <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path>
+                                <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path>
+                              </svg>
+                            </div>
+                            <span className="text-sm text-[#333] truncate font-medium">{link.url}</span>
+                          </div>
+                          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-150">
+                            <button
+                              className="group p-1 hover:bg-[#F0F0F0] rounded-sm cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(0,109,75,0.35)] focus-visible:ring-offset-0"
+                              onClick={() => handleDeleteLink(link.id)}
+                              aria-label="Delete link"
+                            >
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-[#666] group-hover:text-[#333] transition-colors duration-150 ease-in-out">
+                                <polyline points="3,6 5,6 21,6"></polyline>
+                                <path d="m19,6v14a2,2 0 0,1 -2,2H7a2,2 0 0,1 -2,-2V6m3,0V4a2,2 0 0,1 2,-2h4a2,2 0 0,1 2,2v2"></path>
+                                <line x1="10" y1="11" x2="10" y2="17"></line>
+                                <line x1="14" y1="11" x2="14" y2="17"></line>
+                              </svg>
+                            </button>
+                          </div>
+                        </div>
+                        <div className="text-xs text-[#666] mt-1 truncate font-ibm-plex-mono">
+                          {link.createdAt ? formatDate(link.createdAt) : 'Recently added'}
+                        </div>
                       </div>
                     ))}
                   </div>
                 )}
               </div>
-            )}
 
-            <div className="flex gap-3">
+            <div className="flex gap-3 mt-6">
               <Button
                 variant="outline"
                 onClick={() => setCurrentStep(getPreviousStep('connections'))}
@@ -799,10 +1093,18 @@ export default function OnboardingPage() {
                 Back
               </Button>
               <Button
-                onClick={() => setCurrentStep(getNextStep('connections'))}
+                onClick={() => {
+                  const nextStep = getNextStep('connections');
+                  // If this is the last step, complete onboarding
+                  if (nextStep === 'connections') {
+                    handleCompleteOnboarding();
+                  } else {
+                    setCurrentStep(nextStep);
+                  }
+                }}
                 className="flex-1 bg-[#000] text-white hover:bg-black font-ibm-plex-mono"
               >
-                Next
+                {getNextStep('connections') === 'connections' ? 'Complete Onboarding' : 'Next'}
               </Button>
 
             </div>
@@ -824,7 +1126,7 @@ export default function OnboardingPage() {
                 <label className="block text-sm font-bold text-black mb-3 font-ibm-plex-mono">Index Name</label>
                 <Input
                   type="text"
-                  placeholder="Enter your name"
+                  placeholder="John"
                   value={indexName}
                   onChange={(e) => setIndexName(e.target.value)}
                   onKeyDown={(e) => {
@@ -1042,47 +1344,112 @@ export default function OnboardingPage() {
         );
 
       case 'join_indexes':
+        const indexesToShow = publicIndexes.length > 0 ? publicIndexes : mockIndexes.map(m => ({
+          id: m.id,
+          title: m.name,
+          prompt: m.description,
+          permissions: null,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          user: { id: '', name: '', email: null, avatar: null },
+          _count: { members: m.members, files: 0 },
+          isMember: false
+        }));
+
+        const handleToggleJoin = async (index: typeof indexesToShow[number]) => {
+          // Skip if this is mock data
+          if (!publicIndexes.length && mockIndexes.find(m => m.id === index.id)) {
+            // Just toggle for mock data
+            setSelectedIndexes(prev => {
+              const next = new Set(prev);
+              if (next.has(index.id)) {
+                next.delete(index.id);
+              } else {
+                next.add(index.id);
+              }
+              return next;
+            });
+            return;
+          }
+
+          if (index.isMember || selectedIndexes.has(index.id)) {
+            // Already joined, don't do anything
+            return;
+          }
+
+          try {
+            setIsJoiningIndex(index.id);
+            await indexService.joinIndex(index.id);
+            setSelectedIndexes(prev => new Set(prev).add(index.id));
+            success(`Joined ${index.title}!`);
+            // Update the index in the list
+            setPublicIndexes(prev => prev.map(idx => 
+              idx.id === index.id ? { ...idx, isMember: true } : idx
+            ));
+            // Refresh indexes context
+            await refreshIndexes();
+          } catch (err) {
+            console.error('Failed to join index:', err);
+            error('Failed to join index');
+          } finally {
+            setIsJoiningIndex(null);
+          }
+        };
+
         return (
           <div className="max-w-4xl mx-auto">
             <div className="mb-8">
-              <h1 className="text-2xl font-bold text-black mb-4 font-ibm-plex-mono">Step into the right indexes.</h1>
+              <h1 className="text-2xl font-bold text-black mb-4 font-ibm-plex-mono">Step into the right indexes</h1>
               <p className="text-black text-[14px] font-ibm-plex-mono">
               Based on your profile, here are networks where people are already sharing opportunities and ideas.
               </p>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
-              {mockIndexes.map((index) => (
-                <div key={index.id} className="border border-[#E0E0E0] rounded-lg p-6 bg-white">
-                  <div className="text-center">
-                    <h3 className="text-lg font-bold text-black mb-2 font-ibm-plex-mono">{index.name}</h3>
-                    <p className="text-sm text-[#666] mb-4 font-ibm-plex-mono">{index.description}</p>
-                    <p className="text-xs text-[#888] mb-4 font-ibm-plex-mono">{index.members.toLocaleString()} members</p>
-                    <Button
-                      variant={selectedIndexes.has(index.id) ? "default" : "outline"}
-                      onClick={() => {
-                        setSelectedIndexes(prev => {
-                          const next = new Set(prev);
-                          if (next.has(index.id)) {
-                            next.delete(index.id);
-                          } else {
-                            next.add(index.id);
-                          }
-                          return next;
-                        });
-                      }}
-                      className={`w-full font-ibm-plex-mono ${
-                        selectedIndexes.has(index.id)
-                          ? 'bg-[#006D4B] text-white hover:bg-[#005A3E]'
-                          : 'border-[#E0E0E0] text-black hover:bg-[#F0F0F0]'
-                      }`}
-                    >
-                      {selectedIndexes.has(index.id) ? 'Joined' : 'Join'}
-                    </Button>
-                  </div>
-                </div>
-              ))}
-            </div>
+            {!publicIndexesLoaded ? (
+              <div className="flex justify-center py-12">
+                <div className="h-8 w-8 border-2 border-gray-300 border-t-black rounded-full animate-spin" />
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
+                {indexesToShow.map((index) => {
+                  const isJoined = index.isMember || selectedIndexes.has(index.id);
+                  const isJoining = isJoiningIndex === index.id;
+                  
+                  return (
+                    <div key={index.id} className="border border-[#E0E0E0] rounded-lg p-6 bg-white">
+                      <div className="text-center">
+                        <h3 className="text-lg font-bold text-black mb-2 font-ibm-plex-mono">{index.title}</h3>
+                        <p className="text-sm text-[#666] mb-4 font-ibm-plex-mono">{index.prompt || 'No description'}</p>
+                        <p className="text-xs text-[#888] mb-4 font-ibm-plex-mono">
+                          {index._count.members.toLocaleString()} members
+                        </p>
+                        <Button
+                          variant={isJoined ? "default" : "outline"}
+                          onClick={() => handleToggleJoin(index)}
+                          disabled={isJoined || isJoining}
+                          className={`w-full font-ibm-plex-mono ${
+                            isJoined
+                              ? 'bg-[#006D4B] text-white hover:bg-[#005A3E]'
+                              : 'border-[#E0E0E0] text-black hover:bg-[#F0F0F0]'
+                          }`}
+                        >
+                          {isJoining ? (
+                            <>
+                              <span className="h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2 inline-block" />
+                              Joining...
+                            </>
+                          ) : isJoined ? (
+                            'Joined'
+                          ) : (
+                            'Join'
+                          )}
+                        </Button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
 
             <div className="flex gap-3">
               <Button
@@ -1097,7 +1464,7 @@ export default function OnboardingPage() {
                 disabled={isLoading}
                 className="flex-1 bg-[#000] text-white hover:bg-black font-ibm-plex-mono"
               >
-                {isLoading ? 'Finishing...' : 'Next'}
+                {isLoading ? 'Finishing...' : 'Complete Onboarding'}
               </Button>
             </div>
           </div>

@@ -2,7 +2,6 @@ import { Router, Response } from 'express';
 import { body, param, validationResult } from 'express-validator';
 import { authenticatePrivy, AuthRequest } from '../middleware/auth';
 import { discoverUsers } from '../lib/discover';
-import { getIndexWithPermissions } from '../lib/index-access';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
@@ -11,10 +10,11 @@ import db from '../lib/db';
 import { files, indexLinks } from '../lib/schema';
 import { eq } from 'drizzle-orm';
 import { getUploadsPath } from '../lib/paths';
-import { processUploadedFiles } from '../lib/file-processing';
+import { processUploadedFiles } from '../lib/uploads';
 import { crawlLinksForIndex } from '../lib/crawl/web_crawler';
 import { analyzeObjects } from '../agents/core/intent_inferrer';
 import { IntentService } from '../services/intent-service';
+import { createUploadClient, cleanupUploadedFiles } from '../lib/uploads';
 
 const router = Router();
 
@@ -27,32 +27,7 @@ declare global {
   }
 }
 
-// Configure multer for file uploads (permanent storage)
-const baseUploadDir = getUploadsPath('files');
-if (!fs.existsSync(baseUploadDir)) fs.mkdirSync(baseUploadDir, { recursive: true });
-
-const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    const userId = (req as AuthRequest).user!.id;
-    const userDir = getUploadsPath('files', userId);
-    if (!fs.existsSync(userDir)) fs.mkdirSync(userDir, { recursive: true });
-    cb(null, userDir);
-  },
-  filename: function (req, file, cb) {
-    // Generate UUID that will be used as file ID
-    const fileId = uuidv4();
-    const extension = path.extname(file.originalname);
-    req.generatedFileId = fileId;
-    cb(null, fileId + extension);
-  }
-});
-
-const upload = multer({ 
-  storage: storage,
-  limits: {
-    fileSize: 100 * 1024 * 1024, // 100MB limit
-  },
-});
+// Multer will be created per request in the route handler
 
 // Helper function to validate URL
 function isValidUrlCandidate(u: string): boolean {
@@ -74,7 +49,14 @@ function extractUrlsFromText(text: string): string[] {
 // 🚀 Route: Process discovery form - upload files, extract URLs, and generate intents
 router.post('/new',
   authenticatePrivy,
-  upload.array('files', 10),
+  (req: AuthRequest, res: Response, next: any) => {
+    try {
+      const upload = createUploadClient('discovery', req.user!.id);
+      upload.array('files', 10)(req as any, res as any, next);
+    } catch (error) {
+      next(error);
+    }
+  },
   [body('payload').optional().isString()],
   async (req: AuthRequest, res: Response) => {
     const uploadedFiles = req.files as Express.Multer.File[];
@@ -95,6 +77,8 @@ router.post('/new',
       if ((!uploadedFiles || uploadedFiles.length === 0) && !payload) {
         return res.status(400).json({ error: 'Must provide either files or payload text' });
       }
+
+      // Files are already validated by multer fileFilter and limits
 
       const savedFileIds: string[] = [];
       const savedLinkIds: string[] = [];
@@ -120,9 +104,13 @@ router.post('/new',
         }
 
         // Process files to extract content
-        const fileContent = await processUploadedFiles(uploadedFiles);
-        if (fileContent.trim()) {
-          combinedContent += fileContent + '\n\n';
+        const fileResult = await processUploadedFiles(uploadedFiles);
+        if (fileResult.content.trim()) {
+          combinedContent += fileResult.content + '\n\n';
+        }
+        // Log any processing errors but don't fail the request
+        if (fileResult.errors.length > 0) {
+          console.warn('File processing errors:', fileResult.errors);
         }
       }
 
@@ -395,61 +383,6 @@ router.post("/filter",
   }
 });
 
-// Get stakes for users within a specific shared index, grouped by user
-router.get('/index/share/:code/by-user',
-  authenticatePrivy,
-  [param('code').isUUID()],
-  async (req: AuthRequest, res: Response) => {
-    try {
-      const errors = validationResult(req);
-      if (!errors.isEmpty()) {
-        return res.status(400).json({ errors: errors.array() });
-      }
 
-      const { code } = req.params;
-
-      // Check access to the shared index
-      const accessCheck = await getIndexWithPermissions({ code });
-      if (!accessCheck.hasAccess) {
-        return res.status(accessCheck.status!).json({ error: accessCheck.error });
-      }
-
-      const sharedIndexData = accessCheck.indexData!;
-
-      // Check if the shared index has can-discover permission
-      if (!accessCheck.memberPermissions?.includes('can-discover')) {
-        return res.status(403).json({ error: 'Shared index does not allow discovery' });
-      }
-
-
-      // Use the new discovery logic
-      const { results } = await discoverUsers({
-        authenticatedUserId: req.user!.id,
-        indexIds: [sharedIndexData.id],
-        excludeDiscovered: false, // Include all users, not just undiscovered ones
-        page: 1,
-        limit: 100
-      });
-
-      // Format results to match the expected response structure
-      const formattedResults = results.map(r => ({
-        user: {
-          id: r.user.id,
-          name: r.user.name,
-          avatar: r.user.avatar,
-          intro: r.user.intro
-        },
-        totalStake: r.totalStake.toString(),
-        reasoning: r.intents.flatMap(i => i.reasonings).filter(r => r).join(' ')
-      }))
-      .sort((a, b) => Number(BigInt(b.totalStake) - BigInt(a.totalStake)));
-
-      return res.json(formattedResults);
-    } catch (error) {
-      console.error('Get index stakes by user error:', error);
-      return res.status(500).json({ error: 'Failed to fetch index stakes by user' });
-    }
-  }
-);
 
 export default router;

@@ -3,7 +3,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import Image from "next/image";
-import ReactMarkdown from "react-markdown";
 import * as Tabs from "@radix-ui/react-tabs";
 import { useConnections, useSynthesis, useDiscover } from "@/contexts/APIContext";
 import { StakesByUserResponse, UserConnection } from "@/lib/types";
@@ -12,8 +11,10 @@ import { formatDate } from "@/lib/utils";
 import ClientLayout from "@/components/ClientLayout";
 import ConnectionActions, { ConnectionAction } from "@/components/ConnectionActions";
 import DiscoveryForm from "@/components/DiscoveryForm";
+import SynthesisMarkdown from "@/components/SynthesisMarkdown";
 import { useIndexFilter } from "@/contexts/IndexFilterContext";
 import { useDiscoveryFilter } from "@/contexts/DiscoveryFilterContext";
+import { Upload } from "lucide-react";
 
 const validTabs = ['discover', 'requests'];
 
@@ -28,6 +29,9 @@ export default function InboxPage() {
   const { discoveryIntents, setDiscoveryIntents } = useDiscoveryFilter();
   const fetchedSynthesesRef = useRef<Set<string>>(new Set());
   const { selectedIndexIds } = useIndexFilter();
+  const [isDragging, setIsDragging] = useState(false); //tempo
+  const dragCounterRef = useRef(0);
+  const discoveryFormRef = useRef<{ handleFileDrop: (files: FileList) => void }>(null);
   
   // URL parameter handling
   const searchParams = useSearchParams();
@@ -83,6 +87,9 @@ export default function InboxPage() {
     }
   }, [synthesisService]);
 
+  const lastDataRef = useRef<string>('');
+  const lastRefreshTimeRef = useRef<number>(0);
+  
   const fetchData = useCallback(async () => {
     try {
       // Determine indexIds to pass to API calls
@@ -119,29 +126,43 @@ export default function InboxPage() {
         }))
       }));
 
-      // Set data for each tab
-      setDiscoverStakes(transformedStakesData);
-      setInboxConnections(inboxData.connections);
-      setPendingConnections(pendingData.connections);
-
-      // Clear previous synthesis cache when filters change
-      fetchedSynthesesRef.current.clear();
-      setSyntheses({});
-
-      // Automatically fetch synthesis for all users
-      const allUserIds = new Set<string>();
-      
-      // Collect user IDs from discover stakes
-      transformedStakesData.forEach(stake => allUserIds.add(stake.user.id));
-      
-      // Collect user IDs from connections
-      [...inboxData.connections, ...pendingData.connections]
-        .forEach(connection => allUserIds.add(connection.user.id));
-
-      // Fetch synthesis for all unique users with current index filter
-      allUserIds.forEach(userId => {
-        fetchSynthesis(userId, undefined, apiIndexIds);
+      // Check if data has changed (memoization)
+      const currentDataHash = JSON.stringify({
+        discover: transformedStakesData.map(s => ({ userId: s.user.id, intentIds: s.intents.map(i => i.intent.id) })),
+        inbox: inboxData.connections.map(c => c.user.id),
+        pending: pendingData.connections.map(c => c.user.id)
       });
+      
+      if (currentDataHash !== lastDataRef.current) {
+        // Data has changed, update state
+        lastDataRef.current = currentDataHash;
+        
+        // Set data for each tab
+        setDiscoverStakes(transformedStakesData);
+        setInboxConnections(inboxData.connections);
+        setPendingConnections(pendingData.connections);
+
+        // Clear previous synthesis cache when filters change
+        fetchedSynthesesRef.current.clear();
+        setSyntheses({});
+
+        // Automatically fetch synthesis for all users
+        const allUserIds = new Set<string>();
+        
+        // Collect user IDs from discover stakes
+        transformedStakesData.forEach(stake => allUserIds.add(stake.user.id));
+        
+        // Collect user IDs from connections
+        [...inboxData.connections, ...pendingData.connections]
+          .forEach(connection => allUserIds.add(connection.user.id));
+
+        // Fetch synthesis for all unique users with current index filter
+        allUserIds.forEach(userId => {
+          fetchSynthesis(userId, undefined, apiIndexIds);
+        });
+      }
+      
+      lastRefreshTimeRef.current = Date.now();
 
     } catch (error) {
       console.error('Error fetching data:', error);
@@ -154,6 +175,17 @@ export default function InboxPage() {
     fetchData();
   }, [fetchData]);
 
+  // Auto-refresh every 5 seconds
+  useEffect(() => {
+    const intervalId = setInterval(() => {
+      const timeSinceLastRefresh = Date.now() - lastRefreshTimeRef.current;
+      if (timeSinceLastRefresh >= 5000) {
+        fetchData();
+      }
+    }, 5000);
+
+    return () => clearInterval(intervalId);
+  }, [fetchData]);
 
   // Sync tab state with URL changes
   useEffect(() => {
@@ -165,6 +197,64 @@ export default function InboxPage() {
       setActiveTab('discover');
     }
   }, [searchParams]);
+
+  // Drag and drop handlers
+  useEffect(() => {
+    const handleDragEnter = (e: DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      
+      // Only show overlay on discover tab with no active filters
+      if (activeTab !== 'discover' || discoveryIntents) return;
+      
+      dragCounterRef.current++;
+      if (e.dataTransfer?.types.includes('Files')) {
+        setIsDragging(true);
+      }
+    };
+
+    const handleDragLeave = (e: DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      
+      dragCounterRef.current--;
+      if (dragCounterRef.current === 0) {
+        setIsDragging(false);
+      }
+    };
+
+    const handleDragOver = (e: DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+    };
+
+    const handleDrop = (e: DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      
+      dragCounterRef.current = 0;
+      setIsDragging(false);
+      
+      // Only handle on discover tab with no active filters
+      if (activeTab !== 'discover' || discoveryIntents) return;
+      
+      if (e.dataTransfer?.files && e.dataTransfer.files.length > 0) {
+        discoveryFormRef.current?.handleFileDrop(e.dataTransfer.files);
+      }
+    };
+
+    window.addEventListener('dragenter', handleDragEnter);
+    window.addEventListener('dragleave', handleDragLeave);
+    window.addEventListener('dragover', handleDragOver);
+    window.addEventListener('drop', handleDrop);
+
+    return () => {
+      window.removeEventListener('dragenter', handleDragEnter);
+      window.removeEventListener('dragleave', handleDragLeave);
+      window.removeEventListener('dragover', handleDragOver);
+      window.removeEventListener('drop', handleDrop);
+    };
+  }, [activeTab, discoveryIntents]);
 
   const handleConnectionAction = async (action: ConnectionAction, userId: string) => {
     try {
@@ -260,11 +350,11 @@ export default function InboxPage() {
                   ...
                 </div>
               ) : (
-                <div className="text-gray-700 text-sm leading-relaxed prose prose-sm max-w-none [&_a]:text-[#ec6767] [&_a]:font-bold [&_a]:underline [&_a]:hover:opacity-80 [&_ul]:list-disc [&_ul]:pl-6 [&_ol]:list-decimal [&_ol]:pl-6 [&_li]:mb-1 [&_h1]:text-lg [&_h1]:font-bold [&_h1]:mb-2 [&_h2]:text-base [&_h2]:font-semibold [&_h2]:mb-2 [&_h3]:text-sm [&_h3]:font-medium [&_h3]:mb-1 [&_p]:mb-2 [&_strong]:font-semibold [&_em]:italic [&_code]:bg-gray-100 [&_code]:px-1 [&_code]:rounded [&_code]:text-sm">
-                  <ReactMarkdown>
-                    {syntheses[userStake.user.id]}
-                  </ReactMarkdown>
-                </div>
+                <SynthesisMarkdown 
+                  content={syntheses[userStake.user.id]}
+                  className="text-gray-700 text-sm leading-relaxed prose prose-sm max-w-none [&_ul]:list-disc [&_ul]:pl-6 [&_ol]:list-decimal [&_ol]:pl-6 [&_li]:mb-1 [&_h1]:text-lg [&_h1]:font-bold [&_h1]:mb-2 [&_h2]:text-base [&_h2]:font-semibold [&_h2]:mb-2 [&_h3]:text-sm [&_h3]:font-medium [&_h3]:mb-1 [&_p]:mb-2 [&_strong]:font-semibold [&_em]:italic [&_code]:bg-gray-100 [&_code]:px-1 [&_code]:rounded [&_code]:text-sm"
+                  onArchive={fetchData}
+                />
               )}
             </div>
           </div>
@@ -334,11 +424,11 @@ export default function InboxPage() {
                     ...
                   </div>
                 ) : (
-                  <div className="text-gray-700 text-sm leading-relaxed prose prose-sm max-w-none [&_a]:text-[#ec6767] [&_a]:font-bold [&_a]:underline [&_a]:hover:opacity-80 [&_ul]:list-disc [&_ul]:pl-6 [&_ol]:list-decimal [&_ol]:pl-6 [&_li]:mb-1 [&_h1]:text-lg [&_h1]:font-bold [&_h1]:mb-2 [&_h2]:text-base [&_h2]:font-semibold [&_h2]:mb-2 [&_h3]:text-sm [&_h3]:font-medium [&_h3]:mb-1 [&_p]:mb-2 [&_strong]:font-semibold [&_em]:italic [&_code]:bg-gray-100 [&_code]:px-1 [&_code]:rounded [&_code]:text-sm">
-                    <ReactMarkdown>
-                      {syntheses[connection.user.id]}
-                    </ReactMarkdown>
-                  </div>
+                  <SynthesisMarkdown 
+                    content={syntheses[connection.user.id]}
+                    className="text-gray-700 text-sm leading-relaxed prose prose-sm max-w-none [&_ul]:list-disc [&_ul]:pl-6 [&_ol]:list-decimal [&_ol]:pl-6 [&_li]:mb-1 [&_h1]:text-lg [&_h1]:font-bold [&_h1]:mb-2 [&_h2]:text-base [&_h2]:font-semibold [&_h2]:mb-2 [&_h3]:text-sm [&_h3]:font-medium [&_h3]:mb-1 [&_p]:mb-2 [&_strong]:font-semibold [&_em]:italic [&_code]:bg-gray-100 [&_code]:px-1 [&_code]:rounded [&_code]:text-sm"
+                    onArchive={fetchData}
+                  />
                 )}
               </div>
             </div>
@@ -366,6 +456,32 @@ export default function InboxPage() {
 
   return (
     <ClientLayout>
+      {/* Drag and Drop Overlay */}
+      {isDragging && (
+        <div
+          className="fixed inset-0 z-[99999] flex items-center justify-center transition-opacity backdrop-blur-xs"
+          style={{
+            minHeight: '100vh',
+            backgroundColor: 'rgba(0, 0, 0, 0.2)'
+          }}
+        >
+          <div 
+            className="absolute inset-0 pointer-events-none"
+            style={{
+              backgroundImage: 'url(/noise.jpg)',
+              backgroundSize: 'auto',
+              opacity: 0.1
+            }}
+          />
+          <div className="relative z-10 bg-white border-1 rounded-sm  border-black px-6 py-4 flex flex-col items-center gap-3  w-[340px]">
+            <Upload className="w-8 h-8 text-black" />
+            <p className="text-base font-ibm-plex-mono text-gray-700 text-center leading-snug">
+              Drop file(s) here to discover relevant connections
+            </p>
+          </div>
+        </div>
+      )}
+
       <div className="w-full border border-gray-800 rounded-md px-2 sm:px-4 py-4 sm:py-8" style={{
           backgroundImage: 'url(/grid.png)',
           backgroundColor: 'white',
@@ -381,10 +497,13 @@ export default function InboxPage() {
                 {!discoveryIntents ? (
                   <div className="flex-1">
                     <DiscoveryForm 
+                      ref={discoveryFormRef}
                       onSubmit={(intents) => {
                         console.log('intents', intents);
                         // Set the discovery intent filter and refetch data
                         setDiscoveryIntents(intents);
+                        // Refresh inbox after intent creation
+                        fetchData();
                       }}
                     />
                   </div>

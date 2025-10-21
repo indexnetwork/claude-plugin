@@ -1,5 +1,11 @@
 #!/usr/bin/env node
-import 'dotenv/config';
+import dotenv from 'dotenv';
+import path from 'path';
+
+// Load environment-specific .env file
+const envFile = `.env.development`;
+dotenv.config({ path: path.resolve(process.cwd(), envFile) });
+
 import { Command } from 'commander';
 import { eq } from 'drizzle-orm';
 import db, { closeDb } from '../lib/db';
@@ -55,6 +61,7 @@ async function createUser(account: typeof PRIVY_TEST_ACCOUNTS[0]): Promise<any> 
       email: account.email,
       name: account.name,
       intro: `Test account for ${account.name}`,
+      onboarding: {}
     }).returning();
     return user;
   } catch {
@@ -104,7 +111,7 @@ async function seedDatabase(): Promise<{ ok: boolean; error?: string }> {
         await db.insert(indexMembers).values({
           indexId: INDEX_ID,
           userId: user.id,
-          permissions: i === 0 ? ['owner', 'can-read-intents', 'can-write-intents'] : ['can-read-intents', 'can-write-intents'],
+          permissions: i === 0 ? ['owner'] : ['member'],
           prompt: 'everything',
           autoAssign: true,
         });
@@ -154,6 +161,12 @@ async function main(): Promise<void> {
     .option('--confirm', 'Skip confirmation prompt')
     .action(async (opts: GlobalOpts) => {
       if (opts.silent) setLevel('error');
+
+      // Prevent seeding in production
+      if (process.env.NODE_ENV === 'production') {
+        console.error('❌ db:seed cannot be run in production environment');
+        process.exit(1);
+      }
 
       if (!opts.confirm) {
         console.log('⚠️  This will add mock data to the database.');
