@@ -1308,11 +1308,21 @@ export default function OnboardingPage() {
                     </div>
                   </div>
                 ) : (
-                  <div className="mt-4">
-                    {/* Show single pending text for both intents and members */}
-                    <p className="text-black text-[14px] font-ibm-plex-mono">
+                  <div className="mt-4 flex flex-col items-center justify-center pb-8">
+                    <p className="text-black text-[14px] font-ibm-plex-mono mt-4">
                       We're still processing your connected sources to generate your intents and find potential members. This usually takes a few minutes. Check back later to see your results.
                     </p>
+                    <Image 
+                      className="h-auto"
+                      src={'/loading2.gif'} 
+                      alt="Loading..." 
+                      width={300} 
+                      height={200} 
+                      style={{
+                        mixBlendMode: 'multiply',
+                        imageRendering: 'auto',
+                      }}
+                    />
                   </div>
                 )
               ) : (
@@ -1419,7 +1429,6 @@ export default function OnboardingPage() {
                     <div key={index.id} className="border border-[#E0E0E0] rounded-lg p-6 bg-white">
                       <div className="text-center">
                         <h3 className="text-lg font-bold text-black mb-2 font-ibm-plex-mono">{index.title}</h3>
-                        <p className="text-sm text-[#666] mb-4 font-ibm-plex-mono">{index.prompt || 'No description'}</p>
                         <p className="text-xs text-[#888] mb-4 font-ibm-plex-mono">
                           {index._count.members.toLocaleString()} members
                         </p>
@@ -1464,7 +1473,7 @@ export default function OnboardingPage() {
                 disabled={isLoading}
                 className="flex-1 bg-[#000] text-white hover:bg-black font-ibm-plex-mono"
               >
-                {isLoading ? 'Finishing...' : 'Complete Onboarding'}
+                {isLoading ? 'Finishing...' : `See who's in here`}
               </Button>
             </div>
           </div>
