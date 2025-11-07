@@ -112,37 +112,35 @@ export class SemanticRelevancyBroker extends BaseContextBroker {
   ): Promise<void> {
     console.log(`\n👥 Evaluating: ${newIntent.userId} ↔ ${targetUser.userId}`);
 
-    await this.db.transaction(async (tx) => {
-      // Get and lock existing stakes between these users
-      const existingStakes = await this.getExistingStakes(tx, newIntent.userId, targetUser.userId);
-      console.log(`   🔒 Found ${existingStakes.length} existing stakes (locked)`);
+    // Get existing stakes between these users
+    const existingStakes = await this.getExistingStakes(this.db, newIntent.userId, targetUser.userId);
+    console.log(`   🔒 Found ${existingStakes.length} existing stakes`);
 
-      // Stage 1: Find mutual intents
-      const mutualResults = await this.findMutualIntents(newIntent, targetUser.intents);
-      console.log(`   ✅ Stage 1: ${mutualResults.length} mutual intents (≥70 score)`);
+    // Stage 1: Find mutual intents
+    const mutualResults = await this.findMutualIntents(newIntent, targetUser.intents);
+    console.log(`   ✅ Stage 1: ${mutualResults.length} mutual intents (≥70 score)`);
 
-      // Skip if no mutual intents and no existing stakes
-      if (mutualResults.length === 0 && existingStakes.length === 0) {
-        console.log(`   ⏭️  Skipping - no mutual intents or existing stakes`);
-        return;
-      }
+    // Skip if no mutual intents and no existing stakes
+    if (mutualResults.length === 0 && existingStakes.length === 0) {
+      console.log(`   ⏭️  Skipping - no mutual intents or existing stakes`);
+      return;
+    }
 
-      // Stage 2: Rank all candidates and get top 3
-      const candidatePairs = this.buildCandidatePairs(newIntent.id, mutualResults, existingStakes);
-      const rankingResult = await this.rankIntentPairs(candidatePairs);
-      console.log(`   ✅ Stage 2: Selected top ${rankingResult.top3IntentPairs.length} pairs`);
+    // Stage 2: Rank all candidates and get top 3
+    const candidatePairs = this.buildCandidatePairs(newIntent.id, mutualResults, existingStakes);
+    const rankingResult = await this.rankIntentPairs(candidatePairs);
+    console.log(`   ✅ Stage 2: Selected top ${rankingResult.top3IntentPairs.length} pairs`);
 
-      // Execute: Delete all existing, insert top 3
-      await this.updateStakes(tx, existingStakes, rankingResult.top3IntentPairs, candidatePairs);
-      console.log(`   ✔️  Committed - ${rankingResult.top3IntentPairs.length} stakes`);
-    });
+    // Execute: Delete all existing, insert top 3
+    await this.updateStakes(this.db, existingStakes, rankingResult.top3IntentPairs, candidatePairs);
+    console.log(`   ✔️  Committed - ${rankingResult.top3IntentPairs.length} stakes`);
   }
 
   /**
-   * Get existing stakes between two users with row lock
+   * Get existing stakes between two users
    */
-  private async getExistingStakes(tx: any, userId1: string, userId2: string) {
-    return await tx.select({
+  private async getExistingStakes(db: any, userId1: string, userId2: string) {
+    return await db.select({
       id: intentStakes.id,
       stake: intentStakes.stake,
       intents: intentStakes.intents,
@@ -162,8 +160,7 @@ export class SemanticRelevancyBroker extends BaseContextBroker {
         AND i2.user_id = ${userId2}
       )`
     ))
-    .orderBy(desc(intentStakes.stake))
-    .for('update');
+    .orderBy(desc(intentStakes.stake));
   }
 
   /**
@@ -219,14 +216,14 @@ export class SemanticRelevancyBroker extends BaseContextBroker {
    * Update stakes: delete existing and insert top 3
    */
   private async updateStakes(
-    tx: any,
+    db: any,
     existingStakes: Array<{ id: string }>,
     top3Pairs: Array<{ newIntentId: string; targetIntentId: string }>,
     candidatePairs: Array<{ newIntentId: string; targetIntentId: string; score: number; reasoning: string }>
   ) {
     // Delete all existing stakes
     for (const stake of existingStakes) {
-      await tx.delete(intentStakes).where(eq(intentStakes.id, stake.id));
+      await db.delete(intentStakes).where(eq(intentStakes.id, stake.id));
     }
 
     // Insert top 3
@@ -251,7 +248,7 @@ export class SemanticRelevancyBroker extends BaseContextBroker {
         
         const finalStake = stake1 < stake2 ? stake1 : stake2;
         
-        await tx.insert(intentStakes).values({
+        await db.insert(intentStakes).values({
           intents: sortedIntents,
           stake: finalStake,
           reasoning: pairData.reasoning,
@@ -270,7 +267,7 @@ export class SemanticRelevancyBroker extends BaseContextBroker {
   ): Promise<{ isMutual: boolean; confidenceScore: number; reasoning: string } | null> {
     const MutualIntentSchema = z.object({
       isMutual: z.boolean().describe("Whether the two intents have mutual intent (both relate to or depend on each other)"),
-      reasoning: z.string().describe("If mutual, explain why they are mutually related in one sentence. If not mutual, provide empty string."),
+      reasoning: z.string().describe("If mutual, explain why they are mutually related in one sentence. Refer to intents by their subject matter (e.g., 'the immersive experience project' and 'the blockchain growth research') rather than by position or ordinal references. Do not use 'intent 1', 'intent 2', 'both intents', 'first intent', or 'second intent'. If not mutual, provide empty string."),
       confidenceScore: z.number().min(0).max(100).describe("Precise confidence score 0-100. Use full range 70-100 for mutual matches. Avoid round numbers like 100, 90, 80. Be specific: 87, 76, 92, etc.")
     });
 
