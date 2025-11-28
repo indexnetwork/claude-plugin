@@ -2,9 +2,9 @@ import db from '../db';
 import { users, intents, intentStakes } from '../schema';
 import { eq, sql, and } from 'drizzle-orm';
 import { sendEmail } from './email';
-import { connectionRequestTemplate, connectionAcceptedTemplate, connectionDeclinedTemplate } from './email-templates';
+import { connectionRequestTemplate, connectionAcceptedTemplate, connectionDeclinedTemplate } from './templates';
 import { synthesizeVibeCheck, synthesizeIntro } from '../synthesis';
-  
+
 async function checkStakeBetweenUsers(user1Id: string, user2Id: string): Promise<boolean> {
   const [user1Intents, user2Intents] = await Promise.all([
     db.select({ id: intents.id }).from(intents).where(eq(intents.userId, user1Id)),
@@ -61,7 +61,7 @@ export async function sendConnectionRequestEmail(initiatorUserId: string, receiv
       db.select({ name: users.name }).from(users).where(eq(users.id, initiatorUserId)).limit(1),
       db.select({ name: users.name, email: users.email }).from(users).where(eq(users.id, receiverUserId)).limit(1)
     ]);
-    
+
     if (!receiver[0]?.email || !initiator[0]?.name || !receiver[0]?.name) {
       console.log('Missing required user data for connection request email');
       return;
@@ -108,7 +108,7 @@ export async function sendConnectionAcceptedEmail(accepterUserId: string, initia
       db.select({ name: users.name, email: users.email }).from(users).where(eq(users.id, accepterUserId)).limit(1),
       db.select({ name: users.name, email: users.email }).from(users).where(eq(users.id, initiatorUserId)).limit(1)
     ]);
-    
+
     if (!initiator[0]?.email || !accepter[0]?.email || !accepter[0]?.name || !initiator[0]?.name) {
       console.log('Missing required user data for connection accepted email');
       return;
@@ -147,7 +147,7 @@ export async function sendConnectionDeclinedEmail(initiatorUserId: string): Prom
       .from(users)
       .where(eq(users.id, initiatorUserId))
       .limit(1);
-    
+
     if (!initiator[0]?.email || !initiator[0]?.name) {
       console.log('Missing required user data for connection declined email');
       return;

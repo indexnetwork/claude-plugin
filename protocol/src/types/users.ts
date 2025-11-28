@@ -23,6 +23,7 @@ export interface User {
   intro: string | null;
   avatar: string | null;
   location?: string | null;
+  timezone?: string | null;
   socials?: UserSocials;
   onboarding?: OnboardingState;
   createdAt: ISODateString;
@@ -35,6 +36,7 @@ export interface UpdateProfileRequest {
   intro?: string;
   avatar?: string;
   location?: string;
+  timezone?: string;
   socials?: UserSocials;
 }
 

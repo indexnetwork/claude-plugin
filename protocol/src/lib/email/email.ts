@@ -1,6 +1,6 @@
 import { Resend } from 'resend';
 
-const resend = new Resend(process.env.RESEND_API_KEY);
+const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
 export const sendEmail = async (options: {
   to: string | string[];
@@ -8,7 +8,7 @@ export const sendEmail = async (options: {
   html: string;
   text: string;
 }) => {
-  if (!process.env.RESEND_API_KEY) {
+  if (!process.env.RESEND_API_KEY || !resend) {
     console.warn('RESEND_API_KEY not configured, email not sent');
     return;
   }
@@ -17,7 +17,7 @@ export const sendEmail = async (options: {
   return;
 
   try {
-    const result = await resend.emails.send({
+    const result = await resend!.emails.send({
       from: 'Index Network <updates@agent.index.network>',
       to: options.to,
       replyTo: 'hello@index.network',
@@ -25,7 +25,7 @@ export const sendEmail = async (options: {
       html: options.html,
       text: options.text
     });
-    
+
     console.log('Email sent successfully:', result);
     return result;
   } catch (error) {

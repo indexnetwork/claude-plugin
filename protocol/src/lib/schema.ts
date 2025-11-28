@@ -74,6 +74,7 @@ export const users = pgTable('users', {
   location: text('location'),
   socials: json('socials').$type<UserSocials>(),
   onboarding: json('onboarding').$type<OnboardingState>().default({}),
+  timezone: text('timezone').default('UTC'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
   deletedAt: timestamp('deleted_at'),
