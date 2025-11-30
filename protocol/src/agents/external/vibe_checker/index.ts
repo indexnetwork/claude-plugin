@@ -36,13 +36,14 @@ export interface OtherUserData {
 
 /**
  * Generate collaboration synthesis showing why two people are mutual matches
+ * TODO: We sometimes get timeout errors here. Find out what happens.
  */
 export async function vibeCheck(
   data: OtherUserData,
   opts: VibeCheckOptions = {}
 ): Promise<VibeCheckResult> {
   const startTime = new Date();
-  
+
   try {
     if (!data?.intentPairs?.length) {
       return {
@@ -59,11 +60,13 @@ export async function vibeCheck(
 
     // System prompt
     const systemMsg = buildSystemMessage(initiator, target, isThirdPerson, characterLimit);
-    
+
     // User prompt with intent pairs
     const userMsg = buildUserMessage(data, initiator, target, isThirdPerson);
 
+
     // Execute vibe check with timeout
+    /*
     const response = await Promise.race([
       traceableLlm("vibe-checker", {
         other_user_id: data.id,
@@ -74,6 +77,12 @@ export async function vibeCheck(
         setTimeout(() => reject(new Error('Vibe check timeout')), timeout)
       )
     ]);
+    */
+    const response = await traceableLlm("vibe-checker", {
+      other_user_id: data.id,
+      other_user_name: data.name,
+      intent_pairs_count: data.intentPairs.length
+    })([systemMsg, userMsg], { reasoning: { exclude: true, effort: 'minimal' } });
 
     const synthesis = (response.content as string).trim();
 
@@ -154,7 +163,7 @@ function buildUserMessage(
     .map((pair, i) => {
       const contextLabel = isThirdPerson ? `${initiator}_intent` : 'your_intent';
       const targetLabel = `${target.toLowerCase().replace(/\s+/g, '_')}_intent`;
-      
+
       return `  <pair_${i + 1}>
     <${contextLabel} id="${pair.contextUserIntent.id}">
       <what_they_want>${pair.contextUserIntent.payload}</what_they_want>

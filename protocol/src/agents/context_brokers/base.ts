@@ -31,7 +31,7 @@ export abstract class BaseContextBroker {
     if (intentIds.length === 0) return [];
     
     // For PostgreSQL array operations, we need to check if the array contains all the intent IDs
-    const conditions = intentIds.map(id => sql`${intentStakes.intents} @> ARRAY[${id}]`);
+    const conditions = intentIds.map(id => sql`${intentStakes.intents} @> ARRAY[${id}::uuid]`);
     
     return this.db.select()
       .from(intentStakes)
@@ -44,7 +44,7 @@ export abstract class BaseContextBroker {
   protected async getStakesForIntent(intentId: string): Promise<IntentStake[]> {
     return this.db.select()
       .from(intentStakes)
-      .where(sql`${intentStakes.intents} @> ARRAY[${intentId}]`);
+      .where(sql`${intentStakes.intents} @> ARRAY[${intentId}::uuid]`);
   }
 
   /**
@@ -130,14 +130,14 @@ export abstract class BaseContextBroker {
               AND ${intents.archivedAt} IS NULL`
         )
         .orderBy(sql`${intents.embedding} <=> ${JSON.stringify(queryEmbedding)}::vector`)
-        .limit(50);
+        .limit(10);
 
       console.log(`Found ${similarIntents.length} similar intents using vector search`);
       console.log(similarIntents);
 
       // Filter by similarity threshold (equivalent to 0.7 LLM score)
       const relatedIntents = similarIntents
-        .filter(intent => intent.similarity > 0.30) // 50% cosine similarity threshold
+        .filter(intent => intent.similarity > 0.44) // 50% cosine similarity threshold
         .map(intent => ({
           intent: {
             id: intent.id,
@@ -173,7 +173,7 @@ export abstract class BaseContextBroker {
       .from(intentStakes)
       .where(and(
         sql`array_length(${intentStakes.intents}, 1) = 1`,
-        sql`${intentStakes.intents} @> ARRAY[${intentId}]`,
+        sql`${intentStakes.intents} @> ARRAY[${intentId}::uuid]`,
         eq(intentStakes.agentId, inferrerAgentId)
       ))
       .limit(1);
@@ -241,7 +241,7 @@ export abstract class BaseContextBroker {
       const existingStake = await this.broker.db.select()
         .from(intentStakes)
         .where(and(
-          sql`${intentStakes.intents}::text[] = ARRAY[${intentId}::text]`,
+          sql`${intentStakes.intents} = ARRAY[${intentId}::uuid]`,
           eq(intentStakes.agentId, params.agentId)
         ))
         .limit(1);
@@ -293,7 +293,7 @@ export abstract class BaseContextBroker {
       const existingStake = await this.broker.db.select()
         .from(intentStakes)
         .where(and(
-          sql`${intentStakes.intents}::text[] = ARRAY[${sql.join(sortedIntents.map(id => sql`${id}::text`), sql`, `)}]`,
+          sql`${intentStakes.intents} = ARRAY[${sql.join(sortedIntents.map(id => sql`${id}::uuid`), sql`, `)}]::uuid[]`,
           eq(intentStakes.agentId, params.agentId)
         ))
         .limit(1)

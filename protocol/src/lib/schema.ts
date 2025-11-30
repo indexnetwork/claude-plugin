@@ -16,6 +16,7 @@ export interface OnboardingState {
   currentStep?: 'profile' | 'connections' | 'create_index' | 'invite_members' | 'join_indexes';
   indexId?: string;  // Persisted index ID for flow 2
   invitationCode?: string;  // Store which invitation was used (reference only)
+  enrichmentHash?: string;  // Hash of name+email combination to track enrichment per parameter set
 }
 
 // Social links type
@@ -45,15 +46,28 @@ export interface DirectorySyncConfig {
     github?: string;
     website?: string;
   };
+  excludedColumns?: string[];
   lastSyncAt?: string;
   lastSyncStatus?: 'success' | 'error' | 'partial';
   lastSyncError?: string;
   memberCount?: number;
 }
 
+// Slack-specific configuration
+export interface SlackConfig {
+  selectedChannels?: string[]; // Array of channel IDs to sync
+}
+
+// Twitter-specific configuration
+export interface TwitterConfig {
+  username: string; // Twitter username extracted from URL
+}
+
 // Integration configuration type
 export interface IntegrationConfigType {
   directorySync?: DirectorySyncConfig;
+  slack?: SlackConfig;
+  twitter?: TwitterConfig;
 }
 
 // Tables
@@ -166,8 +180,7 @@ export const userIntegrations = pgTable('integrations', {
   redirectUrl: text('redirect_url'),
   connectedAt: timestamp('connected_at'),
   lastSyncAt: timestamp('last_sync_at'),
-  indexId: uuid('index_id').references(() => indexes.id), // Optional: only required when enableUserAttribution is true
-  enableUserAttribution: boolean('enable_user_attribution').default(false),
+  indexId: uuid('index_id').references(() => indexes.id), // Required for Slack/Discord (always process per user)
   config: json('config').$type<IntegrationConfigType>(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
@@ -249,7 +262,7 @@ export const agents = pgTable('agents', {
 
 export const intentStakes = pgTable('intent_stakes', {
   id: uuid('id').primaryKey().defaultRandom(),
-  intents: text('intents').array().notNull(), // Array of intent IDs
+  intents: uuid('intents').array().notNull(), // Array of intent IDs
   stake: bigint('stake', { mode: 'bigint' }).notNull(),
   reasoning: text('reasoning').notNull(),
   agentId: uuid('agent_id').notNull().references(() => agents.id),

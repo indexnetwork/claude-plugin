@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useRef, useEffect, forwardRef, useImperativeHandle } from "react";
-import { Paperclip, Radio } from "lucide-react";
+import { useState, useRef, useEffect, forwardRef, useImperativeHandle, useMemo } from "react";
+import { Link, Paperclip, Radio } from "lucide-react";
 import { ReactTyped } from "react-typed";
 import { useAPI } from "@/contexts/APIContext";
 import { usePrivy } from "@privy-io/react-auth";
@@ -14,9 +14,10 @@ interface DiscoveryFormProps {
 
 interface AttachmentItem {
   id: string;
-  type: 'file';
+  type: 'file' | 'link';
   name: string;
-  file: File;
+  file?: File; // Optional for links
+  url?: string; // Optional for files
 }
 
 export interface DiscoveryFormRef {
@@ -29,6 +30,7 @@ const DiscoveryForm = forwardRef<DiscoveryFormRef, DiscoveryFormProps>(({ onSubm
   const [attachments, setAttachments] = useState<AttachmentItem[]>([]);
   const [isFileDialogOpen, setIsFileDialogOpen] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
+
   const [recentIntents, setRecentIntents] = useState<Array<{id: string; payload: string; summary: string | null; createdAt: Date}>>([]);
   const [hasContent, setHasContent] = useState(false);
   const [showTypedAnimation, setShowTypedAnimation] = useState(false);
@@ -49,7 +51,7 @@ const DiscoveryForm = forwardRef<DiscoveryFormRef, DiscoveryFormProps>(({ onSubm
         const file = files[0];
         
         // Validate combined file set
-        const nextFiles = [...attachments.map(a => a.file), file];
+        const nextFiles = [...attachments.filter(a => a.type === 'file').map(a => a.file!), file];
         const validation = validateFiles(nextFiles, 'general');
         if (!validation.isValid) {
           error(validation.message || 'Invalid file');
@@ -60,7 +62,7 @@ const DiscoveryForm = forwardRef<DiscoveryFormRef, DiscoveryFormProps>(({ onSubm
           id: Date.now().toString(),
           type: 'file',
           name: file.name,
-          file: file
+          file: file,
         };
         setAttachments(prev => [...prev, newAttachment]);
         setInputFocused(true);
@@ -226,7 +228,7 @@ const DiscoveryForm = forwardRef<DiscoveryFormRef, DiscoveryFormProps>(({ onSubm
     const file = event.target.files?.[0];
     if (file) {
       // Validate combined file set to enforce cumulative limits
-      const nextFiles = [...attachments.map(a => a.file), file];
+      const nextFiles = [...attachments.filter(a => a.type === 'file').map(a => a.file!), file];
       const validation = validateFiles(nextFiles, 'general');
       if (!validation.isValid) {
         error(validation.message || 'Invalid file');
@@ -239,7 +241,7 @@ const DiscoveryForm = forwardRef<DiscoveryFormRef, DiscoveryFormProps>(({ onSubm
         id: Date.now().toString(),
         type: 'file',
         name: file.name,
-        file: file
+        file: file,
       };
       setAttachments(prev => [...prev, newAttachment]);
       
@@ -277,7 +279,7 @@ const DiscoveryForm = forwardRef<DiscoveryFormRef, DiscoveryFormProps>(({ onSubm
     
     // Create attachment content
     attachmentElement.innerHTML = `
-      📎 ${getDisplayName(attachment.name)}
+      ${attachment.type === 'link' ? '🔗' : '📄'} ${getDisplayName(attachment.name)}
       <svg class="w-3 h-3 text-red-500 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
       </svg>
@@ -419,12 +421,6 @@ const DiscoveryForm = forwardRef<DiscoveryFormRef, DiscoveryFormProps>(({ onSubm
     // Save cursor position
     const position = saveSelection();
     
-    // First, unwrap any existing URL spans to reset them
-    const existingUrlSpans = contentRef.current.querySelectorAll('.text-blue-500');
-    existingUrlSpans.forEach(span => {
-      const textNode = document.createTextNode(span.textContent || '');
-      span.parentNode?.replaceChild(textNode, span);
-    });
     
     // Walk through text nodes only, skipping attachments
     const walker = document.createTreeWalker(
@@ -451,46 +447,52 @@ const DiscoveryForm = forwardRef<DiscoveryFormRef, DiscoveryFormProps>(({ onSubm
     // Process each text node for URLs
     textNodes.forEach(textNode => {
       const text = textNode.textContent || '';
-      
-      // Check if text contains URLs
-      const matches = Array.from(text.matchAll(URLInTextRegex));
-      
+      const regex = new RegExp(`(${URLInTextRegex.source})\\s`, 'g');
+      const matches = Array.from(text.matchAll(regex));
+
       if (matches.length > 0) {
         const fragment = document.createDocumentFragment();
         let lastIndex = 0;
-        
-        // Process each URL match
+
         matches.forEach(match => {
-          const url = match[0];
+          const url = match[1]; // The URL is in the first capturing group
           const matchIndex = match.index ?? 0;
-          const beforeUrl = text.slice(lastIndex, matchIndex);
-          
-          // Add text before URL as plain text
-          if (beforeUrl) {
-            fragment.appendChild(document.createTextNode(beforeUrl));
+
+          // Add text before the URL
+          if (matchIndex > lastIndex) {
+            fragment.appendChild(document.createTextNode(text.slice(lastIndex, matchIndex)));
           }
+
+          // Create and add the attachment
+          const newAttachment: AttachmentItem = {
+            id: Date.now().toString() + Math.random(),
+            type: 'link',
+            name: url,
+            url: url,
+          };
+          setAttachments(prev => [...prev, newAttachment]);
           
-          // Add URL as blue span (with exact URL text only)
-          const urlSpan = document.createElement('span');
-          urlSpan.className = 'text-blue-500';
-          urlSpan.textContent = url; // Only the matched URL, nothing more
-          fragment.appendChild(urlSpan);
-          
-          lastIndex = matchIndex + url.length;
+          const attachmentElement = document.createElement('span');
+          attachmentElement.className = 'attachment-tag inline-flex items-center gap-1 mx-1 px-2 py-1 bg-gray-100 text-gray-700 rounded-full text-sm cursor-pointer hover:bg-gray-200';
+          attachmentElement.contentEditable = 'false';
+          attachmentElement.dataset.attachmentId = newAttachment.id;
+          attachmentElement.dataset.attachmentName = newAttachment.name;
+          attachmentElement.dataset.attachmentType = newAttachment.type;
+          attachmentElement.innerHTML = `🔗 ${getDisplayName(newAttachment.name)} <svg class="w-3 h-3 text-red-500 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>`;
+          fragment.appendChild(attachmentElement);
+
+          // Add the space that triggered the match
+          fragment.appendChild(document.createTextNode(' '));
+
+          lastIndex = matchIndex + match[0].length;
         });
-        
-        // Add any remaining text after last URL
+
+        // Add any remaining text after the last URL
         if (lastIndex < text.length) {
-          const remainingText = text.slice(lastIndex);
-          if (remainingText) {
-            fragment.appendChild(document.createTextNode(remainingText));
-          }
+          fragment.appendChild(document.createTextNode(text.slice(lastIndex)));
         }
-        
-        // Replace the text node with the fragment
-        if (fragment.hasChildNodes()) {
-          textNode.parentNode?.replaceChild(fragment, textNode);
-        }
+
+        textNode.parentNode?.replaceChild(fragment, textNode);
       }
     });
 
@@ -515,33 +517,50 @@ const DiscoveryForm = forwardRef<DiscoveryFormRef, DiscoveryFormProps>(({ onSubm
     setIsProcessing(true);
     
     try {
-      // Get text content from contentEditable div
-      const textContent = contentRef.current?.innerText || '';
+      // Get text content from contentEditable div, excluding attachment tags
+      let textContent = '';
+      if (contentRef.current) {
+        contentRef.current.childNodes.forEach(node => {
+          // Add text only from text nodes, ignoring attachment spans
+          if (node.nodeType === Node.TEXT_NODE) {
+            textContent += node.textContent;
+          }
+        });
+      }
       
       // Get files from attachments
-      const files = attachments.map(att => att.file);
+      const files = attachments.filter(att => att.type === 'file').map(att => att.file!);
+      const links = attachments.filter(att => att.type === 'link').map(att => att.url!);
+
+      // The backend's /discover/new endpoint now handles link creation and crawling within the same request.
+      // Calling linksService from the client here would be redundant and use the wrong workflow.
       
-      // Validate that we have either files or text
-      if (files.length === 0 && !textContent.trim()) {
-        error('Please add files or enter text to start discovery');
+      // Validate that we have either files or text or links
+      if (files.length === 0 && !textContent.trim() && links.length === 0) {
+        error('Please add files, links, or enter text to start discovery');
         setIsProcessing(false);
         return;
       }
       
+      // Combine text and links for the payload
+      const payload = [textContent, ...links].join('\n').trim();
+
       // Submit discovery request
-      const result = await discoverService.submitDiscoveryRequest(files, textContent)(getAccessToken);
+      const result = await discoverService.submitDiscoveryRequest(files, payload)(getAccessToken);
       
-      if (result.success && result.intents.length > 0) {
-        // Clear only attachments, keep the text
-        setAttachments([]);
-        setInputFocused(false);
-        contentRef.current?.blur();
-        
-        // Trigger discovery with generated intents
-        if (onSubmit) {
-          onSubmit(result.intents);
-        }
-      } else {
+      // After processing, clear attachments and reset form state
+      setAttachments([]);
+      setRecentIntents([]);
+      setInputFocused(false);
+      contentRef.current?.blur();
+
+      if (onSubmit) {
+        // Pass both file-based intents and any newly created link-based intents
+        const allIntents = result.success ? result.intents : [];
+        onSubmit(allIntents);
+      }
+      
+      if (!result.success && links.length === 0) {
         error('Failed to generate intents. Please try again.');
       }
     } catch (err) {
@@ -627,12 +646,12 @@ const DiscoveryForm = forwardRef<DiscoveryFormRef, DiscoveryFormProps>(({ onSubm
 
   // Fetch recent discovery intents when input is focused
   useEffect(() => {
-    if (inputFocused && recentIntents.length === 0) {
+    if (inputFocused) {
       const fetchRecentIntents = async () => {
         try {
           const response = await intentsService.getIntents(1, 3, false, undefined, 'discovery_form');
-          if (response.intents) {
-            setRecentIntents(response.intents.map(intent => ({
+          if (response.data) {
+            setRecentIntents(response.data.map(intent => ({
               id: intent.id,
               payload: intent.payload,
               summary: intent.summary ?? null,
@@ -641,11 +660,29 @@ const DiscoveryForm = forwardRef<DiscoveryFormRef, DiscoveryFormProps>(({ onSubm
           }
         } catch (err) {
           console.error('Failed to fetch recent discovery intents:', err);
+          setRecentIntents([]); // Clear on error
         }
       };
       fetchRecentIntents();
+    } else {
+      setRecentIntents([]);
     }
-  }, [inputFocused, recentIntents.length, intentsService]);
+  }, [inputFocused, intentsService]);
+
+  const attachmentCounts = useMemo(() => {
+    return attachments.reduce(
+      (counts, attachment) => {
+        if (attachment.file) {
+          counts.files++;
+        }
+        if (attachment.url) {
+          counts.urls++;
+        }
+        return counts;
+      },
+      { files: 0, urls: 0 }
+    );
+  }, [attachments]);
 
   return (
     <div className="relative">
@@ -696,29 +733,32 @@ const DiscoveryForm = forwardRef<DiscoveryFormRef, DiscoveryFormProps>(({ onSubm
                 }}
                 onPaste={(e) => {
                   e.preventDefault();
-                  
-                  // Save state before paste
                   saveToUndoStack();
-                  
-                  // Get plain text from clipboard
                   const text = e.clipboardData?.getData('text/plain') || '';
-                  
-                  // Insert as plain text
-                  const selection = window.getSelection();
-                  if (selection && selection.rangeCount > 0) {
-                    const range = selection.getRangeAt(0);
-                    range.deleteContents();
-                    const textNode = document.createTextNode(text);
-                    range.insertNode(textNode);
-                    
-                    // Set cursor at the end of pasted text
-                    range.setStartAfter(textNode);
-                    range.setEndAfter(textNode);
-                    selection.removeAllRanges();
-                    selection.addRange(range);
+                  const urlMatch = text.match(URLInTextRegex);
+
+                  if (urlMatch && urlMatch[0] === text.trim()) { // Only treat as link if it's the only thing pasted
+                    const newAttachment: AttachmentItem = {
+                      id: Date.now().toString(),
+                      type: 'link',
+                      name: urlMatch[0],
+                      url: urlMatch[0],
+                    };
+                    setAttachments(prev => [...prev, newAttachment]);
+                    insertAttachment(newAttachment);
+                  } else {
+                    const selection = window.getSelection();
+                    if (selection && selection.rangeCount > 0) {
+                      const range = selection.getRangeAt(0);
+                      range.deleteContents();
+                      const textNode = document.createTextNode(text);
+                      range.insertNode(textNode);
+                      range.setStartAfter(textNode);
+                      range.setEndAfter(textNode);
+                      selection.removeAllRanges();
+                      selection.addRange(range);
+                    }
                   }
-                  
-                  // Process for URLs after paste
                   setTimeout(() => {
                     processContent();
                   }, 0);
@@ -839,14 +879,17 @@ const DiscoveryForm = forwardRef<DiscoveryFormRef, DiscoveryFormProps>(({ onSubm
                 data-placeholder="What do you want to discover?"
               />
               
-              {/* Animated Placeholder with react-typed - only when not focused */}
-              {!hasContent && attachments.length === 0 && !inputFocused && (
-                <div 
+              {/* Placeholder */}
+              {!hasContent && attachments.length === 0 && (
+                <div
                   className="absolute top-0 left-0 text-lg font-ibm-plex-mono text-gray-500 py-1 pointer-events-none"
                   style={{ lineHeight: '1.5' }}
                 >
-                  {!showTypedAnimation ? (
-                    // Show static text for first 3 seconds
+                  {inputFocused ? (
+                    // Static placeholder when focused
+                    <span>What do you want to discover?</span>
+                  ) : !showTypedAnimation ? (
+                    // Static text for first 3 seconds
                     <span>What do you want to discover?</span>
                   ) : (
                     // Then start animation
@@ -866,22 +909,19 @@ const DiscoveryForm = forwardRef<DiscoveryFormRef, DiscoveryFormProps>(({ onSubm
                   )}
                 </div>
               )}
-              
-              {/* Static placeholder styling - shows when focused and empty */}
-              <style jsx>{`
-                [contenteditable][data-placeholder]:empty:focus::before {
-                  content: attr(data-placeholder);
-                  color: #6b7280;
-                  pointer-events: none;
-                }
-              `}</style>
             </div>
             
             <div className="flex items-center gap-2 ml-2">
-              {attachments.length > 0 && (
+              {attachmentCounts.files > 0 && (
                 <div className="flex items-center gap-1 text-gray-600">
                   <Paperclip className="w-4 h-4" />
-                  <span className="text-sm font-ibm-plex-mono">{attachments.length}</span>
+                  <span className="text-sm font-ibm-plex-mono">{attachmentCounts.files}</span>
+                </div>
+              )}
+              {attachmentCounts.urls > 0 && (
+                <div className="flex items-center gap-1 text-gray-600">
+                  <Link className="w-4 h-4" />
+                  <span className="text-sm font-ibm-plex-mono">{attachmentCounts.urls}</span>
                 </div>
               )}
             </div>
@@ -954,8 +994,8 @@ const DiscoveryForm = forwardRef<DiscoveryFormRef, DiscoveryFormProps>(({ onSubm
                     <button 
                       className="flex items-center gap-2 px-3 py-2 bg-black border border-black hover:bg-gray-800 text-sm font-ibm-plex-mono text-white disabled:opacity-50 disabled:cursor-not-allowed"
                       onMouseDown={(e) => e.preventDefault()}
-                      disabled={isProcessing}
                       onClick={handleDiscoverySubmit}
+                      disabled={isProcessing}
                     >
                       {isProcessing ? (
                         <>

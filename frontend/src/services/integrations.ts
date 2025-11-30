@@ -1,65 +1,14 @@
+import { useMemo } from 'react';
 import { useAuthenticatedAPI } from '../lib/api';
-
-export interface IntegrationResponse {
-  id: string; // This is the integrationId (UUID)
-  type: string; // Integration type (slack, discord, etc.)
-  name: string;
-  connected: boolean;
-  connectedAt?: string | null;
-  lastSyncAt?: string | null;
-  indexId?: string | null;
-  status?: string;
-}
-
-export interface AvailableIntegrationType {
-  type: string;
-  name: string;
-  toolkit: string;
-}
-
-export interface ConnectIntegrationRequest {
-  indexId?: string;
-  enableUserAttribution?: boolean;
-}
-
-export interface ConnectIntegrationResponse {
-  redirectUrl: string;
-  integrationId: string;
-}
-
-export interface IntegrationStatusResponse {
-  status: 'pending' | 'connected';
-  connectedAt?: string;
-}
-
-export interface DirectorySyncConfig {
-  enabled: boolean;
-  source: {
-    id: string;
-    name: string;
-    subId?: string;
-    subName?: string;
-  };
-  columnMappings: {
-    email: string;
-    name?: string;
-    intro?: string;
-    location?: string;
-    twitter?: string;
-    linkedin?: string;
-    github?: string;
-    website?: string;
-  };
-  lastSyncAt?: string;
-  lastSyncStatus?: 'success' | 'error' | 'partial';
-  lastSyncError?: string;
-  memberCount?: number;
-}
-
-export interface DirectorySyncError {
-  record: Record<string, unknown>;
-  error: string;
-}
+import {
+  IntegrationResponse,
+  AvailableIntegrationType,
+  ConnectIntegrationRequest,
+  ConnectIntegrationResponse,
+  IntegrationStatusResponse,
+  DirectorySyncConfig,
+  DirectorySyncError
+} from '../types';
 
 // Service functions factory that takes an authenticated API instance
 export const createIntegrationsService = (api: ReturnType<typeof useAuthenticatedAPI>) => ({
@@ -114,10 +63,19 @@ export const createIntegrationsService = (api: ReturnType<typeof useAuthenticate
   syncDirectory: async (integrationId: string): Promise<{ success: boolean; membersAdded: number; errors: DirectorySyncError[]; status: 'success' | 'error' | 'partial' }> => {
     return api.post(`/integrations/${integrationId}/directory/sync`);
   },
+
+  // Slack channel methods
+  getSlackChannels: async (integrationId: string): Promise<{ channels: Array<{ id: string; name: string }>; selectedChannels: string[] }> => {
+    return api.get(`/integrations/${integrationId}/slack/channels`);
+  },
+
+  saveSlackChannels: async (integrationId: string, channelIds: string[]): Promise<{ success: boolean; config: { selectedChannels: string[] } }> => {
+    return api.post(`/integrations/${integrationId}/slack/channels`, { channelIds });
+  },
 });
 
 // Hook for using integrations service with proper error handling
 export function useIntegrationsService() {
   const api = useAuthenticatedAPI();
-  return createIntegrationsService(api);
+  return useMemo(() => createIntegrationsService(api), [api]);
 }

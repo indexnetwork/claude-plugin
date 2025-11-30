@@ -4,6 +4,7 @@ import { resolveFileUser } from '../user-utils';
 import { DirectorySyncConfig, userIntegrations, indexMembers, indexes } from '../schema';
 import db from '../db';
 import { eq, and } from 'drizzle-orm';
+import { addMemberToIndex } from '../index-members';
 
 export interface Source {
   id: string;
@@ -221,9 +222,10 @@ export async function syncDirectoryMembers(
           config.columnMappings.github,
           config.columnMappings.website
         ].filter(Boolean) as string[];
+        const excludedColumns = config.excludedColumns || [];
 
         for (const [key, value] of Object.entries(record)) {
-          if (!mappedColumns.includes(key) && value) {
+          if (!mappedColumns.includes(key) && !excludedColumns.includes(key) && value) {
             const stringValue = String(value).trim();
             if (stringValue) {
               // Check if value contains multiple values (comma-separated)
@@ -237,14 +239,18 @@ export async function syncDirectoryMembers(
         }
 
         // Add member to index
-        await db.insert(indexMembers).values({
+        const addResult = await addMemberToIndex({
           indexId: integration.indexId,
           userId: user.id,
-          permissions: ['member'],
+          role: 'member',
           prompt: indexPrompt,
           autoAssign: true,
           metadata: Object.keys(metadata).length > 0 ? metadata : null
         });
+
+        if (!addResult.success) {
+          throw new Error(addResult.error || 'Failed to add member');
+        }
 
         addedMembers.push(email);
       } catch (error) {

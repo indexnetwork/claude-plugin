@@ -17,6 +17,7 @@ import { IntegrationName, getIntegrationsList } from "@/config/integrations";
 import { validateFiles, getSupportedFileExtensions, formatFileSize } from "../../lib/file-validation";
 import { getFileCategoryBadge } from '../../lib/file-validation';
 import { QueueStatus } from "@/services/queue";
+import { handleAddLink as handleAddLinkUtil } from "@/lib/link-utils";
 
 type Props = {
   open: boolean;
@@ -446,14 +447,14 @@ export default function LibraryModal({ open, onOpenChange, onChanged }: Props) {
     }
   }, [integrationsService, integrations, success, error]);
 
-  const handleConnectIntegration = useCallback(async (type: IntegrationName, indexId: string | null, enableUserAttribution: boolean) => {
+  const handleConnectIntegration = useCallback(async (type: IntegrationName, indexId: string | null) => {
     const item = integrations.find(i => i.type === type);
     if (!item) return;
     
     try {
       setPendingIntegration(type);
       const popup = typeof window !== 'undefined' ? window.open('', `oauth_${type}`, 'width=560,height=720') : null;
-      const payload: { indexId?: string; enableUserAttribution: boolean } = { enableUserAttribution };
+      const payload: { indexId?: string } = {};
       if (indexId) payload.indexId = indexId;
       const res = await integrationsService.connectIntegration(type, payload);
       const redirect = res.redirectUrl;
@@ -560,35 +561,26 @@ export default function LibraryModal({ open, onOpenChange, onChanged }: Props) {
   const handleAddLink = useCallback(async (urlOverride?: string) => {
     const urlToUse = urlOverride || linkUrl;
     if (!urlToUse) return;
-    
-    // Normalize URL - add https:// if no protocol is specified
-    let normalizedUrl = urlToUse.trim();
-    if (!normalizedUrl.startsWith('http://') && !normalizedUrl.startsWith('https://')) {
-      normalizedUrl = `https://${normalizedUrl}`;
-    }
-    
-    try {
-      setIsAddingLink(true);
-      const link = await linksService.createLink(normalizedUrl);
-      setLinkUrl("");
-      onChanged?.();
 
-      if (link?.id) {
-        setSelectedIds(new Set([`l-${link.id}`]));
+    setIsAddingLink(true);
+    await handleAddLinkUtil(
+      urlToUse,
+      linksService,
+      (linkId) => {
+        setLinkUrl("");
+        onChanged?.();
+        setSelectedIds(new Set([`l-${linkId}`]));
         setActiveSourceFilters(new Set());
-      }      
-      await loadLists();
-      await loadLibraryIntents();
-      
-      // Reset all filters and only select the newly added link
-
-      
-      success('Link added successfully');
-    } catch {
-      error('Failed to add link. Please check the URL and try again.');
-    } finally {
-      setIsAddingLink(false);
-    }
+        void loadLists();
+        void loadLibraryIntents();
+        success('Link added successfully');
+        setIsAddingLink(false);
+      },
+      (errorMessage) => {
+        error(errorMessage);
+        setIsAddingLink(false);
+      }
+    );
   }, [linkUrl, onChanged, loadLists, loadLibraryIntents, success, error, linksService]);
 
   const handleSyncIntegration = useCallback(async (integrationType: string) => {
@@ -1220,7 +1212,7 @@ export default function LibraryModal({ open, onOpenChange, onChanged }: Props) {
                   Configure {configureIntegration?.name}
                 </Dialog.Title>
 
-                {/* Info Box - attribution disabled by default */}
+                {/* Info Box */}
                 <div className="mb-4 p-4 bg-[#F5F5F5] border border-[#E0E0E0] rounded-sm">
                   <div className="flex items-start gap-2">
                     <div className="w-4 h-4 rounded-full bg-[#757575] flex-shrink-0 mt-0.5">
@@ -1254,8 +1246,7 @@ export default function LibraryModal({ open, onOpenChange, onChanged }: Props) {
                       if (configureIntegration) {
                         handleConnectIntegration(
                           configureIntegration.type, 
-                          null,
-                          false
+                          null
                         );
                       }
                     }}
