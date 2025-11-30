@@ -199,108 +199,6 @@ export async function syncAllSocialMedia(): Promise<SocialSyncResult> {
   };
 }
 
-/**
- * Generate intents from biography when socials are updated
- * This runs asynchronously and doesn't block the API response
- */
-async function generateIntentsFromBiography(userId: string): Promise<void> {
-  try {
-    // Get user from database
-    const userRecords = await db.select()
-      .from(users)
-      .where(and(eq(users.id, userId), isNull(users.deletedAt)))
-      .limit(1);
-
-    if (userRecords.length === 0) {
-      log.warn('User not found for biography intent generation', { userId });
-      return;
-    }
-
-    const user = userRecords[0];
-    const socials = user.socials || {};
-
-    // Prepare input for Parallels task
-    const input: GenerateIntroInput = {};
-    
-    if (user.name?.trim()) {
-      input.name = user.name.trim();
-    }
-    
-    if (user.email?.trim()) {
-      input.email = user.email.trim();
-    }
-    
-    // Convert LinkedIn username to URL if needed
-    if (socials.linkedin) {
-      const linkedinValue = String(socials.linkedin).trim();
-      if (linkedinValue) {
-        input.linkedin = linkedinValue.startsWith('http') 
-          ? linkedinValue 
-          : `https://www.linkedin.com/in/${linkedinValue}`;
-      }
-    }
-    
-    // Convert Twitter username to URL if needed
-    if (socials.x) {
-      const twitterValue = String(socials.x).trim();
-      if (twitterValue) {
-        if (twitterValue.startsWith('http')) {
-          input.twitter = twitterValue;
-        } else {
-          const username = twitterValue.replace(/^@/, '');
-          input.twitter = `https://x.com/${username}`;
-        }
-      }
-    }
-
-    // Ensure at least one field is provided
-    if (!input.name && !input.email && !input.linkedin && !input.twitter) {
-      log.warn('No valid input data for biography intent generation', { userId });
-      return;
-    }
-
-    log.info('Generating biography for intent generation', { userId });
-
-    // Generate biography using Parallels
-    const introResult = await generateIntro(input);
-    if (!introResult || !introResult.biography) {
-      log.warn('Failed to generate biography for intent generation', { userId });
-      return;
-    }
-
-    const biography = introResult.biography;
-
-    // Generate intents from biography asynchronously
-    const existingIntents = await IntentService.getUserIntents(userId);
-    const result = await analyzeContent(
-      biography,
-      1, // itemCount
-      'Generate intents from user biography, skip intents too old or if they are not relevant to the user anymore.',
-      Array.from(existingIntents),
-      undefined,
-      60000
-    );
-
-    if (result?.success && result.intents) {
-      for (const intentData of result.intents) {
-        if (!existingIntents.has(intentData.payload)) {
-          await IntentService.createIntent({
-            payload: intentData.payload,
-            userId,
-            sourceId: userId, // Use userId as sourceId for social-generated intents
-            sourceType: 'integration',
-            confidence: intentData.confidence,
-            inferenceType: intentData.type,
-          });
-          existingIntents.add(intentData.payload);
-        }
-      }
-      log.info('Generated intents from biography', { userId, intentsGenerated: result.intents.length });
-    }
-  } catch (error) {
-    log.error('Biography intent generation error', { userId, error: (error as Error).message });
-  }
-}
 
 /**
  * Trigger social media sync when user updates their socials field
@@ -313,8 +211,6 @@ export async function triggerSocialSync(userId: string, socialType: 'twitter' | 
       if (socialType === 'twitter') {
         log.info('Triggering Twitter sync', { userId });
         await syncTwitterUser(userId);
-        // Also generate intents from biography
-        await generateIntentsFromBiography(userId);
       } else if (socialType === 'linkedin') {
         log.info('Triggering LinkedIn sync', { userId });
         await enrichUserProfile(userId); // Includes intro generation and intent generation from biography
