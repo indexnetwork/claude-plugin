@@ -7,7 +7,7 @@ import { eq, isNull, and, sql, inArray } from 'drizzle-orm';
 import crypto from 'crypto';
 import { getAccessibleIntents } from './intent-access';
 
-interface SynthesisOptions extends VibeCheckOptions {}
+interface SynthesisOptions extends VibeCheckOptions { }
 
 function createCacheHash(data: any, options?: any): string {
   return crypto
@@ -26,7 +26,7 @@ export async function synthesizeVibeCheck(
     indexIds?: string[];
     vibeOptions?: SynthesisOptions;
   }
-): Promise<string> {
+): Promise<{ synthesis: string; subject?: string }> {
   try {
     const { initiatorId, intentIds, indexIds, vibeOptions } = opts || {};
 
@@ -37,12 +37,12 @@ export async function synthesizeVibeCheck(
       .from(usersTable)
       .where(inArray(usersTable.id, userIds));
 
-    if (!users.length) return "";
+    if (!users.length) return { synthesis: "" };
 
     const targetUser = users.find(u => u.id === targetUserId);
     const initiatorUser = initiatorId ? users.find(u => u.id === initiatorId) : undefined;
-    
-    if (!targetUser) return "";
+
+    if (!targetUser) return { synthesis: "" };
 
     // Get context intents using secure access control
     const contextIntents = await getAccessibleIntents(contextUserId, {
@@ -51,10 +51,10 @@ export async function synthesizeVibeCheck(
       includeOwnIntents: true
     });
 
-    
+
     const contextIntentIds = contextIntents.intents.map(i => i.id);
-    
-    if (!contextIntentIds.length) return "";
+
+    if (!contextIntentIds.length) return { synthesis: "" };
 
     // Get top 3 stakes connecting context and target user intents
     // Optimized: use uuid[] instead of text[], leverage GIN index, remove redundant checks
@@ -91,7 +91,7 @@ export async function synthesizeVibeCheck(
       .orderBy(sql`${intentStakes.stake} DESC`)
       .limit(3);
 
-    if (!stakes.length) return "";
+    if (!stakes.length) return { synthesis: "" };
 
     // Fetch intent details and build pairs
     const allIntentIds = stakes.flatMap(s => s.stakeIntents);
@@ -111,12 +111,12 @@ export async function synthesizeVibeCheck(
         const [id1, id2] = stake.stakeIntents;
         const intent1 = intentDetails.find(i => i.id === id1);
         const intent2 = intentDetails.find(i => i.id === id2);
-        
+
         const contextIntent = intent1?.userId === contextUserId ? intent1 : intent2;
         const targetIntent = intent1?.userId === targetUserId ? intent1 : intent2;
-        
+
         if (!contextIntent || !targetIntent) return null;
-        
+
         return {
           stake: Number(stake.stake),
           contextUserIntent: {
@@ -146,20 +146,29 @@ export async function synthesizeVibeCheck(
     const cacheData = initiatorId ? { ...vibeData, initiatorId } : vibeData;
     const cacheKey = createCacheHash(cacheData, vibeOptions);
     const cached = await cache.hget('synthesis', cacheKey);
-    if (cached) return cached;
+    if (cached) {
+      try {
+        // Try parsing as JSON first (new format)
+        return JSON.parse(cached);
+      } catch {
+        // Fallback for old string format
+        return { synthesis: cached };
+      }
+    }
 
     // Generate synthesis
     const result = await vibeCheck(vibeData, vibeOptions);
-    
+
     if (result.success && result.synthesis) {
-      await cache.hset('synthesis', cacheKey, result.synthesis);
-      return result.synthesis;
+      const cacheValue = { synthesis: result.synthesis, subject: result.subject };
+      await cache.hset('synthesis', cacheKey, JSON.stringify(cacheValue));
+      return cacheValue;
     }
 
-    return "";
+    return { synthesis: "" };
   } catch (error) {
     console.error('Synthesis error:', error);
-    return "";
+    return { synthesis: "" };
   }
 }
 
@@ -224,7 +233,7 @@ export async function synthesizeIntro(
 
     const result = await introMaker(introData);
     return result.success && result.synthesis ? result.synthesis : "";
-    
+
   } catch (error) {
     console.error('Intro synthesis error:', error);
     return "";

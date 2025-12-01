@@ -1,6 +1,6 @@
-export const connectionRequestTemplate = (fromUserName: string, toUserName: string, synthesis?: string) => ({
-    subject: `✨ ${fromUserName} wants to connect with you`,
-    html: `
+export const connectionRequestTemplate = (fromUserName: string, toUserName: string, synthesis?: string, subject?: string) => ({
+  subject: subject || `✨ ${fromUserName} wants to connect with you`,
+  html: `
     <div style="font-family: Arial, sans-serif;">
       <p>Hey ${toUserName},</p>
       <p>You’ve got a new connection request on Index, <strong>${fromUserName}</strong> wants to connect with you.</p>
@@ -14,11 +14,11 @@ export const connectionRequestTemplate = (fromUserName: string, toUserName: stri
         <div>${synthesis}</div>
       ` : ''}
       
-      <p>If you’re curious, I’ll make the connection. If not, everything stays quiet.</p>
+      <p>If you want to move it forward, I’ll make the introduction. If not, everything stays quiet.</p>
       <p>—Index</p>
     </div>
   `,
-    text: `Hey ${toUserName},
+  text: `Hey ${toUserName},
 
 You’ve got a new connection request on Index, ${fromUserName} wants to connect with you.
 
@@ -27,7 +27,7 @@ You’ve got a new connection request on Index, ${fromUserName} wants to connect
 ${synthesis ? `What could happen between you two:
 ${synthesis}
 
-` : ''}If you’re curious, I’ll make the connection. If not, everything stays quiet.
+` : ''}If you want to move it forward, I’ll make the introduction. If not, everything stays quiet.
 
 —Index`
 });

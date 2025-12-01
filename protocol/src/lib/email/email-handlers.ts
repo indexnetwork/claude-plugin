@@ -71,7 +71,7 @@ export async function sendConnectionRequestEmail(initiatorUserId: string, receiv
     console.log('initiatorUserId', initiatorUserId);
 
     // Generate synthesis for the receiver
-    const synthesisMarkdown = await synthesizeVibeCheck(
+    const { synthesis: synthesisMarkdown, subject } = await synthesizeVibeCheck(
       receiverUserId,
       initiatorUserId,
       { vibeOptions: { characterLimit: 500 } }
@@ -81,7 +81,7 @@ export async function sendConnectionRequestEmail(initiatorUserId: string, receiv
     const { marked } = await import('marked');
     const synthesis = await marked.parse(synthesisMarkdown);
 
-    const template = connectionRequestTemplate(initiator[0].name, receiver[0].name, synthesis);
+    const template = connectionRequestTemplate(initiator[0].name, receiver[0].name, synthesis, subject);
     await sendEmail({
       to: receiver[0].email,
       subject: template.subject,
