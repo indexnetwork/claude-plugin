@@ -7,7 +7,7 @@ export interface Match {
 export const weeklyNewsletterTemplate = (recipientName: string, matches: Match[]) => {
   const matchesHtml = matches.map((match) => `
     <div style="margin-bottom: 20px;">
-      <p><strong>${match.name}${match.role ? ` — ${match.role}` : ''}</strong></p>
+      <p><strong>${match.name}${match.role ? ` — <em>${match.role}</em>` : ''}</strong></p>
       <p>${match.reasoning}</p>
     </div>
   `).join('');
@@ -28,13 +28,15 @@ ${match.reasoning}
         <p>Each one can shift something forward - choose your move, and I’ll take the next step with you.</p>
         
         <div style="margin: 20px 0;">
-          <a href="https://index.network/inbox" style="background-color: #007bff; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; display: inline-block;">Go to your Inbox</a>
+          <span style="font-size: 1.2em; vertical-align: middle; margin-right: 5px;">👉</span>
+          <a href="https://index.network/inbox" style="text-decoration: none; font-weight: bold; color: #000;">Go to your Inbox</a>
         </div>
         
         ${matchesHtml}
         
         <div style="margin: 20px 0;">
-          <a href="https://index.network/inbox" style="background-color: #007bff; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; display: inline-block;">Go to your Inbox</a>
+          <span style="font-size: 1.2em; vertical-align: middle; margin-right: 5px;">👉</span>
+          <a href="https://index.network/inbox" style="text-decoration: none; font-weight: bold; color: #000;">Go to your Inbox</a>
         </div>
         
         <p>—Index, keeping your next moves within reach</p>
