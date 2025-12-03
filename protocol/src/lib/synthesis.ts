@@ -26,7 +26,7 @@ export async function synthesizeVibeCheck(
     indexIds?: string[];
     vibeOptions?: SynthesisOptions;
   }
-): Promise<{ synthesis: string; subject?: string }> {
+): Promise<{ synthesis: string; subject: string }> {
   try {
     const { initiatorId, intentIds, indexIds, vibeOptions } = opts || {};
 
@@ -37,12 +37,12 @@ export async function synthesizeVibeCheck(
       .from(usersTable)
       .where(inArray(usersTable.id, userIds));
 
-    if (!users.length) return { synthesis: "" };
+    if (!users.length) return { synthesis: "", subject: "" };
 
     const targetUser = users.find(u => u.id === targetUserId);
     const initiatorUser = initiatorId ? users.find(u => u.id === initiatorId) : undefined;
 
-    if (!targetUser) return { synthesis: "" };
+    if (!targetUser) return { synthesis: "", subject: "" };
 
     // Get context intents using secure access control
     const contextIntents = await getAccessibleIntents(contextUserId, {
@@ -54,7 +54,7 @@ export async function synthesizeVibeCheck(
 
     const contextIntentIds = contextIntents.intents.map(i => i.id);
 
-    if (!contextIntentIds.length) return { synthesis: "" };
+    if (!contextIntentIds.length) return { synthesis: "", subject: "" };
 
     // Get top 3 stakes connecting context and target user intents
     // Optimized: use uuid[] instead of text[], leverage GIN index, remove redundant checks
@@ -91,7 +91,7 @@ export async function synthesizeVibeCheck(
       .orderBy(sql`${intentStakes.stake} DESC`)
       .limit(3);
 
-    if (!stakes.length) return { synthesis: "" };
+    if (!stakes.length) return { synthesis: "", subject: "" };
 
     // Fetch intent details and build pairs
     const allIntentIds = stakes.flatMap(s => s.stakeIntents);
@@ -146,13 +146,16 @@ export async function synthesizeVibeCheck(
     const cacheData = initiatorId ? { ...vibeData, initiatorId } : vibeData;
     const cacheKey = createCacheHash(cacheData, vibeOptions);
     const cached = await cache.hget('synthesis', cacheKey);
+
     if (cached) {
       try {
-        // Try parsing as JSON first (new format)
-        return JSON.parse(cached);
+        const parsed = JSON.parse(cached);
+        // Only return if it matches the expected object structure
+        if (parsed && typeof parsed.synthesis === 'string' && typeof parsed.subject === 'string') {
+          return parsed;
+        }
       } catch {
-        // Fallback for old string format
-        return { synthesis: cached };
+        // Ignore error and proceed to regenerate
       }
     }
 
@@ -160,15 +163,15 @@ export async function synthesizeVibeCheck(
     const result = await vibeCheck(vibeData, vibeOptions);
 
     if (result.success && result.synthesis) {
-      const cacheValue = { synthesis: result.synthesis, subject: result.subject };
+      const cacheValue = { synthesis: result.synthesis, subject: result.subject || "" };
       await cache.hset('synthesis', cacheKey, JSON.stringify(cacheValue));
       return cacheValue;
     }
 
-    return { synthesis: "" };
+    return { synthesis: "", subject: "" };
   } catch (error) {
     console.error('Synthesis error:', error);
-    return { synthesis: "" };
+    return { synthesis: "", subject: "" };
   }
 }
 
