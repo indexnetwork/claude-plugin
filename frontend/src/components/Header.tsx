@@ -2,7 +2,7 @@ import { Button } from "@/components/ui/button";
 import { usePathname, useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
-import { UserPlus, LogIn, Settings, Blocks, Library, Plus } from "lucide-react";
+import { UserPlus, LogIn, Settings, Blocks, Library } from "lucide-react";
 import { usePrivy } from '@privy-io/react-auth';
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { getAvatarUrl } from '@/lib/file-utils';
