@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterAll } from 'vitest';
 import { config } from 'dotenv';
 import { resolve } from 'path';
 import {
@@ -52,5 +52,12 @@ describe.skipIf(!runIntegration)('Email Handlers Integration (Real Emails)', () 
             'Alice Integration'
         );
         expect(true).toBe(true);
+    });
+
+    afterAll(async () => {
+        const { emailQueueProcessor } = await import('../queue/email.processor');
+        await emailQueueProcessor.waitForAll();
+        // Give a little extra time for the last email to actually send
+        await wait(2000);
     });
 });

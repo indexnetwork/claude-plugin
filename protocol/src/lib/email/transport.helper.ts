@@ -1,8 +1,9 @@
 import { Resend } from 'resend';
+import { addEmailJob } from './queue/email.queue';
 
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
-export const sendEmail = async (options: {
+export const executeSendEmail = async (options: {
   to: string | string[];
   subject: string;
   html: string;
@@ -86,4 +87,14 @@ export const sendEmail = async (options: {
     console.error('Failed to send email:', error);
     throw error;
   }
-}; 
+};
+
+
+export const sendEmail = async (options: {
+  to: string | string[];
+  subject: string;
+  html: string;
+  text: string;
+}) => {
+  await addEmailJob(options);
+};
