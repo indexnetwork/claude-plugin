@@ -13,6 +13,7 @@ console.log('process.env', process.env);
 import { initializeBrokers } from './agents/context_brokers/connector';
 import { queueProcessor } from './lib/queue/processor';
 import { initWeeklyNewsletterJob } from './jobs/weekly-newsletter';
+import { emailQueueProcessor } from './lib/email/queue/email.processor';
 
 import authRoutes from './routes/auth';
 import userRoutes from './routes/users';
@@ -90,6 +91,8 @@ app.use('*', (req, res) => {
 
     queueProcessor.start();
     console.log('🟢 Queue processor started');
+
+    emailQueueProcessor.start();
 
     initWeeklyNewsletterJob();
   } catch (err) {
