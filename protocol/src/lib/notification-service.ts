@@ -122,7 +122,8 @@ export async function sendConnectionAcceptedNotification(accepterUserId: string,
 
         // Convert markdown to HTML
         const { marked } = await import('marked');
-        const synthesis = await marked.parse(synthesisMarkdown);
+        const rawHtml = await marked.parse(synthesisMarkdown);
+        const synthesis = DOMPurify.sanitize(rawHtml);
 
         await sendConnectionAcceptedEmail(
             [initiator[0].email, accepter[0].email],
