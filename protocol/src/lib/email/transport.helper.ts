@@ -8,6 +8,7 @@ export const executeSendEmail = async (options: {
   subject: string;
   html: string;
   text: string;
+  headers?: Record<string, string>;
 }) => {
   // SAFETY: Override recipient for testing
   const isTestMode = process.env.ENABLE_EMAIL_TESTING === 'true';
@@ -24,12 +25,20 @@ export const executeSendEmail = async (options: {
     const debugPath = resolve(process.cwd(), 'email-debug.md');
     const separator = '='.repeat(80);
     const timestamp = new Date().toISOString();
+
+    // Format headers for display
+    const headersStr = options.headers
+      ? Object.entries(options.headers).map(([k, v]) => `${k}: ${v}`).join('\n      ')
+      : '(none)';
+
     const content = `
       ${separator}
       [${timestamp}] Email Sent
       ${separator}
       To: ${Array.isArray(recipient) ? recipient.join(', ') : recipient}
       Subject: ${options.subject}
+      Headers:
+      ${headersStr}
 
       --- TEXT CONTENT ---
       ${options.text}
@@ -73,7 +82,8 @@ export const executeSendEmail = async (options: {
       replyTo: 'hello@index.network',
       subject: options.subject,
       html: options.html,
-      text: options.text
+      text: options.text,
+      headers: options.headers,
     });
 
     if (result.error) {
@@ -95,6 +105,7 @@ export const sendEmail = async (options: {
   subject: string;
   html: string;
   text: string;
+  headers?: Record<string, string>;
 }) => {
   await addEmailJob(options);
 };
