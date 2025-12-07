@@ -129,6 +129,7 @@ Style:
 Format:
 - Markdown with 2-3 inline hyperlinks: [descriptive phrase](https://index.network/intents/ID)
 - ONLY hyperlink ${isThirdPerson ? `${initiator}'s` : 'your'} intents - NEVER link ${target}'s intents
+- Be careful with IDs: use the exact intent IDs from the provided data, never use placeholder "ID" text or make up IDs
 - Link natural phrases like "UX designers crafting interfaces" not "UX designers (link)"
 - Place links in beginning/middle of paragraph, not at the end
 - No bold, italic, or title${characterLimit ? `\n- Maximum ${characterLimit} characters` : ''}
