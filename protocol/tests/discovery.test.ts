@@ -239,7 +239,7 @@ async function runTests() {
   // -------------------------------------------------------------------------
   // TEST 1: Basic Match
   // -------------------------------------------------------------------------
-  await test('Basic Match: shared index, staked intents', async () => {
+  await test('discovers user when both share same index and intents are staked', async () => {
     const userA = await createTestUser('User A');
     const userB = await createTestUser('User B');
     const index1 = await createTestIndex('Index 1');
@@ -262,7 +262,7 @@ async function runTests() {
   // -------------------------------------------------------------------------
   // TEST 2: No Shared Index
   // -------------------------------------------------------------------------
-  await test('No Shared Index: users in different indexes', async () => {
+  await test('returns empty when users are in different indexes with no overlap', async () => {
     const userA = await createTestUser('User A');
     const userB = await createTestUser('User B');
     const index1 = await createTestIndex('Index 1');
@@ -285,7 +285,7 @@ async function runTests() {
   // -------------------------------------------------------------------------
   // TEST 3: Intent in Wrong Index
   // -------------------------------------------------------------------------
-  await test('Intent in Wrong Index: users share index but intents in different indexes', async () => {
+  await test('returns empty when users share indexes but intents are assigned to different indexes', async () => {
     const userA = await createTestUser('User A');
     const userB = await createTestUser('User B');
     const index1 = await createTestIndex('Index 1');
@@ -310,7 +310,7 @@ async function runTests() {
   // -------------------------------------------------------------------------
   // TEST 4: No Stake
   // -------------------------------------------------------------------------
-  await test('No Stake: no stake connecting intents', async () => {
+  await test('returns empty when no stake connects the intents', async () => {
     const userA = await createTestUser('User A');
     const userB = await createTestUser('User B');
     const index1 = await createTestIndex('Index 1');
@@ -332,7 +332,7 @@ async function runTests() {
   // -------------------------------------------------------------------------
   // TEST 5: Already Connected (excluded)
   // -------------------------------------------------------------------------
-  await test('Already Connected: excluded by default', async () => {
+  await test('excludes already connected users by default', async () => {
     const userA = await createTestUser('User A');
     const userB = await createTestUser('User B');
     const index1 = await createTestIndex('Index 1');
@@ -358,7 +358,7 @@ async function runTests() {
   // -------------------------------------------------------------------------
   // TEST 6: Already Connected but excludeDiscovered=false
   // -------------------------------------------------------------------------
-  await test('Already Connected: included when excludeDiscovered=false', async () => {
+  await test('includes already connected users when excludeDiscovered is false', async () => {
     const userA = await createTestUser('User A');
     const userB = await createTestUser('User B');
     const index1 = await createTestIndex('Index 1');
@@ -385,7 +385,7 @@ async function runTests() {
   // -------------------------------------------------------------------------
   // TEST 7: Multi-User Stake
   // -------------------------------------------------------------------------
-  await test('Multi-User Stake: discover multiple users', async () => {
+  await test('discovers multiple users from a single stake with 3+ participants', async () => {
     const userA = await createTestUser('User A');
     const userB = await createTestUser('User B');
     const userC = await createTestUser('User C');
@@ -413,7 +413,7 @@ async function runTests() {
   // -------------------------------------------------------------------------
   // TEST 8: Index Filter
   // -------------------------------------------------------------------------
-  await test('Index Filter: only discover via specified index', async () => {
+  await test('filters results to only specified indexIds', async () => {
     const userA = await createTestUser('User A');
     const userB = await createTestUser('User B');
     const userC = await createTestUser('User C');
@@ -449,7 +449,7 @@ async function runTests() {
   // -------------------------------------------------------------------------
   // TEST 9: Intent in Multiple Indexes
   // -------------------------------------------------------------------------
-  await test('Intent in Multiple Indexes: match via shared index', async () => {
+  await test('discovers user when intent is assigned to multiple indexes and one overlaps', async () => {
     const userA = await createTestUser('User A');
     const userB = await createTestUser('User B');
     const index1 = await createTestIndex('Index 1');
@@ -475,7 +475,7 @@ async function runTests() {
   // -------------------------------------------------------------------------
   // TEST 10: Multiple Stakes Same Users
   // -------------------------------------------------------------------------
-  await test('Multiple Stakes: same pair deduplicated', async () => {
+  await test('deduplicates users when multiple stakes connect same pair', async () => {
     const userA = await createTestUser('User A');
     const userB = await createTestUser('User B');
     const index1 = await createTestIndex('Index 1');
@@ -503,7 +503,7 @@ async function runTests() {
   // -------------------------------------------------------------------------
   // TEST 11: Empty - No Intents
   // -------------------------------------------------------------------------
-  await test('No Intents: user with no intents discovers nobody', async () => {
+  await test('returns empty when authenticated user has no intents', async () => {
     const userA = await createTestUser('User A');
     const userB = await createTestUser('User B');
     const index1 = await createTestIndex('Index 1');
@@ -522,7 +522,7 @@ async function runTests() {
   // -------------------------------------------------------------------------
   // TEST 12: Partial Multi-User (one outside shared index)
   // -------------------------------------------------------------------------
-  await test('Partial Multi-User: one user outside shared index', async () => {
+  await test('returns empty when stake includes user outside shared index', async () => {
     const userA = await createTestUser('User A');
     const userB = await createTestUser('User B');
     const userC = await createTestUser('User C');
@@ -549,7 +549,7 @@ async function runTests() {
   // -------------------------------------------------------------------------
   // TEST 13: User Has No Index Membership
   // -------------------------------------------------------------------------
-  await test('No Index Membership: user not in any index discovers nobody', async () => {
+  await test('returns empty when authenticated user is not a member of any index', async () => {
     const userA = await createTestUser('User A');
     const userB = await createTestUser('User B');
     const index1 = await createTestIndex('Index 1');
@@ -571,7 +571,7 @@ async function runTests() {
   // -------------------------------------------------------------------------
   // TEST 14: Both Users Have No Index Membership
   // -------------------------------------------------------------------------
-  await test('No Index Membership: both users not in any index', async () => {
+  await test('returns empty when neither user is a member of any index', async () => {
     const userA = await createTestUser('User A');
     const userB = await createTestUser('User B');
 
