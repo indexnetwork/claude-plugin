@@ -14,8 +14,7 @@ export const connectionRequestTemplate = (fromUserName: string, toUserName: stri
       <p>You’ve got a new connection request on Index, <strong>${fromUserName}</strong> wants to connect with you.</p>
       
       <div style="margin: 20px 0;">
-        <span style="font-size: 1.2em; vertical-align: middle; margin-right: 5px;">👉</span>
-        <a href="https://index.network/inbox" style="text-decoration: none; font-weight: bold; color: #000; font-size: 1.1em; border: 1px solid #ccc; padding: 10px 20px; border-radius: 5px; display: inline-block;">Go to Index to approve</a>
+        <a href="https://index.network/inbox" style="text-decoration: none; font-weight: bold; color: #FFFFFF; background-color: #0A0A0A; font-size: 1.1em; padding: 10px 20px; border-radius: 5px; display: inline-block;">Go to Index to approve</a>
       </div>
       
       ${synthesis ? `
@@ -31,22 +30,27 @@ export const connectionRequestTemplate = (fromUserName: string, toUserName: stri
           <p>You received this email because you have enabled <strong>Connection Updates</strong> in your notification settings. <a href="${unsubscribeUrl}" style="color: #888; text-decoration: underline;">Unsubscribe</a></p>
         </div>
       ` : ''}
+
+      <div style="margin-top: 20px; text-align: center;">
+          <img src="https://index.network/logo.png" alt="Index" style="height: 24px; opacity: 0.5;" />
+      </div>
     </div>
-  `,
+          `,
     // Clean text version
     text: `Hey ${toUserName},
 
-You’ve got a new connection request on Index, ${fromUserName} wants to connect with you.
+  You’ve got a new connection request on Index, ${fromUserName} wants to connect with you.
 
 👉 Go to Index to approve: https://index.network/inbox
 
 ${textSynthesis ? `What could happen between you two:
 ${textSynthesis}
 
-` : ''}If you want to move it forward, I’ll make the introduction. If not, everything stays quiet.
+` : ''
+      }If you want to move it forward, I’ll make the introduction.If not, everything stays quiet.
 
 —Index
 
-${unsubscribeUrl ? `Unsubscribe: ${unsubscribeUrl}` : ''}`
+${unsubscribeUrl ? `Unsubscribe: ${unsubscribeUrl}` : ''} `
   };
 };

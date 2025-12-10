@@ -14,6 +14,14 @@ export const executeSendEmail = async (options: {
   const isTestMode = process.env.ENABLE_EMAIL_TESTING === 'true';
   const recipient = isTestMode ? process.env.TESTING_EMAIL_ADDRESS : options.to;
 
+  console.log('[EmailTransport] executeSendEmail called', {
+    to: options.to,
+    subject: options.subject,
+    isTestMode,
+    recipient,
+    resendKeyConfigured: !!process.env.RESEND_API_KEY,
+  });
+
   if (isTestMode && !recipient) {
     console.warn('TESTING_EMAIL_ADDRESS not set. Skipping email sending.');
     return;
@@ -60,7 +68,7 @@ export const executeSendEmail = async (options: {
   }
 
   if (!isTestMode) {
-    console.log('Email is disabled for now: not from mainnet yet');
+    console.log('Email is disabled for now: not from mainnet yet (ENABLE_EMAIL_TESTING is not true)');
     return;
   }
 
@@ -107,5 +115,7 @@ export const sendEmail = async (options: {
   text: string;
   headers?: Record<string, string>;
 }) => {
+  console.log('[EmailTransport] sendEmail called (queueing job)', { to: options.to, subject: options.subject });
   await addEmailJob(options);
+  console.log('[EmailTransport] Email job added to queue');
 };
