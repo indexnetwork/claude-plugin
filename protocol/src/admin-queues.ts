@@ -1,0 +1,55 @@
+// Import this first! Must be before any other imports
+import './instrument';
+
+import * as Sentry from '@sentry/node';
+import express from 'express';
+import cors from 'cors';
+import helmet from 'helmet';
+import { serverAdapter } from './lib/queue/board';
+
+const app = express();
+const PORT = process.env.ADMIN_QUEUES_PORT || 3002;
+
+// Middleware
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      ...helmet.contentSecurityPolicy.getDefaultDirectives(),
+      "img-src": ["'self'", "data:", "https:"],
+      "script-src": ["'self'", "https:", "'unsafe-inline'"], // Required for Bull Board
+    },
+  },
+}));
+app.use(cors());
+app.use(express.json());
+
+// Health check
+app.get('/health', (req, res) => {
+  res.json({ status: 'OK', timestamp: new Date().toISOString() });
+});
+
+// Bull Board
+app.use('/admin/queues', serverAdapter.getRouter());
+
+// Sentry error handler must be before other error handlers
+Sentry.setupExpressErrorHandler(app);
+
+// Error handling middleware
+app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  console.error(err.stack);
+  res.status(500).json({
+    error: 'Something went wrong!',
+    message: process.env.NODE_ENV === 'development' ? err.message : 'Internal server error'
+  });
+});
+
+// 404 handler
+app.use('*', (req, res) => {
+  res.status(404).json({ error: 'Route not found' });
+});
+
+app.listen(PORT, () => {
+  console.log(`🚀 Admin Queues Server running on port ${PORT}`);
+  console.log(`📊 Health check: http://localhost:${PORT}/health`);
+  console.log(`📋 Queue Dashboard: http://localhost:${PORT}/admin/queues`);
+});

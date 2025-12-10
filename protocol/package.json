@@ -21,7 +21,9 @@
     "maintenance:update:embeddings": "TS_NODE_TRANSPILE_ONLY=1 node -r ts-node/register ./src/cli/update-embeddings.ts",
     "integration-worker": "TS_NODE_TRANSPILE_ONLY=1 node -r ts-node/register ./src/cli/integration-worker.ts",
     "social-worker": "TS_NODE_TRANSPILE_ONLY=1 node -r ts-node/register ./src/cli/social-worker.ts",
-    "audit-freshness": "TS_NODE_TRANSPILE_ONLY=1 node -r ts-node/register ./src/cli/audit-intent-freshness.ts"
+    "audit-freshness": "TS_NODE_TRANSPILE_ONLY=1 node -r ts-node/register ./src/cli/audit-intent-freshness.ts",
+    "admin-queues": "TS_NODE_TRANSPILE_ONLY=1 node -r ts-node/register ./src/admin-queues.ts",
+    "admin-queues:prod": "node dist/admin-queues.js"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.939.0",

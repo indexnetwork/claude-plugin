@@ -12,7 +12,6 @@ import { queueProcessor } from './lib/queue/processor';
 import { initWeeklyNewsletterJob } from './jobs/weekly-newsletter';
 import { emailWorker } from './lib/email/queue/email.worker';
 import { newsletterWorker } from './lib/queue/workers/newsletter.worker';
-import { serverAdapter } from './lib/queue/board';
 
 import authRoutes from './routes/auth';
 import userRoutes from './routes/users';
@@ -78,9 +77,6 @@ app.use('/api/synthesis', synthesisRoutes);
 app.use('/api/discover', discoverRoutes);
 app.use('/api/queue', queueRoutes);
 
-// Bull Board - Mount before other routes if desired, or under /admin
-app.use('/admin/queues', serverAdapter.getRouter());
-
 app.use('/api/admin', adminRoutes);
 app.use('/api/feedback', feedbackRoutes);
 app.use('/api/notifications', notificationRoutes);
@@ -125,6 +121,5 @@ app.use('*', (req, res) => {
   app.listen(PORT, () => {
     console.log(`🚀 Server running on port ${PORT}`);
     console.log(`📊 Health check: http://localhost:${PORT}/health`);
-    console.log(`📋 Queue Dashboard: http://localhost:${PORT}/admin/queues`);
   });
 })(); 
