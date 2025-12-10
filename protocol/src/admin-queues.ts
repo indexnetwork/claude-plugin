@@ -1,14 +1,10 @@
-// Import this first! Must be before any other imports
-import './instrument';
-
-import * as Sentry from '@sentry/node';
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import { serverAdapter } from './lib/queue/board';
 
 const app = express();
-const PORT = process.env.ADMIN_QUEUES_PORT || 3002;
+const PORT = process.env.PORT || 3002;
 
 // Middleware
 app.use(helmet({
@@ -29,10 +25,7 @@ app.get('/health', (req, res) => {
 });
 
 // Bull Board
-app.use('/admin/queues', serverAdapter.getRouter());
-
-// Sentry error handler must be before other error handlers
-Sentry.setupExpressErrorHandler(app);
+app.use('/', serverAdapter.getRouter());
 
 // Error handling middleware
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
