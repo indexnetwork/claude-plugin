@@ -98,12 +98,28 @@ export abstract class BaseContextBroker {
 
   /**
    * Find semantically related intents using vector similarity search
+   * Only searches within the same indexes as the current intent (privacy enforcement)
    */
-  protected async findSemanticallyRelatedIntents(currentIntent: any): Promise<any[]> {
+  protected async findRelatedIntents(currentIntent: any): Promise<any[]> {
     console.log('Finding semantically related intents for:', currentIntent.id);
     
     try {
-      // Generate embedding for current intent if it doesn't have one
+      // 1. Get the specific indexes that THIS intent is assigned to
+      const currentIntentIndexes = await this.db
+        .select({ indexId: intentIndexes.indexId })
+        .from(intentIndexes)
+        .where(eq(intentIndexes.intentId, currentIntent.id));
+      
+      const indexIds = currentIntentIndexes.map(row => row.indexId);
+      
+      if (indexIds.length === 0) {
+        console.log('Intent not in any index, cannot discover matches');
+        return []; // Intent not in any index, can't discover matches
+      }
+
+      console.log(`Searching in ${indexIds.length} indexes for intent ${currentIntent.id}`);
+
+      // 2. Generate embedding for current intent if it doesn't have one
       let queryEmbedding: number[];
       if (currentIntent.embedding) {
         queryEmbedding = currentIntent.embedding;
@@ -112,9 +128,7 @@ export abstract class BaseContextBroker {
         queryEmbedding = await generateEmbedding(currentIntent.payload);
       }
 
-      // Use pgvector for semantic similarity search with IVFFlat index
-      // Get top 50 most similar intents using cosine distance (increased for user grouping)
-      // Exclude intents from the same user to avoid stake validation errors
+      // 3. Vector search ONLY in the same indexes as current intent
       const similarIntents = await this.db
         .select({
           id: intents.id,
@@ -126,18 +140,22 @@ export abstract class BaseContextBroker {
           similarity: sql<number>`1 - (${intents.embedding} <=> ${JSON.stringify(queryEmbedding)}::vector)`
         })
         .from(intents)
+        .innerJoin(intentIndexes, eq(intents.id, intentIndexes.intentId))
         .where(
-          sql`${intents.id} != ${currentIntent.id} 
-              AND ${intents.userId} != ${currentIntent.userId}
-              AND ${intents.embedding} IS NOT NULL
-              AND ${intents.archivedAt} IS NULL`
+          and(
+            sql`${intents.id} != ${currentIntent.id}`,
+            sql`${intents.userId} != ${currentIntent.userId}`,
+            sql`${intents.embedding} IS NOT NULL`,
+            isNull(intents.archivedAt),
+            inArray(intentIndexes.indexId, indexIds) // Only same indexes
+          )
         )
         .orderBy(sql`${intents.embedding} <=> ${JSON.stringify(queryEmbedding)}::vector`)
         .limit(10);
 
-      console.log(`Found ${similarIntents.length} similar intents using vector search`);
+      console.log(`Found ${similarIntents.length} similar intents using vector search (privacy-enforced)`);
 
-      // Filter by similarity threshold (equivalent to 0.7 LLM score)
+      // 4. Filter by similarity threshold (equivalent to 0.7 LLM score)
       const relatedIntents = similarIntents
         .filter(intent => intent.similarity > 0.44) // 50% cosine similarity threshold
         .map(intent => ({
