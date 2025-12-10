@@ -1,6 +1,13 @@
-export const connectionRequestTemplate = (fromUserName: string, toUserName: string, synthesis?: string, subject?: string, unsubscribeUrl?: string) => ({
-  subject: subject || `✨ ${fromUserName} wants to connect with you`,
-  html: `
+export const connectionRequestTemplate = (fromUserName: string, toUserName: string, synthesis?: string, subject?: string, unsubscribeUrl?: string) => {
+  const stripLinks = (text: string) => {
+    return text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '$1');
+  };
+
+  const processedSynthesis = synthesis ? stripLinks(synthesis) : undefined;
+
+  return {
+    subject: subject || `✨ ${fromUserName} wants to connect with you`,
+    html: `
     <div style="font-family: Arial, sans-serif;">
       <p>Hey ${toUserName},</p>
       <p>You’ve got a new connection request on Index, <strong>${fromUserName}</strong> wants to connect with you.</p>
@@ -10,9 +17,9 @@ export const connectionRequestTemplate = (fromUserName: string, toUserName: stri
         <a href="https://index.network/inbox" style="text-decoration: none; font-weight: bold; color: #000; font-size: 1.1em; border: 1px solid #ccc; padding: 10px 20px; border-radius: 5px; display: inline-block;">Go to Index to approve</a>
       </div>
       
-      ${synthesis ? `
+      ${processedSynthesis ? `
         <p><strong>What could happen between you two:</strong></p>
-        <div>${synthesis}</div>
+        <div>${processedSynthesis}</div>
       ` : ''}
       
       <p>If you want to move it forward, I’ll make the introduction. If not, everything stays quiet.</p>
@@ -25,18 +32,19 @@ export const connectionRequestTemplate = (fromUserName: string, toUserName: stri
       ` : ''}
     </div>
   `,
-  text: `Hey ${toUserName},
+    text: `Hey ${toUserName},
 
 You’ve got a new connection request on Index, ${fromUserName} wants to connect with you.
 
 👉 Go to Index to approve: https://index.network/inbox
 
-${synthesis ? `What could happen between you two:
-${synthesis}
+${processedSynthesis ? `What could happen between you two:
+${processedSynthesis}
 
 ` : ''}If you want to move it forward, I’ll make the introduction. If not, everything stays quiet.
 
 —Index
 
 ${unsubscribeUrl ? `Unsubscribe: ${unsubscribeUrl}` : ''}`
-});
+  };
+};
