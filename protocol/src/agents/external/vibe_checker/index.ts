@@ -299,7 +299,7 @@ export async function vibeCheckNewsletter(
     // User prompt with intent pairs - Reusing the standard builder as the input data format is the same
     const userMsg = buildUserMessage(data, initiator, target, isThirdPerson);
 
-    const response = await traceableLlm("vibe-checker-newsletter", {
+    const response = await traceableLlm("vibe-checker", {
       other_user_id: data.id,
       other_user_name: data.name,
       intent_pairs_count: data.intentPairs.length
