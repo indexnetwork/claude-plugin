@@ -1,5 +1,6 @@
-import { Queue, Job } from 'bullmq';
-import { getRedisClient } from '../../redis';
+import { Queue, Job, QueueEvents } from 'bullmq';
+import { getBullMQConnection } from '../../redis';
+import { log } from '../../log';
 
 export const EMAIL_QUEUE_NAME = 'email-processing-queue';
 
@@ -12,13 +13,11 @@ export interface EmailJobData {
 
 export type EmailJob = Job<EmailJobData>;
 
-const redisClient = getRedisClient();
+// Use dedicated BullMQ connection options (no lazyConnect, maxRetriesPerRequest: null)
+const bullmqConnection = getBullMQConnection();
 
 export const emailQueue = new Queue<EmailJobData>(EMAIL_QUEUE_NAME, {
-    connection: {
-        ...redisClient.options,
-        maxRetriesPerRequest: null,
-    },
+    connection: bullmqConnection,
     defaultJobOptions: {
         attempts: 5,
         backoff: {
@@ -36,8 +35,15 @@ export const emailQueue = new Queue<EmailJobData>(EMAIL_QUEUE_NAME, {
     }
 });
 
-export async function addEmailJob(data: EmailJobData, priority: number = 1): Promise<void> {
-    await emailQueue.add('send_email', data, {
+// QueueEvents instance for waiting on job completion
+export const emailQueueEvents = new QueueEvents(EMAIL_QUEUE_NAME, {
+    connection: bullmqConnection,
+});
+
+export async function addEmailJob(data: EmailJobData, priority: number = 1): Promise<Job<EmailJobData>> {
+    const job = await emailQueue.add('send_email', data, {
         priority: priority > 0 ? priority : undefined,
     });
+    log.debug(`[EmailQueue] Job added with ID: ${job.id}`, { priority });
+    return job;
 }
