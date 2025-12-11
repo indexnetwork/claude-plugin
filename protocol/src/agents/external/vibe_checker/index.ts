@@ -269,3 +269,124 @@ Note: Use the actual <created> timestamps from the intent pairs above. The examp
 </examples>`
   };
 }
+// ============================================================================
+// NEWSLETTER SPECIFIC v1
+// ============================================================================
+
+export async function vibeCheckNewsletter(
+  data: OtherUserData,
+  opts: VibeCheckOptions = {}
+): Promise<VibeCheckResult> {
+  const startTime = new Date();
+
+  try {
+    if (!data?.intentPairs?.length) {
+      return {
+        success: false,
+        error: 'No intent pairs provided',
+        timing: getTiming(startTime)
+      };
+    }
+
+    const { timeout = 30000, characterLimit } = opts;
+    const isThirdPerson = !!data.initiatorName;
+    const initiator = data.initiatorName || 'you';
+    const target = data.name;
+
+    // System prompt
+    const systemMsg = buildNewsletterSystemMessage(initiator, target, isThirdPerson, characterLimit);
+    console.log('System prompt:', systemMsg);
+    // User prompt with intent pairs - Reusing the standard builder as the input data format is the same
+    const userMsg = buildUserMessage(data, initiator, target, isThirdPerson);
+    const response = await traceableLlm("vibe-checker", {
+      other_user_id: data.id,
+      other_user_name: data.name,
+      intent_pairs_count: data.intentPairs.length
+    })([systemMsg, userMsg], { reasoning: { exclude: true, effort: 'minimal' }, response_format: { type: "json_object" } } as any);
+    let synthesis = "";
+    let subject = "";
+
+    try {
+      let contentStr = response.content as string;
+      // Strip markdown code blocks if present
+      contentStr = contentStr.replace(/^```json\s*/, '').replace(/^```\s*/, '').replace(/\s*```$/, '');
+
+      const content = JSON.parse(contentStr);
+      synthesis = content.body || "";
+      subject = content.subject || "";
+    } catch (e) {
+      // Fallback for non-JSON response (shouldn't happen with response_format)
+      synthesis = (response.content as string).trim();
+    }
+
+    return {
+      success: true,
+      synthesis,
+      subject,
+      timing: getTiming(startTime)
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+      timing: getTiming(startTime)
+    };
+  }
+}
+
+function buildNewsletterSystemMessage(
+  initiator: string,
+  target: string,
+  isThirdPerson: boolean,
+  characterLimit?: number
+) {
+  return {
+    role: "system",
+    content: `You are a collaboration synthesis generator. Create a warm, practical explanation of why two people are mutual matches based on what they're explicitly looking for.
+
+Also generate a descriptive title for this match.
+
+Style for Body:
+- Warm and friendly, not formal
+- Single, short, punchy sentence explanation (maximum 2 lines)
+- Grounded in stated needs
+- Direct and concise
+- Add a small human touch
+- Titles should clearly signal why the match works
+
+Style for Subject (Title):
+- DO NOT include the person's name in the title
+- Highlight strongest mutual-intent synergy
+- Stay under 12 words
+- Sound warm, professional, and action-oriented
+- Avoid robotic "Label: Topic" formats
+- Examples:
+  - "Perfect match for your DeFi-focused dev needs"
+  - "Strong alignment on AI research + team building"
+  - "Deep synergy on protocol scaling"
+
+Format:
+- Return a JSON object with "subject" and "body" fields.
+- "subject" is the Title. "body" is the explanation.
+- Body Markdown: ${isThirdPerson ? 'Mention' : 'You can mention'} intents but DO NOT use hyperlinks. Just use the text.
+- IMPORTANT: The body must be a SINGLE SENTENCE (or two short ones). No multiple paragraphs.
+- IMPORTANT: Do NOT use any XML tags like <your_intent> in the response.
+- Do not place links anywhere - hyperlinks are prohibited in this format
+- No bold, italic, or title${characterLimit ? `\n- Maximum ${characterLimit} characters for body` : ''}
+
+Time Awareness:
+- Each intent includes a <created> timestamp (e.g., "2 months ago", "3 days ago")
+- Only mention timing when it adds meaningful value:
+  - Timing contrast (fresh need meets years of experience)
+  - Target's dedication (been working on this for months)
+  - Urgency from target (launching soon, ready now)
+- Skip mentioning ${isThirdPerson ? `${initiator}'s` : 'your'} fresh timestamps—they're noise unless creating contrast
+- Use timing naturally in the flow, not as a parenthetical afterthought
+
+Structure:
+- State what ${target} provides or is looking for
+- Explain the mutual fit using present tense and direct language
+- Weave in timing references naturally where relevant
+- Address ${isThirdPerson ? `${initiator} and ${target} in third person` : `reader as "${initiator}" vs the other person by first name only`}`
+  };
+}

@@ -68,7 +68,7 @@ export class SemanticRelevancyBroker extends BaseContextBroker {
     maxSimilarity: number;
   }>> {
     // Find similar intents using vector search (limit 50 to ensure we get enough variety)
-    const similarIntents = await this.findSemanticallyRelatedIntents(newIntent);
+    const similarIntents = await this.findRelatedIntents(newIntent);
 
     // Group by userId
     const userMap = new Map<string, {

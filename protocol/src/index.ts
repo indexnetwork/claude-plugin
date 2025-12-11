@@ -10,7 +10,8 @@ console.log('process.env', process.env);
 import { initializeBrokers } from './agents/context_brokers/connector';
 import { queueProcessor } from './lib/queue/processor';
 import { initWeeklyNewsletterJob } from './jobs/weekly-newsletter';
-import { emailQueueProcessor } from './lib/email/queue/email.processor';
+import { emailWorker } from './lib/email/queue/email.worker';
+import { newsletterWorker } from './lib/queue/workers/newsletter.worker';
 
 import authRoutes from './routes/auth';
 import userRoutes from './routes/users';
@@ -35,7 +36,15 @@ const PORT = process.env.PORT || 3001;
 
 
 // Middleware
-app.use(helmet());
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      ...helmet.contentSecurityPolicy.getDefaultDirectives(),
+      "img-src": ["'self'", "data:", "https:"],
+      "script-src": ["'self'", "https:", "'unsafe-inline'"], // Required for Bull Board
+    },
+  },
+}));
 app.use(cors());
 // app.use(morgan('combined')); // Temporarily disabled
 app.use(express.json({ limit: '50mb' }));
@@ -101,7 +110,8 @@ app.use('*', (req, res) => {
     queueProcessor.start();
     console.log('🟢 Queue processor started');
 
-    emailQueueProcessor.start();
+    emailWorker.start();
+    newsletterWorker.start();
 
     initWeeklyNewsletterJob();
   } catch (err) {

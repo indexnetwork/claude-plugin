@@ -21,10 +21,14 @@
     "maintenance:update:embeddings": "TS_NODE_TRANSPILE_ONLY=1 node -r ts-node/register ./src/cli/update-embeddings.ts",
     "integration-worker": "TS_NODE_TRANSPILE_ONLY=1 node -r ts-node/register ./src/cli/integration-worker.ts",
     "social-worker": "TS_NODE_TRANSPILE_ONLY=1 node -r ts-node/register ./src/cli/social-worker.ts",
-    "audit-freshness": "TS_NODE_TRANSPILE_ONLY=1 node -r ts-node/register ./src/cli/audit-intent-freshness.ts"
+    "audit-freshness": "TS_NODE_TRANSPILE_ONLY=1 node -r ts-node/register ./src/cli/audit-intent-freshness.ts",
+    "admin-queues": "TS_NODE_TRANSPILE_ONLY=1 node -r ts-node/register ./src/admin-queues.ts",
+    "admin-queues:prod": "node dist/admin-queues.js"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.939.0",
+    "@bull-board/api": "^6.15.0",
+    "@bull-board/express": "^6.15.0",
     "@composio/core": "^0.1.55",
     "@langchain/core": "^0.3.77",
     "@langchain/openai": "^0.6.13",
@@ -32,6 +36,7 @@
     "@sentry/node": "^10.29.0",
     "@types/ioredis": "^4.28.10",
     "axios": "^1.6.0",
+    "bullmq": "^5.65.1",
     "commander": "^13.1.0",
     "cors": "^2.8.5",
     "csv-parser": "^3.2.0",
