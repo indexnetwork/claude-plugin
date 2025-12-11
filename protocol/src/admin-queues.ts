@@ -4,7 +4,7 @@ import helmet from 'helmet';
 import { serverAdapter } from './lib/queue/board';
 
 const app = express();
-const PORT = process.env.PORT || 3002;
+const PORT = process.env.PORT || 3001;
 
 // Middleware
 app.use(helmet({
@@ -44,5 +44,5 @@ app.use('*', (req, res) => {
 app.listen(PORT, () => {
   console.log(`🚀 Admin Queues Server running on port ${PORT}`);
   console.log(`📊 Health check: http://localhost:${PORT}/health`);
-  console.log(`📋 Queue Dashboard: http://localhost:${PORT}/admin/queues`);
+  console.log(`📋 Queue Dashboard: http://localhost:${PORT}`);
 });

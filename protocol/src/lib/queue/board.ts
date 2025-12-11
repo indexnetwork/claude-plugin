@@ -6,7 +6,7 @@ import { newsletterQueue } from './newsletter.queue';
 import { emailQueue } from '../email/queue/email.queue';
 
 export const serverAdapter = new ExpressAdapter();
-serverAdapter.setBasePath('/admin/queues');
+serverAdapter.setBasePath('/');
 
 createBullBoard({
     queues: [
