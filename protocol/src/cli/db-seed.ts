@@ -93,7 +93,7 @@ async function seedDatabase(): Promise<{ ok: boolean; error?: string }> {
           joinPolicy: 'anyone',
           invitationLink: null,
           allowGuestVibeCheck: false,
-          requireApproval: false
+          requireApproval: true
         },
       });
     } catch { }

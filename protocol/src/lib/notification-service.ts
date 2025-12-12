@@ -1,9 +1,10 @@
 import db from './db';
-import { users, intents, intentStakes, intentStakeItems, userNotificationSettings } from './schema';
+import { users, intents, intentStakes, intentStakeItems, userNotificationSettings, indexMembers, indexes } from './schema';
 import { eq, sql, and, inArray } from 'drizzle-orm';
 import {
     sendConnectionRequestEmail,
-    sendConnectionAcceptedEmail
+    sendConnectionAcceptedEmail,
+    sendOwnerApprovalEmail
 } from './email/email.module';
 import { synthesizeVibeCheck, synthesizeIntro } from './synthesis';
 import DOMPurify from 'isomorphic-dompurify';
@@ -63,6 +64,68 @@ async function checkConnectionUpdatesEnabled(userId: string): Promise<boolean> {
 
 export async function sendConnectionRequestNotification(initiatorUserId: string, receiverUserId: string): Promise<void> {
     try {
+        // --- APPROVAL LOGIC START ---
+        // Check if users share any index that requires approval
+        const sharedApprovalIndexes = await db.select({
+            id: indexes.id,
+            title: indexes.title,
+            permissions: indexes.permissions
+        })
+            .from(indexes)
+            .innerJoin(indexMembers, eq(indexes.id, indexMembers.indexId))
+            .where(and(
+                eq(indexMembers.userId, initiatorUserId),
+                sql`${indexes.id} IN (
+                SELECT index_id FROM index_members WHERE user_id = ${receiverUserId}
+            )`,
+                sql`${indexes.permissions}->>'requireApproval' = 'true'`
+            ));
+
+        if (sharedApprovalIndexes.length > 0) {
+            console.log(`Connection request between ${initiatorUserId} and ${receiverUserId} requires approval from ${sharedApprovalIndexes.length} indexes`);
+
+            // Get initiator and receiver names for the email
+            const [initiator, receiver] = await Promise.all([
+                db.select({ name: users.name }).from(users).where(eq(users.id, initiatorUserId)).limit(1),
+                db.select({ name: users.name }).from(users).where(eq(users.id, receiverUserId)).limit(1)
+            ]);
+
+            if (!initiator[0]?.name || !receiver[0]?.name) {
+                console.log('Missing user names for approval email');
+                return;
+            }
+
+            // For each required index, notify the owners
+            for (const index of sharedApprovalIndexes) {
+                const owners = await db.select({
+                    email: users.email,
+                    name: users.name
+                })
+                    .from(indexMembers)
+                    .innerJoin(users, eq(users.id, indexMembers.userId))
+                    .where(and(
+                        eq(indexMembers.indexId, index.id),
+                        sql`'owner' = ANY(${indexMembers.permissions})`
+                    ));
+
+                for (const owner of owners) {
+                    await sendOwnerApprovalEmail(
+                        owner.email,
+                        owner.name,
+                        initiator[0].name,
+                        receiver[0].name,
+                        index.title,
+                        index.id
+                    );
+                }
+            }
+
+            // If approval is required, we DO NOT send the request email to the receiver yet.
+            // The flow stops here until an owner approves.
+            return;
+        }
+        // --- APPROVAL LOGIC END ---
+
         // Check if receiver has connection updates enabled
         const shouldSend = await checkConnectionUpdatesEnabled(receiverUserId);
         if (!shouldSend) {
