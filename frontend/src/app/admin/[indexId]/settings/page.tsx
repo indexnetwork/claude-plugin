@@ -99,6 +99,17 @@ export default function SettingsPage({ params }: { params: Promise<{ indexId: st
   const suggestionsRef = useRef<HTMLDivElement>(null);
   const searchContainerRef = useRef<HTMLDivElement>(null);
 
+  // Load current user's permissions separately (doesn't depend on members list)
+  const loadCurrentUserPermissions = useCallback(async () => {
+    if (!indexId || !user?.id) return;
+    try {
+      const settings = await indexesService.getCurrentUserMemberSettings(indexId);
+      setCurrentUserPermissions(settings.permissions || []);
+    } catch (error) {
+      console.error('Error loading current user permissions:', error);
+    }
+  }, [indexesService, indexId, user?.id]);
+
   // Load members on mount
   const loadMembers = useCallback(async (searchQuery?: string) => {
     if (!indexId || !user?.id) return;
@@ -106,18 +117,13 @@ export default function SettingsPage({ params }: { params: Promise<{ indexId: st
       const response = await indexesService.getMembers(indexId, { searchQuery });
       const membersList = response.members;
       setMembers(membersList);
-      
-      // Find current user's permissions
-      const currentMember = membersList.find(m => m.id === user.id);
-      if (currentMember) {
-        setCurrentUserPermissions(currentMember.permissions || []);
-      }
     } catch (error) {
       console.error('Error loading members:', error);
     }
   }, [indexesService, indexId, user?.id]);
 
   useEffect(() => {
+    loadCurrentUserPermissions();
     loadMembers();
     if (index) {
       setTitle(index.title);
@@ -138,7 +144,7 @@ export default function SettingsPage({ params }: { params: Promise<{ indexId: st
         setInvitationLink(null);
       }
     }
-  }, [loadMembers, index]);
+  }, [loadCurrentUserPermissions, loadMembers, index]);
 
   const searchUsers = useCallback(async (query: string) => {
     if (!query.trim() || !indexId) {
@@ -198,8 +204,10 @@ export default function SettingsPage({ params }: { params: Promise<{ indexId: st
       
       // Close role dropdown if clicking outside
       if (roleDropdownOpen) {
-        const dropdown = document.querySelector(`[data-role-dropdown="${roleDropdownOpen}"]`);
-        if (dropdown && !dropdown.contains(event.target as Node)) {
+        const dropdownContainer = document.querySelector(`[data-role-dropdown="${roleDropdownOpen}"]`);
+        const target = event.target as Node;
+        
+        if (dropdownContainer && !dropdownContainer.contains(target)) {
           setRoleDropdownOpen(null);
         }
       }
@@ -969,7 +977,8 @@ export default function SettingsPage({ params }: { params: Promise<{ indexId: st
                           {/* Role dropdown */}
                           <div className="relative" data-role-dropdown={member.id}>
                             <button
-                              onClick={() => {
+                              onClick={(e) => {
+                                e.stopPropagation();
                                 // Only allow role changes if current user is owner or admin
                                 // and the member is not an owner (owners cannot be changed)
                                 const isOwner = currentUserPermissions.includes('owner');
@@ -1002,25 +1011,25 @@ export default function SettingsPage({ params }: { params: Promise<{ indexId: st
                               )}
                             </button>
                             
-                            {/* Role dropdown menu */}
+                            {/* Dropdown menu */}
                             {roleDropdownOpen === member.id && (
-                              <div className="absolute right-0 mt-1 w-32 bg-white border border-gray-200 rounded-md shadow-lg z-10">
+                              <div className="absolute right-0 top-full mt-1 w-32 bg-white border border-gray-200 rounded-md shadow-lg z-50">
                                 {currentUserPermissions.includes('owner') && (
                                   <>
-                                    {!member.permissions.includes('admin') && (
+                                    {!member.permissions.includes('owner') && !member.permissions.includes('admin') && (
                                       <button
                                         onClick={() => handleChangeRole(member.id, 'admin')}
                                         className="w-full px-3 py-2 text-left text-sm hover:bg-amber-50 text-amber-700"
                                       >
-                                        Admin 
+                                        Admin
                                       </button>
                                     )}
-                                    {!member.permissions.includes('member') && (
+                                    {!member.permissions.includes('owner') && !member.permissions.includes('member') && (
                                       <button
                                         onClick={() => handleChangeRole(member.id, 'member')}
                                         className="w-full px-3 py-2 text-left text-sm hover:bg-gray-50 text-gray-700"
                                       >
-                                        Member 
+                                        Member
                                       </button>
                                     )}
                                   </>
@@ -1309,6 +1318,7 @@ export default function SettingsPage({ params }: { params: Promise<{ indexId: st
             </div>,
             document.body
           )}
+
         </>
       )}
 
