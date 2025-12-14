@@ -242,6 +242,15 @@ export const createIndexesService = (api: ReturnType<typeof useAuthenticatedAPI>
     };
   },
 
+  // Get current user's member settings (including permissions)
+  getCurrentUserMemberSettings: async (indexId: string): Promise<{ permissions: string[]; isOwner: boolean }> => {
+    const response = await api.get<{ permissions: string[]; isOwner: boolean }>(`/indexes/${indexId}/member-settings`);
+    return {
+      permissions: response.permissions || [],
+      isOwner: response.isOwner || false
+    };
+  },
+
   // Member Intents Management
   // Get member intents for an index
   getMemberIntents: async (indexId: string): Promise<Array<{
