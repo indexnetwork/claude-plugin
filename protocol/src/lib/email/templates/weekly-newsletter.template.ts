@@ -1,3 +1,5 @@
+import { escapeHtml } from "../../escapeHtml";
+
 export interface Match {
   name: string;
   role?: string;
@@ -5,13 +7,6 @@ export interface Match {
 }
 
 export const weeklyNewsletterTemplate = (recipientName: string, matches: Match[], unsubscribeUrl?: string) => {
-  const escapeHtml = (str: string) => {
-    return str.replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#039;');
-  }
 
   const formatReasoning = (text: string) => {
     return escapeHtml(text).replace(/\[([^\]]+)\]\(([^)]+)\)/g, '$1');
