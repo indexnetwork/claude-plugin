@@ -155,14 +155,14 @@ async function doVoting<S, A>(
         }
 
         // 3. Tally the valid vote
-        // We need to serialize action to use as key
-        const actionKey = JSON.stringify(voteResult.action);
-        const currentTally = voteCounts.get(actionKey);
+        // We need to serialize action AND nextState to use as key to properly handle divergence
+        const voteKey = JSON.stringify({ action: voteResult.action, nextState: voteResult.nextState });
+        const currentTally = voteCounts.get(voteKey);
 
         if (currentTally) {
             currentTally.count += 1;
         } else {
-            voteCounts.set(actionKey, {
+            voteCounts.set(voteKey, {
                 count: 1,
                 action: voteResult.action,
                 nextState: voteResult.nextState

@@ -1,4 +1,4 @@
-import { makerSolve, MakerConfig, openai } from './index';
+import { makerSolve, MakerConfig } from './index';
 // @ts-ignore
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
@@ -125,6 +125,51 @@ describe('MAKER Framework', () => {
 
             expect(result[0].value).toBe(1);
             expect(mockCreate).toHaveBeenCalledTimes(4);
+        });
+
+        it('should treat same action with different states as different votes (divergence handling)', async () => {
+            config.k_margin = 1;
+            // We need 1 vote margin.
+            // Vote 1: Action A, State X. Leader: {A,X}=1, Runner: 0. Margin 1. WINS immediately if we don't have divergence check or if valid.
+            // Wait, if it wins immediately, we can't test divergence.
+            // We need k_margin such that 1 vote isn't enough OR specific sequence.
+
+            // Let's use k_margin=1.
+            // Vote 1: {A, X}. Leader: {A,X}=1. RunnerUp: 0. 1 >= 1. Wins (in first iteration, sortedVotes length is 1).
+
+            // To test divergence, we need to ensure that subsequent attributes don't get merged into the first one IF we were to run more.
+            // Actually, deeper issue: If Action A / State X wins, it returns Action A / State X.
+            // If standard code disregarded State, Action A / State X might win but internal state might be confused?
+            // The criticism was: "ignores later differing nextState values".
+            // Meaning: Vote 1: A -> X. Vote 2: A -> Y.
+            // Old Logic: Key = "A". Count = 2. It thinks it has high confidence.
+            // New Logic: Key1 = "A->X". Key2 = "A->Y". Count each = 1. No consensus.
+
+            // So to test this: k_margin=2.
+            // Call 1: A -> X
+            // Call 2: A -> Y
+            // Old Logic: Leader "A" has 2 votes. Runner 0. 2 >= 2. TERMINATES.
+            // New Logic: Leader "A->X" has 1. Runner "A->Y" has 1. 1 < 1+2. CONTINUES.
+
+            const respAX = { choices: [{ message: { content: JSON.stringify({ action: { type: 'INCREMENT', value: 1 }, nextState: { count: 10 } }) } }] };
+            const respAY = { choices: [{ message: { content: JSON.stringify({ action: { type: 'INCREMENT', value: 1 }, nextState: { count: 99 } }) } }] }; // Different state
+            const respAX_confirm = { choices: [{ message: { content: JSON.stringify({ action: { type: 'INCREMENT', value: 1 }, nextState: { count: 10 } }) } }] };
+
+            mockCreate
+                .mockResolvedValueOnce(respAX)
+                .mockResolvedValueOnce(respAY) // Divergence!
+                .mockResolvedValueOnce(respAX_confirm) // Confirm A->X
+                .mockResolvedValueOnce(respAX_confirm); // Confirm A->X again (Total A->X: 3. A->Y: 1. Margin 2.)
+
+            // We need A->X to reach 3 to beat A->Y (count 1) by 2?
+            // 3 - 1 = 2. Yes.
+
+            const result = await makerSolve({ count: 0 }, { ...config, total_steps_needed: 1, k_margin: 2 });
+
+            expect(mockCreate).toHaveBeenCalledTimes(4);
+            // If old logic was present, it would have returned after 2 calls (Count 2 vs 0).
+
+            expect(result[0].value).toBe(1);
         });
     });
 
