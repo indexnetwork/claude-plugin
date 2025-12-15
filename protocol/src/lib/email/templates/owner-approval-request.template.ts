@@ -1,14 +1,16 @@
+import { escapeHtml } from "../../escapeHtml";
+
 export const ownerApprovalRequestTemplate = (
-    ownerName: string,
-    initiatorName: string,
-    receiverName: string,
-    indexTitle: string,
-    approvalUrl: string,
-    unsubscribeUrl?: string
+  ownerName: string,
+  initiatorName: string,
+  receiverName: string,
+  indexTitle: string,
+  approvalUrl: string,
+  unsubscribeUrl?: string
 ) => {
-    return {
-        subject: `Action required: Connection request in ${indexTitle}`,
-        html: `
+  return {
+    subject: escapeHtml(`Action required: Connection request in ${indexTitle}`),
+    html: escapeHtml(`
     <div style="font-family: Arial, sans-serif;">
       <p>Hey ${ownerName},</p>
       <p>There is a new connection request in <strong>${indexTitle}</strong> that requires your approval.</p>
@@ -32,8 +34,8 @@ export const ownerApprovalRequestTemplate = (
           <img src="https://index.network/logo.png" alt="Index" style="height: 24px; opacity: 0.5;" />
       </div>
     </div>
-    `,
-        text: `Hey ${ownerName},
+    `),
+    text: escapeHtml(`Hey ${ownerName},
 
 There is a new connection request in ${indexTitle} that requires your approval.
 
@@ -45,6 +47,6 @@ As the index owner, you can approve or deny this connection to ensure it aligns 
 
 —Index
 
-${unsubscribeUrl ? `Unsubscribe: ${unsubscribeUrl}` : ''}`
-    };
+${unsubscribeUrl ? `Unsubscribe: ${unsubscribeUrl}` : ''}`)
+  };
 };
