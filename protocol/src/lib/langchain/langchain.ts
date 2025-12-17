@@ -146,7 +146,7 @@ function createBaseOpenRouterModel(preset: string | undefined, options: AgentMod
  * ```
  */
 export function createAgent(options: AgentModelOptions & { preset?: string }): Runnable {
-  let defaultModel: BaseChatModel | Runnable = createBaseOpenRouterModel(options.preset, options);
+  let defaultModel: BaseChatModel | Runnable = createBaseOpenRouterModel(options.preset ?? options.model, options);
 
   // Apply structured output if format is provided
   if (options.responseFormat) {

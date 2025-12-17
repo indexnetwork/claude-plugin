@@ -1,5 +1,3 @@
-import { json2md } from "./json2md";
-
 /**
  * Configuration for a table column.
  */
@@ -55,7 +53,7 @@ export const json2md = {
 
     // Header row
     let markdown = `| ${headers.join(' | ')} |\n`;
-    
+
     // Separator row
     markdown += `| ${headers.map(() => '---').join(' | ')} |\n`;
 
@@ -94,11 +92,13 @@ export const json2md = {
 
       if (Array.isArray(value)) {
         // Handle Array: Label + List
+        lines.push(`**${key}**:`);
         if (value.length > 0) {
-            lines.push(`**${key}**:`);
-            value.forEach(item => {
-                lines.push(` - ${item}`);
-            });
+          value.forEach(item => {
+            lines.push(` - ${item}`);
+          });
+        } else {
+          lines.push(` - (None)`);
         }
       } else if (typeof value === 'object') {
         // Handle Nested Object: Header + Recursion
@@ -121,6 +121,6 @@ export const json2md = {
    * @returns The formatted markdown string.
    */
   keyValue(obj: Record<string, any>): string {
-    return this.fromObject(obj, 2); 
+    return this.fromObject(obj, 2);
   }
 };

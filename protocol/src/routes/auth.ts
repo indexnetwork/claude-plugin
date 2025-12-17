@@ -2,11 +2,14 @@ import { Router, Response, Request } from 'express';
 import { privyClient } from '../lib/privy';
 import { authenticatePrivy, AuthRequest } from '../middleware/auth';
 import db from '../lib/db';
-import { users, userNotificationSettings } from '../lib/schema';
-import { eq, isNull } from 'drizzle-orm';
-import { User, UpdateProfileRequest, OnboardingState } from '../types';
+import { users, userNotificationSettings, userProfiles, intents } from '../lib/schema';
+import { eq, isNull, and, or } from 'drizzle-orm';
+import { ExplicitIntentDetector } from '../agents/intent/inferrer/explicit.inferrer';
+import { UserMemoryProfile, ActiveIntent } from '../agents/intent/manager/intent.manager.types';
 import { checkAndTriggerSocialSync, checkAndTriggerEnrichment } from '../lib/integrations/social-sync';
-import { generateSummaryWithIntents, GenerateSummaryInput, SummaryStreamEvent } from '../lib/parallels';
+import { searchUser } from '../lib/parallel/parallel';
+import { json2md } from '../lib/json2md/json2md';
+import { ProfileGenerator } from '../agents/profile/profile.generator';
 
 const router = Router();
 
@@ -15,10 +18,12 @@ router.get('/me', authenticatePrivy, async (req: AuthRequest, res: Response) => 
   try {
     const userResult = await db.select({
       user: users,
-      settings: userNotificationSettings
+      settings: userNotificationSettings,
+      profile: userProfiles
     })
       .from(users)
       .leftJoin(userNotificationSettings, eq(users.id, userNotificationSettings.userId))
+      .leftJoin(userProfiles, eq(users.id, userProfiles.userId))
       .where(eq(users.id, req.user!.id))
       .limit(1);
 
@@ -26,11 +31,12 @@ router.get('/me', authenticatePrivy, async (req: AuthRequest, res: Response) => 
       return res.status(404).json({ error: 'User not found' });
     }
 
-    const { user, settings } = userResult[0];
+    const { user, settings, profile } = userResult[0];
 
     // Merge settings into user object for frontend compatibility
     const userWithPreferences = {
       ...user,
+      profile, // Include the profile object
       notificationPreferences: settings?.preferences || {
         connectionUpdates: true,
         weeklyNewsletter: true,
@@ -48,30 +54,183 @@ router.get('/me', authenticatePrivy, async (req: AuthRequest, res: Response) => 
 router.patch('/profile', authenticatePrivy, async (req: AuthRequest, res: Response) => {
   try {
     const { name, intro, avatar, location, timezone, socials, notificationPreferences } = req.body;
+    const userId = req.user!.id;
 
     // Get old socials before update
     const currentUser = await db.select({ socials: users.socials })
       .from(users)
-      .where(eq(users.id, req.user!.id))
+      .where(eq(users.id, userId))
       .limit(1);
     const oldSocials = currentUser[0]?.socials || null;
 
-    // Update user fields
+    // Update user fields in 'users' table (legacy support)
+    // Note: 'intro' is deprecated in users table, we only use userProfiles.bio
     const updatedUserResult = await db.update(users)
       .set({
         ...(name && { name }),
-        ...(intro !== undefined && { intro }),
         ...(avatar && { avatar }),
         ...(location !== undefined && { location }),
         ...(timezone !== undefined && { timezone }),
         ...(socials !== undefined && { socials }),
         updatedAt: new Date()
       })
-      .where(eq(users.id, req.user!.id))
+      .where(eq(users.id, userId))
       .returning();
 
     if (updatedUserResult.length === 0) {
       return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Upsert into 'user_profiles' table (new schema)
+    // We map 'intro' to 'bio'
+    // Upsert into 'user_profiles' table (new schema with identity)
+    if (intro !== undefined || location !== undefined || name !== undefined) {
+      const existingProfileRes = await db.select().from(userProfiles).where(eq(userProfiles.userId, userId)).limit(1);
+      const existingIdentity = existingProfileRes[0]?.identity || { name: updatedUserResult[0].name, bio: '', location: '' };
+
+      const newIdentity = {
+        name: name || existingIdentity.name,
+        bio: intro !== undefined ? intro : existingIdentity.bio,
+        location: location !== undefined ? location : existingIdentity.location
+      };
+
+      await db.insert(userProfiles)
+        .values({
+          userId: userId,
+          identity: newIdentity,
+        })
+        .onConflictDoUpdate({
+          target: userProfiles.userId,
+          set: {
+            identity: newIdentity,
+            updatedAt: new Date()
+          }
+        });
+
+      // Trigger background intent generation if bio (intro) changed
+      if (intro !== undefined) {
+        (async () => {
+          try {
+            console.log('Triggering background intent generation for profile update', userId);
+
+            // 1. Fetch User Profile & Intents
+            const [profileData, activeIntentsData] = await Promise.all([
+              db.select().from(userProfiles).where(eq(userProfiles.userId, userId)).limit(1),
+              db.select().from(intents).where(and(
+                eq(intents.userId, userId),
+                isNull(intents.archivedAt)
+              ))
+            ]);
+
+            if (!profileData.length) return;
+            let userProfile = profileData[0];
+
+            // Validate and Repair Profile if attributes or narrative are missing
+            const hasAttributes = userProfile.attributes &&
+              ((userProfile.attributes.interests?.length || 0) > 0 || (userProfile.attributes.skills?.length || 0) > 0);
+            const hasNarrative = !!userProfile.narrative;
+
+            if (!hasAttributes || !hasNarrative) {
+              console.log('Profile incomplete (missing attributes/narrative), triggering repair via ProfileGenerator', userId);
+              // Use the new bio (intro) if available, otherwise existing bio
+              // Use the new bio (intro) if available, otherwise existing identity bio
+              const bioToUse = intro || userProfile.identity?.bio || '';
+
+              if (bioToUse) {
+                try {
+                  const generator = new ProfileGenerator();
+                  // Generate comprehensive profile structure
+                  const generated = await generator.run(bioToUse);
+
+                  console.log('Profile generated:', JSON.stringify(generated.profile, null, 2));
+
+                  // Ensure identity location is string
+                  const fixedIdentity = {
+                    ...generated.profile.identity,
+                    location: generated.profile.identity.location || ''
+                  };
+
+                  // Update DB with repaired data
+                  await db.update(userProfiles)
+                    .set({
+                      identity: fixedIdentity,
+                      narrative: generated.profile.narrative,
+                      attributes: generated.profile.attributes,
+                      updatedAt: new Date()
+                    })
+                    .where(eq(userProfiles.id, userProfile.id));
+
+                  // Update local variable for immediate usage
+                  userProfile = {
+                    ...userProfile,
+                    identity: fixedIdentity,
+                    narrative: generated.profile.narrative,
+                    attributes: generated.profile.attributes
+                  };
+                  console.log('Profile repaired successfully');
+                } catch (e) {
+                  console.error('Profile repair failed:', e);
+                }
+              } else {
+                console.warn('Cannot repair profile: No bio available');
+              }
+            }
+
+            // 2. Prepare Agents Data
+            const attributes = userProfile.attributes || { interests: [], skills: [] };
+            const identity = userProfile.identity || { name: updatedUserResult[0].name || 'User', bio: '', location: '' };
+
+            const memoryProfile: UserMemoryProfile = {
+              userId: userId,
+              identity: {
+                name: identity.name,
+                bio: identity.bio,
+                location: identity.location
+              },
+              narrative: userProfile.narrative || undefined,
+              attributes: {
+                interests: attributes.interests || [],
+                skills: attributes.skills || [],
+                goals: [] // ProfileGenerator doesn't output structured goals array yet
+              }
+            };
+
+            const activeIntents: ActiveIntent[] = activeIntentsData.map(i => ({
+              id: i.id,
+              description: i.payload,
+              status: 'active',
+              created_at: i.createdAt.getTime()
+            }));
+
+            // 3. Run Inferrer
+            const detector = new ExplicitIntentDetector();
+            // User instructed: "Just need to infer intents from what is available" (the profile).
+            const content = null;
+
+            const result = await detector.run(content, memoryProfile, activeIntents);
+            console.log('Intent detection result:', JSON.stringify(result));
+
+            // 4. Execute Actions
+            if (result.actions && result.actions.length > 0) {
+              for (const action of result.actions) {
+                if (action.type === 'create') {
+                  // Deduplicate: Check if active intent with same payload exists? 
+                  // The detector should handle this via activeIntents list, but let's be safe?
+                  // No, detector returns "create" only if not present usually.
+                  await db.insert(intents).values({
+                    userId: userId,
+                    payload: action.payload,
+                  });
+                  console.log(`Created intent: ${action.payload}`);
+                }
+                // Handle expire/update eventually
+              }
+            }
+          } catch (err) {
+            console.error('Background intent generation failed:', err);
+          }
+        })();
+      }
     }
 
     // Update notification preferences if provided
@@ -79,7 +238,7 @@ router.patch('/profile', authenticatePrivy, async (req: AuthRequest, res: Respon
     if (notificationPreferences !== undefined) {
       const existingSettings = await db.select()
         .from(userNotificationSettings)
-        .where(eq(userNotificationSettings.userId, req.user!.id))
+        .where(eq(userNotificationSettings.userId, userId))
         .limit(1);
 
       if (existingSettings.length > 0) {
@@ -88,13 +247,13 @@ router.patch('/profile', authenticatePrivy, async (req: AuthRequest, res: Respon
             preferences: notificationPreferences,
             updatedAt: new Date()
           })
-          .where(eq(userNotificationSettings.userId, req.user!.id))
+          .where(eq(userNotificationSettings.userId, userId))
           .returning();
         updatedPreferences = settings[0].preferences;
       } else {
         const settings = await db.insert(userNotificationSettings)
           .values({
-            userId: req.user!.id,
+            userId: userId,
             preferences: notificationPreferences
           })
           .returning();
@@ -104,7 +263,7 @@ router.patch('/profile', authenticatePrivy, async (req: AuthRequest, res: Respon
       // Fetch existing preferences if not updating
       const settings = await db.select()
         .from(userNotificationSettings)
-        .where(eq(userNotificationSettings.userId, req.user!.id))
+        .where(eq(userNotificationSettings.userId, userId))
         .limit(1);
       updatedPreferences = settings[0]?.preferences || {
         connectionRequest: true,
@@ -116,13 +275,16 @@ router.patch('/profile', authenticatePrivy, async (req: AuthRequest, res: Respon
 
     // Trigger social sync if socials changed
     if (socials !== undefined) {
-      checkAndTriggerSocialSync(req.user!.id, oldSocials, socials);
+      checkAndTriggerSocialSync(userId, oldSocials, socials);
     }
 
-    // Check enrichment eligibility if name or intro fields were updated
-    if (name !== undefined || intro !== undefined) {
-      checkAndTriggerEnrichment(req.user!.id);
-    }
+    // Removed: checkAndTriggerEnrichment(userId) - Enrichment should not trigger on manual profile edits.
+
+    // Return the updated user object. Merge profile data if needed?
+    // Use the fetched/updated profile data or just return what we have.
+    // Ideally we should return the merged profile like /me does?
+    // Current frontend expects 'user' object. user profiles fields (bio/location) are mirrored in 'users' for now?
+    // Yes, we updated 'users' table too.
 
     const finalUser = {
       ...updatedUserResult[0],
@@ -239,8 +401,8 @@ router.delete('/account', authenticatePrivy, async (req: AuthRequest, res: Respo
   }
 });
 
-// Generate summary with intro, location, and intents using Parallel AI (SSE)
-router.post('/generate-summary', authenticatePrivy, async (req: AuthRequest, res: Response) => {
+// Generate profile with intro, location, etc. using Parallel AI (SSE)
+router.post('/generate-profile', authenticatePrivy, async (req: AuthRequest, res: Response) => {
   try {
     // Set up SSE headers
     res.setHeader('Content-Type', 'text/event-stream');
@@ -266,48 +428,75 @@ router.post('/generate-summary', authenticatePrivy, async (req: AuthRequest, res
     }
 
     const user = userRecords[0];
-    const socials = (user.socials || {}) as { x?: string; linkedin?: string };
+    const socials = (user.socials || {}) as { x?: string; linkedin?: string; github?: string; websites?: string[] };
 
-    // Build input for Parallel
-    const input: GenerateSummaryInput = {
-      name: user.name || undefined,
-      email: user.email || undefined,
+    // Send status: Searching
+    res.write(`data: ${JSON.stringify({ type: 'status', message: 'Searching for public information...' })}\n\n`);
+
+    // Build search query
+    let query = `Find information about the person named ${user.name || 'Unknown'}.`;
+    if (user.email) query += `\nEmail: ${user.email}`;
+    if (socials.linkedin) query += `\nLinkedIn: ${socials.linkedin}`;
+    if (socials.x) query += `\nTwitter: ${socials.x}`;
+    if (socials.github) query += `\nGitHub: ${socials.github}`;
+    if (socials.websites?.length) query += `\nWebsites: ${socials.websites.join(', ')}`;
+
+    // 1. Search
+    const searchResult = await searchUser(query);
+
+    // Send status: Processing
+    res.write(`data: ${JSON.stringify({ type: 'status', message: 'Analyzing profile data...' })}\n\n`);
+
+    // 2. Prepare data for generator
+    const markdownData = json2md.fromObject(
+      searchResult.results.map(r => ({
+        title: r.title,
+        content: r.excerpts.join('\n')
+      }))
+    );
+
+    // 3. Generate Profile
+    const generator = new ProfileGenerator();
+    const result = await generator.run(markdownData);
+
+    // Save/Update user profile
+    const fixedIdentity = {
+      ...result.profile.identity,
+      location: result.profile.identity.location || ''
     };
 
-    // Convert LinkedIn username to URL if needed
-    if (socials.linkedin) {
-      const linkedinValue = String(socials.linkedin).trim();
-      if (linkedinValue) {
-        input.linkedin_url = linkedinValue.startsWith('http')
-          ? linkedinValue
-          : `https://www.linkedin.com/in/${linkedinValue}`;
-      }
-    }
-
-    // Convert Twitter username to URL if needed
-    if (socials.x) {
-      const twitterValue = String(socials.x).trim();
-      if (twitterValue) {
-        if (twitterValue.startsWith('http')) {
-          input.twitter_url = twitterValue;
-        } else {
-          const username = twitterValue.replace(/^@/, '');
-          input.twitter_url = `https://x.com/${username}`;
+    // Save/Update user profile
+    await db.insert(userProfiles)
+      .values({
+        userId: req.user!.id,
+        identity: fixedIdentity,
+        narrative: result.profile.narrative,
+        attributes: result.profile.attributes,
+      })
+      .onConflictDoUpdate({
+        target: userProfiles.userId,
+        set: {
+          identity: fixedIdentity,
+          narrative: result.profile.narrative,
+          attributes: result.profile.attributes,
+          updatedAt: new Date(),
         }
+      });
+
+    // 4. Send Result
+    res.write(`data: ${JSON.stringify({
+      type: 'result',
+      data: {
+        intro: result.profile.identity.bio,
+        location: result.profile.identity.location,
+        intents: [] // Explicit intents handled separately
       }
-    }
-
-    // Stream events to client
-    const sendEvent = (event: SummaryStreamEvent) => {
-      res.write(`data: ${JSON.stringify(event)}\n\n`);
-    };
-
-    // Generate summary with streaming events
-    await generateSummaryWithIntents(input, sendEvent);
+    })}\n\n`);
 
     // End the stream
     res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
     res.end();
+
   } catch (error) {
     console.error('Generate summary error:', error);
     try {

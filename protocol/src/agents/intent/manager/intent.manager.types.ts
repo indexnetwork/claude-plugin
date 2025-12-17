@@ -3,6 +3,11 @@ export interface UserMemoryProfile {
   identity: {
     name: string;
     bio: string;
+    location: string;
+  };
+  narrative?: {
+    context: string;
+    aspirations: string;
   };
   attributes: {
     interests: string[];

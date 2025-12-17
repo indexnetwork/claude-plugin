@@ -31,22 +31,6 @@ export interface NotificationPreferences {
   weeklyNewsletter: boolean;
 }
 
-export interface UserProfile {
-  identity: {
-    name: string;
-    bio: string; // Short professional summary
-  };
-  // Richer, raw-text oriented sections for semantic depth
-  narrative: {
-    context: string; // Current situation, background, constraints (The "Now")
-    aspirations: string; // Future goals, what they want to achieve (The "Future")
-  };
-  attributes: {
-    interests: string[];
-    skills: string[];
-  };
-}
-
 // Directory sync configuration type
 export interface DirectorySyncConfig {
   enabled: boolean;
@@ -103,8 +87,6 @@ export const users = pgTable('users', {
   socials: json('socials').$type<UserSocials>(),
   onboarding: json('onboarding').$type<OnboardingState>().default({}),
   timezone: text('timezone').default('UTC'),
-  // Structured profile generated from external data
-  profile: json('profile').$type<UserProfile>(),
   lastWeeklyEmailSentAt: timestamp('last_weekly_email_sent_at'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
@@ -113,6 +95,16 @@ export const users = pgTable('users', {
   // Enforce uniqueness on all emails (email is NOT NULL).
   usersEmailUnique: uniqueIndex('users_email_unique').on(table.email),
 }));
+
+export const userProfiles = pgTable('user_profiles', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }).unique(),
+  identity: json('identity').$type<{ name: string; bio: string; location: string }>(),
+  narrative: json('narrative').$type<{ context: string; aspirations: string }>(),
+  attributes: json('attributes').$type<{ interests: string[]; skills: string[] }>(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
 
 export const userNotificationSettings = pgTable('user_notification_settings', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -240,6 +232,17 @@ export const usersRelations = relations(users, ({ one, many }) => ({
   notificationSettings: one(userNotificationSettings, {
     fields: [users.id],
     references: [userNotificationSettings.userId],
+  }),
+  profile: one(userProfiles, {
+    fields: [users.id],
+    references: [userProfiles.userId],
+  }),
+}));
+
+export const userProfilesRelations = relations(userProfiles, ({ one }) => ({
+  user: one(users, {
+    fields: [userProfiles.userId],
+    references: [users.id],
   }),
 }));
 
@@ -391,6 +394,8 @@ export const userIntegrationsRelations = relations(userIntegrations, ({ one }) =
 // Export types
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
+export type UserProfile = typeof userProfiles.$inferSelect;
+export type NewUserProfile = typeof userProfiles.$inferInsert;
 export type Agent = typeof agents.$inferSelect;
 export type NewAgent = typeof agents.$inferInsert;
 export type Intent = typeof intents.$inferSelect;

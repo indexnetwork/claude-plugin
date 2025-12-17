@@ -11,13 +11,12 @@ console.log(process.env.DATABASE_URL);
 import { Command } from 'commander';
 import { eq } from 'drizzle-orm';
 import db, { closeDb } from '../lib/db';
-import { intents, intentIndexes, intentStakes, intentStakeItems, indexMembers, indexes, users } from '../lib/schema';
+import { indexMembers, indexes, users, userProfiles } from '../lib/schema';
 import { privyClient } from '../lib/privy';
 import { setLevel } from '../lib/log';
-import { generateEmbedding } from '../lib/embeddings';
 import { ProfileGenerator } from '../agents/profile/profile.generator';
-
-
+import { searchUser } from '../lib/parallel/parallel';
+import { json2md } from '../lib/json2md/json2md';
 
 type GlobalOpts = {
   silent?: boolean;
@@ -27,9 +26,8 @@ type GlobalOpts = {
 
 const OPEN_INDEX_ID = '5aff6cd6-d64e-4ef9-8bcf-6c89815f771c';
 const RESTRICTED_INDEX_ID = '99999999-d64e-4ef9-8bcf-6c89815f771c'; // New mocked ID
-const SEMANTIC_RELEVANCY_AGENT_ID = '028ef80e-9b1c-434b-9296-bb6130509482';
 
-import { PRIVY_TEST_ACCOUNTS, INTENTS } from './test-data';
+import { PRIVY_TEST_ACCOUNTS } from './test-data';
 
 async function ensurePrivyIdentity(email: string): Promise<string> {
   let privyUser = await privyClient.getUserByEmail(email);
@@ -57,41 +55,6 @@ async function createUser(account: typeof PRIVY_TEST_ACCOUNTS[0]): Promise<any> 
     const [existing] = await db.select().from(users).where(eq(users.email, account.email)).limit(1);
     return existing;
   }
-}
-
-async function createIntent(user: any, payload: string, type: 'open' | 'restricted' | 'both'): Promise<string> {
-  // Generate embedding for the intent
-  let embedding: number[] | undefined;
-  try {
-    embedding = await generateEmbedding(payload);
-    console.log(`Generated embedding for intent: "${payload.slice(0, 50)}..."`);
-  } catch (error) {
-    console.error(`Failed to generate embedding for intent:`, error);
-  }
-
-  const [intent] = await db.insert(intents).values({
-    payload,
-    summary: payload.slice(0, 100),
-    userId: user.id,
-    embedding,
-  }).returning();
-
-  // Add intent to both indexes
-  if (type === 'open' || type === 'both') {
-    await db.insert(intentIndexes).values({
-      intentId: intent.id,
-      indexId: OPEN_INDEX_ID,
-    });
-  }
-
-  if (type === 'restricted' || type === 'both') {
-    await db.insert(intentIndexes).values({
-      intentId: intent.id,
-      indexId: RESTRICTED_INDEX_ID,
-    });
-  }
-
-  return intent.id;
 }
 
 async function seedDatabase(type: 'open' | 'restricted' | 'both'): Promise<{ ok: boolean; error?: string }> {
@@ -131,9 +94,8 @@ async function seedDatabase(type: 'open' | 'restricted' | 'both'): Promise<{ ok:
       }
     } catch { }
 
-    // Create users and intents
+    // Create users
     const createdUsers = [];
-    const intentIds = [];
 
     for (const [i, account] of PRIVY_TEST_ACCOUNTS.entries()) {
       const user = await createUser(account);
@@ -165,65 +127,51 @@ async function seedDatabase(type: 'open' | 'restricted' | 'both'): Promise<{ ok:
         } catch { }
       }
 
-      // Create intent
-      let intentsToCreate: string[] = [];
+      // Generate Profile
+      try {
+        console.log(`Generating profile for ${account.name}...`);
 
-      // Check if this account has mock Parallel data to generate a profile
-      if ((account as any).parallelMock) {
-        try {
-          console.log(`Generating profile for ${account.name}...`);
-          const profileGen = new ProfileGenerator();
-          const { profile, implicitIntents } = await profileGen.run((account as any).parallelMock);
+        // Use mock data if available, otherwise search
+        console.log(`> Searching for ${account.name}...`);
+        const query = `Find information about ${account.name}`;
+        const searchResult = await searchUser(query);
+        const markdownData = json2md.fromObject(
+          searchResult.results.map((r: any) => ({
+            title: r.title,
+            content: r.excerpts.join('\n')
+          })) as any
+        );
 
-          // Save profile to user
-          await db.update(users)
-            .set({ profile })
-            .where(eq(users.id, user.id));
+        const profileGen = new ProfileGenerator();
+        const { profile } = await profileGen.run(markdownData);
 
-          // Promote top 3 implicit intents
-          intentsToCreate = implicitIntents.slice(0, 3);
-          console.log(`> Generated profile and promoted ${intentsToCreate.length} implicit intents.`);
-        } catch (err) {
-          console.error('Failed to generate profile:', err);
-          // Fallback
-          intentsToCreate = [INTENTS[i % INTENTS.length]];
-        }
-      } else {
-        // Default behavior
-        intentsToCreate = [INTENTS[i % INTENTS.length]];
-      }
+        // Save profile to user
+        await db.insert(userProfiles).values({
+          userId: user.id,
+          bio: profile.identity.bio,
+          location: profile.identity.location,
+          narrative: profile.narrative,
+          attributes: profile.attributes,
+        }).onConflictDoUpdate({
+          target: userProfiles.userId,
+          set: {
+            bio: profile.identity.bio,
+            location: profile.identity.location,
+            narrative: profile.narrative,
+            attributes: profile.attributes,
+          }
+        });
 
-      for (const payload of intentsToCreate) {
-        const intentId = await createIntent(user, payload, type);
-        intentIds.push(intentId);
-      }
+        console.log(`> Created profile for ${account.name}`);
+        console.log(`  Bio: ${profile.identity.bio.slice(0, 50)}...`);
+        console.log(`  Location: ${profile.identity.location}`);
 
-    }
-
-    // Connect all users to everyone (create stakes between all pairs of intents)
-    for (let i = 0; i < createdUsers.length; i++) {
-      for (let j = i + 1; j < createdUsers.length; j++) {
-        const intentPair = [intentIds[i], intentIds[j]].sort();
-
-        try {
-          // Create stake
-          const [newStake] = await db.insert(intentStakes).values({
-            intents: intentPair,
-            stake: BigInt(100),
-            reasoning: `${createdUsers[i].name} and ${createdUsers[j].name} should connect`,
-            agentId: SEMANTIC_RELEVANCY_AGENT_ID,
-          }).returning({ id: intentStakes.id });
-
-          // Insert into join table with denormalized user_id
-          await db.insert(intentStakeItems).values([
-            { stakeId: newStake.id, intentId: intentIds[i], userId: createdUsers[i].id },
-            { stakeId: newStake.id, intentId: intentIds[j], userId: createdUsers[j].id }
-          ]);
-        } catch { }
+      } catch (err) {
+        console.error(`Failed to generate profile for ${account.name}:`, err);
       }
     }
 
-    console.log(`✅ Created ${createdUsers.length} users with connected intents`);
+    console.log(`✅ Created ${createdUsers.length} users with profiles`);
 
 
     console.log('\nLogin credentials:');

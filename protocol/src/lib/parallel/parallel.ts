@@ -1,13 +1,14 @@
 
 const PARALLEL_API_URL = 'https://api.parallel.ai/v1beta/search';
 
-export interface ParallelSearchResult {
-    title: string;
-    content: string;
-}
-
 export interface ParallelSearchResponse {
-    results: ParallelSearchResult[];
+    search_id: string;
+    results: {
+        url: string;
+        title: string;
+        publish_date: null;
+        excerpts: Array<string>
+    }[]
 }
 
 /**
@@ -40,5 +41,5 @@ export async function searchUser(objective: string): Promise<ParallelSearchRespo
         throw new Error(`Parallel Search API failed: ${response.status} ${response.statusText} - ${errorText}`);
     }
 
-    return (await response.json()) as ParallelSearchResponse;
+    return await response.json() as ParallelSearchResponse;
 }

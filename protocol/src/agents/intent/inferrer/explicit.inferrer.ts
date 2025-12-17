@@ -8,18 +8,24 @@ import { z } from "zod";
  * Model Configuration
  */
 export const SYSTEM_PROMPT = `
-  You are an expert Intent Manager. Your goal is to manage the lifecycle of user intents based on new content and their existing active intents.
+  You are an expert Intent Manager. Your goal is to manage the lifecycle of user intents based on their profile and activity.
 
   You have access to:
-  1. User Memory Profile (Long-term context)
-  2. Active Intents (What they are currently working on)
-  3. New Content (What they just said/did)
+  1. User Memory Profile (Identity, Narrative, Attributes) - The long-term context.
+  2. Active Intents - What they are currently working on.
+  3. New Content - What they just said/did (Optional).
 
-  You must decide to:
-  - CREATE a new intent if the user expresses a clear, new need.
-  - UPDATE an existing intent if the new content refines, changes, or adds to it.
-  - EXPIRE an existing intent if the user indicates it is completed or no longer relevant.
-  - IGNORE if the content is trivial, irrelevant, or a clear duplicate without new info.
+  SCENARIO 1: NEW CONTENT PROVIDED
+  - Analyze the New Content against the Profile and Active Intents.
+  - CREATE new intents if the user expresses a clear need not covered by Active Intents.
+  - UPDATE/EXPIRE existing intents based on the new info.
+
+  SCENARIO 2: NO NEW CONTENT (BOOTSTRAPPING)
+  - If "New Content" is empty or missing, you must bootstrap intents from the User Memory Profile.
+  - Deeply analyze the "Narrative" (Context, Aspirations) and "Attributes" (Goals).
+  - Extract implied objectives or explicit goals.
+  - CREATE intents for these objectives if they are not already in "Active Intents".
+  - Example: If Narrative says "Aspiring to learn Rust", and "Learn Rust" is not active, CREATE it.
 
   DEDUPLICATION RULES (CRITICAL):
   - Before CREATING a new intent, you MUST check the "Active Intents" list.
@@ -72,7 +78,7 @@ export class ExplicitIntentDetector extends BaseLangChainAgent {
     super({
       preset: 'intent-inferrer',
       responseFormat: ExplicitInferrerOutputSchema,
-      temperature: 0,
+      temperature: 0.5,
     });
   }
 
@@ -98,19 +104,23 @@ export class ExplicitIntentDetector extends BaseLangChainAgent {
    * //   ]
    * // }
    */
-  async run(content: string, profile: UserMemoryProfile, activeIntents: ActiveIntent[]): Promise<IntentDetectorResponse> {
+  async run(content: string | null, profile: UserMemoryProfile, activeIntents: ActiveIntent[]): Promise<IntentDetectorResponse> {
+
+    console.debug('Profile: ', profile);
 
     const prompt = `
       Context:
       # User Memory Profile
-      ${json2md.fromObject(profile, 2)}
+      ${this.formatProfile(profile)}
 
       ## Active Intents
       ${this.formatActiveIntents(activeIntents)}
 
       ## New Content
-      ${content}
+      ${content ? content : '(None. Please infer intents from Profile Narrative and Aspirations)'}
     `;
+
+    console.debug('Prompt: ', prompt);
 
     const messages = [
       { role: "system", content: SYSTEM_PROMPT },
@@ -127,6 +137,41 @@ export class ExplicitIntentDetector extends BaseLangChainAgent {
       // Fallback: return empty actions if LLM fails
       return { actions: [] };
     }
+  }
+
+  private formatProfile(profile: UserMemoryProfile): string {
+    const { identity, attributes, narrative } = profile;
+
+    let md = '';
+
+    // Identity Section
+    md += '## Identity\n';
+    md += `**Name**: ${identity.name}\n`;
+    md += `**Bio**: ${identity.bio}\n`;
+    md += `**Location**: ${identity.location}\n\n`;
+
+    // Narrative Section
+    if (narrative) {
+      md += '## Narrative\n';
+      md += `**Context**: ${narrative.context}\n`;
+      md += `**Aspirations**: ${narrative.aspirations}\n\n`;
+    }
+
+    // Attributes Section
+    md += '## Attributes\n';
+    if (attributes.interests && attributes.interests.length > 0) {
+      md += `**Interests**:\n${attributes.interests.map(i => `- ${i}`).join('\n')}\n`;
+    }
+    if (attributes.skills && attributes.skills.length > 0) {
+      md += `**Skills**:\n${attributes.skills.map(s => `- ${s}`).join('\n')}\n`;
+    }
+    if (attributes.goals && attributes.goals.length > 0) {
+      md += `**Goals**:\n${attributes.goals.map(g => `- ${g}`).join('\n')}\n`;
+    } else {
+      md += `**Goals**:\n(None)\n`;
+    }
+
+    return md;
   }
 
   /**

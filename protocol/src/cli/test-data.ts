@@ -1,23 +1,5 @@
 export const PRIVY_TEST_ACCOUNTS = [
-    {
-        name: 'Casey Harper',
-        email: 'test-6285@privy.io',
-        phoneNumber: '+1 555 555 1625',
-        otpCode: '607027',
-        // Mock data simulating a Parallel.ai search result
-        parallelMock: {
-            results: [
-                {
-                    title: "Casey Harper - Rust Developer",
-                    content: "Casey is a passionate Rust developer working on distributed systems. She is currently building a new p2p protocol. She also loves hiking and coffee."
-                },
-                {
-                    title: "GitHub - charper",
-                    content: "Repositories: p2p-gossip, rust-async-runtime. Bio: Systems engineer. building the future of web3."
-                }
-            ]
-        }
-    },
+    { name: 'Casey Harper', email: 'test-6285@privy.io', phoneNumber: '+1 555 555 1625', otpCode: '607027' },
     { name: 'Devon Brooks', email: 'test-9716@privy.io', phoneNumber: '+1 555 555 2920', otpCode: '670543' },
     { name: 'Morgan Li', email: 'test-1761@privy.io', phoneNumber: '+1 555 555 5724', otpCode: '888893' },
     { name: 'Riley Nguyen', email: 'test-5331@privy.io', phoneNumber: '+1 555 555 6283', otpCode: '094228' },
@@ -30,10 +12,4 @@ export const PRIVY_TEST_ACCOUNTS = [
 ];
 
 
-export const INTENTS = [
-    'Looking for AI researchers to collaborate on machine learning projects',
-    'Seeking blockchain developers for DeFi partnerships',
-    'Connecting with designers for UI/UX collaborations',
-    'Building cross-functional teams for product development',
-    'Open to mentoring junior developers in web3 space',
-];
+

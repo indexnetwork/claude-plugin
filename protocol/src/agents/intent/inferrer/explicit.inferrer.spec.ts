@@ -10,7 +10,7 @@ dotenv.config({ path: envPath });
 
 async function runTests() {
     console.log("🧪 Starting ExplicitIntentDetector Tests...");
-    
+
     // Check for API keys (generic check, could be OpenAI, Anthropic, etc used by base agent)
     if (!process.env.OPENAI_API_KEY && !process.env.ANTHROPIC_API_KEY && !process.env.GEMINI_API_KEY) {
         console.warn("⚠️  No API Key found (OPENAI_API_KEY, ANTHROPIC_API_KEY, or GEMINI_API_KEY). Live LLM tests might fail if not mocked.");
@@ -21,8 +21,9 @@ async function runTests() {
     // Mock Data
     const profile: UserMemoryProfile = {
         userId: "test-user",
-        identity: { name: "Test User", bio: "Dev" },
-        attributes: { interests: ["Coding"], skills: [], goals: [] }
+        identity: { name: "Test User", bio: "Dev", location: "Earth" },
+        attributes: { interests: ["Coding"], skills: [], goals: [] },
+        narrative: { context: "Context", aspirations: "Aspirations" }
     };
 
     const activeIntents: ActiveIntent[] = [

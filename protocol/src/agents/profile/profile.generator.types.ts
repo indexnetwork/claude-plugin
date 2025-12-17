@@ -1,6 +1,7 @@
 export interface UserProfileIdentity {
     name: string;
     bio: string;
+    location?: string;
 }
 
 export interface UserProfileNarrative {
@@ -21,7 +22,6 @@ export interface UserProfile {
 
 export interface ProfileGeneratorOutput {
     profile: UserProfile;
-    implicitIntents: string[];
 }
 
 export interface ProfileGeneratorAgent {
