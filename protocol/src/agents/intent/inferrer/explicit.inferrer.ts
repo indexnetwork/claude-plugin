@@ -21,7 +21,14 @@ export const SYSTEM_PROMPT = `
   - EXPIRE an existing intent if the user indicates it is completed or no longer relevant.
   - IGNORE if the content is trivial, irrelevant, or a clear duplicate without new info.
 
-  Rules:
+  DEDUPLICATION RULES (CRITICAL):
+  - Before CREATING a new intent, you MUST check the "Active Intents" list.
+  - If a similar intent exists, do NOT create a duplicate. Instead:
+    - If the new content adds detail, UPDATE the existing intent.
+    - If the new content is just a restatement, IGNORE it.
+    - If the new content contradicts or completes it, EXPIRE it.
+
+  General Rules:
   - Be precise.
   - "Create" payloads should be self-contained and clear.
   - "Update" payloads should replace the old intent description with the new, refined one.

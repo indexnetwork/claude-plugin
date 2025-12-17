@@ -15,6 +15,9 @@ import { intents, intentIndexes, intentStakes, intentStakeItems, indexMembers, i
 import { privyClient } from '../lib/privy';
 import { setLevel } from '../lib/log';
 import { generateEmbedding } from '../lib/embeddings';
+import { ProfileGenerator } from '../agents/profile/profile.generator';
+
+
 
 type GlobalOpts = {
   silent?: boolean;
@@ -163,9 +166,38 @@ async function seedDatabase(type: 'open' | 'restricted' | 'both'): Promise<{ ok:
       }
 
       // Create intent
-      const payload = INTENTS[i % INTENTS.length];
-      const intentId = await createIntent(user, payload, type);
-      intentIds.push(intentId);
+      let intentsToCreate: string[] = [];
+
+      // Check if this account has mock Parallel data to generate a profile
+      if ((account as any).parallelMock) {
+        try {
+          console.log(`Generating profile for ${account.name}...`);
+          const profileGen = new ProfileGenerator();
+          const { profile, implicitIntents } = await profileGen.run((account as any).parallelMock);
+
+          // Save profile to user
+          await db.update(users)
+            .set({ profile })
+            .where(eq(users.id, user.id));
+
+          // Promote top 3 implicit intents
+          intentsToCreate = implicitIntents.slice(0, 3);
+          console.log(`> Generated profile and promoted ${intentsToCreate.length} implicit intents.`);
+        } catch (err) {
+          console.error('Failed to generate profile:', err);
+          // Fallback
+          intentsToCreate = [INTENTS[i % INTENTS.length]];
+        }
+      } else {
+        // Default behavior
+        intentsToCreate = [INTENTS[i % INTENTS.length]];
+      }
+
+      for (const payload of intentsToCreate) {
+        const intentId = await createIntent(user, payload, type);
+        intentIds.push(intentId);
+      }
+
     }
 
     // Connect all users to everyone (create stakes between all pairs of intents)

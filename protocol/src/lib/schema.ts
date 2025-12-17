@@ -31,6 +31,22 @@ export interface NotificationPreferences {
   weeklyNewsletter: boolean;
 }
 
+export interface UserProfile {
+  identity: {
+    name: string;
+    bio: string; // Short professional summary
+  };
+  // Richer, raw-text oriented sections for semantic depth
+  narrative: {
+    context: string; // Current situation, background, constraints (The "Now")
+    aspirations: string; // Future goals, what they want to achieve (The "Future")
+  };
+  attributes: {
+    interests: string[];
+    skills: string[];
+  };
+}
+
 // Directory sync configuration type
 export interface DirectorySyncConfig {
   enabled: boolean;
@@ -87,6 +103,8 @@ export const users = pgTable('users', {
   socials: json('socials').$type<UserSocials>(),
   onboarding: json('onboarding').$type<OnboardingState>().default({}),
   timezone: text('timezone').default('UTC'),
+  // Structured profile generated from external data
+  profile: json('profile').$type<UserProfile>(),
   lastWeeklyEmailSentAt: timestamp('last_weekly_email_sent_at'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),

@@ -1,159 +1,77 @@
-# Intent Inferring 2.0: Restructuring & Implementation Plan
+# Intent Inferring & Opportunity Finding: Implementation Plan
 
 ## Goal Description
-Restructure the Intent Inferring system to address context drift, duplicates, and missing explicit intents. The goal is to separate concerns by splitting the monolithic inference into specialized agents (Explicit vs. Implicit) and introducing a "Self-Knowledge" component to ground implicit inferences and manage intent lifecycle.
+Build a system that not only understands what a single user wants (Intent Inference) but actively creates value by connecting users with mutual interests and goals (Opportunity Finding). 
+
+The core philosophy shifts from just "detecting intents" to "discovering opportunities" which involves:
+1.  **Parallel.ai Integration**: Fetch external data to build a rich user profile from scratch.
+2.  **Profile Generation**: Create structured `UserProfile` and `ImplicitIntents` from scraped data.
+3.  **Bootstrap Promotion**: Automatically promote the top N implicit intents to Explicit for new users to jumpstart their experience.
+4.  **Opportunity Finding**: Profile-first matching that results in Stakes.
 
 ## User Review Required
 > [!IMPORTANT]
-> **Intent Lifecycle**: The inferrer will now manage the full lifecycle of intents (`Create`, `Update`, `Expire`) rather than just creating new ones.
-> **Structural User Memory**: A persisted `UserMemoryProfile` (Identity, Context, Aspirations) will assume the role of "Self Knowledge".
-> **Evolutionary Updates**: The User Memory will evolve over time using previous state as context, rather than being wiped and recreated.
+> **Parallel.ai Search**: We will use a new `parallel` lib to fetch user data via the search API (one-shot mode).
+> **Bootstrapping**: New users will have their first N implicit intents automatically promoted to Explicit to populate their dashboard immediately.
+> **Deduplication Strategy**: We will rely on passing `activeIntents` to the Intent Manager agents (Create/Update/Expire) to handle deduplication natively, rather than a separate deduplication step.
 
 ## Proposed Architecture
 
-### 1. Intent Manager (`agents/core/intent_manager`)
-**Role**: Orchestrator. Standardizes inputs and delegates to detectors.
+### 1. Parallel.ai Integration (`lib/parallel/parallel.ts`)
+**Role**: Data Acquisition.
+-   **API**: `POST https://api.parallel.ai/v1beta/search`
+-   **Input**: `objective: "Name, email"`
+-   **Output**: Raw scraped data about the user.
 
-**Workflow**:
-1.  **Context Fetch**:
-    -   Fetch `UserMemoryProfile` (Long-term context).
-    -   Fetch `ActiveIntents` (Short-term state).
-2.  **Explicit Detection**: `explicitDetector.run(content, profile, activeIntents)`
-    -   **Prompt**: "Here is what the user wants right now (`activeIntents`). Here is new content. Decide whether to `Create` a new intent, `Update` an existing one, or `Expire` a completed one."
-3.  **Implicit Detection**: `implicitDetector.run(content, profile, activeIntents)`
-    -   Uses `profile.interests` (Long-term) and inferred context from `activeIntents` to find opportunities.
-    -   Uses `activeIntents` to filter out things the user is already working on.
-4.  **Action Execution**: Apply the actions returned by detectors (Create/Update/Expire).
+### 2. Profile Generator (`agents/profile`) [NEW]
+**Role**: The "Builder". Turns raw data into a structured Profile and Bootstrapped Intents.
+-   **Input**: Raw text/JSON from Parallel.ai.
+-   **Outputs**:
+    1.  `UserProfile` (Bio, Skills, structured fields).
+    2.  `ImplicitIntents[]` (Derived desires).
+-   **Logic**:
+    -   Synthesize bio.
+    -   Infer top N implicit intents.
+    -   **Bootstrap**: Mark top N as `Explicit` immediately.
 
-### 2. Specialized Detectors
-#### A. Explicit Detector
-- **Goal**: 100% precision for stated needs.
-- **Logic**: Strict extraction, removes temporal markers. Handles duplicates/updates intelligently.
-- **Target**: Discovery forms, direct requests.
+### 3. Intent Manager (Orchestrator)
+**Role**: Coordinates the inference workflow.
+-   **Input**: `User Content`, `UserProfile`, `ActiveIntents`.
+-   **Deduplication**: The LLM Agents (Explicit/Implicit) receive `activeIntents` in their context and are instructed to `Update` existing intents or `Expire` old ones rather than creating duplicates.
 
-#### B. Implicit Detector (The "Opportunity Finder")
-- **Goal**: Find value for the user based on context.
-- **Sub-Agent: Experimental / Explorer**:
-    - **Goal**: Serendipity.
-    - **Logic**: Lower confidence threshold, broader associations.
+### 4. Opportunity Finder (The "Matchmaker")
+-   **Goal**: Connect users based on Profile compatibility.
+-   **Process**:
+    1.  `match_profiles(userA, candidates)` -> Returns high-relevancy pairs.
+    2.  For each pair:
+        -   Extract/Create specific `Intents` that represent *why* they matched.
+        -   Create a `Stake` linking those intents.
 
-### 3. User Memory (`agents/core/user_memory`) [NEW]
-**Role**: "Self-Knowledge" service.
-**Structure**:
-```typescript
-interface UserMemoryProfile {
-  userId: string;
-  identity: {
-    name: string;
-    bio: string; // Aggregated from intro/onboarding
-  };
-  attributes: {
-    interests: string[]; // Inferred or explicit interests
-    skills: string[];    // Professional skills
-    goals: string[];     // General high-level aspirations (Context), NOT specific active intents.
-  };
-  // Note: 'Active Intents' are passed SEPARATELY to the manager, not embedded in this profile view.
-}
-```
+## Execution Plan
 
-### Lifecycle & Persistence (Evolutionary Updates)
-- **Persistence**: Stored in `user_memories` table with a content checksum.
-- **Evolution**: triggered by:
-    1.  **Bio Updates**: Direct changes to `users.intro`.
-    2.  **Intent Accumulation**: Significant new specific intents (e.g., creating 3 "AI" intents adds "AI" to `interests`).
-- **Mechanism**: Input: `Old Profile` + `New Bio` + `Recent Intents`. Prompt: "Evolve this profile..."
+### Phase 1: Parallel & Profile Foundation
+- [ ] **Parallel Lib**: Implement `parallel.ts` to call the search API.
+- [ ] **Profile Agent**: Create `agents/profile/generator.ts` to synthesize `UserProfile` and initial `Intents` from raw data.
+- [ ] **Bootstrapping**: Implement logic to save the top N intents as Explicit.
 
-## Execution Plan (Branches)
+### Phase 2: Intent Manager Refactor
+- [ ] **Context Awareness**: Update `ExplicitInferrer` and `IntentManager` to accept `activeIntents`.
+- [ ] **Lifecycle**: Implement `Create/Update/Expire` logic in the prompt to handle deduplication.
 
-### Phase 1: Foundation & Explicit
-**Branch**: `feat/intent-explicit-separation`
-- [ ] Refactor `intent_manager` to Orchestrator pattern.
-- [ ] Implement `ExplicitDetector` with **Intent Lifecycle Prompt** (Create/Update/Expire).
-- [ ] Update input handlers (`analyzeContent`, `analyzeFolder`).
-
-### Phase 2: User Memory (Persisted & Evolutionary)
-**Branch**: `feat/user-memory-core`
-- [ ] **Schema**: Create `user_memories` table in `lib/schema.ts`.
-- [ ] Implement `UserMemoryBuilder` with Checksum logic.
-- [ ] Implement `evolveProfile` LLM chain.
-
-### Phase 3: Implicit Agents
-**Branch**: `feat/intent-implicit-opportunity`
-- [ ] Implement `ImplicitDetector`.
-- [ ] Connect `UserMemoryProfile` as context.
-- [ ] Implement Experimental logic.
-
----
-
-## Proposed Changes
-
-### `protocol/src/agents/core/intent_manager`
-#### [MODIFY] [index.ts](file:///Users/aposto/Projects/index/protocol/src/agents/core/intent_manager/index.ts)
-- Orchestrator fetching profile AND active intents.
-- Handling `Create`, `Update`, `Expire` actions.
-
-#### [NEW] [detectors/explicit.ts](file:///Users/aposto/Projects/index/protocol/src/agents/core/intent_manager/detectors/explicit.ts)
-- Prompt accepts `activeIntents`.
-- Output Schema:
-  ```typescript
-  {
-    actions: [
-      { type: 'create', payload: string },
-      { type: 'update', id: string, payload: string },
-      { type: 'expire', id: string, reason: string }
-    ]
-  }
-  ```
-
-#### [NEW] [detectors/implicit.ts](file:///Users/aposto/Projects/index/protocol/src/agents/core/intent_manager/detectors/implicit.ts)
-- Contextual weighting.
+### Phase 3: Opportunity Finder (Profile-Based)
+- [ ] **Profile Matcher**: Implement `find_relevant_profiles(user_profile)` using semantic search/LLM.
+- [ ] **Staking**: Implement `stake(intent_a, intent_b)`.
 
 ## Verification Plan
 
 ### Automated Tests
-- **Intent Lifecycle**:
-    - **Context**: Active Intent "Hiring Rust Engineer" (ID: 123).
-    - **Input A (Duplicate)**: "Need Rust dev." -> **No Action**.
-    - **Input B (Update)**: "Actually, I need a Senior Rust Engineer." -> **Action: Update(ID:123, "Hiring Senior Rust Engineer")**.
-    - **Input C (Expire)**: "Position filled." -> **Action: Expire(ID:123, "Filled")**.
-    - **Input D (New)**: "Also need a Designer." -> **Action: Create("Hiring Designer")**.
-
-
-### Manual Verification
-- **Input**: "I want to deploy on Solana."
-- **Context Profile**: `interests: ["Blockchain"]`.
-- **Active Intents**: `["Deploy on Solana"]`.
-- **Result**: No Action (Duplicate detected).
-
-## User Story / Workflow Example
-
-1.  **Onboarding**: 
-    -   Alice signs up.
-    -   **LLM Task**: `UserMemoryBuilder.constructProfile` runs (Input: Twitter/Parallels data).
-    -   **Result**: `UserMemoryProfile` created. `interests: ["DeSci", " DAO Governance"]`.
-
-2.  **Explicit Intent** (Discovery Form):
-    -   Alice types: "I'm looking for a governance framework for my DeSci DAO."
-    -   **LLM Task**: `ExplicitDetector` runs (Input: Text + `activeIntents: []`).
-    -   **Action**: `Create(payload: "Looking for DeSci DAO governance framework")`.
-    -   **State**: Added to `activeIntents`.
-
-3.  **Implicit Discovery** (Slack):
-    -   Alice pastes a link to a new voting tool: "Check this out."
-    -   **LLM Task**: `ImplicitDetector` runs (Input: Link + `profile` + `activeIntents`).
-    -   **Logic**: 
-        -   "Is this relevant?" -> Yes (Matches "DAO Governance").
-        -   "Is it a duplicate of 'Looking for governance framework'?" -> No (It's a specific tool/sub-task).
-    -   **Result**: "Researching voting tools for DeSci governance" (High Confidence Opportunity).
-
-4.  **Intent Update**:
-    -   Alice types: "We decided to use Snapshot for now."
-    -   **LLM Task**: `ExplicitDetector` runs (Input: Text + `activeIntents: ["Looking for governance..."]`).
-    -   **Logic**: "Does this text contradict or complete any active intent?" -> Yes.
-    -   **Result**: `Expire(id, reason: "Solution found (Snapshot)")` or `Update("Implementing Snapshot")`.
-
-5.  **Automatic Evolution** (No manual bio update needed):
-    -   System detects Alice has created multiple "DeSci DAO" related intents.
-    -   **LLM Task**: `UserMemory.evolveProfile` runs (Input: `Old Profile` + `Recent Intents`).
-    -   **Logic**: "User is deeply focusing on DeSci governance. Add this to high-level interests."
-    -   **Result**: `interests` evolved: `["DeSci", "DAO", "Governance"]`. `goals` updated to reflect this focus.
+-   **DB Seed**: Update `src/cli/db-seed.ts` to include `UserProfile` generation for test users.
+-   **Profile Generation**:
+    1.  Mock Parallel API response (JSON).
+    2.  Run `ProfileGenerator`.
+    3.  Assert `UserProfile` is created.
+    4.  Assert N intents are created and marked Explicit.
+-   **Deduplication**:
+    1.  Given `ActiveIntents: ["Hiring Rust Dev"]`.
+    2.  Input: "I need a Rust engineer."
+    3.  Assert: Result is `Update` or `No Action`, NOT `Create`.
