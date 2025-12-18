@@ -7,7 +7,7 @@ import { BaseLangChainAgent } from '../../../../lib/langchain/langchain';
 // System prompt for HyDE Generation
 const HYDE_GENERATION_PROMPT = `
     You are a Profile Profiler.
-    Given a user's profile, generate a **Hypothetical Profile** of the perfect person they should meet.
+    Given a user's profile, imagine a **Hypothetical User Profile** person that would be the best match for the user to accomplish their aspirations.
     
     Imagine this ideal candidate actually exists. Write a profile for THEM.
     Your output will be used to vector-search a database of real user profiles.
@@ -21,6 +21,7 @@ const HYDE_GENERATION_PROMPT = `
     
     Do NOT describe the Source User. Describe the TARGET Match.
     Do NOT invent a name for the candidate. Refer to them as "The candidate", "They", or "This individual".
+    Do NOT include locations.
 `;
 
 const HydeDescriptionSchema = z.object({
@@ -35,6 +36,7 @@ export class HydeGeneratorAgent extends BaseLangChainAgent {
   constructor() {
     super({
       model: 'openai/gpt-4o',
+      temperature: 0.5,
       responseFormat: HydeDescriptionSchema
     });
   }

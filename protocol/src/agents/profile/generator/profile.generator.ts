@@ -8,7 +8,7 @@ export const SYSTEM_PROMPT = `
 
     Output Rules:
     1. Infer their name from the data.
-    2. Synthesize a coherent 'bio' (short summary).
+    2. Synthesize a coherent 'bio'.
     3. Infer their current 'location' (City, Country formatted).
     4. Write a rich 'narrative.context' describing their current situation, constraints, and background in detail.
     5. Write a rich 'narrative.aspirations' describing what they effectively want to achieve or find.
@@ -19,7 +19,7 @@ export const SYSTEM_PROMPT = `
 export const UserProfileSchema = z.object({
     identity: z.object({
         name: z.string().describe("The user's full name"),
-        bio: z.string().describe("A short professional summary (1-2 sentences)"),
+        bio: z.string().describe("A professional summary (2-3 sentences)"),
         location: z.string().describe("Inferred location (City, Country) or 'Remote'"),
     }),
     narrative: z.object({
@@ -39,7 +39,7 @@ export const ProfileGeneratorOutputSchema = z.object({
 export class ProfileGenerator extends BaseLangChainAgent {
     constructor() {
         super({
-            model: 'openai/gpt-4o', // Use a strong model for synthesis
+            model: 'openai/gpt-4o-mini', // Use a strong model for synthesis
             responseFormat: ProfileGeneratorOutputSchema
         });
     }
