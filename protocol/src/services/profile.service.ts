@@ -1,7 +1,7 @@
 import db from '../lib/db';
 import { userProfiles, intents, userNotificationSettings, UserSocials, NotificationPreferences, User } from '../lib/schema';
-import { eq, and, isNull } from 'drizzle-orm';
-import { ProfileGenerator } from '../agents/profile/profile.generator';
+import { eq, and, isNull, sql, ne } from 'drizzle-orm';
+import { ProfileGenerator } from '../agents/profile/generator/profile.generator';
 import { searchUser } from '../lib/parallel/parallel';
 import { json2md } from '../lib/json2md/json2md';
 import { UserMemoryProfile, ActiveIntent } from '../agents/intent/manager/intent.manager.types';
@@ -273,8 +273,53 @@ export class ProfileService {
             });
 
         } catch (error) {
-            console.error('Generate summary error:', error);
             callbacks.onError('Failed to generate summary');
         }
     }
+
+    /**
+     * Get profiles that do not have an embedding yet.
+     */
+    async getProfilesMissingEmbeddings() {
+        return await db
+            .select()
+            .from(userProfiles)
+            .where(isNull(userProfiles.embedding));
+    }
+
+    /**
+     * Update the embedding for a specific user profile.
+     */
+    async updateProfileEmbedding(profileId: string, embedding: number[]) {
+        await db.update(userProfiles)
+            .set({ embedding })
+            .where(eq(userProfiles.id, profileId));
+    }
+
+    /**
+     * Get all profiles that have an embedding.
+     */
+    async getAllProfilesWithEmbeddings() {
+        return await db.select().from(userProfiles).where(sql`${userProfiles.embedding} IS NOT NULL`);
+    }
+
+    /**
+     * Find similar profiles using vector similarity search.
+     * Excludes the source user.
+     */
+    async findSimilarProfiles(sourceUserId: string, embedding: number[], limit: number = 20) {
+        return await db
+            .select({
+                profile: userProfiles,
+                distance: sql<number>`${userProfiles.embedding} <=> ${JSON.stringify(embedding)}`
+            })
+            .from(userProfiles)
+            .where(and(
+                sql`${userProfiles.embedding} IS NOT NULL`,
+                ne(userProfiles.userId, sourceUserId)
+            ))
+            .orderBy(sql`${userProfiles.embedding} <=> ${JSON.stringify(embedding)}`)
+            .limit(limit);
+    }
 }
+

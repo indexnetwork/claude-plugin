@@ -104,7 +104,12 @@ export const userProfiles = pgTable('user_profiles', {
   attributes: json('attributes').$type<{ interests: string[]; skills: string[] }>(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
-});
+  // Vector embedding for semantic search (2000 dimensions for text-embedding-3-large)
+  embedding: vector('embedding', { dimensions: 2000 }),
+}, (table) => ({
+  // Enforce uniqueness on userId is already done by the column definition
+  embeddingIndex: index('user_profiles_embedding_idx').using('hnsw', table.embedding.op('vector_cosine_ops')),
+}));
 
 export const userNotificationSettings = pgTable('user_notification_settings', {
   id: uuid('id').primaryKey().defaultRandom(),

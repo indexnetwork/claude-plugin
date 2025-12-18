@@ -65,7 +65,7 @@ export function createMiddleware(def: MiddlewareDefinition): MiddlewareDefinitio
  */
 export interface AgentModelOptions {
   /** Override the model ID (e.g. "openai/gpt-4") */
-  model?: string;
+  model?: 'openai/gpt-4o' | 'openai/gpt-4o-mini';
 
   /** Sampling temperature (0-2) */
   temperature?: number;
