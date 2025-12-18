@@ -16,11 +16,11 @@ export function createRetryTool(options: RetryOptions = {}) {
         name: "RetryMiddleware",
         wrapModelCall: async (request, next) => {
             let lastError: any;
-            
+
             for (let attempt = 0; attempt <= maxRetries; attempt++) {
                 try {
                     // Implement timeout Promise
-                    const timeoutPromise = new Promise((_, reject) => 
+                    const timeoutPromise = new Promise((_, reject) =>
                         setTimeout(() => reject(new Error(`Timeout after ${timeoutMs}ms`)), timeoutMs)
                     );
 
@@ -34,8 +34,8 @@ export function createRetryTool(options: RetryOptions = {}) {
                     return result;
                 } catch (err) {
                     lastError = err;
-                    console.warn(`Attempt ${attempt + 1} failed: ${err.message}. Retrying...`);
-                    
+                    console.warn(`Attempt ${attempt + 1} failed: ${(err as Error).message}. Retrying...`);
+
                     if (attempt < maxRetries) {
                         await new Promise(resolve => setTimeout(resolve, delayMs * Math.pow(2, attempt))); // Exponential backoff
                     }

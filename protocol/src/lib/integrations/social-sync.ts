@@ -323,6 +323,7 @@ export async function checkAndTriggerEnrichment(userId: string): Promise<void> {
       const verifyRecords = await db.select({
         name: users.name,
         email: users.email,
+        intro: users.intro,
         onboarding: users.onboarding,
       })
         .from(users)
