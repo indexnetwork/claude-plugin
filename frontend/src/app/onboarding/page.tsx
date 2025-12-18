@@ -130,15 +130,7 @@ export default function OnboardingPage() {
   const [joinedIndexesLoaded, setJoinedIndexesLoaded] = useState(false);
   const [isJoiningIndex, setIsJoiningIndex] = useState<string | null>(null);
 
-  // Mock indexes for the final step (fallback if no public indexes)
-  const mockIndexes = [
-    { id: 'index-early', name: 'Index Early', description: 'AI, Web3, Decentralization', members: 1250 },
-    { id: 'techstars', name: 'Techstars Universe', description: 'AI, Web3, Decentralization', members: 890 },
-    { id: 'base', name: 'Base', description: 'AI, Web3, Decentralization', members: 2100 },
-    { id: 'consensys', name: 'Consensys', description: 'AI, Web3, Decentralization', members: 750 },
-    { id: 'protocol-labs', name: 'Protocol Labs', description: 'AI, Web3, Decentralization', members: 1400 },
-    { id: 'kernel', name: 'Kernel', description: 'AI, Web3, Decentralization', members: 680 },
-  ];
+
   const [selectedIndexes, setSelectedIndexes] = useState<Set<string>>(new Set());
 
   // Create index step states
@@ -510,7 +502,7 @@ export default function OnboardingPage() {
 
         try {
           const token = await getAccessToken();
-          const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/auth/generate-profile`, {
+          const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/auth/profile/generate`, {
             method: 'POST',
             headers: {
               'Authorization': `Bearer ${token}`,
@@ -1569,8 +1561,8 @@ export default function OnboardingPage() {
                     type="button"
                     onClick={() => setIsPrivate(false)}
                     className={`border-2 p-4 rounded-md text-left transition-all ${!isPrivate
-                        ? 'border-[#007EFF] bg-white'
-                        : 'border-[#E0E0E0] bg-[#F8F9FA] hover:border-[#007EFF]'
+                      ? 'border-[#007EFF] bg-white'
+                      : 'border-[#E0E0E0] bg-[#F8F9FA] hover:border-[#007EFF]'
                       }`}
                   >
                     <div className="flex items-center gap-3 mb-2">
@@ -1589,8 +1581,8 @@ export default function OnboardingPage() {
                     type="button"
                     onClick={() => setIsPrivate(true)}
                     className={`border-2 p-4 rounded-md text-left transition-all ${isPrivate
-                        ? 'border-[#007EFF] bg-white'
-                        : 'border-[#E0E0E0] bg-[#F8F9FA] hover:border-[#007EFF]'
+                      ? 'border-[#007EFF] bg-white'
+                      : 'border-[#E0E0E0] bg-[#F8F9FA] hover:border-[#007EFF]'
                       }`}
                   >
                     <div className="flex items-center gap-3 mb-2">
@@ -1796,35 +1788,10 @@ export default function OnboardingPage() {
           }
         });
 
-        const indexesToShow = allIndexesMap.size > 0
-          ? Array.from(allIndexesMap.values())
-          : mockIndexes.map(m => ({
-            id: m.id,
-            title: m.name,
-            prompt: m.description,
-            permissions: null,
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
-            user: { id: '', name: '', email: null, avatar: null },
-            _count: { members: m.members, files: 0 },
-            isMember: false
-          }));
+        const indexesToShow = Array.from(allIndexesMap.values());
 
         const handleToggleJoin = async (index: typeof indexesToShow[number]) => {
-          // Skip if this is mock data
-          if (allIndexesMap.size === 0 && mockIndexes.find(m => m.id === index.id)) {
-            // Just toggle for mock data
-            setSelectedIndexes(prev => {
-              const next = new Set(prev);
-              if (next.has(index.id)) {
-                next.delete(index.id);
-              } else {
-                next.add(index.id);
-              }
-              return next;
-            });
-            return;
-          }
+
 
           if (index.isMember || selectedIndexes.has(index.id)) {
             // Already joined, don't do anything
@@ -1893,8 +1860,8 @@ export default function OnboardingPage() {
                           onClick={() => handleToggleJoin(index)}
                           disabled={isJoined || isJoining}
                           className={`w-full font-ibm-plex-mono ${isJoined
-                              ? 'bg-[#006D4B] text-white hover:bg-[#005A3E]'
-                              : 'border-[#E0E0E0] text-black hover:bg-[#F0F0F0]'
+                            ? 'bg-[#006D4B] text-white hover:bg-[#005A3E]'
+                            : 'border-[#E0E0E0] text-black hover:bg-[#F0F0F0]'
                             }`}
                         >
                           {isJoining ? (
