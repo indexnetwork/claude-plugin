@@ -2,6 +2,7 @@ import { createAgent, BaseLangChainAgent } from "../../lib/langchain/langchain";
 import { z } from "zod";
 import { StakeMatcherOutput } from "./stake.matcher.types";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
+import { log } from "../../lib/log";
 
 export const SYSTEM_PROMPT = `
   You are a semantic relationship analyst. Determine if two intents have MUTUAL relevance.
@@ -51,6 +52,7 @@ export class StakeMatcher extends BaseLangChainAgent {
     primaryIntent: { id: string; payload: string },
     candidates: Array<{ id: string; payload: string }>
   ): Promise<StakeMatcherOutput> {
+    log.info(`[StakeMatcher] Running match for intent "${primaryIntent.id}" against ${candidates.length} candidates.`);
 
     if (candidates.length === 0) {
       return { matches: [] };
@@ -99,10 +101,11 @@ export class StakeMatcher extends BaseLangChainAgent {
         }
       }
 
+      log.info(`[StakeMatcher] Found ${finalMatches.length} mutual matches (Score >= 70).`);
       return { matches: finalMatches };
 
     } catch (error) {
-      console.error("Error in StakeMatcher run:", error);
+      log.error("[StakeMatcher] Error in StakeMatcher run:", { error });
       return { matches: [] };
     }
   }

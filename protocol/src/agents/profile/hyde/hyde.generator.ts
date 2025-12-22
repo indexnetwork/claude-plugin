@@ -3,6 +3,7 @@ import { UserMemoryProfile } from '../../intent/manager/intent.manager.types';
 import { z } from 'zod';
 import { json2md } from '../../../lib/json2md/json2md';
 import { BaseLangChainAgent } from '../../../lib/langchain/langchain';
+import { log } from '../../../lib/log';
 
 // System prompt for HyDE Generation
 const HYDE_GENERATION_PROMPT = `
@@ -53,13 +54,26 @@ export class HydeGeneratorAgent extends BaseLangChainAgent {
       }))
     ];
 
-    // The model is configured with structured output
-    const result = await this.model.invoke(messages) as any;
+    log.info(`[HydeGenerator] Generating HyDE profile for user...`);
 
-    // Handle potential wrapping of structured output
-    if (result.structuredResponse) {
-      return result.structuredResponse.description;
+    try {
+      // The model is configured with structured output
+      const result = await this.model.invoke(messages) as any;
+
+      // Handle potential wrapping of structured output
+      let description = "";
+      if (result.structuredResponse) {
+        description = result.structuredResponse.description;
+      } else {
+        description = result.description;
+      }
+
+      log.info(`[HydeGenerator] Successfully generated HyDE profile.`);
+      return description;
+
+    } catch (error) {
+      log.error("[HydeGenerator] Error generating HyDE profile", { error });
+      throw error;
     }
-    return result.description;
   }
 }

@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { BaseLangChainAgent } from '../../lib/langchain/langchain';
 import { SystemMessage, HumanMessage } from '@langchain/core/messages';
 import { ProfileGeneratorOutput } from './profile.generator.types';
+import { log } from '../../lib/log';
 
 export const SYSTEM_PROMPT = `
     You are an expert profiler. Your task is to synthesize a structured User Profile from raw data scraped from the web (via Parallel.ai).
@@ -49,13 +50,16 @@ export class ProfileGenerator extends BaseLangChainAgent {
      * @param input Stringified JSON response from Parallel.ai search.
      */
     async run(input: string): Promise<ProfileGeneratorOutput> {
-        console.debug({ input })
+        log.debug('[ProfileGenerator] Processing input', { inputLength: input.length });
+
         const messages = [
             new SystemMessage(SYSTEM_PROMPT),
             new HumanMessage(`Here is the raw data:\n${input}`)
         ];
 
         const result = await this.model.invoke(messages);
-        return result.structuredResponse as ProfileGeneratorOutput;
+        const profile = result.structuredResponse as ProfileGeneratorOutput;
+        log.info(`[ProfileGenerator] Successfully generated profile for "${profile.profile.identity.name}".`);
+        return profile;
     }
 }

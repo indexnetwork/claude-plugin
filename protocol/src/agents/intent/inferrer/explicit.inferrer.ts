@@ -3,6 +3,7 @@ import { UserMemoryProfile } from "../manager/intent.manager.types";
 import { IntentDetector, IntentDetectorResponse } from "./explicit.inferrer.types";
 import { json2md } from "../../../lib/json2md/json2md";
 import { z } from "zod";
+import { log } from "../../../lib/log";
 
 /**
  * Model Configuration
@@ -63,9 +64,6 @@ export class ExplicitIntentDetector extends BaseLangChainAgent {
    * @returns A Promise resolving to an object containing a list of inferred intents.
    */
   async run(content: string | null, profile: UserMemoryProfile): Promise<IntentDetectorResponse> {
-
-    console.debug('Profile: ', profile);
-
     const prompt = `
       Context:
       # User Memory Profile
@@ -74,8 +72,6 @@ export class ExplicitIntentDetector extends BaseLangChainAgent {
       ## New Content
       ${content ? content : '(None. Please infer intents from Profile Narrative and Aspirations)'}
     `;
-
-    console.debug('Prompt: ', prompt);
 
     const messages = [
       { role: "system", content: SYSTEM_PROMPT },
@@ -86,9 +82,11 @@ export class ExplicitIntentDetector extends BaseLangChainAgent {
       // Invoke pre-initialized agent
       const result = await this.model.invoke({ messages });
       // Return structured response directly
-      return result.structuredResponse as IntentDetectorResponse;
+      const response = result.structuredResponse as IntentDetectorResponse;
+      log.info(`[ExplicitIntentInferrer] Found ${response.intents.length} intents in content.`);
+      return response;
     } catch (error) {
-      console.error("Error in ExplicitIntentDetector", error);
+      log.error("[ExplicitIntentInferrer] Error in ExplicitIntentDetector", { error });
       // Fallback: return empty intents if LLM fails
       return { intents: [] };
     }

@@ -4,6 +4,7 @@ import { InferredIntent } from "../inferrer/explicit.inferrer.types";
 import { ExplicitIntentDetector } from "../inferrer/explicit.inferrer";
 import { z } from "zod";
 import { json2md } from "../../../lib/json2md/json2md";
+import { log } from "../../../lib/log";
 
 const SYSTEM_PROMPT = `
 You are an expert Intent Manager. Your goal is to reconcile NEWLY INFERRED intents with the user's ACTIVE intents.
@@ -80,13 +81,16 @@ export class IntentManager extends BaseLangChainAgent {
     activeIntents: ActiveIntent[]
   ): Promise<IntentManagerResponse> {
     // 1. Run Explicit Detector (Pure Extraction)
+    log.info(`[IntentManagerAgent] Processing content: "${content ? content.substring(0, 50) + '...' : 'None'}"`);
     const { intents: inferredIntents } = await this.explicitDetector.run(content, profile);
+    log.info(`[IntentManagerAgent] Inferred ${inferredIntents.length} intents.`);
 
     if (inferredIntents.length === 0) {
       return { actions: [] };
     }
 
     // 2. Reconcile with Active Intents (LLM Decision)
+    log.info(`[IntentManagerAgent] Reconciling ${inferredIntents.length} inferred vs ${activeIntents.length} active intents...`);
     return this.reconcileIntentsWithLLM(inferredIntents, activeIntents);
   }
 
@@ -100,7 +104,7 @@ export class IntentManager extends BaseLangChainAgent {
 
       Based on the Inferred Intents, determine the actions to modify the Active Intents state.
     `;
-    console.debug("Prompt: ", prompt);
+
     const messages = [
       { role: "system", content: SYSTEM_PROMPT },
       { role: "user", content: prompt }
@@ -121,9 +125,10 @@ export class IntentManager extends BaseLangChainAgent {
         return true;
       });
 
+      log.info(`[IntentManagerAgent] Decision: ${filteredActions.length} actions generated.`);
       return { actions: filteredActions };
     } catch (error) {
-      console.error("Error in IntentManager reconciliation", error);
+      log.error("[IntentManagerAgent] Error in IntentManager reconciliation", { error });
       return { actions: [] };
     }
   }

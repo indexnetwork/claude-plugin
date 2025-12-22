@@ -1,4 +1,5 @@
 import { BaseLangChainAgent } from '../../lib/langchain/langchain';
+import { log } from '../../lib/log';
 import { SystemMessage, HumanMessage } from '@langchain/core/messages';
 import { UserMemoryProfile } from '../intent/manager/intent.manager.types';
 import {
@@ -68,10 +69,10 @@ export class OpportunityFinder extends BaseLangChainAgent {
         const minScore = options.minScore || 70;
         const hydeDescription = options.hydeDescription; // NEW: Accept HyDE description
 
-        console.log(`Analyzing ${candidates.length} candidates for opportunities...`);
+        log.info(`[OpportunityFinder] Analyzing ${candidates.length} candidates for opportunities...`);
 
         if (candidates.length === 0) {
-            console.log('No candidates provided.');
+            log.info('[OpportunityFinder] No candidates provided.');
             return [];
         }
 
@@ -146,7 +147,7 @@ export class OpportunityFinder extends BaseLangChainAgent {
                 candidateId: candidateUserId
             }));
         } catch (e) {
-            console.error(`Analysis failed for candidate ${candidateUserId}`, e);
+            log.info(`[OpportunityFinder] Analysis failed for candidate ${candidateUserId}`, { error: e });
             return [];
         }
     }
