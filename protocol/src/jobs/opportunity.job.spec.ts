@@ -1,10 +1,11 @@
 import * as dotenv from 'dotenv';
 import path from 'path';
-import { runOpportunityFinderCycle } from './opportunity-finder';
+import { log } from '../lib/log';
+import { runOpportunityFinderCycle } from './opportunity.job';
 import { ProfileService } from '../services/profile.service';
-import { OpportunityFinder } from '../agents/profile/opportunity/opportunity.finder';
+import { OpportunityFinder } from '../agents/opportunity/opportunity.finder';
 import { UserMemoryProfile } from '../agents/intent/manager/intent.manager.types';
-import { CandidateProfile, Opportunity } from '../agents/profile/opportunity/opportunity.finder.types';
+import { CandidateProfile, Opportunity } from '../agents/opportunity/opportunity.finder.types';
 
 // Load env
 const envPath = path.resolve(__dirname, '../../../../.env.development');
@@ -22,21 +23,21 @@ class MockProfileService extends ProfileService {
   }
 
   async getProfilesMissingEmbeddings() {
-    console.log(`[MockService] getProfilesMissingEmbeddings called (returning ${this.profilesWithMissingEmbeddings.length})`);
+    log.info(`[MockService] getProfilesMissingEmbeddings called (returning ${this.profilesWithMissingEmbeddings.length})`);
     return this.profilesWithMissingEmbeddings;
   }
 
   async updateProfileEmbedding(profileId: string, embedding: number[]) {
-    console.log(`[MockService] updateProfileEmbedding called for ${profileId} with embedding len ${embedding.length}`);
+    log.info(`[MockService] updateProfileEmbedding called for ${profileId} with embedding len ${embedding.length}`);
   }
 
   async getAllProfilesWithEmbeddings() {
-    console.log(`[MockService] getAllProfilesWithEmbeddings called (returning ${this.allProfiles.length})`);
+    log.info(`[MockService] getAllProfilesWithEmbeddings called (returning ${this.allProfiles.length})`);
     return this.allProfiles;
   }
 
   async findSimilarProfiles(sourceUserId: string, embedding: number[], limit: number = 20) {
-    console.log(`[MockService] findSimilarProfiles called for ${sourceUserId}`);
+    log.info(`[MockService] findSimilarProfiles called for ${sourceUserId}`);
     return this.candidatesMap[sourceUserId] || [];
   }
 }
@@ -51,7 +52,7 @@ class MockOpportunityFinder extends OpportunityFinder {
     candidates: CandidateProfile[],
     options: any = {}
   ): Promise<Opportunity[]> {
-    console.log(`[MockFinder] findOpportunities called for ${sourceProfile.userId} vs ${candidates.length} candidates`);
+    log.info(`[MockFinder] findOpportunities called for ${sourceProfile.userId} vs ${candidates.length} candidates`);
     if (candidates.length > 0) {
       return [
         {
@@ -70,7 +71,7 @@ class MockOpportunityFinder extends OpportunityFinder {
 // --- TEST RUNNER ---
 
 async function runTests() {
-  console.log("🧪 Starting Opportunity Finder Job Tests (Standalone)...\n");
+  log.info("🧪 Starting Opportunity Finder Job Tests (Standalone)...\n");
 
   const mockService = new MockProfileService();
   const mockFinder = new MockOpportunityFinder();
@@ -93,11 +94,11 @@ async function runTests() {
   console.log("1️⃣  Test: Standard Cycle (Backfill + Match)");
   try {
     await runOpportunityFinderCycle(mockService, mockFinder);
-    console.log("✅ Cycle completed successfully.");
+    log.info("✅ Cycle completed successfully.");
   } catch (e) {
-    console.error("❌ Cycle failed:", e);
+    log.error("❌ Cycle failed:", { error: e });
     process.exit(1);
   }
 }
 
-runTests().catch(console.error);
+runTests().catch((e) => log.error('Test runner failed', { error: e }));

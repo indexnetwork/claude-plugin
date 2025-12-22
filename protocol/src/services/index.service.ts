@@ -1,12 +1,14 @@
 import db from '../lib/db';
 import { indexes, indexMembers, intents } from '../lib/schema';
 import { eq, and, isNull } from 'drizzle-orm';
+import { log } from '../lib/log';
 
 export class IndexService {
   /**
    * Get eligible indexes for a user where autoAssign is true
    */
   async getEligibleIndexesForUser(userId: string) {
+    log.info('[IndexService] Getting eligible indexes for user', { userId });
     return await db.select({
       id: indexes.id
     })
@@ -23,6 +25,7 @@ export class IndexService {
    * Get intents for all members of an index where autoAssign is true
    */
   async getIntentsForIndexMembers(indexId: string) {
+    log.info('[IndexService] Getting intents for index members', { indexId });
     return await db.select({
       intentId: intents.id,
       userId: intents.userId

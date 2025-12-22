@@ -1,5 +1,6 @@
 import cron from 'node-cron';
 import { addWeeklyCycleJob } from '../lib/queue/newsletter.queue';
+import { log } from '../lib/log';
 
 // Helper to parse cron string "m h dom mon dow"
 function parseNewsletterSchedule() {
@@ -25,7 +26,7 @@ function parseNewsletterSchedule() {
 
 export async function sendWeeklyNewsletter(now: Date = new Date(), force: boolean = false, daysSince: number = 7) {
     console.time('WeeklyNewsletterTrigger');
-    console.log('Triggering weekly newsletter cycle...');
+    log.info('[NewsletterJob] Triggering weekly newsletter cycle...');
     try {
         const { targetDay, targetHour } = parseNewsletterSchedule();
 
@@ -46,7 +47,7 @@ export async function sendWeeklyNewsletter(now: Date = new Date(), force: boolea
 
         // Check if we are within the window [-14, +12]
         if (!force && (diff < -14 || diff > 12)) {
-            console.log('Skipping weekly newsletter job - Outside of global window');
+            log.info('[NewsletterJob] Skipping weekly newsletter job - Outside of global window');
             console.timeEnd('WeeklyNewsletterTrigger');
             return;
         }
@@ -59,14 +60,14 @@ export async function sendWeeklyNewsletter(now: Date = new Date(), force: boolea
         });
 
         if (success) {
-            console.log('Weekly newsletter cycle enqueued.');
+            log.info('[NewsletterJob] Weekly newsletter cycle enqueued.');
         } else {
-            console.error('Failed to enqueue weekly newsletter cycle');
+            log.error('[NewsletterJob] Failed to enqueue weekly newsletter cycle');
         }
         console.timeEnd('WeeklyNewsletterTrigger');
 
     } catch (error) {
-        console.error('Error triggering weekly newsletter:', error);
+        log.error('[NewsletterJob] Error triggering weekly newsletter:', { error });
         console.timeEnd('WeeklyNewsletterTrigger');
     }
 }
@@ -78,5 +79,5 @@ export const initWeeklyNewsletterJob = () => {
     cron.schedule(`${targetMinute} * * * *`, () => {
         sendWeeklyNewsletter();
     });
-    console.log(`📅 Weekly newsletter job scheduled (Hourly check at minute ${targetMinute})`);
+    log.info(`📅 [NewsletterJob] Weekly newsletter job scheduled (Hourly check at minute ${targetMinute})`);
 };

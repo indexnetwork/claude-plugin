@@ -8,6 +8,7 @@ import { CandidateProfile } from '../agents/opportunity/opportunity.finder.types
 import { UserMemoryProfile } from '../agents/intent/manager/intent.manager.types';
 import { ProfileService } from '../services/profile.service';
 import { userProfiles } from '../lib/schema';
+import { log } from '../lib/log';
 
 // Helper to construct profile text for embedding
 function constructProfileText(profile: typeof userProfiles.$inferSelect): string {
@@ -27,39 +28,39 @@ export async function runOpportunityFinderCycle(
   injectedFinder?: OpportunityFinder
 ) {
   console.time('OpportunityFinderCycle');
-  console.log('🔄 Starting Opportunity Finder Cycle...');
+  log.info('🔄 [OpportunityJob] Starting Opportunity Finder Cycle...');
 
   const profileService = injectedProfileService || new ProfileService();
 
   try {
     // 1. Backfill Missing Embeddings
-    console.log('🔍 Checking for missing embeddings...');
+    log.info('🔍 [OpportunityJob] Checking for missing embeddings...');
     const profilesWithoutEmbeddings = await profileService.getProfilesMissingEmbeddings();
 
-    console.log(`Found ${profilesWithoutEmbeddings.length} profiles needing embeddings.`);
+    log.info(`[OpportunityJob] Found ${profilesWithoutEmbeddings.length} profiles needing embeddings.`);
 
     for (const profile of profilesWithoutEmbeddings) {
       try {
         const textToEmbed = constructProfileText(profile);
         if (!textToEmbed || textToEmbed.length < 10) {
-          console.warn(`Skipping profile ${profile.userId} - Insufficient content.`);
+          log.warn(`[OpportunityJob] Skipping profile ${profile.userId} - Insufficient content.`);
           continue;
         }
 
-        console.log(`Generating embedding for user ${profile.userId}...`);
-        console.log(`Payload length: ${textToEmbed.length} chars. Preview: "${textToEmbed.substring(0, 100)}..."`);
+        log.info(`[OpportunityJob] Generating embedding for user ${profile.userId}...`);
+        log.debug(`[OpportunityJob] Payload length: ${textToEmbed.length} chars. Preview: "${textToEmbed.substring(0, 100)}..."`);
         const embedding = await generateEmbedding(textToEmbed);
 
         await profileService.updateProfileEmbedding(profile.id, embedding);
 
-        console.log(`✅ Embedding updated for ${profile.userId}`);
+        log.info(`[OpportunityJob] ✅ Embedding updated for ${profile.userId}`);
       } catch (err) {
-        console.error(`❌ Failed to generate embedding for ${profile.userId}:`, err);
+        log.error(`[OpportunityJob] ❌ Failed to generate embedding for ${profile.userId}:`, { error: err });
       }
     }
 
     // 2. Run Opportunity Finder for All Users
-    console.log('🚀 Running Opportunity Matchmaking...');
+    log.info('🚀 [OpportunityJob] Running Opportunity Matchmaking...');
     const finder = injectedFinder || new OpportunityFinder();
     const allCycleResults: any[] = [];
 
@@ -67,7 +68,7 @@ export async function runOpportunityFinderCycle(
     const allProfiles = await profileService.getAllProfilesWithEmbeddings();
 
     for (const sourceProfile of allProfiles) {
-      console.log(`\n🔎 Finding opportunities for ${sourceProfile.userId}...`);
+      log.info(`\n🔎 [OpportunityJob] Finding opportunities for ${sourceProfile.userId}...`);
 
       // Construct UserMemoryProfile object expected by Agent
       const memoryProfile: UserMemoryProfile = {
@@ -78,13 +79,13 @@ export async function runOpportunityFinderCycle(
       } as any;
 
       if (!sourceProfile.embedding) {
-        console.warn(`Skipping ${sourceProfile.userId} - Missing embedding.`);
+        log.warn(`[OpportunityJob] Skipping ${sourceProfile.userId} - Missing embedding.`);
         continue;
       }
 
       // --- BACKFILL HyDE IF MISSING ---
       if (!sourceProfile.hydeEmbedding) {
-        console.log(`   Generating missing HyDE for ${sourceProfile.userId}...`);
+        log.info(`   [OpportunityJob] Generating missing HyDE for ${sourceProfile.userId}...`);
         try {
           const hydeGenerator = new HydeGeneratorAgent();
           const description = await hydeGenerator.generate(memoryProfile);
@@ -97,10 +98,10 @@ export async function runOpportunityFinderCycle(
             // Update local object so we can use it immediately
             sourceProfile.hydeDescription = description;
             sourceProfile.hydeEmbedding = embedding;
-            console.log(`   ✅ HyDE Generated & Backfilled.`);
+            log.info(`   [OpportunityJob] ✅ HyDE Generated & Backfilled.`);
           }
         } catch (e) {
-          console.error(`   ❌ Failed to generate HyDE for ${sourceProfile.userId}`, e);
+          log.error(`   [OpportunityJob] ❌ Failed to generate HyDE for ${sourceProfile.userId}`, { error: e });
         }
       }
       // --------------------------------
@@ -108,7 +109,7 @@ export async function runOpportunityFinderCycle(
       // Determine Query Vector: Use HyDE (Desire) if available, otherwise User Profile (Similarity)
       const queryVector = sourceProfile.hydeEmbedding || sourceProfile.embedding;
       if (sourceProfile.hydeEmbedding) {
-        console.log(`   Using HyDE embedding for search.`);
+        log.info(`   [OpportunityJob] Using HyDE embedding for search.`);
       }
 
       // VECTOR SEARCH: Find top 20 nearest neighbors (excluding self)
@@ -128,9 +129,9 @@ export async function runOpportunityFinderCycle(
       });
 
       if (opportunities.length > 0) {
-        console.log(`✨ Found ${opportunities.length} opportunities for ${sourceProfile.userId}:`);
+        log.info(`✨ [OpportunityJob] Found ${opportunities.length} opportunities for ${sourceProfile.userId}:`);
         opportunities.forEach(op => {
-          console.log(`   - [${op.score}] ${op.title} (with ${op.candidateId})`);
+          log.info(`   - [${op.score}] ${op.title} (with ${op.candidateId})`);
         });
 
         allCycleResults.push({
@@ -141,7 +142,7 @@ export async function runOpportunityFinderCycle(
         });
 
       } else {
-        console.log(`   No high-value opportunities found.`);
+        log.info(`   [OpportunityJob] No high-value opportunities found.`);
       }
     }
 
@@ -150,16 +151,17 @@ export async function runOpportunityFinderCycle(
       // Use a persistent path in root or tmp
       const debugPath = path.resolve(process.cwd(), 'opportunity-finder-results.json');
       await fs.writeFile(debugPath, JSON.stringify(allCycleResults, null, 2));
-      console.log(`\n📝 Debug results written to: ${debugPath}`);
+      log.info(`\n📝 [OpportunityJob] Debug results written to: ${debugPath}`);
     }
 
-    console.log('✅ Opportunity Finder Cycle Complete.');
+    log.info('✅ [OpportunityJob] Opportunity Finder Cycle Complete.');
     console.timeEnd('OpportunityFinderCycle');
 
   } catch (error) {
-    console.error('❌ Error in Opportunity Finder Cycle:', error);
+    log.error('❌ [OpportunityJob] Error in Opportunity Finder Cycle:', { error });
     console.timeEnd('OpportunityFinderCycle');
   }
+
 }
 
 // Schedule Job
@@ -168,5 +170,5 @@ export const initOpportunityFinderJob = () => {
   cron.schedule('0 6 * * *', () => {
     runOpportunityFinderCycle();
   });
-  console.log('📅 Opportunity Finder job scheduled (Daily at 6:00 AM)');
+  log.info('📅 [OpportunityJob] Opportunity Finder job scheduled (Daily at 6:00 AM)');
 };

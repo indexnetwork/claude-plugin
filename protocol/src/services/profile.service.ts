@@ -9,6 +9,7 @@ import { IntentManager } from '../agents/intent/manager/intent.manager';
 import { checkAndTriggerSocialSync } from '../lib/integrations/social-sync';
 import { HydeGeneratorAgent } from '../agents/profile/hyde/hyde.generator';
 import { generateEmbedding } from '../lib/embeddings';
+import { log } from '../lib/log';
 
 export interface UpdateProfileDto {
   name?: string;
@@ -117,7 +118,7 @@ export class ProfileService {
   private async triggerBackgroundIntentGeneration(userId: string, intro: string, userName: string | null) {
     (async () => {
       try {
-        console.log('Triggering background intent generation for profile update', userId);
+        log.info('[ProfileService] Triggering background intent generation for profile update', { userId });
 
         const [profileData, activeIntentsData] = await Promise.all([
           db.select().from(userProfiles).where(eq(userProfiles.userId, userId)).limit(1),
@@ -135,7 +136,7 @@ export class ProfileService {
         const hasNarrative = !!userProfile.narrative;
 
         if (!hasAttributes || !hasNarrative) {
-          console.log('Profile incomplete, triggering repair via ProfileGenerator', userId);
+          log.info('[ProfileService] Profile incomplete, triggering repair via ProfileGenerator', { userId });
           const bioToUse = intro || userProfile.identity?.bio || '';
 
           if (bioToUse) {
@@ -163,9 +164,9 @@ export class ProfileService {
                 narrative: generated.profile.narrative,
                 attributes: generated.profile.attributes
               };
-              console.log('Profile repaired successfully');
+              log.info('[ProfileService] Profile repaired successfully');
             } catch (e) {
-              console.error('Profile repair failed:', e);
+              log.error('[ProfileService] Profile repair failed:', { error: e });
             }
           }
         }
@@ -199,7 +200,7 @@ export class ProfileService {
         const content = null;
 
         const result = await manager.processIntent(content, memoryProfile, activeIntents);
-        console.log('Intent detection result:', JSON.stringify(result));
+        log.info('[ProfileService] Intent detection result:', { result: JSON.stringify(result) });
 
         if (result.actions && result.actions.length > 0) {
           for (const action of result.actions) {
@@ -209,18 +210,18 @@ export class ProfileService {
                 payload: action.payload,
                 summary: action.payload, // Ensure summary is populated
               });
-              console.log(`Created intent: ${action.payload}`);
+              log.info(`[ProfileService] Created intent: ${action.payload}`);
             }
           }
         }
 
         // --- HyDE Generation ---
-        console.log('Generating HyDE description and embedding...');
+        log.info('[ProfileService] Generating HyDE description and embedding...');
         const hydeGenerator = new HydeGeneratorAgent();
         const hydeDescription = await hydeGenerator.generate(memoryProfile);
 
         if (hydeDescription) {
-          console.log(`HyDE Description Length: ${hydeDescription.length} chars. Preview: "${hydeDescription.substring(0, 100)}..."`);
+          log.info(`[ProfileService] HyDE Description Length: ${hydeDescription.length} chars. Preview: "${hydeDescription.substring(0, 100)}..."`);
           const hydeEmbedding = await generateEmbedding(hydeDescription);
 
           await db.update(userProfiles)
@@ -231,12 +232,12 @@ export class ProfileService {
             })
             .where(eq(userProfiles.userId, userId));
 
-          console.log('✅ HyDE profile updated.');
+          log.info('[ProfileService] ✅ HyDE profile updated.');
         }
         // -----------------------
 
       } catch (err) {
-        console.error('Background intent generation failed:', err);
+        log.error('[ProfileService] Background intent generation failed:', { error: err });
       }
     })();
   }

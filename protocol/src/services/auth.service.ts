@@ -1,9 +1,11 @@
 import db from '../lib/db';
 import { users, userNotificationSettings, OnboardingState } from '../lib/schema';
 import { privyClient } from '../lib/privy';
+import { log } from '../lib/log';
 
 export class AuthService {
     async setupDefaultPreferences(userId: string) {
+        log.info('[AuthService] Setting up default preferences', { userId });
         await db.insert(userNotificationSettings)
             .values({
                 userId: userId,
@@ -28,6 +30,7 @@ export class AuthService {
     }
 
     async getPrivyUser(privyId: string) {
+        log.info('[AuthService] Fetching privy user', { privyId });
         return await privyClient.getUserById(privyId);
     }
 }

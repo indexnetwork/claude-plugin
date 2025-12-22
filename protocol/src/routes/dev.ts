@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
-import { sendWeeklyNewsletter } from '../jobs/weekly-newsletter';
-import { runOpportunityFinderCycle } from '../jobs/opportunity-finder';
+import { sendWeeklyNewsletter } from '../jobs/newsletter.job';
+import { runOpportunityFinderCycle } from '../jobs/opportunity.job';
 
 const router = Router();
 

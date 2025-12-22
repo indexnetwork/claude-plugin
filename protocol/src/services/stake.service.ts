@@ -3,6 +3,7 @@ import { intents, intentStakes, intentStakeItems, intentIndexes } from '../lib/s
 import { eq, and, sql, isNull, inArray } from 'drizzle-orm';
 import { generateEmbedding } from '../lib/embeddings';
 import { StakeMatcher } from '../agents/stake/stake.matcher';
+import { log } from '../lib/log';
 
 export class StakeService {
 
@@ -10,7 +11,7 @@ export class StakeService {
    * Orchestrate the process of finding and creating stakes for an intent
    */
   async processIntent(intentId: string) {
-    console.log(`[StakeService] Processing intent ${intentId}`);
+    log.info(`[StakeService] Processing intent ${intentId}`);
 
     // 1. Get Intent
     const currentIntent = await this.getIntent(intentId);
@@ -18,7 +19,7 @@ export class StakeService {
 
     // 2. Find Candidates
     const candidates = await this.findCandidates(intentId, 10);
-    console.log(`[StakeService] Found ${candidates.length} candidates`);
+    log.info(`[StakeService] Found ${candidates.length} candidates`);
 
     if (candidates.length === 0) return;
 
@@ -29,7 +30,7 @@ export class StakeService {
       candidates.map(c => ({ id: c.id, payload: c.payload }))
     );
 
-    console.log(`[StakeService] Matcher found ${result.matches.length} matches`);
+    log.info(`[StakeService] Matcher found ${result.matches.length} matches`);
 
     // 4. Save Matches
     for (const match of result.matches) {
@@ -178,7 +179,7 @@ export class StakeService {
     const targetIntentUser = await this.getIntentUser(targetIntentId);
 
     if (!newIntentUser || !targetIntentUser) {
-      console.error(`Missing user for intents ${newIntentId} or ${targetIntentUser}`);
+      log.error(`[StakeService] Missing user for intents ${newIntentId} or ${targetIntentUser}`);
       return;
     }
 
