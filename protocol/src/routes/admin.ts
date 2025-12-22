@@ -7,7 +7,7 @@ import { eq, isNull, and, or, desc, inArray, sql } from 'drizzle-orm';
 import { checkIndexOwnership } from '../lib/index-access';
 import { ConnectionEvent } from '../types';
 import { sendConnectionRequestEmail } from '../lib/email/notification.sender'; // Use lower-level sender to bypass checks
-import { synthesizeVibeCheck } from '../lib/synthesis';
+import { SynthesisService } from '../services/synthesis.service';
 import DOMPurify from 'isomorphic-dompurify';
 
 const router = Router();
@@ -256,7 +256,7 @@ export const approveConnection = async (req: AuthRequest, res: Response) => {
     // Generate Synthesis (Vibe Check)
     let synthesis = '';
     try {
-      const { synthesis: synthesisMarkdown } = await synthesizeVibeCheck(
+      const { synthesis: synthesisMarkdown } = await SynthesisService.generateSynthesis(
         receiverUserId,
         initiatorUserId,
         { vibeOptions: { characterLimit: 500 } }

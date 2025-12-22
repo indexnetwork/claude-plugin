@@ -8,10 +8,11 @@ import helmet from 'helmet';
 
 console.log('process.env', process.env);
 import { initializeBrokers } from './agents/context_brokers/connector';
-import { queueProcessor } from './lib/queue/processor';
-import { initWeeklyNewsletterJob } from './jobs/newsletter.job';
 import { emailWorker } from './lib/email/queue/email.worker';
-import { newsletterWorker } from './lib/queue/workers/newsletter.worker';
+import { initWeeklyNewsletterJob } from './jobs/newsletter.job';
+import './queues/intent.queue';
+import './queues/newsletter.queue';
+import './queues/opportunity.queue';
 
 import authRoutes from './routes/auth';
 import userRoutes from './routes/users';
@@ -107,11 +108,10 @@ app.use('*', (req, res) => {
     await initializeBrokers();
     console.log('🟢 Context brokers initialized');
 
-    queueProcessor.start();
-    console.log('🟢 Queue processor started');
-
     emailWorker.start();
-    newsletterWorker.start();
+
+    // Workers are auto-started upon import
+    console.log('🟢 Queue workers initialized');
 
     initWeeklyNewsletterJob();
   } catch (err) {

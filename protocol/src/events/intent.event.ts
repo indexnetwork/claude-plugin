@@ -1,4 +1,4 @@
-import { addIndexIntentJob, queueEvents } from '../lib/queue/llm-queue';
+import { addIndexIntentJob, queueEvents } from '../queues/intent.queue';
 import { stakeService } from '../services/stake.service';
 import { indexService } from '../services/index.service';
 

@@ -1,3 +1,6 @@
+/**
+ * @deprecated This module is deprecated. Please use SynthesisService in src/services/synthesis.service.ts instead.
+ */
 import { vibeCheck, vibeCheckNewsletter, type VibeCheckOptions } from '../agents/external/vibe_checker';
 import { introMaker, type IntroMakerData } from '../agents/external/intro_maker';
 import { cache } from './redis';

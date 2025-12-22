@@ -1,4 +1,4 @@
-import { addIndexIntentJob } from '../lib/queue/llm-queue';
+import { addIndexIntentJob } from '../queues/intent.queue';
 import { IntentService } from '../services/intent.service';
 
 export interface MemberEvent {

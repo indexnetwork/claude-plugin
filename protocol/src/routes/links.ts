@@ -7,7 +7,7 @@ import { and, desc, eq } from 'drizzle-orm';
 import path from 'path';
 import fs from 'fs';
 import { crawlLinksForIndex } from '../lib/crawl/web_crawler';
-import { addGenerateIntentsJob } from '../lib/queue/llm-queue';
+import { addGenerateIntentsJob } from '../queues/intent.queue';
 import { LinkRecord, LinkContentResponse } from '../types';
 
 const router = Router();

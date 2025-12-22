@@ -1,10 +1,11 @@
 import db from '../lib/db';
-import { intents, intentIndexes, intentStakes, intentStakeItems } from '../lib/schema';
+import { intents, intentIndexes, intentStakes, intentStakeItems, indexes, indexMembers } from '../lib/schema';
 import { summarizeIntent } from '../agents/core/intent_summarizer';
 import { generateEmbedding } from '../lib/embeddings';
 import { Events } from '../events';
 import { eq, and, isNull } from 'drizzle-orm';
 import { INTENT_INFERRER_AGENT_ID } from '../lib/agent-ids';
+import { evaluateIntentAppropriateness } from '../agents/core/intent_indexer/evaluator';
 
 export interface CreateIntentOptions {
   payload: string;
@@ -206,4 +207,86 @@ export class IntentService {
     }
   }
 
+  /**
+   * Process a specific intent for a specific index (used by queue processor)
+   */
+  static async processIntentForIndex(intentId: string, indexId: string): Promise<void> {
+    try {
+      // Get intent details
+      const intentData = await db.select({
+        id: intents.id,
+        payload: intents.payload,
+        userId: intents.userId,
+        sourceType: intents.sourceType,
+        sourceId: intents.sourceId
+      }).from(intents)
+        .where(eq(intents.id, intentId))
+        .limit(1);
+
+      if (intentData.length === 0) return;
+      const intent = intentData[0];
+
+      // Get index details (including prompts)
+      const indexData = await db.select({
+        id: indexes.id,
+        indexPrompt: indexes.prompt,
+        memberPrompt: indexMembers.prompt
+      })
+        .from(indexes)
+        .innerJoin(indexMembers, eq(indexes.id, indexMembers.indexId))
+        .where(and(
+          eq(indexes.id, indexId),
+          eq(indexMembers.userId, intent.userId),
+          eq(indexMembers.autoAssign, true), // Only auto-assignable
+          isNull(indexes.deletedAt)
+        ))
+        .limit(1);
+
+      if (indexData.length === 0) return;
+      const targetIndex = indexData[0];
+
+      // Check if already assigned
+      const existingAssignment = await db.select({ indexId: intentIndexes.indexId })
+        .from(intentIndexes)
+        .where(and(
+          eq(intentIndexes.intentId, intentId),
+          eq(intentIndexes.indexId, indexId)
+        ))
+        .limit(1);
+
+      const isCurrentlyAssigned = existingAssignment.length > 0;
+
+      // Evaluate appropriateness
+      const appropriatenessScore = await evaluateIntentAppropriateness(
+        intent.payload,
+        targetIndex.indexPrompt || '',
+        targetIndex.memberPrompt || '',
+        intent.sourceType,
+        intent.sourceId
+      );
+
+      const isAppropriate = appropriatenessScore > 0.7;
+
+      if (isAppropriate && !isCurrentlyAssigned) {
+        // Index it
+        await db.insert(intentIndexes).values({
+          intentId,
+          indexId
+        });
+        console.log(`[IntentService] Indexed intent ${intentId} to index ${indexId} (Score: ${appropriatenessScore})`);
+      } else if (!isAppropriate && isCurrentlyAssigned) {
+        // De-index it
+        await db.delete(intentIndexes)
+          .where(and(
+            eq(intentIndexes.intentId, intentId),
+            eq(intentIndexes.indexId, indexId)
+          ));
+        console.log(`[IntentService] Removed intent ${intentId} from index ${indexId} (Score: ${appropriatenessScore})`);
+      }
+
+    } catch (error) {
+      console.error(`[IntentService] Error processing intent ${intentId} for index ${indexId}:`, error);
+      throw error;
+    }
+  }
 }

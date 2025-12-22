@@ -4,7 +4,7 @@ import db from '../lib/db';
 import { intents, intentStakes, agents, users, intentIndexes } from '../lib/schema';
 import { authenticatePrivy, AuthRequest } from '../middleware/auth';
 import { eq, isNull, and, sql, inArray } from 'drizzle-orm';
-import { synthesizeVibeCheck } from '../lib/synthesis';
+import { SynthesisService } from '../services/synthesis.service';
 import { validateAndGetAccessibleIndexIds } from '../lib/index-access';
 import { getAccessibleIntents } from '../lib/intent-access';
 import { SynthesisRequest, SynthesisResponse } from '../types';
@@ -54,7 +54,7 @@ router.post('/vibecheck',
         return res.status(400).json({ error: 'No accessible indexes found for synthesis' });
       }
 
-      const { synthesis, subject } = await synthesizeVibeCheck(
+      const { synthesis, subject } = await SynthesisService.generateSynthesis(
         initiatorId || contextUserId,
         targetUserId,
         {
