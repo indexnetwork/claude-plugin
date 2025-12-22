@@ -11,7 +11,7 @@ console.log(process.env.DATABASE_URL);
 import { Command } from 'commander';
 import { eq } from 'drizzle-orm';
 import db, { closeDb } from '../lib/db';
-import { indexMembers, indexes, users, userProfiles } from '../lib/schema';
+import { indexMembers, indexes, users, userProfiles, agents } from '../lib/schema';
 import { privyClient } from '../lib/privy';
 import { setLevel } from '../lib/log';
 import { ProfileGenerator } from '../agents/profile/profile.generator';
@@ -26,8 +26,10 @@ type GlobalOpts = {
 
 const OPEN_INDEX_ID = '5aff6cd6-d64e-4ef9-8bcf-6c89815f771c';
 const RESTRICTED_INDEX_ID = '99999999-d64e-4ef9-8bcf-6c89815f771c'; // New mocked ID
+const OPPORTUNITY_AGENT_ID = '028ef80e-9b1c-434b-9296-bb6130509482'; // System Agent for Opportunities
 
-import { PRIVY_TEST_ACCOUNTS } from './test-data';
+
+import { TESTABLE_TEST_ACCOUNTS } from './test-data';
 
 async function ensurePrivyIdentity(email: string): Promise<string> {
   let privyUser = await privyClient.getUserByEmail(email);
@@ -39,15 +41,24 @@ async function ensurePrivyIdentity(email: string): Promise<string> {
   return privyUser.id;
 }
 
-async function createUser(account: typeof PRIVY_TEST_ACCOUNTS[0]): Promise<any> {
+async function createUser(account: typeof TESTABLE_TEST_ACCOUNTS[0]): Promise<any> {
   const privyId = await ensurePrivyIdentity(account.email);
 
   try {
+    // Extract socials
+    const socials = {
+      linkedin: (account as any).linkedin,
+      github: (account as any).github,
+      x: (account as any).x,
+      websites: (account as any).website ? [(account as any).website] : []
+    };
+
     const [user] = await db.insert(users).values({
       privyId,
       email: account.email,
       name: account.name,
       intro: `Test account for ${account.name}`,
+      socials,
       onboarding: {}
     }).returning();
     return user;
@@ -94,10 +105,22 @@ async function seedDatabase(type: 'open' | 'restricted' | 'both'): Promise<{ ok:
       }
     } catch { }
 
+
+
+    // Create System Agents
+    try {
+      await db.insert(agents).values({
+        id: OPPORTUNITY_AGENT_ID,
+        name: 'Opportunity Finder',
+        description: 'Matches users based on semantic profile analysis (HyDE)',
+        avatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=opportunity',
+      }).onConflictDoNothing();
+    } catch (e) { console.error('Failed to seed agents', e); }
+
     // Create users
     const createdUsers = [];
 
-    for (const [i, account] of PRIVY_TEST_ACCOUNTS.entries()) {
+    for (const [i, account] of TESTABLE_TEST_ACCOUNTS.entries()) {
       const user = await createUser(account);
       createdUsers.push(user);
 
@@ -133,7 +156,12 @@ async function seedDatabase(type: 'open' | 'restricted' | 'both'): Promise<{ ok:
 
         // Use mock data if available, otherwise search
         console.log(`> Searching for ${account.name}...`);
-        const query = `Find information about ${account.name}`;
+        const query = `Find information about ${account.name}
+        ${(account as any).email ? `Email: ${(account as any).email}` : ''}
+        ${(account as any).linkedin ? `LinkedIn: ${(account as any).linkedin}` : ''}
+        ${(account as any).github ? `GitHub: ${(account as any).github}` : ''}
+        ${(account as any).x ? `Twitter: ${(account as any).x}` : ''}
+        ${(account as any).website ? `Website: ${(account as any).website}` : ''}`;
         const searchResult = await searchUser(query);
         const markdownData = json2md.fromObject(
           searchResult.results.map((r: any) => ({
@@ -181,7 +209,7 @@ async function seedDatabase(type: 'open' | 'restricted' | 'both'): Promise<{ ok:
 
 
     console.log('\nLogin credentials:');
-    PRIVY_TEST_ACCOUNTS.forEach(acc =>
+    TESTABLE_TEST_ACCOUNTS.forEach(acc =>
       console.log(`${acc.name}: ${acc.email} | ${acc.phoneNumber} | OTP: ${acc.otpCode}`)
     );
 

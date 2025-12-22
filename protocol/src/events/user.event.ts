@@ -1,5 +1,5 @@
 import { addIndexIntentJob } from '../lib/queue/llm-queue';
-import { intentService } from '../services/intent.service';
+import { IntentService } from '../services/intent.service';
 
 export interface MemberEvent {
   userId: string;
@@ -18,17 +18,15 @@ export class MemberEvents {
   static async onSettingsUpdated(event: MemberEvent): Promise<void> {
     try {
       if (event.promptChanged || event.autoAssignChanged) {
-        // Get all user's intents and queue them individually
-        const userIntents = await intentService.getIntentsByUserId(event.userId);
+        // Get all user's intents (full objects) and queue them individually
+        const userIntents = await IntentService.getUserIntentObjects(event.userId);
 
         // Priority 6: Member settings updates - MEDIUM priority
-        // When a member's auto-assign changes, their intents need re-indexing
-        // Less urgent than user intent actions but more important than background tasks
-        const queuePromises = userIntents.map(({ id: intentId }) =>
+        const queuePromises = userIntents.map((intent) =>
           addIndexIntentJob({
-            intentId,
+            intentId: intent.id,
             indexId: event.indexId,
-            userId: event.userId!, // Include userId for per-user queuing
+            userId: event.userId,
           }, 6)
         );
 

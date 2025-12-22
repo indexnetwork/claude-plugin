@@ -13,7 +13,7 @@ import { getUploadsPath } from '../lib/paths';
 import { processUploadedFiles } from '../lib/uploads';
 import { crawlLinksForIndex } from '../lib/crawl/web_crawler';
 import { analyzeObjects } from '../agents/core/intent_inferrer';
-import { CreatedIntent, IntentService } from '../lib/intent-service';
+import { CreatedIntent, IntentService } from '../services/intent.service';
 import { createUploadClient } from '../lib/uploads';
 
 const router = Router();

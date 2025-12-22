@@ -1,29 +1,32 @@
-import { createAgent, BaseLangChainAgent } from "../../lib/langchain/langchain";
+import { createAgent, BaseLangChainAgent } from "../../../lib/langchain/langchain";
 import { z } from "zod";
-import { StakeMatcherOutput } from "./stake.matcher.types";
+import { StakeEvaluatorOutput } from "./stake.evaluator.types";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
-import { log } from "../../lib/log";
+import { log } from "../../../lib/log";
 
 export const SYSTEM_PROMPT = `
   You are a semantic relationship analyst. Determine if two intents have MUTUAL relevance.
 
-  STRICT Mutual criteria:
-  - Both intents seek things that complement each other.
-  - Bidirectional value.
-  - IMMEDIATELY actionable.
+  INPUT:
+  1. Primary Intent: A specific goal or need (User A)
+  2. Candidate Intent: A potential match (User B)
 
-  Score threshold: Must be >= 70 to qualify as mutual.
-  
-  CONFIDENCE SCORING:
-  - 95-100: Exceptional / Perfect
-  - 85-94: Strong
-  - 70-84: Acceptable / Good
-  - < 70: Not Mutual
+  TASK:
+  - Analyze if these two intents are COMPLEMENTARY or SIMILAR in a way that creates value.
+  - Strict Mutuality: Both sides must gain from the connection.
+  - Ignore superficial keywords if the core goal differs.
+
+  OUTPUT:
+  - isMatch: true/false
+  - confidence: "high" | "medium" | "low"
+  - reason: Concise explanation (1 sentence).
+
+  CRITERIA for MATCH:
+  - Supply meets Demand (e.g., "Offering Design" <-> "Looking for Designer")
+  - Shared Goal (e.g., "Learn Rust" <-> "Study Partner for Rust")
+  - Complementary Resources (e.g., "Has Capital" <-> "Needs Funding")
 `;
 
-/**
- * Output Schemas
- */
 export const MatchedStakeSchema = z.object({
   targetIntentId: z.string().describe("The ID of the candidate intent being evaluated"),
   isMutual: z.boolean().describe("Whether the two intents have mutual intent (both relate to or depend on each other)"),
@@ -31,15 +34,15 @@ export const MatchedStakeSchema = z.object({
   confidenceScore: z.number().min(0).max(100).describe("Precise confidence score 0-100. Use full range 70-100 for mutual matches.")
 });
 
-export const StakeMatcherOutputSchema = z.object({
+export const StakeEvaluatorSchema = z.object({
   matches: z.array(MatchedStakeSchema).describe("List of evaluated matches")
 });
 
-export class StakeMatcher extends BaseLangChainAgent {
+export class StakeEvaluator extends BaseLangChainAgent {
   constructor(options: Partial<Parameters<typeof createAgent>[0]> = {}) {
     super({
-      preset: 'stake-matcher',
-      responseFormat: StakeMatcherOutputSchema,
+      model: 'openai/gpt-4o',
+      responseFormat: StakeEvaluatorSchema,
       temperature: 0.2, // Low temp for consistent scoring
       ...options
     });
@@ -51,8 +54,8 @@ export class StakeMatcher extends BaseLangChainAgent {
   async run(
     primaryIntent: { id: string; payload: string },
     candidates: Array<{ id: string; payload: string }>
-  ): Promise<StakeMatcherOutput> {
-    log.info(`[StakeMatcher] Running match for intent "${primaryIntent.id}" against ${candidates.length} candidates.`);
+  ): Promise<StakeEvaluatorOutput> {
+    log.info(`[StakeEvaluator] Running match for intent "${primaryIntent.id}" against ${candidates.length} candidates.`);
 
     if (candidates.length === 0) {
       return { matches: [] };
@@ -84,29 +87,37 @@ export class StakeMatcher extends BaseLangChainAgent {
     try {
       // 3. Invoke LLM
       const result = await this.model.invoke({ messages });
-      const output = result.structuredResponse as z.infer<typeof StakeMatcherOutputSchema>;
+      const output = result.structuredResponse as z.infer<typeof StakeEvaluatorSchema>;
 
       // 4. Process matches
-      const finalMatches: StakeMatcherOutput['matches'] = [];
+      const finalMatches: StakeEvaluatorOutput['matches'] = [];
 
       for (const match of output.matches) {
         if (match.isMutual && match.confidenceScore >= 70) {
           finalMatches.push({
-            newIntentId: primaryIntent.id,
-            targetIntentId: match.targetIntentId,
-            score: match.confidenceScore,
-            reasoning: match.reasoning,
-            isMutual: match.isMutual
+            candidateIntentId: match.targetIntentId, // normalized field name from schema
+            isMatch: match.isMutual,
+            confidence: this.mapConfidence(match.confidenceScore),
+            reason: match.reasoning
+            // Removed extra fields to match pure interface if needed, or I should update interface.
+            // Interface says: { candidateIntentId, isMatch, confidence, reason }
           });
         }
       }
 
-      log.info(`[StakeMatcher] Found ${finalMatches.length} mutual matches (Score >= 70).`);
+      log.info(`[StakeEvaluator] Found ${finalMatches.length} mutual matches (Score >= 70).`);
       return { matches: finalMatches };
 
     } catch (error) {
-      log.error("[StakeMatcher] Error in StakeMatcher run:", { error });
+      log.error("[StakeEvaluator] Error in StakeEvaluator run:", { error });
       return { matches: [] };
     }
+  }
+
+  private mapConfidence(score: number): "high" | "medium" | "low" {
+    if (score >= 95) return "high";
+    if (score >= 85) return "high"; // map strong to high? or keep medium?
+    if (score >= 70) return "medium";
+    return "low";
   }
 }

@@ -18,7 +18,7 @@ async function testLangChain() {
 
     // 2. Test Middleware Logic
     console.log("\n2️⃣  Test: Middleware Execution");
-    
+
     const testMiddleware = createMiddleware({
         name: "TestMiddleware",
         wrapModelCall: async (request: AgentRequest, next: NextHandler) => {
@@ -29,7 +29,7 @@ async function testLangChain() {
     });
 
     const agent = createAgent({
-        model: "openai/gpt-3.5-turbo",
+        model: "openai/gpt-4o-mini",
         middleware: [testMiddleware]
     });
 
@@ -41,9 +41,9 @@ async function testLangChain() {
         await agent.invoke([{ role: "user", content: "hello" }]);
     } catch (e: any) {
         if (e.message.includes("401") || e.message.includes("key")) {
-             console.log("✅ Agent invoked (Network error expected)");
+            console.log("✅ Agent invoked (Network error expected)");
         } else {
-             console.log(`ℹ️ Agent invoke result: ${e.message}`);
+            console.log(`ℹ️ Agent invoke result: ${e.message}`);
         }
     }
 }

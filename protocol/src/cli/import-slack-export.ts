@@ -11,7 +11,7 @@ import type { SlackMessage } from '../lib/integrations/providers/slack';
 import { log, setLevel } from '../lib/log';
 import { getIntegrationById } from '../lib/integrations/integration-utils';
 import { analyzeObjects } from '../agents/core/intent_inferrer';
-import { IntentService } from '../lib/intent-service';
+import { IntentService } from '../services/intent.service';
 import { resolveIntegrationUser } from '../lib/user-utils';
 import { ensureIndexMembership } from '../lib/integrations/membership-utils';
 
@@ -97,7 +97,7 @@ class UserCache {
 
 async function processMessage(message: SlackMessage, integrationId: string, indexId: string, userCache: UserCache) {
   if (!message.user_profile) return 0;
-  
+
   const userIdentifier = {
     email: message.user_profile.email,
     name: message.user_profile.name,
@@ -136,20 +136,20 @@ async function processMessage(message: SlackMessage, integrationId: string, inde
 
 async function importSlackExport(filePath: string, integrationId: string, indexId: string, batchSize: number) {
   if (!fs.existsSync(filePath)) throw new Error(`File not found: ${filePath}`);
-  
+
   const exportData = JSON.parse(fs.readFileSync(filePath, 'utf-8')) as ExportData;
   const integration = await getIntegrationById(integrationId);
   if (!integration) throw new Error(`Integration not found: ${integrationId}`);
 
   const messages = exportData.messages.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
   const userCache = new UserCache();
-  
+
   let totalIntents = 0;
   let processed = 0;
 
   for (let i = 0; i < messages.length; i += batchSize) {
     const batch = messages.slice(i, i + batchSize);
-    
+
     const results = await Promise.all(
       batch.map(async (msg) => {
         const message = transformMessage(msg, exportData.users);

@@ -1,7 +1,7 @@
 import { BaseLangChainAgent } from "../../../lib/langchain/langchain";
 import { UserMemoryProfile, ActiveIntent, IntentManagerResponse, IntentAction } from "./intent.manager.types";
-import { InferredIntent } from "../inferrer/explicit.inferrer.types";
-import { ExplicitIntentDetector } from "../inferrer/explicit.inferrer";
+import { InferredIntent } from "../inferrer/explicit/explicit.inferrer.types";
+import { ExplicitIntentDetector } from "../inferrer/explicit/explicit.inferrer";
 import { z } from "zod";
 import { json2md } from "../../../lib/json2md/json2md";
 import { log } from "../../../lib/log";

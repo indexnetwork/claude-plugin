@@ -1,6 +1,6 @@
 import * as dotenv from 'dotenv';
 import path from 'path';
-import { StakeMatcher } from './stake.matcher';
+import { StakeEvaluator } from './stake.evaluator';
 
 // Load env
 const envPath = path.resolve(__dirname, '../../../.env.development');
@@ -15,7 +15,7 @@ async function runTests() {
   }
 
   // Override preset with a standard model for testing
-  const matcher = new StakeMatcher({ model: 'openai/gpt-4o-mini' });
+  const matcher = new StakeEvaluator({ model: 'openai/gpt-4o-mini' });
 
   // Mock Data
   const primaryIntent = {
@@ -39,8 +39,8 @@ async function runTests() {
 
     console.log("\nMatches Found:", result.matches.length);
     result.matches.forEach((m: any) => {
-      console.log(`   - [${m.score}] Matches ${m.targetIntentId}`);
-      console.log(`     Reasoning: ${m.reasoning}`);
+      console.log(`   - [${m.confidence}] Matches ${m.candidateIntentId}`);
+      console.log(`     Reasoning: ${m.reason}`);
     });
 
     if (result.matches.length > 0) {

@@ -15,7 +15,7 @@ import {
   EVERYONE_USER_ID
 } from '../lib/index-access';
 import { Events } from '../events';
-import { IntentService } from '../lib/intent-service';
+import { IntentService } from '../services/intent.service';
 import { resolveFileUser } from '../lib/user-utils';
 import { addMemberToIndex } from '../lib/index-members';
 // Removed intent-filtering import - using existing suggestions system

@@ -1,7 +1,7 @@
 import * as dotenv from 'dotenv';
 import path from 'path';
 import { ExplicitIntentDetector } from './explicit.inferrer';
-import { UserMemoryProfile, ActiveIntent } from '../manager/intent.manager.types';
+import { UserMemoryProfile, ActiveIntent } from '../../manager/intent.manager.types';
 
 // Load env
 const envPath = path.resolve(__dirname, '../../../../.env.development');

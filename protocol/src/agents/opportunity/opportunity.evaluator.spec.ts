@@ -1,8 +1,8 @@
 import * as dotenv from 'dotenv';
 import path from 'path';
-import { OpportunityFinder } from './opportunity.finder';
-import { UserMemoryProfile } from '../../intent/manager/intent.manager.types';
-import { CandidateProfile } from './opportunity.finder.types';
+import { OpportunityEvaluator } from './opportunity.evaluator';
+import { UserMemoryProfile } from '../intent/manager/intent.manager.types';
+import { CandidateProfile } from './opportunity.evaluator.types';
 
 // Load env
 const envPath = path.resolve(__dirname, '../../../../.env.development');
@@ -75,12 +75,12 @@ const mockCandidates: CandidateProfile[] = [
 async function runTests() {
   console.log("🧪 Starting OpportunityFinder Tests...\n");
 
-  const finder = new OpportunityFinder();
+  const evaluator = new OpportunityEvaluator();
 
   try {
     // Test Find Opportunities (Analyze Stage)
     console.log("2️⃣  Test: Analyze Opportunities");
-    const opportunities = await finder.findOpportunities(mockSourceProfile, mockCandidates, {
+    const opportunities = await evaluator.evaluateOpportunities(mockSourceProfile, mockCandidates, {
       hydeDescription: "Third-person description of an ideal match who is a Rust expert."
     });
 
@@ -107,7 +107,7 @@ async function runTests() {
     const scores: number[] = [];
 
     for (let i = 0; i < iterations; i++) {
-      const runOps = await finder.findOpportunities(mockSourceProfile, mockCandidates, {
+      const runOps = await evaluator.evaluateOpportunities(mockSourceProfile, mockCandidates, {
         hydeDescription: "Third-person description of an ideal match who is a Rust expert."
       });
       const match = runOps.find(op => op.candidateId === 'candidate-1');

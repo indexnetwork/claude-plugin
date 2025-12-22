@@ -2,7 +2,7 @@ import db from '../lib/db';
 import { intents, intentStakes, intentStakeItems, intentIndexes } from '../lib/schema';
 import { eq, and, sql, isNull, inArray } from 'drizzle-orm';
 import { generateEmbedding } from '../lib/embeddings';
-import { StakeMatcher } from '../agents/stake/stake.matcher';
+import { StakeEvaluator } from '../agents/intent/stake/stake.evaluator';
 import { log } from '../lib/log';
 
 export class StakeService {
@@ -24,7 +24,7 @@ export class StakeService {
     if (candidates.length === 0) return;
 
     // 3. Run Info Matcher
-    const matcher = new StakeMatcher();
+    const matcher = new StakeEvaluator();
     const result = await matcher.run(
       { id: currentIntent.id, payload: currentIntent.payload },
       candidates.map(c => ({ id: c.id, payload: c.payload }))
@@ -35,10 +35,10 @@ export class StakeService {
     // 4. Save Matches
     for (const match of result.matches) {
       await this.saveMatch(
-        match.newIntentId,
-        match.targetIntentId,
-        match.score,
-        match.reasoning,
+        currentIntent.id,
+        match.candidateIntentId,
+        match.confidence === 'high' ? 95 : match.confidence === 'medium' ? 80 : 60,
+        match.reason,
         '028ef80e-9b1c-434b-9296-bb6130509482'
       );
     }

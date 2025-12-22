@@ -4,15 +4,15 @@ import { SystemMessage, HumanMessage } from '@langchain/core/messages';
 import { UserMemoryProfile } from '../intent/manager/intent.manager.types';
 import {
     Opportunity,
-    OpportunityFinderOptions,
+    OpportunityEvaluatorOptions,
     CandidateProfile
-} from './opportunity.finder.types';
+} from './opportunity.evaluator.types';
 import { z } from 'zod';
 import { json2md } from '../../lib/json2md/json2md';
 
 // ----------------
 
-// System prompt for the Opportunity Finder Agent (Analysis Stage)
+// System prompt for the Opportunity Evaluator Agent (Analysis Stage)
 const ANALYSIS_SYSTEM_PROMPT = `
     You are an expert "Opportunity Matcher" and super-connector.
     Your Goal: Analyze a Source User's "Ideal Match Description" (or their Profile) against a Candidate User's profile to identify HIGH-VALUE opportunities.
@@ -42,18 +42,18 @@ const OpportunitySchema = z.object({
     candidateId: z.string().describe('The user ID of the match'),
 });
 
-const OpportunityFinderOutputSchema = z.object({
+const OpportunityEvaluatorOutputSchema = z.object({
     opportunities: z.array(OpportunitySchema),
 });
 
-export class OpportunityFinder extends BaseLangChainAgent {
+export class OpportunityEvaluator extends BaseLangChainAgent {
 
     constructor() {
         // Main model is for Analysis (structured output of Opportunities)
         super({
             model: 'openai/gpt-4o',
             temperature: 0.1, // Low temp for stability
-            responseFormat: OpportunityFinderOutputSchema
+            responseFormat: OpportunityEvaluatorOutputSchema
         });
     }
 
@@ -61,18 +61,18 @@ export class OpportunityFinder extends BaseLangChainAgent {
      * Main entry point to analyze opportunities.
      * Takes pre-fetched candidates and analyzes them against the source profile.
      */
-    async findOpportunities(
+    async evaluateOpportunities(
         sourceProfile: UserMemoryProfile,
         candidates: CandidateProfile[],
-        options: OpportunityFinderOptions = {}
+        options: OpportunityEvaluatorOptions = {}
     ): Promise<Opportunity[]> {
         const minScore = options.minScore || 70;
         const hydeDescription = options.hydeDescription; // NEW: Accept HyDE description
 
-        log.info(`[OpportunityFinder] Analyzing ${candidates.length} candidates for opportunities...`);
+        log.info(`[OpportunityEvaluator] Analyzing ${candidates.length} candidates for opportunities...`);
 
         if (candidates.length === 0) {
-            log.info('[OpportunityFinder] No candidates provided.');
+            log.info('[OpportunityEvaluator] No candidates provided.');
             return [];
         }
 
@@ -147,7 +147,7 @@ export class OpportunityFinder extends BaseLangChainAgent {
                 candidateId: candidateUserId
             }));
         } catch (e) {
-            log.info(`[OpportunityFinder] Analysis failed for candidate ${candidateUserId}`, { error: e });
+            log.info(`[OpportunityEvaluator] Analysis failed for candidate ${candidateUserId}`, { error: e });
             return [];
         }
     }

@@ -3,9 +3,9 @@ import path from 'path';
 import { log } from '../lib/log';
 import { runOpportunityFinderCycle } from './opportunity.job';
 import { ProfileService } from '../services/profile.service';
-import { OpportunityFinder } from '../agents/opportunity/opportunity.finder';
+import { OpportunityEvaluator } from '../agents/opportunity/opportunity.evaluator';
 import { UserMemoryProfile } from '../agents/intent/manager/intent.manager.types';
-import { CandidateProfile, Opportunity } from '../agents/opportunity/opportunity.finder.types';
+import { CandidateProfile, Opportunity } from '../agents/opportunity/opportunity.evaluator.types';
 
 // Load env
 const envPath = path.resolve(__dirname, '../../../../.env.development');
@@ -42,17 +42,17 @@ class MockProfileService extends ProfileService {
   }
 }
 
-class MockOpportunityFinder extends OpportunityFinder {
+class MockOpportunityEvaluator extends OpportunityEvaluator {
   constructor() {
     super();
   }
 
-  async findOpportunities(
+  async evaluateOpportunities(
     sourceProfile: UserMemoryProfile,
     candidates: CandidateProfile[],
     options: any = {}
   ): Promise<Opportunity[]> {
-    log.info(`[MockFinder] findOpportunities called for ${sourceProfile.userId} vs ${candidates.length} candidates`);
+    log.info(`[MockEvaluator] evaluateOpportunities called for ${sourceProfile.userId} vs ${candidates.length} candidates`);
     if (candidates.length > 0) {
       return [
         {
@@ -74,7 +74,7 @@ async function runTests() {
   log.info("🧪 Starting Opportunity Finder Job Tests (Standalone)...\n");
 
   const mockService = new MockProfileService();
-  const mockFinder = new MockOpportunityFinder();
+  const mockEvaluator = new MockOpportunityEvaluator();
 
   // Setup Data
   mockService.profilesWithMissingEmbeddings = [
@@ -93,7 +93,7 @@ async function runTests() {
 
   console.log("1️⃣  Test: Standard Cycle (Backfill + Match)");
   try {
-    await runOpportunityFinderCycle(mockService, mockFinder);
+    await runOpportunityFinderCycle(mockService, mockEvaluator);
     log.info("✅ Cycle completed successfully.");
   } catch (e) {
     log.error("❌ Cycle failed:", { error: e });

@@ -3,12 +3,16 @@ import fs from 'fs/promises';
 import path from 'path';
 import { generateEmbedding } from '../lib/embeddings';
 import { HydeGeneratorAgent } from '../agents/profile/hyde/hyde.generator';
-import { OpportunityFinder } from '../agents/opportunity/opportunity.finder';
-import { CandidateProfile } from '../agents/opportunity/opportunity.finder.types';
+import { OpportunityEvaluator } from '../agents/opportunity/opportunity.evaluator';
+import { CandidateProfile } from '../agents/opportunity/opportunity.evaluator.types';
 import { UserMemoryProfile } from '../agents/intent/manager/intent.manager.types';
 import { ProfileService } from '../services/profile.service';
 import { userProfiles } from '../lib/schema';
 import { log } from '../lib/log';
+import { ImplicitInferrer } from '../agents/intent/inferrer/implicit/implicit.inferrer';
+import { IntentService } from '../services/intent.service';
+import { getUserAccessibleIndexIds } from '../lib/index-access';
+import { stakeService } from '../services/stake.service';
 
 // Helper to construct profile text for embedding
 function constructProfileText(profile: typeof userProfiles.$inferSelect): string {
@@ -25,7 +29,7 @@ function constructProfileText(profile: typeof userProfiles.$inferSelect): string
 
 export async function runOpportunityFinderCycle(
   injectedProfileService?: ProfileService,
-  injectedFinder?: OpportunityFinder
+  injectedFinder?: OpportunityEvaluator
 ) {
   console.time('OpportunityFinderCycle');
   log.info('🔄 [OpportunityJob] Starting Opportunity Finder Cycle...');
@@ -61,7 +65,7 @@ export async function runOpportunityFinderCycle(
 
     // 2. Run Opportunity Finder for All Users
     log.info('🚀 [OpportunityJob] Running Opportunity Matchmaking...');
-    const finder = injectedFinder || new OpportunityFinder();
+    const evaluator = injectedFinder || new OpportunityEvaluator();
     const allCycleResults: any[] = [];
 
     // Fetch all valid profiles to act as sources
@@ -124,7 +128,7 @@ export async function runOpportunityFinderCycle(
       }));
 
       // Run Agent
-      const opportunities = await finder.findOpportunities(memoryProfile, candidates, {
+      const opportunities = await evaluator.evaluateOpportunities(memoryProfile, candidates, {
         hydeDescription: sourceProfile.hydeDescription || undefined
       });
 
@@ -140,6 +144,83 @@ export async function runOpportunityFinderCycle(
           opportunityCount: opportunities.length,
           opportunities: opportunities
         });
+
+        // --- NEW: Implicit Intent & Stake Creation ---
+        // For each high value opportunity, infer implicit intents and create a stake
+        for (const op of opportunities) {
+          if (op.score < 85) continue; // Only for very strong matches
+
+          // We need the candidate's memory profile to infer THEIR intent
+          const candidateProfile = candidatesRaw.find(c => c.profile.userId === op.candidateId)?.profile;
+          if (!candidateProfile) continue;
+
+          try {
+            const inferrer = new ImplicitInferrer();
+
+            // 1. Infer Source Intent
+            log.info(`   [OpportunityJob] Inferring implicit source intent for ${memoryProfile.userId}...`);
+            const sourceIntent = await inferrer.run(memoryProfile, `Opportunity: ${op.title}. Reason: ${op.description}`);
+
+            // 2. Infer Candidate Intent
+            // Construct pseudo memory profile for candidate from DB data
+            const candidateMemoryProfile: UserMemoryProfile = {
+              userId: candidateProfile.userId,
+              identity: candidateProfile.identity as any,
+              narrative: candidateProfile.narrative as any,
+              attributes: candidateProfile.attributes as any
+            };
+
+            log.info(`   [OpportunityJob] Inferring implicit candidate intent for ${candidateProfile.userId}...`);
+            const candidateIntent = await inferrer.run(candidateMemoryProfile, `Matched with ${memoryProfile.identity.name}. Opportunity: ${op.title}. Reason: ${op.description}`);
+
+            if (sourceIntent && candidateIntent) {
+              log.info(`   [OpportunityJob] Creating implicit stake between ${sourceProfile.userId} and ${candidateProfile.userId}`);
+
+              // 3a. Get Index IDs for Source User (to make intent discoverable)
+              const sourceIndexIds = await getUserAccessibleIndexIds(sourceProfile.userId);
+
+              // 3b. Create Source Intent
+              const sourceIntentObj = await IntentService.createIntent({
+                userId: sourceProfile.userId,
+                payload: sourceIntent.payload,
+                indexIds: sourceIndexIds, // Assign to user's indexes
+                sourceType: 'enrichment', // Implicit intent
+                confidence: 1.0,
+                inferenceType: 'implicit'
+              });
+              const sourceIntentId = sourceIntentObj.id;
+              log.info(`   [OpportunityJob] Created implicit source intent: ${sourceIntentId}`);
+
+              // 3c. Get Index IDs for Candidate User
+              const candidateIndexIds = await getUserAccessibleIndexIds(candidateProfile.userId);
+
+              // 3d. Create Candidate Intent
+              const candidateIntentObj = await IntentService.createIntent({
+                userId: candidateProfile.userId,
+                payload: candidateIntent.payload,
+                indexIds: candidateIndexIds, // Assign to user's indexes
+                sourceType: 'enrichment',
+                confidence: 1.0,
+                inferenceType: 'implicit'
+              });
+              const candidateIntentId = candidateIntentObj.id;
+              log.info(`   [OpportunityJob] Created implicit candidate intent: ${candidateIntentId}`);
+
+              // 4. Create Stake
+              await stakeService.saveMatch(
+                sourceIntentId,
+                candidateIntentId,
+                op.score,
+                op.description,
+                '028ef80e-9b1c-434b-9296-bb6130509482' // OpportunityFinder Agent ID
+              );
+            }
+
+          } catch (err) {
+            log.error(`   [OpportunityJob] Failed to process implicit stake for ${sourceProfile.userId}`, { error: err });
+          }
+        }
+        // ---------------------------------------------
 
       } else {
         log.info(`   [OpportunityJob] No high-value opportunities found.`);

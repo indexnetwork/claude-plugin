@@ -61,6 +61,9 @@ export class ProfileService {
       // Trigger background intent generation if bio (intro) changed
       if (intro !== undefined) {
         this.triggerBackgroundIntentGeneration(userId, intro, updatedUser.name);
+      } else if (name !== undefined || location !== undefined) {
+        // If only name/location changed, we still might want to update HyDE if profile exists
+        // For now, let's keep it tied to Intro/Intent generation flow or explicit profile generation to avoid churn
       }
     }
 
@@ -242,6 +245,37 @@ export class ProfileService {
     })();
   }
 
+
+  /**
+   * Helper to trigger HyDE generation in the background
+   */
+  private async triggerBackgroundHydeGeneration(userId: string, profile: UserMemoryProfile) {
+    (async () => {
+      try {
+        log.info('[ProfileService] Generating HyDE description and embedding...');
+        const hydeGenerator = new HydeGeneratorAgent();
+        const hydeDescription = await hydeGenerator.generate(profile);
+
+        if (hydeDescription) {
+          log.info(`[ProfileService] HyDE Description Length: ${hydeDescription.length} chars. Preview: "${hydeDescription.substring(0, 100)}..."`);
+          const hydeEmbedding = await generateEmbedding(hydeDescription);
+
+          await db.update(userProfiles)
+            .set({
+              hydeDescription,
+              hydeEmbedding,
+              updatedAt: new Date()
+            })
+            .where(eq(userProfiles.userId, userId));
+
+          log.info('[ProfileService] ✅ HyDE profile updated.');
+        }
+      } catch (error) {
+        log.error('[ProfileService] Failed to generate HyDE profile', { error });
+      }
+    })();
+  }
+
   async generateProfile(user: User, callbacks: GenerateProfileCallbacks) {
     try {
       const socials = (user.socials || {}) as { x?: string; linkedin?: string; github?: string; websites?: string[] };
@@ -296,6 +330,25 @@ export class ProfileService {
         location: result.profile.identity.location || '',
         intents: []
       });
+
+
+      // Trigger HyDE generation immediately
+      const memoryProfile: UserMemoryProfile = {
+        userId: user.id,
+        identity: {
+          name: fixedIdentity.name || '',
+          bio: fixedIdentity.bio || '',
+          location: fixedIdentity.location || ''
+        },
+        narrative: result.profile.narrative,
+        attributes: {
+          ...result.profile.attributes,
+          goals: []
+        }
+      };
+
+      this.triggerBackgroundHydeGeneration(user.id, memoryProfile);
+
 
     } catch (error) {
       callbacks.onError('Failed to generate summary');

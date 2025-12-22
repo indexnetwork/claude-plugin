@@ -1,9 +1,9 @@
-import { createAgent, BaseLangChainAgent } from "../../../lib/langchain/langchain";
-import { UserMemoryProfile } from "../manager/intent.manager.types";
+import { createAgent, BaseLangChainAgent } from "../../../../lib/langchain/langchain";
+import { UserMemoryProfile } from "../../manager/intent.manager.types";
 import { IntentDetector, IntentDetectorResponse } from "./explicit.inferrer.types";
-import { json2md } from "../../../lib/json2md/json2md";
+import { json2md } from "../../../../lib/json2md/json2md";
 import { z } from "zod";
-import { log } from "../../../lib/log";
+import { log } from "../../../../lib/log";
 
 /**
  * Model Configuration

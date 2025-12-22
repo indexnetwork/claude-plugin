@@ -1,4 +1,4 @@
-import { UserMemoryProfile } from '../manager/intent.manager.types';
+import { UserMemoryProfile } from '../../manager/intent.manager.types';
 
 export interface InferredIntent {
   type: 'goal' | 'tombstone';
