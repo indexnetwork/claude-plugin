@@ -1,13 +1,13 @@
 import db from '../lib/db';
 import { userProfiles, intents, userNotificationSettings, UserSocials, NotificationPreferences, User } from '../lib/schema';
 import { eq, and, isNull, sql, ne } from 'drizzle-orm';
-import { ProfileGenerator } from '../agents/profile/generator/profile.generator';
+import { ProfileGenerator } from '../agents/profile/profile.generator';
 import { searchUser } from '../lib/parallel/parallel';
 import { json2md } from '../lib/json2md/json2md';
 import { UserMemoryProfile, ActiveIntent } from '../agents/intent/manager/intent.manager.types';
 import { IntentManager } from '../agents/intent/manager/intent.manager';
 import { checkAndTriggerSocialSync } from '../lib/integrations/social-sync';
-import { HydeGeneratorAgent } from '../agents/profile/generator/hyde/hyde.generator';
+import { HydeGeneratorAgent } from '../agents/profile/hyde/hyde.generator';
 import { generateEmbedding } from '../lib/embeddings';
 
 export interface UpdateProfileDto {

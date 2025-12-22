@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { BaseLangChainAgent } from '../../../lib/langchain/langchain';
+import { BaseLangChainAgent } from '../../lib/langchain/langchain';
 import { SystemMessage, HumanMessage } from '@langchain/core/messages';
 import { ProfileGeneratorOutput } from './profile.generator.types';
 

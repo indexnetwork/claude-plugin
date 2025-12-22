@@ -4,7 +4,7 @@ import db from '../lib/db';
 import { intents, users, indexes, intentIndexes, intentStakes, agents, files, indexLinks, userIntegrations } from '../lib/schema';
 import { authenticatePrivy, AuthRequest } from '../middleware/auth';
 import { eq, isNull, isNotNull, and, count, desc, or, ilike, sql, inArray } from 'drizzle-orm';
-import { Events } from '../lib/events';
+import { Events } from '../events';
 import { summarizeIntent } from '../agents/core/intent_summarizer';
 import { checkMultipleIndexesMembership } from '../lib/index-access';
 import { validateAndGetAccessibleIndexIds } from '../lib/index-access';
@@ -17,7 +17,7 @@ import { Intent, CreateIntentRequest, UpdateIntentRequest } from '../types';
 const router = Router();
 
 // Get all intents with pagination
-router.post('/list', 
+router.post('/list',
   authenticatePrivy,
   [
     body('page').optional().isInt({ min: 1 }).toInt(),
@@ -41,9 +41,9 @@ router.post('/list',
       // Use generic validation function
       const { validIndexIds, error } = await validateAndGetAccessibleIndexIds(req.user!.id, indexIds);
       if (error) {
-        return res.status(error.status).json({ 
+        return res.status(error.status).json({
           error: error.message,
-          invalidIds: error.invalidIds 
+          invalidIds: error.invalidIds
         });
       }
 
@@ -60,11 +60,11 @@ router.post('/list',
         showArchived ? isNotNull(intents.archivedAt) : isNull(intents.archivedAt),
         eq(intents.userId, req.user!.id)
       ];
-      
+
       if (sourceType) {
         baseConditions.push(eq(intents.sourceType, sourceType));
       }
-      
+
       const baseCondition = and(...baseConditions);
 
       const selectFields = {
@@ -89,7 +89,7 @@ router.post('/list',
           .orderBy(desc(intents.createdAt))
           .offset(skip)
           .limit(limit),
-        
+
         db.select({ count: count() }).from(intents)
           .innerJoin(users, eq(intents.userId, users.id))
           .innerJoin(intentIndexes, eq(intents.id, intentIndexes.intentId))
@@ -316,11 +316,11 @@ router.post('/',
       // Verify index IDs exist and user has intent write access to them
       if (indexIds.length > 0) {
         const accessCheck = await checkMultipleIndexesMembership(indexIds, req.user!.id);
-        
+
         if (!accessCheck.hasAccess) {
-          return res.status(400).json({ 
+          return res.status(400).json({
             error: accessCheck.error,
-            invalidIds: accessCheck.invalidIds 
+            invalidIds: accessCheck.invalidIds
           });
         }
       }
@@ -382,11 +382,11 @@ router.put('/:id',
       // Verify index IDs exist and user has intent write access to them if indexIds is provided
       if (indexIds !== undefined && indexIds.length > 0) {
         const accessCheck = await checkMultipleIndexesMembership(indexIds, req.user!.id);
-        
+
         if (!accessCheck.hasAccess) {
-          return res.status(400).json({ 
+          return res.status(400).json({
             error: accessCheck.error,
-            invalidIds: accessCheck.invalidIds 
+            invalidIds: accessCheck.invalidIds
           });
         }
       }
@@ -398,7 +398,7 @@ router.put('/:id',
         if (newSummary) {
           updateData.summary = newSummary;
         }
-        
+
         // Regenerate embedding when payload changes
         try {
           const embedding = await generateEmbedding(payload);
@@ -486,7 +486,7 @@ router.patch('/:id/archive',
       }
 
       await db.update(intents)
-        .set({ 
+        .set({
           archivedAt: new Date(),
           updatedAt: new Date()
         })
@@ -534,7 +534,7 @@ router.patch('/:id/unarchive',
       }
 
       await db.update(intents)
-        .set({ 
+        .set({
           archivedAt: null,
           updatedAt: new Date()
         })
@@ -571,7 +571,7 @@ router.post('/suggest-tags',
         // Generate embedding for the prompt to find similar intents
         try {
           const promptEmbedding = await generateEmbedding(prompt);
-          
+
           // Find intents similar to the prompt using vector similarity search
           const allSimilarIntents = await db
             .select({
@@ -600,9 +600,9 @@ router.post('/suggest-tags',
               .where(eq(intentIndexes.indexId, indexId));
 
             const existingIds = new Set(existingIntentIds.map(row => row.intentId));
-            
+
             // Filter out intents that already exist in the index
-            similarIntents = allSimilarIntents.filter(intent => 
+            similarIntents = allSimilarIntents.filter(intent =>
               !existingIds.has(intent.id) && intent.similarity > 0.3 // Minimum similarity threshold
             );
           } else {
@@ -645,7 +645,7 @@ router.post('/suggest-tags',
             .where(eq(intentIndexes.indexId, indexId));
 
           const existingIds = new Set(existingIntentIds.map(row => row.intentId));
-          
+
           const allRecentIntents = await fallbackQuery;
           similarIntents = allRecentIntents.filter(intent => !existingIds.has(intent.id));
         } else {
@@ -654,9 +654,9 @@ router.post('/suggest-tags',
       }
 
       if (similarIntents.length === 0) {
-        return res.json({ 
+        return res.json({
           suggestions: [],
-          message: indexId ? 
+          message: indexId ?
             "No intents found outside the specified index to generate tag suggestions" :
             "No intents found to generate tag suggestions"
         });
@@ -674,14 +674,14 @@ router.post('/suggest-tags',
           maxSuggestions,
           minRelevanceScore: 0.3,
           timeout: 30000
-        }  
+        }
       );
 
       if (!result.success) {
         console.error('Failed to generate tag suggestions:', result.error);
-        return res.status(500).json({ 
+        return res.status(500).json({
           error: 'Failed to generate tag suggestions',
-          details: result.error 
+          details: result.error
         });
       }
 

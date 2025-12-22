@@ -1,8 +1,8 @@
 import { SystemMessage, HumanMessage } from '@langchain/core/messages';
-import { UserMemoryProfile } from '../../../intent/manager/intent.manager.types';
+import { UserMemoryProfile } from '../../intent/manager/intent.manager.types';
 import { z } from 'zod';
-import { json2md } from '../../../../lib/json2md/json2md';
-import { BaseLangChainAgent } from '../../../../lib/langchain/langchain';
+import { json2md } from '../../../lib/json2md/json2md';
+import { BaseLangChainAgent } from '../../../lib/langchain/langchain';
 
 // System prompt for HyDE Generation
 const HYDE_GENERATION_PROMPT = `

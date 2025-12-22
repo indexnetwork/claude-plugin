@@ -2,8 +2,8 @@ import * as dotenv from 'dotenv';
 import path from 'path';
 import { ProfileGenerator } from './profile.generator';
 import { ProfileGeneratorOutput } from './profile.generator.types';
-import { searchUser } from '../../../lib/parallel/parallel';
-import { json2md } from '../../../lib/json2md/json2md';
+import { searchUser } from '../../lib/parallel/parallel';
+import { json2md } from '../../lib/json2md/json2md';
 
 // Load env
 const envPath = path.resolve(__dirname, '../../../../.env.development');

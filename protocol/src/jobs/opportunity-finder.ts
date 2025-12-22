@@ -2,7 +2,7 @@ import cron from 'node-cron';
 import fs from 'fs/promises';
 import path from 'path';
 import { generateEmbedding } from '../lib/embeddings';
-import { HydeGeneratorAgent } from '../agents/profile/generator/hyde/hyde.generator';
+import { HydeGeneratorAgent } from '../agents/profile/hyde/hyde.generator';
 import { OpportunityFinder } from '../agents/profile/opportunity/opportunity.finder';
 import { CandidateProfile } from '../agents/profile/opportunity/opportunity.finder.types';
 import { UserMemoryProfile } from '../agents/intent/manager/intent.manager.types';

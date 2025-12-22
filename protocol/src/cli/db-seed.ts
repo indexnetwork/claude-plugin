@@ -14,7 +14,7 @@ import db, { closeDb } from '../lib/db';
 import { indexMembers, indexes, users, userProfiles } from '../lib/schema';
 import { privyClient } from '../lib/privy';
 import { setLevel } from '../lib/log';
-import { ProfileGenerator } from '../agents/profile/generator/profile.generator';
+import { ProfileGenerator } from '../agents/profile/profile.generator';
 import { searchUser } from '../lib/parallel/parallel';
 import { json2md } from '../lib/json2md/json2md';
 

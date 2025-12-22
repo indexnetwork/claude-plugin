@@ -1,7 +1,7 @@
 import * as dotenv from 'dotenv';
 import path from 'path';
 import { HydeGeneratorAgent } from './hyde.generator';
-import { UserMemoryProfile } from '../../../intent/manager/intent.manager.types';
+import { UserMemoryProfile } from '../../intent/manager/intent.manager.types';
 
 // Load env
 const envPath = path.resolve(__dirname, '../../../../../.env.development');

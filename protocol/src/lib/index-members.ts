@@ -1,7 +1,7 @@
 import db from './db';
 import { indexMembers, indexes } from './schema';
 import { eq, and } from 'drizzle-orm';
-import { Events } from './events';
+import { Events } from '../events';
 import { log } from './log';
 
 export interface AddMemberOptions {
@@ -83,10 +83,10 @@ export async function addMemberToIndex(options: AddMemberOptions): Promise<AddMe
       promptChanged: false,
       autoAssignChanged: true // Always true for new members with autoAssign=true
     }).catch(err => {
-      log.error('Failed to trigger member indexing', { 
-        userId, 
-        indexId, 
-        error: err instanceof Error ? err.message : String(err) 
+      log.error('Failed to trigger member indexing', {
+        userId,
+        indexId,
+        error: err instanceof Error ? err.message : String(err)
       });
     });
 

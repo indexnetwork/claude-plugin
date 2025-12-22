@@ -1,13 +1,13 @@
-import { BaseLangChainAgent } from '../../../lib/langchain/langchain';
+import { BaseLangChainAgent } from '../../lib/langchain/langchain';
 import { SystemMessage, HumanMessage } from '@langchain/core/messages';
-import { UserMemoryProfile } from '../../intent/manager/intent.manager.types';
+import { UserMemoryProfile } from '../intent/manager/intent.manager.types';
 import {
     Opportunity,
     OpportunityFinderOptions,
     CandidateProfile
 } from './opportunity.finder.types';
 import { z } from 'zod';
-import { json2md } from '../../../lib/json2md/json2md';
+import { json2md } from '../../lib/json2md/json2md';
 
 // --- SCHEMAS ---
 const OpportunitySchema = z.object({
