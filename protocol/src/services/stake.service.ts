@@ -5,10 +5,32 @@ import { generateEmbedding } from '../lib/embeddings';
 import { StakeEvaluator } from '../agents/intent/stake/stake.evaluator';
 import { log } from '../lib/log';
 
+/**
+ * StakeService
+ * 
+ * CORE SERVICE: "The Matchmaker".
+ * 
+ * RESPONSIBILITIES:
+ * 1. Discovering Candidates: Finding compatible intents using Vector Search & Shared Indexes.
+ * 2. Evaluating Matches: Using LLM (`StakeEvaluator`) to determine if a connection offers Mutual Value.
+ * 3. Creating Stakes: Storing the "Proof of Match" (Reasoning + Score) in the DB.
+ * 
+ * TERMINOLOGY:
+ * - "Stake": A claim that two intents are related. It acts as an edge in the intent graph.
+ *   (e.g., "Intent A stakes Intent B with 85% confidence")
+ */
 export class StakeService {
 
   /**
-   * Orchestrate the process of finding and creating stakes for an intent
+   * Main Pipeline: Matches a single Intent against the world.
+   * 
+   * STEPS:
+   * 1. Retrieve the Source Intent.
+   * 2. Find Candidates via Vector Search (Filtered by Privacy Scope / Index).
+   * 3. LLM Eval: Batch evaluate candidates using `StakeEvaluator`.
+   * 4. Persist: Save high-quality matches as "Stakes".
+   * 
+   * @param intentId - The intent looking for matches.
    */
   async processIntent(intentId: string) {
     log.info(`[StakeService] Processing intent ${intentId}`);
@@ -54,8 +76,15 @@ export class StakeService {
   }
 
   /**
-   * Find semantically related intents using vector similarity search
-   * Enforces privacy by checking shared indexes
+   * Vector Search Logic.
+   * Finds semantically similar intents within the "Privacy Scope" of the user.
+   * 
+   * PRIVACY RULE:
+   * You can only match with intents that share at least one "Index" (Community) with you.
+   * This prevents global leaking of private intents.
+   * 
+   * @param currentIntent - The source intent.
+   * @param limit - Max results.
    */
   async findSimilarIntents(currentIntent: typeof intents.$inferSelect, limit: number = 50) {
     // 1. Get the specific indexes that THIS intent is assigned to

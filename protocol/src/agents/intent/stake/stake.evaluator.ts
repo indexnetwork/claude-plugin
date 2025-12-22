@@ -38,6 +38,20 @@ export const StakeEvaluatorSchema = z.object({
   matches: z.array(MatchedStakeSchema).describe("List of evaluated matches")
 });
 
+/**
+ * StakeEvaluator Agent
+ * 
+ * Analyzes two intents to determine if there is a "Mutual Stake" (Value-added connection).
+ * 
+ * CORE CRITERIA (Mutuality):
+ * The connection must benefit BOTH parties.
+ * - Good: "I want to hire design" <-> "I offer design" (Mutually beneficial)
+ * - Bad: "I want to learn Rust" <-> "I am a Rust expert looking for funding" (One-sided, unless learner offers money)
+ * 
+ * ROLE IN SYSTEM:
+ * - Used by `StakeService` to filter raw vector search candidates.
+ * - Ensures we don't spam users with irrelevant connections just because embeddings were similar.
+ */
 export class StakeEvaluator extends BaseLangChainAgent {
   constructor(options: Partial<Parameters<typeof createAgent>[0]> = {}) {
     super({
@@ -49,7 +63,18 @@ export class StakeEvaluator extends BaseLangChainAgent {
   }
 
   /**
-   * Run the matcher for a specific intent against a list of candidates
+   * Batch Evaluation Logic
+   * 
+   * Compares one "Primary" intent against a list of "Candidate" intents.
+   * 
+   * WORKFLOW:
+   * 1. Constructs a single prompt containing Primary and ALL Candidates.
+   * 2. Asks LLM to evaluate IsMutual + Confidence + Reasoning for EACH.
+   * 3. Filters results: Only returns matches with `isMutual=true` and `confidence >= 70`.
+   * 
+   * @param primaryIntent - The intent to find matches FOR.
+   * @param candidates - List of potential matches (usually from vector search).
+   * @returns Promise resolving to a list of High-Confidence Mutual Matches.
    */
   async run(
     primaryIntent: { id: string; payload: string },

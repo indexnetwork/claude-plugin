@@ -30,6 +30,20 @@ export interface CreatedIntent {
   userId: string;
 }
 
+/**
+ * IntentService
+ * 
+ * CORE SERVICE: Coordinates the creation, processing, and management of User Intents.
+ * 
+ * MAIN RESPONSIBILITIES:
+ * 1. Intent Creation: Handles raw input -> Database Record (including Summarization & Embedding).
+ * 2. Index Association: Assigns intents to "Indexes" (Communities) based on relevance rules.
+ * 3. Event Triggering: Fires `onIntentCreated` to notify downstream agents (brokers).
+ * 
+ * CRITICAL FLOWS:
+ * - `createIntent`: The main entry point for all new intents (Explicit or Implicit).
+ * - `processIntentForIndex`: The evaluation logic (run by Queues) to decide if an intent belongs in a community.
+ */
 export class IntentService {
   /**
    * Get existing intents for a user as a Set of payloads
@@ -62,7 +76,19 @@ export class IntentService {
   }
 
   /**
-   * Main intent creation method that handles all intent creation scenarios
+   * Universal Intent Creation Method.
+   * 
+   * ORCHESTRATION PIPELINE:
+   * 1. Summarize: Generates a short summary of the payload using `IntentSummarizer`.
+   * 2. Embed: Generates vector embeddings for semantic search.
+   * 3. Persist: Saves to `intents` table.
+   * 4. Index: Associations intent with specified Index IDs (if any).
+   * 5. Stake: Creates an initial "Inference Stake" (confidence score) to track provenance.
+   * 6. Event: Emits `Intent.onCreated` to trigger side effects (Context Brokers).
+   * 
+   * @param options - Configuration object (payload, userId, confidence, etc.).
+   * @returns Promise resolving to the created `CreatedIntent` object.
+   * @throws Error if DB insertion fails.
    */
   static async createIntent(options: CreateIntentOptions): Promise<CreatedIntent> {
     try {
@@ -208,7 +234,18 @@ export class IntentService {
   }
 
   /**
-   * Process a specific intent for a specific index (used by queue processor)
+   * Index Assignment Logic (Queue Consumer).
+   * 
+   * Evaluates if a specific intent is "Appropriate" (Relevant & Safe) for a specific Index.
+   * 
+   * ALGORITHM:
+   * 1. Fetches Intent and Index/Member Prompts.
+   * 2. Calls `evaluateIntentAppropriateness` (LLM Agent).
+   * 3. If Score > 0.7: Adds to Index.
+   * 4. If Score <= 0.7 but currently assigned: Removes from Index.
+   * 
+   * @param intentId - The intent to evaluate.
+   * @param indexId - The target community.
    */
   static async processIntentForIndex(intentId: string, indexId: string): Promise<void> {
     try {

@@ -47,6 +47,21 @@ export const ExplicitInferrerOutputSchema = z.object({
 
 export type ExplicitInferrerOutput = z.infer<typeof ExplicitInferrerOutputSchema>;
 
+/**
+ * ExplicitIntentDetector Agent
+ * 
+ * Specialized agent for EXTRACTING intents directly from user input.
+ * 
+ * PURPOSE:
+ * To parse unstructured user statements (messages, notes) into structured Intent Candidates.
+ * It primarily looks for:
+ * 1. "Goals" (I want to X)
+ * 2. "Tombstones" (I am done with Y)
+ * 
+ * NOTE: 
+ * This agent does NOT decide if an intent is "New" or a "Duplicate". 
+ * It purely extracts what it sees. The `IntentManager` handles the state logic.
+ */
 export class ExplicitIntentDetector extends BaseLangChainAgent {
   constructor() {
     super({
@@ -57,11 +72,12 @@ export class ExplicitIntentDetector extends BaseLangChainAgent {
   }
 
   /**
-   * Evaluates new content against the user's profile to infer intents.
-   *
-   * @param content - The new user input or context string.
-   * @param profile - The user's long-term memory profile.
-   * @returns A Promise resolving to an object containing a list of inferred intents.
+  /**
+   * Run the extraction process.
+   * 
+   * @param content - The raw string content to analyze.
+   * @param profile - Use context (not currently deeply used, but available for reference grounding).
+   * @returns A Promise resolving to a list of `InferredIntent` objects.
    */
   async run(content: string | null, profile: UserMemoryProfile): Promise<IntentDetectorResponse> {
     const prompt = `

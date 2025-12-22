@@ -55,6 +55,22 @@ const IntentManagerOutputSchema = z.object({
   actions: z.array(IntentActionSchema).describe("List of actions to apply")
 });
 
+/**
+ * IntentManager Agent
+ * 
+ * Orchestrates the lifecycle of user intents by reconciling newly inferred "Explicit" or "Implicit" 
+ * intents with the user's currently Active Intents.
+ * 
+ * CORE RESPONSIBILITY:
+ * - Synthesis: Takes raw inferred intents (from ExplicitIntentDetector) and decides how they modify the Active Intent state.
+ * - Deduplication: Determines if a "New" intent is actually just a rephrasing of an "Active" one.
+ * - Refresh: Updates descriptions of active intents if new data provides better clarity.
+ * - Expiration: Detects "Tombstones" (statements of completion/abandonment) and marks active intents as expired.
+ * 
+ * ARCHITECTURE:
+ * - Uses `ExplicitIntentDetector` as a sub-agent to extract candidates from raw text.
+ * - Uses GPT-4 (via BaseLangChainAgent) for the complex reasoning required to reconcile semantic duplicates.
+ */
 export class IntentManager extends BaseLangChainAgent {
   private explicitDetector: ExplicitIntentDetector;
 
@@ -68,12 +84,17 @@ export class IntentManager extends BaseLangChainAgent {
   }
 
   /**
-   * Orchestrates the intent detection process.
+   * Main Entry Point: Orchestrates the intent detection and reconciliation process.
    * 
-   * @param content - The new text content from the user (e.g. a message or command).
-   * @param profile - The user's long-term memory profile.
-   * @param activeIntents - The list of currently active intents.
-   * @returns A promise resolving to the detected actions (create, update, expire) or generic response.
+   * LOGIC FLOW:
+   * 1. Extraction: Calls `ExplicitIntentDetector` to extract candidate intents from the raw content.
+   * 2. Filtering: If no candidates are found, returns early.
+   * 3. Reconciliation: Calls `reconcileIntentsWithLLM` to compare candidates against the user's `activeIntents`.
+   * 
+   * @param content - The new text input from the user (e.g., a message, note, or command).
+   * @param profile - The user's long-term memory profile (used by ExplicitDetector for context).
+   * @param activeIntents - The list of intents currently Active for this user.
+   * @returns A Promise resolving to a list of `IntentAction` (Create, Update, Expire) to be applied to the DB.
    */
   async processIntent(
     content: string | null,
@@ -94,6 +115,21 @@ export class IntentManager extends BaseLangChainAgent {
     return this.reconcileIntentsWithLLM(inferredIntents, activeIntents);
   }
 
+  /**
+   * LLM Reconciliation Step
+   * 
+   * Compares "Inferred" candidates against "Active" intents to decide on actions.
+   * This is the "Brain" of the IntentManager.
+   * 
+   * DECISION RULES (Enforced by System Prompt):
+   * - CREATE: Candidate does not match any Active Intent.
+   * - UPDATE: Candidate matches an Active Intent but offers a better description.
+   * - EXPIRE: Candidate is a "Tombstone" (completion marker) for an Active Intent.
+   * - IGNORE: Candidate is a semantic duplicate of an Active Intent with no new info.
+   * 
+   * @param inferred - List of intents extracted from recent content.
+   * @param active - List of currently active intents.
+   */
   private async reconcileIntentsWithLLM(inferred: InferredIntent[], active: ActiveIntent[]): Promise<IntentManagerResponse> {
     const prompt = `
       # Active Intents

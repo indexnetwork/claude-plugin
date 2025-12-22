@@ -15,6 +15,16 @@ export interface SynthesisOptions {
   vibeOptions?: any; // To keep compatibility, but StakeGenerator takes mostly structured input
 }
 
+/**
+ * SynthesisService
+ * 
+ * Manages the generation of "Synthesized Narratives" (Vibe Checks) and "Intros".
+ * 
+ * CORE FEATURES:
+ * - Vibe Check: "Why do these two people match?" (Uses `StakeGenerator`).
+ * - Email Intro: "Here is an email copy to introduce them" (Uses `IntroMaker`).
+ * - Caching: Heavily caches results in Redis (`synthesis` hash) to avoid re-generating expensive LLM text.
+ */
 export class SynthesisService {
   private static stakeGenerator = new StakeGenerator();
 
@@ -26,8 +36,20 @@ export class SynthesisService {
   }
 
   /**
-   * Generates a synthesis (vibe check) for two users based on their intents.
-   * Can be used for "Check Vibes" or Newsletter matches.
+   * Generates a "Vibe Check" (Synthesis) for a pair of users.
+   * 
+   * LOGIC:
+   * 1. Check Cache (Redis).
+   * 2. If Miss: 
+   *    - Fetch Users.
+   *    - Find Connecting Stakes (Why are they related?).
+   *    - Flatten Stakes into "Intent Pairs".
+   *    - Call `StakeGenerator` agent.
+   * 3. Cache Result & Return.
+   * 
+   * @param contextUserId - Validates the requestor's permission/perspective.
+   * @param targetUserId - The person being looked at.
+   * @param opts - Config options.
    */
   static async generateSynthesis(
     contextUserId: string,

@@ -34,6 +34,17 @@ export interface WeeklyCycleJobData {
 
 export type NewsletterJob = Job<NewsletterJobData | WeeklyCycleJobData>;
 
+/**
+ * Weekly Newsletter Processing Queue.
+ * 
+ * RESPONSIBILITIES:
+ * 1. `start_weekly_cycle`: Triggered by CRON. Identifies users who need an email.
+ * 2. `process_newsletter`: Generates and sends the actual email for a specific user.
+ * 
+ * CORE LOGIC:
+ * - Timezone Aware: Sends emails at 9 AM in the user's local time.
+ * - Vibe Checks: Generates dynamic "Why we matched you" text for every candidate.
+ */
 export const newsletterQueue = QueueFactory.createQueue<NewsletterJobData | WeeklyCycleJobData>(NEWSLETTER_QUEUE_NAME);
 
 // Processor Helpers
@@ -87,6 +98,16 @@ async function newsletterProcessor(job: Job) {
     }
 }
 
+/**
+ * Job: `start_weekly_cycle`
+ * 
+ * The "Orchestrator" job. Runs once (e.g., Monday morning UTC) but dispatches per-user jobs
+ * based on their specific Timezone and Schedule preferences.
+ * 
+ * OPTIMIZATIONS:
+ * - Only queries users active in the last 7 days (via Stakes).
+ * - Filters by `userNotificationSettings`.
+ */
 async function processWeeklyCycle(job: Job<WeeklyCycleJobData>) {
     const { force, daysSince = 7 } = job.data;
     const now = new Date();
@@ -226,6 +247,17 @@ async function processWeeklyCycle(job: Job<WeeklyCycleJobData>) {
     }
 }
 
+/**
+ * Job: `process_newsletter`
+ * 
+ * Generates and sends a single email to a specific user.
+ * 
+ * LOGIC:
+ * 1. Validates user preferences and unsubscribe status.
+ * 2. Runs "Vibe Checks" (`SynthesisService.generateSynthesis`) for all candidates.
+ * 3. Compiles the email using `weeklyNewsletterTemplate`.
+ * 4. Sends via Email Provider (Resend/SES).
+ */
 async function processNewsletterJob(job: Job<NewsletterJobData>) {
     const { recipientId, candidates, force } = job.data;
     console.log(`[NewsletterWorker] Processing email job ${job.id} for recipient ${recipientId} with ${candidates.length} candidates`);

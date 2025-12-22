@@ -24,6 +24,13 @@ export interface GenerateIntentsJobData {
   createdAt?: number | Date;
 }
 
+/**
+ * Intent Processing Queue.
+ * 
+ * RESPONSIBILITIES:
+ * 1. `index_intent`: Evaluates if a new intent should be added to specific Indexes (Communities).
+ * 2. `generate_intents`: Background job to analyze raw content (files/links) and extract structured intents.
+ */
 export const intentQueue = QueueFactory.createQueue(QUEUE_NAME);
 
 // Processor Function
@@ -42,11 +49,28 @@ async function intentProcessor(job: Job) {
   }
 }
 
+/**
+ * Job: `index_intent`
+ * 
+ * Evaluates appropriateness of an intent for a specific index.
+ * Relies on `IntentService.processIntentForIndex` which uses LLM evaluation.
+ */
 async function indexIntent(data: IndexIntentJobData): Promise<void> {
   const { intentId, indexId } = data;
   await IntentService.processIntentForIndex(intentId, indexId);
 }
 
+/**
+ * Job: `generate_intents`
+ * 
+ * Asynchronous pipeline for extracting intents from large/complex sources.
+ * 
+ * FLOW:
+ * 1. Takes Source (File, Link, or Raw Objects).
+ * 2. Calls `analyzeContent` (LLM Agent).
+ * 3. Deduplicates against existing user intents.
+ * 4. Persists new intents to DB.
+ */
 async function generateIntents(data: GenerateIntentsJobData): Promise<void> {
   // Get existing intents
   const existingIntents = await IntentService.getUserIntents(data.userId);

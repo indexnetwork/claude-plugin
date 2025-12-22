@@ -25,9 +25,31 @@ const DEFAULT_JOB_OPTS: JobsOptions = {
   },
 };
 
+/**
+ * QueueFactory
+ * 
+ * Central factory for creating standardized BullMQ components (Queues, Workers, Events).
+ * 
+ * PURPOSE:
+ * - Enforces consistent Redis connection configuration (reusing the same connection settings).
+ * - Applies standard default job options (retries, backoff, cleanup).
+ * - Centralizes logging for queue initialization.
+ * 
+ * STANDARD DEFAULTS:
+ * - Retries: 3 attempts with exponential backoff (1s delay).
+ * - Cleanup: Removes completed jobs after 24h, failed after 7d.
+ * - Concurrency: Default worker concurrency is 1 (sequential).
+ */
 export class QueueFactory {
   /**
-   * Create a new Queue with standard configuration
+   * Create a new Queue with standard configuration.
+   * 
+   * A "Queue" is the Producer side: used to add jobs.
+   * 
+   * @template T - The type of data payload for jobs in this queue.
+   * @param name - Unique name of the queue (namespace).
+   * @param options - Queue settings (overrides defaults).
+   * @returns Configured BullMQ Queue instance.
    */
   static createQueue<T = any>(name: string, options?: QueueOptions): Queue<T> {
     log.info(`[QueueFactory] Initializing Queue: ${name}`);
@@ -39,7 +61,15 @@ export class QueueFactory {
   }
 
   /**
-   * Create a new Worker for processing jobs
+   * Create a new Worker for processing jobs.
+   * 
+   * A "Worker" is the Consumer side: defines the process function.
+   * 
+   * @template T - The type of data payload for jobs in this queue.
+   * @param name - Must match the Queue name.
+   * @param processor - The async function that handles the job.
+   * @param options - Worker settings (concurrency, etc).
+   * @returns Configured BullMQ Worker instance.
    */
   static createWorker<T = any>(name: string, processor: Processor<T>, options?: WorkerOptions): Worker<T> {
     log.info(`[QueueFactory] Initializing Worker: ${name}`);
@@ -51,7 +81,13 @@ export class QueueFactory {
   }
 
   /**
-   * Create QueueEvents listener
+   * Create QueueEvents listener.
+   * 
+   * Used for listening to global queue events (completed, failed, etc.) irrespective of the worker.
+   * Useful for websockets or monitoring dashboards.
+   * 
+   * @param name - Must match the Queue name.
+   * @returns QueueEvents instance.
    */
   static createQueueEvents(name: string): QueueEvents {
     return new QueueEvents(name, {

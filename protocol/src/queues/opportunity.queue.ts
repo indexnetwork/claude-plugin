@@ -22,6 +22,17 @@ export interface OpportunityJobData {
   force: boolean;
 }
 
+/**
+ * Opportunity Finder Queue.
+ * 
+ * RESPONSIBILITIES:
+ * 1. `process_opportunities`: Runs the "Super Connector" cycle.
+ * 
+ * PERIODICITY:
+ * - Runs every hour (or manually triggered).
+ * - Finds users with "Opportunities" (e.g. "I'm looking for a co-founder") and finds
+ *   best candidates across the entire userbase.
+ */
 export const opportunityQueue = QueueFactory.createQueue<OpportunityJobData>(QUEUE_NAME);
 
 // Processor Helpers
@@ -46,6 +57,23 @@ async function opportunityProcessor(job: Job) {
   }
 }
 
+/**
+ * Job: `process_opportunities`
+ * 
+ * CORE ALGORITHM (The "Opportunity Finder" Cycle):
+ * 
+ * 1. Backfill Embeddings: Ensures all active profiles have vector embeddings (for source & candidate matching).
+ * 2. Iterate Sources: For every profile (as Source):
+ *    - Backfill HyDE: If missing, generate "Ideal Candidate Description" (HyDE) vector.
+ *    - Vector Search: Find 20 nearest neighbors using HyDE vector (or raw profile vector as fallback).
+ *    - Agent Eval: Run `OpportunityEvaluator` agent on these 20 candidates.
+ * 3. Implicit Intent Creation:
+ *    - If Agent finds a Match Score > 85:
+ *    - We assume the Source user *implicitly* has an intent to meet this person.
+ *    - We assume the Candidate *implicitly* has an intent to meet the Source.
+ *    - We create "Implicit Intents" (`type: 'enrichment'`) for both.
+ *    - We create a Stake connecting them.
+ */
 async function runOpportunityFinderCycle() {
   console.time('OpportunityFinderCycle');
   log.info('🔄 [OpportunityJob] Starting Opportunity Finder Cycle...');

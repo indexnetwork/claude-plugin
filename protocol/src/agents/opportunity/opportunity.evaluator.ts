@@ -46,6 +46,21 @@ const OpportunityEvaluatorOutputSchema = z.object({
     opportunities: z.array(OpportunitySchema),
 });
 
+/**
+ * OpportunityEvaluator Agent
+ * 
+ * The "Super Connector" agent responsible for finding high-value connections between users.
+ * 
+ * LOGIC:
+ * 1. Takes a Source User (the person looking for something).
+ * 2. Takes a list of Candidate Users (retrieved via vector search, usually using HyDE).
+ * 3. Analyzes the FIT between Source and Candidate.
+ * 4. Generates specific "Opportunities" (Collaboration, Mentorship, etc.) with a Score (0-100).
+ * 
+ * DIFFERENTIATION:
+ * Unlike `StakeEvaluator` (which checks if two specific intents match), this agent looks at the
+ * WHOLE PROFILE vs WHOLE PROFILE to find broader, implicit opportunities.
+ */
 export class OpportunityEvaluator extends BaseLangChainAgent {
 
     constructor() {
@@ -58,8 +73,18 @@ export class OpportunityEvaluator extends BaseLangChainAgent {
     }
 
     /**
-     * Main entry point to analyze opportunities.
-     * Takes pre-fetched candidates and analyzes them against the source profile.
+     * Main Entry Point: Batch analysis of candidates.
+     * 
+     * PROCESS:
+     * 1. Iterates through the provided list of candidates.
+     * 2. Calls the LLM to analyze the match against the Source Profile (or HyDE description).
+     * 3. Aggregates results, filters by `minScore` (default 70).
+     * 4. Returns a sorted list of the best Opportunities.
+     * 
+     * @param sourceProfile - The profile of the user we are finding opportunities FOR.
+     * @param candidates - List of potential matches to evaluate.
+     * @param options - Config (minScore, valid types, etc).
+     * @returns A sorted list of high-value `Opportunity` objects.
      */
     async evaluateOpportunities(
         sourceProfile: UserMemoryProfile,

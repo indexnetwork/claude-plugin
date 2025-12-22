@@ -30,8 +30,17 @@ const HydeDescriptionSchema = z.object({
 });
 
 /**
- * Helper Agent specifically for generating HyDE descriptions.
- * Encapsulated to have its own schema configuration.
+ * HydeGenerator Agent (Hypothetical Document Embeddings)
+ * 
+ * Generates a "Hypothetical Ideal Profile" (HyDE) based on a user's aspirations.
+ * 
+ * CORE CONCEPT:
+ * Instead of searching for "Who matches User A?", we ask the LLM:
+ * "Imagine the perfect person to help User A achieve their goals. Describe that person."
+ * 
+ * We then embed THAT hypothetical description and search the vector database for real users who look like it.
+ * This technique (HyDE) significantly improves semantic retrieval for "Complementary" matches 
+ * (Supply vs Demand) rather than just "Similarity" matches.
  */
 export class HydeGeneratorAgent extends BaseLangChainAgent {
   constructor() {
@@ -42,6 +51,12 @@ export class HydeGeneratorAgent extends BaseLangChainAgent {
     });
   }
 
+  /**
+   * Generates a hypothetical "Ideal Match" description.
+   * 
+   * @param profile - The source user's memory profile (who is looking).
+   * @returns Promise resolving to a string description of the *Target* user.
+   */
   async generate(profile: UserMemoryProfile): Promise<string> {
     const messages = [
       new SystemMessage(HYDE_GENERATION_PROMPT),

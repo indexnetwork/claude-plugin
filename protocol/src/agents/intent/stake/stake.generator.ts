@@ -56,6 +56,20 @@ export const StakeGeneratorOutputSchema = z.object({
 
 export type StakeGeneratorOutput = z.infer<typeof StakeGeneratorOutputSchema>;
 
+/**
+ * StakeGenerator Agent
+ * 
+ * Generates the user-facing "Vibe Check" or "Synthesis" text that explains why a match exists.
+ * 
+ * OUTPUT CONTENT:
+ * 1. Subject/Title: A punchy, short header for the match.
+ * 2. Body: A warm, 1-2 sentence narrative explaining the mutual fit.
+ * 
+ * FEATURES:
+ * - Dynamic Voice: Swaps "You" vs "Initiator Name" based on context (First vs Third person).
+ * - Hyperlinking: Can insert markdown links to specific Intent IDs for context.
+ * - Tone: Enforced as "Warm, Friendly, Professional" (not robotic).
+ */
 export class StakeGenerator extends BaseLangChainAgent {
   constructor(options: Partial<Parameters<typeof createAgent>[0]> = {}) {
     super({
@@ -66,6 +80,17 @@ export class StakeGenerator extends BaseLangChainAgent {
     });
   }
 
+  /**
+   * Generates the synthesis text.
+   * 
+   * LOGIC:
+   * 1. Constructs a dynamic prompt based on who is viewing (Initiator/Subject vs Third Person).
+   * 2. Feeds in the exact "Intent Pairs" that triggered the match (so the LLM knows WHY they matched).
+   * 3. Feeds in the Target's Intro/Bio for personalization.
+   * 
+   * @param input - Structured input containing users, context, and intent pairs.
+   * @returns Promise resolving to `StakeGeneratorResult` (subject + body).
+   */
   async run(input: StakeGeneratorInput): Promise<StakeGeneratorResult> {
     const { initiator, target, targetIntro, isThirdPerson, intentPairs, characterLimit } = input;
 

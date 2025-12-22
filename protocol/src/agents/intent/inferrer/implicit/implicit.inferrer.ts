@@ -25,6 +25,21 @@ Constraint:
 - Focus on the content/topic/goal of the opportunity, not the specific person being matched.
 `;
 
+/**
+ * ImplicitInferrer Agent
+ * 
+ * "Implicit" intents are goals that a user has NOT explicitly stated, but are logically necessary
+ * to make a specific matching "Opportunity" valuable to them.
+ * 
+ * EXAMPLE:
+ * - User: "Bio: Backend Engineer interested in Crypto"
+ * - Opportunity: "Hackathon looking for Solidity developers"
+ * - Implicit Intent: "Learn Solidity to participate in hackathons" (Inferred)
+ * 
+ * PURPOSE:
+ * Bridges the gap between a generic profile and a specific opportunity, allowing us to "guess"
+ * what the user *might* want, even if they haven't said it yet.
+ */
 export class ImplicitInferrer extends BaseLangChainAgent {
   constructor() {
     super({
@@ -35,7 +50,16 @@ export class ImplicitInferrer extends BaseLangChainAgent {
   }
 
   /**
-   * Infers an implicit intent for a user based on an opportunity match.
+   * Infers the missing "Why" link between a user and an opportunity.
+   * 
+   * LOGIC:
+   * 1. Reads the user's Bio/Narrative.
+   * 2. Reads the "Reasoning" for why an Opportunity was matched.
+   * 3. Halls hallucinate a specific, first-person goal that would constrain this match.
+   * 
+   * @param profile - The user's memory profile.
+   * @param opportunityContext - The string explanation of the opportunity match.
+   * @returns A Promise resolving to an `ImplicitIntent` or null if confidence is low.
    */
   async run(
     profile: UserMemoryProfile,

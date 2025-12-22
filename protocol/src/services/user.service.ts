@@ -3,6 +3,15 @@ import { users, userNotificationSettings, userProfiles, User } from '../lib/sche
 import { eq } from 'drizzle-orm';
 import { log } from '../lib/log';
 
+/**
+ * UserService
+ * 
+ * Manages basic CRUD operations for User entities.
+ * 
+ * ROLE:
+ * - Data access layer for the `users` table.
+ * - Graph resolution: `findWithGraph` joins User + Profile + Settings.
+ */
 export class UserService {
     async findById(userId: string) {
         log.info('[UserService] Finding user by ID', { userId });
@@ -10,6 +19,16 @@ export class UserService {
         return result[0] || null;
     }
 
+    /**
+     * Resolves a full User Graph.
+     * 
+     * JOINS:
+     * - `userProfiles` (for identity/bio)
+     * - `userNotificationSettings`
+     * 
+     * @param userId - ID to find.
+     * @returns User object merged with Profile and Settings, or null.
+     */
     async findWithGraph(userId: string) {
         const userResult = await db.select({
             user: users,

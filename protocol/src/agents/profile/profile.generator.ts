@@ -37,6 +37,21 @@ export const ProfileGeneratorOutputSchema = z.object({
     profile: UserProfileSchema,
 });
 
+/**
+ * ProfileGenerator Agent
+ * 
+ * Synthesizes a structured "User Memory Profile" from raw unstructured data.
+ * 
+ * DATASOURCE:
+ * - Primarily designed to ingest raw JSON from `Parallel.ai` (LinkedIn/Web scraping results).
+ * 
+ * RESPONSIBILITY:
+ * - Entity Extraction: Name, Location, Role.
+ * - Narrative Synthesis: Writes the "Story" of the user (Bio, Context, Aspirations) based on scattered data points.
+ * - Structuring: Converts loose text into strictly typed JSON (Zod schema).
+ * 
+ * This is the entry point for creating a "Digital Twin" of a user in the system.
+ */
 export class ProfileGenerator extends BaseLangChainAgent {
     constructor() {
         super({
@@ -46,8 +61,10 @@ export class ProfileGenerator extends BaseLangChainAgent {
     }
 
     /**
-     * Generates a structured profile from raw Parallel.ai data.
-     * @param input Stringified JSON response from Parallel.ai search.
+     * Run the profile generation.
+     * 
+     * @param input - The raw text or stringified JSON from the data source (e.g., Parallel.ai).
+     * @returns Promise resolving to a fully structured `ProfileGeneratorOutput` object (Identity, Narrative, Attributes).
      */
     async run(input: string): Promise<ProfileGeneratorOutput> {
         log.debug('[ProfileGenerator] Processing input', { inputLength: input.length });
