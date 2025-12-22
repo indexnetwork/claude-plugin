@@ -9,19 +9,6 @@ import {
 import { z } from 'zod';
 import { json2md } from '../../lib/json2md/json2md';
 
-// --- SCHEMAS ---
-const OpportunitySchema = z.object({
-    type: z.enum(['collaboration', 'mentorship', 'networking', 'other']),
-    title: z.string().describe('Short title of the opportunity'),
-    description: z.string().describe('Reasoning why this is a good match'),
-    score: z.number().min(0).max(100).describe('Relevance score 0-100'),
-    candidateId: z.string().describe('The user ID of the match'),
-});
-
-const OpportunityFinderOutputSchema = z.object({
-    opportunities: z.array(OpportunitySchema),
-});
-
 // ----------------
 
 // System prompt for the Opportunity Finder Agent (Analysis Stage)
@@ -44,6 +31,19 @@ const ANALYSIS_SYSTEM_PROMPT = `
     1. Be specific.
     2. Focus on how well the Candidate fulfills the Source's "Ideal Match" criteria.
 `;
+
+// --- SCHEMAS ---
+const OpportunitySchema = z.object({
+    type: z.enum(['collaboration', 'mentorship', 'networking', 'other']),
+    title: z.string().describe('Short title of the opportunity'),
+    description: z.string().describe('Reasoning why this is a good match'),
+    score: z.number().min(0).max(100).describe('Relevance score 0-100'),
+    candidateId: z.string().describe('The user ID of the match'),
+});
+
+const OpportunityFinderOutputSchema = z.object({
+    opportunities: z.array(OpportunitySchema),
+});
 
 export class OpportunityFinder extends BaseLangChainAgent {
 
