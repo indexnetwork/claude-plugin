@@ -6,6 +6,7 @@ import { Events } from '../events';
 import { eq, and, isNull } from 'drizzle-orm';
 import { INTENT_INFERRER_AGENT_ID } from '../lib/agent-ids';
 import { evaluateIntentAppropriateness } from '../agents/core/intent_indexer/evaluator';
+import { log } from '../lib/log';
 
 export interface CreateIntentOptions {
   payload: string;
@@ -193,7 +194,8 @@ export class IntentService {
           throw error;
         }
       } else {
-        console.log(`[IntentService.createIntent] ⚠️ No indexes provided - intent ${createdIntent.id} will not be associated with any index`);
+        // Dynamic scoping: Intents are associated with users, and users are associated with indexes.
+        log.info(`[IntentService.createIntent] Intent ${createdIntent.id} created without explicit index links (using dynamic User scope).`);
       }
 
       // Create inference stake (always required)

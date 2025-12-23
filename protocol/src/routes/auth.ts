@@ -4,6 +4,7 @@ import { AuthService } from '../services/auth.service';
 import { ProfileService } from '../services/profile.service';
 import { UserService } from '../services/user.service';
 import { OnboardingState } from '../lib/schema';
+import { addProfileUpdateJob } from '../queues/profile.queue';
 
 const router = Router();
 const userService = new UserService();
@@ -101,6 +102,14 @@ router.patch('/onboarding-state', authenticatePrivy, async (req: AuthRequest, re
     // 4. Trigger side effects
     if (data.completedAt) {
       await authService.setupDefaultPreferences(userId);
+
+      // Trigger background processing (Intents, HyDE, Repair validation)
+      // Now safe to trigger as user should have joined the index
+      addProfileUpdateJob({
+        userId: userId,
+        intro: currentUser.intro || '',
+        userName: currentUser.name
+      }).catch(err => console.error('Failed to queue profile update at onboarding complete:', err));
     }
 
     return res.json({ user: updatedUser });
@@ -163,6 +172,18 @@ router.post('/profile/generate', authenticatePrivy, async (req: AuthRequest, res
         res.write(`data: ${JSON.stringify({ type: 'status', message })}\n\n`);
       },
       onResult: (data) => {
+        // Trigger background processing (Intents, HyDE, Repair validation)
+        // Safe to trigger immediately thanks to Dynamic Scoping (Intents become visible once User joins Index)
+        try {
+          addProfileUpdateJob({
+            userId: user.id,
+            intro: data.intro,
+            userName: user.name
+          }).catch(err => console.error('Failed to queue profile update:', err));
+        } catch (err) {
+          console.error('Failed to initiate profile update job (sync error):', err);
+        }
+
         res.write(`data: ${JSON.stringify({
           type: 'result',
           data

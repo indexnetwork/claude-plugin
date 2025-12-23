@@ -9,6 +9,7 @@ import { IntentManager } from '../agents/intent/manager/intent.manager';
 import { checkAndTriggerSocialSync } from '../lib/integrations/social-sync';
 import { HydeGeneratorAgent } from '../agents/profile/hyde/hyde.generator';
 import { generateEmbedding } from '../lib/embeddings';
+import type { CreateIntentOptions } from './intent.service';
 import { log } from '../lib/log';
 
 export interface UpdateProfileDto {
@@ -87,7 +88,8 @@ export class ProfileService {
 
       // Trigger background intent generation if bio (intro) changed
       if (intro !== undefined) {
-        this.triggerBackgroundIntentGeneration(userId, intro, updatedUser.name);
+        // Removed: processProfileUpdateBackground called from Service -> moved to Route/Queue architecture
+        // this.processProfileUpdateBackground(userId, intro, updatedUser.name);
       } else if (name !== undefined || location !== undefined) {
         // If only name/location changed, we still might want to update HyDE if profile exists
         // For now, let's keep it tied to Intro/Intent generation flow or explicit profile generation to avoid churn
@@ -145,141 +147,150 @@ export class ProfileService {
     };
   }
 
+
   /**
-   * Background Worker: Analyzes new bio/intro to extract structured information.
-   * 
-   * PIPELINE:
-   * 1. Profile Repair: If profile is sparse, uses `ProfileGenerator` to Hallucinate/Structure a full narrative.
-   * 2. Intent Extraction: Uses `IntentManager` to find new goals in the bio.
-   * 3. HyDE Regeneration: Creates a new "Ideal Partner" description for vector search.
+   * Helper: Repair Profile if incomplete.
+   * Internal logic exposed for Worker.
    */
-  private async triggerBackgroundIntentGeneration(userId: string, intro: string, userName: string | null) {
-    (async () => {
-      try {
-        log.info('[ProfileService] Triggering background intent generation for profile update', { userId });
-
-        const [profileData, activeIntentsData] = await Promise.all([
-          db.select().from(userProfiles).where(eq(userProfiles.userId, userId)).limit(1),
-          db.select().from(intents).where(and(
-            eq(intents.userId, userId),
-            isNull(intents.archivedAt)
-          ))
-        ]);
-
-        if (!profileData.length) return;
-        let userProfile = profileData[0];
-
-        const hasAttributes = userProfile.attributes &&
-          ((userProfile.attributes.interests?.length || 0) > 0 || (userProfile.attributes.skills?.length || 0) > 0);
-        const hasNarrative = !!userProfile.narrative;
-
-        if (!hasAttributes || !hasNarrative) {
-          log.info('[ProfileService] Profile incomplete, triggering repair via ProfileGenerator', { userId });
-          const bioToUse = intro || userProfile.identity?.bio || '';
-
-          if (bioToUse) {
-            try {
-              const generator = new ProfileGenerator();
-              const generated = await generator.run(bioToUse);
-
-              const fixedIdentity = {
-                ...generated.profile.identity,
-                location: generated.profile.identity.location || ''
-              };
-
-              await db.update(userProfiles)
-                .set({
-                  identity: fixedIdentity,
-                  narrative: generated.profile.narrative,
-                  attributes: generated.profile.attributes,
-                  updatedAt: new Date()
-                })
-                .where(eq(userProfiles.id, userProfile.id));
-
-              userProfile = {
-                ...userProfile,
-                identity: fixedIdentity,
-                narrative: generated.profile.narrative,
-                attributes: generated.profile.attributes
-              };
-              log.info('[ProfileService] Profile repaired successfully');
-            } catch (e) {
-              log.error('[ProfileService] Profile repair failed:', { error: e });
-            }
-          }
-        }
-
-        const attributes = userProfile.attributes || { interests: [], skills: [] };
-        const identity = userProfile.identity || { name: userName || 'User', bio: '', location: '' };
-
-        const memoryProfile: UserMemoryProfile = {
-          userId: userId,
-          identity: {
-            name: identity.name,
-            bio: identity.bio,
-            location: identity.location
-          },
-          narrative: userProfile.narrative || undefined,
-          attributes: {
-            interests: attributes.interests || [],
-            skills: attributes.skills || [],
-            goals: []
-          }
-        };
-
-        const activeIntents: ActiveIntent[] = activeIntentsData.map(i => ({
-          id: i.id,
-          description: i.payload,
-          status: 'active',
-          created_at: i.createdAt.getTime()
-        }));
-
-        const manager = new IntentManager();
-        const content = null;
-
-        const result = await manager.processIntent(content, memoryProfile, activeIntents);
-        log.info('[ProfileService] Intent detection result:', { result: JSON.stringify(result) });
-
-        if (result.actions && result.actions.length > 0) {
-          for (const action of result.actions) {
-            if (action.type === 'create') {
-              await db.insert(intents).values({
-                userId: userId,
-                payload: action.payload,
-                summary: action.payload, // Ensure summary is populated
-              });
-              log.info(`[ProfileService] Created intent: ${action.payload}`);
-            }
-          }
-        }
-
-        // --- HyDE Generation ---
-        log.info('[ProfileService] Generating HyDE description and embedding...');
-        const hydeGenerator = new HydeGeneratorAgent();
-        const hydeDescription = await hydeGenerator.generate(memoryProfile);
-
-        if (hydeDescription) {
-          log.info(`[ProfileService] HyDE Description Length: ${hydeDescription.length} chars. Preview: "${hydeDescription.substring(0, 100)}..."`);
-          const hydeEmbedding = await generateEmbedding(hydeDescription);
-
-          await db.update(userProfiles)
-            .set({
-              hydeDescription,
-              hydeEmbedding,
-              updatedAt: new Date()
-            })
-            .where(eq(userProfiles.userId, userId));
-
-          log.info('[ProfileService] ✅ HyDE profile updated.');
-        }
-        // -----------------------
-
-      } catch (err) {
-        log.error('[ProfileService] Background intent generation failed:', { error: err });
-      }
-    })();
+  async repairProfileIfIncomplete(userId: string, intro: string, userName: string | null) {
+    return this._repairProfileIfIncomplete(userId, intro, userName);
   }
 
+  /**
+   * Helper: Generate Intent Data from Profile.
+   * Internal logic exposed for Worker.
+   * Returns intent options to be created by the caller.
+   */
+  async generateIntentDataFromProfile(userId: string, userProfile: typeof userProfiles.$inferSelect): Promise<CreateIntentOptions[]> {
+    return this._generateIntentDataFromProfile(userId, userProfile);
+  }
+
+  /**
+   * Step 1: Repair Profile if incomplete (Private Impl).
+   */
+  private async _repairProfileIfIncomplete(userId: string, intro: string, userName: string | null) {
+    const profileRes = await db.select().from(userProfiles).where(eq(userProfiles.userId, userId)).limit(1);
+    if (!profileRes.length) return null;
+
+    let userProfile = profileRes[0];
+
+    // Check completeness
+    const hasAttributes = userProfile.attributes &&
+      ((userProfile.attributes.interests?.length || 0) > 0 || (userProfile.attributes.skills?.length || 0) > 0);
+    const hasNarrative = !!userProfile.narrative;
+
+    if (!hasAttributes || !hasNarrative) {
+      log.info('[ProfileService] Profile incomplete, triggering repair via ProfileGenerator', { userId });
+      const bioToUse = intro || userProfile.identity?.bio || '';
+
+      if (bioToUse) {
+        try {
+          const generator = new ProfileGenerator();
+          const generated = await generator.run(bioToUse);
+
+          const fixedIdentity = {
+            ...generated.profile.identity,
+            location: generated.profile.identity.location || ''
+          };
+
+          // Update DB
+          await db.update(userProfiles)
+            .set({
+              identity: fixedIdentity,
+              narrative: generated.profile.narrative,
+              attributes: generated.profile.attributes,
+              updatedAt: new Date()
+            })
+            .where(eq(userProfiles.id, userProfile.id));
+
+          // Return updated object
+          return {
+            ...userProfile,
+            identity: fixedIdentity,
+            narrative: generated.profile.narrative,
+            attributes: generated.profile.attributes
+          };
+
+        } catch (e) {
+          log.error('[ProfileService] Profile repair failed:', { error: e });
+        }
+      }
+    }
+    return userProfile;
+  }
+
+  /**
+   * Step 2: Generate Intents Data from Profile Narrative/Bio (Private Impl).
+   * Returns Array of CreateIntentOptions.
+   */
+  private async _generateIntentDataFromProfile(userId: string, userProfile: typeof userProfiles.$inferSelect): Promise<CreateIntentOptions[]> {
+    const newIntentOptions: CreateIntentOptions[] = [];
+    log.info(`[ProfileService] _generateIntentDataFromProfile called for ${userId}`);
+    try {
+      // Fetch active intents to avoid duplicates
+      const activeIntentsData = await db.select().from(intents).where(and(
+        eq(intents.userId, userId),
+        isNull(intents.archivedAt)
+      ));
+
+      const activeIntents: ActiveIntent[] = activeIntentsData.map(i => ({
+        id: i.id,
+        description: i.payload,
+        status: 'active',
+        created_at: i.createdAt.getTime()
+      }));
+
+      // Construct memory profile for Intent Manager
+      const memoryProfile: UserMemoryProfile = {
+        userId: userId,
+        identity: {
+          name: userProfile.identity?.name || 'User',
+          bio: userProfile.identity?.bio || '',
+          location: userProfile.identity?.location || ''
+        },
+        narrative: userProfile.narrative || undefined,
+        attributes: {
+          interests: userProfile.attributes?.interests || [],
+          skills: userProfile.attributes?.skills || [],
+          goals: []
+        }
+      };
+
+      const manager = new IntentManager();
+      const result = await manager.processIntent(null, memoryProfile, activeIntents);
+
+      log.info('[ProfileService] Intent detection result:', { actions: result.actions?.length || 0 });
+
+      if (result.actions && result.actions.length > 0) {
+        for (const action of result.actions) {
+          if (action.type === 'create') {
+            log.info(`[ProfileService] Creating inferred intent: "${action.payload}"`);
+
+            newIntentOptions.push({
+              userId,
+              payload: action.payload,
+              confidence: 0.8, // High confidence for bio-inferred intents
+              inferenceType: 'implicit',
+              sourceType: 'enrichment',
+              sourceId: userProfile.id
+            });
+          }
+        }
+      }
+    } catch (error) {
+      log.error('[ProfileService] Failed to generate intents from profile:', { error });
+    }
+    return newIntentOptions;
+  }
+
+
+  /**
+   * Helper to generate and save HyDE profile.
+   * Public for Worker usage.
+   */
+  async generateAndSaveHydeProfile(userId: string, profile: UserMemoryProfile) {
+    return this.triggerBackgroundHydeGeneration(userId, profile);
+  }
 
   /**
    * Helper to trigger HyDE generation in the background
@@ -365,26 +376,6 @@ export class ProfileService {
         location: result.profile.identity.location || '',
         intents: []
       });
-
-
-      // Trigger HyDE generation immediately
-      const memoryProfile: UserMemoryProfile = {
-        userId: user.id,
-        identity: {
-          name: fixedIdentity.name || '',
-          bio: fixedIdentity.bio || '',
-          location: fixedIdentity.location || ''
-        },
-        narrative: result.profile.narrative,
-        attributes: {
-          ...result.profile.attributes,
-          goals: []
-        }
-      };
-
-      this.triggerBackgroundHydeGeneration(user.id, memoryProfile);
-
-
     } catch (error) {
       callbacks.onError('Failed to generate summary');
     }
@@ -449,3 +440,4 @@ export class ProfileService {
   }
 }
 
+export const profileService = new ProfileService();
