@@ -1,14 +1,13 @@
 import { Job } from 'bullmq';
 import { QueueFactory } from '../lib/bullmq/bullmq';
-import db from '../lib/db';
-import { users, userNotificationSettings, intentStakes, intents, userConnectionEvents, intentStakeItems } from '../lib/schema';
-import { eq, gt, inArray, or, and } from 'drizzle-orm';
 import { SynthesisService } from '../services/synthesis.service';
 import { weeklyNewsletterTemplate, Match } from '../lib/email/templates/weekly-newsletter.template';
 import { sendEmail } from '../lib/email/transport.helper';
 import { toZonedTime, format } from 'date-fns-tz';
 import { getConnectingStakes, stakeOtherUsers } from '../lib/stakes';
 import { log } from '../lib/log';
+import { userService } from '../services/user.service';
+import { stakeService } from '../services/stake.service';
 
 export const NEWSLETTER_QUEUE_NAME = 'weekly-newsletter-queue';
 
@@ -88,7 +87,7 @@ function parseNewsletterSchedule() {
 }
 
 // Processor Function
-async function newsletterProcessor(job: Job) {
+export async function newsletterProcessor(job: Job) {
     if (job.name === 'start_weekly_cycle') {
         return processWeeklyCycle(job as Job<WeeklyCycleJobData>);
     } else if (job.name === 'process_newsletter') {
@@ -98,194 +97,20 @@ async function newsletterProcessor(job: Job) {
     }
 }
 
-/**
- * Job: `start_weekly_cycle`
- * 
- * The "Orchestrator" job. Runs once (e.g., Monday morning UTC) but dispatches per-user jobs
- * based on their specific Timezone and Schedule preferences.
- * 
- * OPTIMIZATIONS:
- * - Only queries users active in the last 7 days (via Stakes).
- * - Filters by `userNotificationSettings`.
- */
-async function processWeeklyCycle(job: Job<WeeklyCycleJobData>) {
-    const { force, daysSince = 7 } = job.data;
-    const now = new Date();
-
-    console.log(`[NewsletterWorker] Starting weekly cycle (Force: ${force})`);
-    console.time('WeeklyCycle');
-
-    try {
-        const { targetDay, targetHour, targetMinute } = parseNewsletterSchedule();
-
-        // 1. Get stakes to identify ACTIVE users (optimization)
-        const sevenDaysAgo = new Date();
-        sevenDaysAgo.setDate(sevenDaysAgo.getDate() - daysSince);
-
-        console.time('FetchStakes');
-        const recentStakes = await db.select({
-            id: intentStakes.id,
-            createdAt: intentStakes.createdAt
-        })
-            .from(intentStakes)
-            .where(gt(intentStakes.createdAt, sevenDaysAgo));
-
-        const affectedUserRows = await db.selectDistinct({ userId: intents.userId })
-            .from(intentStakeItems)
-            .innerJoin(intents, eq(intents.id, intentStakeItems.intentId))
-            .where(inArray(intentStakeItems.stakeId, recentStakes.map(s => s.id)));
-
-        const affectedUserIds = affectedUserRows.map(r => r.userId);
-        console.timeEnd('FetchStakes');
-
-        console.log(`[NewsletterWorker] Found ${recentStakes.length} recent stakes involving ${affectedUserIds.length} users`);
-
-        console.time('ProcessMatches');
-        let dispatchedCount = 0;
-
-        for (const userId of affectedUserIds) {
-            // Get user details
-            const userRes = await db.select({
-                id: users.id,
-                email: users.email,
-                name: users.name,
-                timezone: users.timezone,
-                lastSent: users.lastWeeklyEmailSentAt,
-                prefs: userNotificationSettings.preferences,
-                onboarding: users.onboarding
-            })
-                .from(users)
-                .leftJoin(userNotificationSettings, eq(users.id, userNotificationSettings.userId))
-                .where(eq(users.id, userId))
-                .limit(1);
-
-            if (!userRes.length) continue;
-            const user = userRes[0];
-
-            if (user.prefs?.weeklyNewsletter === false) continue;
-            if (!user.onboarding?.completedAt) continue;
-
-            // Schedule Check
-            const userTimezone = user.timezone || 'UTC';
-            const zonedDate = toZonedTime(now, userTimezone);
-            const dayOfWeek = format(zonedDate, 'i', { timeZone: userTimezone });
-            const hour = format(zonedDate, 'H', { timeZone: userTimezone });
-            const minute = format(zonedDate, 'm', { timeZone: userTimezone });
-            const targetDayISO = targetDay === 0 ? '7' : targetDay.toString();
-
-            if (!force && (dayOfWeek !== targetDayISO || parseInt(hour, 10) !== targetHour || parseInt(minute, 10) !== targetMinute)) {
-                continue;
-            }
-
-            const lastSent = user.lastSent ? new Date(user.lastSent) : sevenDaysAgo;
-            const searchSince = force ? sevenDaysAgo : lastSent;
-
-            // 2. Get Secure Matches via Protocol
-            const stakes = await getConnectingStakes({
-                authenticatedUserId: userId,
-                userIds: [userId],
-                createdAfter: searchSince,
-                excludeConnected: true,
-                requireAllUsers: true
-            });
-
-            if (!stakes.length) continue;
-
-            // 3. Prepare Candidates
-            const partnerIds = new Set<string>();
-            stakes.forEach(s => stakeOtherUsers(s, userId).forEach(uid => partnerIds.add(uid)));
-
-            if (partnerIds.size === 0) continue;
-
-            const partners = await db.select({
-                id: users.id,
-                name: users.name,
-                intro: users.intro
-            })
-                .from(users)
-                .where(inArray(users.id, [...partnerIds]));
-
-            const partnerMap = new Map(partners.map(p => [p.id, p]));
-            const candidates: NewsletterJobData['candidates'] = [];
-            const seenPartners = new Set<string>();
-
-            for (const stake of stakes) {
-                const partnerId = stakeOtherUsers(stake, userId)[0];
-                if (!partnerId || seenPartners.has(partnerId)) continue;
-
-                const partner = partnerMap.get(partnerId);
-                if (!partner) continue;
-
-                seenPartners.add(partnerId);
-                candidates.push({
-                    userId: partner.id,
-                    userName: partner.name,
-                    userRole: partner.intro || undefined,
-                    stakeId: stake.id,
-                    reasoning: stake.reasoning ?? undefined,
-                });
-            }
-
-            if (candidates.length === 0) continue;
-
-            // 4. Dispatch
-            await addNewsletterJob({
-                recipientId: userId,
-                candidates,
-                force
-            });
-            dispatchedCount++;
-        }
-
-        console.timeEnd('ProcessMatches');
-        console.log(`[NewsletterWorker] Weekly cycle completed. Dispatched ${dispatchedCount} jobs.`);
-        console.timeEnd('WeeklyCycle');
-
-    } catch (error) {
-        console.error('[NewsletterWorker] Error in weekly cycle:', error);
-        throw error;
-    }
-}
-
-/**
- * Job: `process_newsletter`
- * 
- * Generates and sends a single email to a specific user.
- * 
- * LOGIC:
- * 1. Validates user preferences and unsubscribe status.
- * 2. Runs "Vibe Checks" (`SynthesisService.generateSynthesis`) for all candidates.
- * 3. Compiles the email using `weeklyNewsletterTemplate`.
- * 4. Sends via Email Provider (Resend/SES).
- */
 async function processNewsletterJob(job: Job<NewsletterJobData>) {
     const { recipientId, candidates, force } = job.data;
     console.log(`[NewsletterWorker] Processing email job ${job.id} for recipient ${recipientId} with ${candidates.length} candidates`);
 
     try {
-        const recipientStore = await db.select({
-            id: users.id,
-            email: users.email,
-            name: users.name,
-            intro: users.intro,
-            timezone: users.timezone,
-            onboarding: users.onboarding,
-            unsubscribeToken: userNotificationSettings.unsubscribeToken,
-            preferences: userNotificationSettings.preferences
-        })
-            .from(users)
-            .leftJoin(userNotificationSettings, eq(users.id, userNotificationSettings.userId))
-            .where(eq(users.id, recipientId))
-            .limit(1);
-
-        const recipient = recipientStore[0];
+        // 1. Fetch Recipient Details
+        const recipient = await userService.getUserForNewsletter(recipientId);
 
         if (!recipient || !recipient.email) {
             console.error(`[NewsletterWorker] User ${recipientId} not found or no email`);
             return;
         }
 
-        if (recipient.preferences?.weeklyNewsletter === false) {
+        if (recipient.prefs?.weeklyNewsletter === false) {
             console.log(`[NewsletterWorker] User ${recipient.email} opted out`);
             return;
         }
@@ -295,31 +120,16 @@ async function processNewsletterJob(job: Job<NewsletterJobData>) {
             return;
         }
 
-        if (!recipient.unsubscribeToken) {
+        let unsubscribeToken = recipient.unsubscribeToken;
+        if (!unsubscribeToken) {
             console.log(`[NewsletterWorker] User ${recipientId} missing unsubscribe token. Creating settings row.`);
-            const [upsertedSettings] = await db.insert(userNotificationSettings)
-                .values({
-                    userId: recipientId,
-                    preferences: {
-                        connectionUpdates: true,
-                        weeklyNewsletter: true,
-                    }
-                })
-                .onConflictDoUpdate({
-                    target: userNotificationSettings.userId,
-                    set: {
-                        updatedAt: new Date()
-                    }
-                })
-                .returning({
-                    unsubscribeToken: userNotificationSettings.unsubscribeToken
-                });
-
+            const upsertedSettings = await userService.ensureNotificationSettings(recipientId);
             if (upsertedSettings) {
-                recipient.unsubscribeToken = upsertedSettings.unsubscribeToken;
+                unsubscribeToken = upsertedSettings.unsubscribeToken;
             }
         }
 
+        // 2. Process Candidates (Vibe Check)
         const matches: Match[] = [];
         const processedCandidateIds = new Set<string>();
 
@@ -367,8 +177,8 @@ async function processNewsletterJob(job: Job<NewsletterJobData>) {
 
         const API_URL = process.env.API_URL || 'https://index.network.api';
         let unsubscribeUrl: string | undefined;
-        if (recipient.unsubscribeToken) {
-            unsubscribeUrl = `${API_URL}/api/notifications/unsubscribe?token=${recipient.unsubscribeToken}&type=weeklyNewsletter`;
+        if (unsubscribeToken) {
+            unsubscribeUrl = `${API_URL}/api/notifications/unsubscribe?token=${unsubscribeToken}&type=weeklyNewsletter`;
         }
 
         const template = weeklyNewsletterTemplate(recipient.name, matches, unsubscribeUrl);
@@ -387,9 +197,7 @@ async function processNewsletterJob(job: Job<NewsletterJobData>) {
                 } : undefined
             });
 
-            await db.update(users)
-                .set({ lastWeeklyEmailSentAt: new Date() })
-                .where(eq(users.id, recipientId));
+            await userService.updateLastWeeklyEmailSent(recipientId);
 
             console.log(`[NewsletterWorker] Sent newsletter to ${recipient.email}`);
         }
@@ -400,7 +208,134 @@ async function processNewsletterJob(job: Job<NewsletterJobData>) {
     }
 }
 
-export const newsletterWorker = QueueFactory.createWorker<NewsletterJobData | WeeklyCycleJobData>(NEWSLETTER_QUEUE_NAME, newsletterProcessor);
+/**
+ * Job: `start_weekly_cycle`
+ * 
+ * The "Orchestrator" job. Runs once (e.g., Monday morning UTC) but dispatches per-user jobs
+ * based on their specific Timezone and Schedule preferences.
+ * 
+ * OPTIMIZATIONS:
+ * - Only queries users active in the last 7 days (via Stakes).
+ * - Filters by `userNotificationSettings`.
+ */
+async function processWeeklyCycle(job: Job<WeeklyCycleJobData>) {
+    const { force, daysSince = 7 } = job.data;
+    const now = new Date();
+
+    console.log(`[NewsletterWorker] Starting weekly cycle (Force: ${force})`);
+    console.time('WeeklyCycle');
+
+    try {
+        const { targetDay, targetHour, targetMinute } = parseNewsletterSchedule();
+
+        // 1. Get stakes to identify ACTIVE users (optimization)
+        console.time('FetchStakes');
+        const recentStakes = await stakeService.getRecentStakes(daysSince);
+
+        // Improve optimization: Direct query for affected users
+        const affectedUserIds = await stakeService.getAffectedUserIdsFromStakes(recentStakes.map(s => s.id));
+        console.timeEnd('FetchStakes');
+
+        console.log(`[NewsletterWorker] Found ${recentStakes.length} recent stakes involving ${affectedUserIds.length} users`);
+
+        console.time('ProcessMatches');
+        let dispatchedCount = 0;
+
+        for (const userId of affectedUserIds) {
+            // Get user details
+            const user = await userService.getUserForNewsletter(userId);
+
+            if (!user) continue;
+
+            if (user.prefs?.weeklyNewsletter === false) continue;
+            if (!user.onboarding?.completedAt) continue;
+
+            // Schedule Check
+            const userTimezone = user.timezone || 'UTC';
+            const zonedDate = toZonedTime(now, userTimezone);
+            const dayOfWeek = format(zonedDate, 'i', { timeZone: userTimezone });
+            const hour = format(zonedDate, 'H', { timeZone: userTimezone });
+            const minute = format(zonedDate, 'm', { timeZone: userTimezone });
+            const targetDayISO = targetDay === 0 ? '7' : targetDay.toString();
+
+            if (!force && (dayOfWeek !== targetDayISO || parseInt(hour, 10) !== targetHour || parseInt(minute, 10) !== targetMinute)) {
+                continue;
+            }
+
+            const lastSent = user.lastSent ? new Date(user.lastSent) : new Date(Date.now() - daysSince * 24 * 60 * 60 * 1000);
+            const searchSince = force ? new Date(Date.now() - daysSince * 24 * 60 * 60 * 1000) : lastSent;
+
+            // 2. Get Secure Matches via Protocol
+            const stakes = await getConnectingStakes({
+                authenticatedUserId: userId,
+                userIds: [userId],
+                createdAfter: searchSince,
+                excludeConnected: true,
+                requireAllUsers: true
+            });
+
+            if (!stakes.length) continue;
+
+            // 3. Prepare Candidates
+            const partnerIds = new Set<string>();
+            stakes.forEach(s => stakeOtherUsers(s, userId).forEach(uid => partnerIds.add(uid)));
+
+            if (partnerIds.size === 0) continue;
+
+            const partners = await userService.getUsersBasicInfo([...partnerIds]);
+            const partnerMap = new Map(partners.map(p => [p.id, p]));
+
+            const candidates: NewsletterJobData['candidates'] = [];
+            const seenPartners = new Set<string>();
+
+            for (const stake of stakes) {
+                const partnerId = stakeOtherUsers(stake, userId)[0];
+                if (!partnerId || seenPartners.has(partnerId)) continue;
+
+                const partner = partnerMap.get(partnerId);
+                if (!partner) continue;
+
+                seenPartners.add(partnerId);
+                candidates.push({
+                    userId: partner.id,
+                    userName: partner.name,
+                    userRole: partner.intro || undefined,
+                    stakeId: stake.id,
+                    reasoning: stake.reasoning ?? undefined,
+                });
+            }
+
+            if (candidates.length === 0) continue;
+
+            // 4. Dispatch
+            await addNewsletterJob({
+                recipientId: userId,
+                candidates,
+                force
+            });
+            dispatchedCount++;
+        }
+
+        console.timeEnd('ProcessMatches');
+        console.log(`[NewsletterWorker] Weekly cycle completed. Dispatched ${dispatchedCount} jobs.`);
+        console.timeEnd('WeeklyCycle');
+
+    } catch (error) {
+        console.error('[NewsletterWorker] Error in weekly cycle:', error);
+        throw error;
+    }
+}
+
+
+
+export const newsletterWorker = QueueFactory.createWorker<NewsletterJobData | WeeklyCycleJobData>(NEWSLETTER_QUEUE_NAME, newsletterProcessor, {
+    concurrency: 5,
+    limiter: {
+        max: 10,
+        duration: 1000
+    },
+    lockDuration: 60000,
+});
 
 export async function addNewsletterJob(data: NewsletterJobData, priority: number = 1): Promise<void> {
     const now = new Date();

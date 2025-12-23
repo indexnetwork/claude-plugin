@@ -8,7 +8,7 @@ import { log } from '../../../lib/log';
 // System prompt for HyDE Generation
 const HYDE_GENERATION_PROMPT = `
     You are a Profile Profiler.
-    Given a user's profile, imagine a **Hypothetical User Profile** person that would be the best match for the user to accomplish their aspirations.
+    Given a user's profile, imagine a **Hypothetical User Profile** person that would be the best match for the user to accomplish their goals.
     
     Imagine this ideal candidate actually exists. Write a profile for THEM.
     Your output will be used to vector-search a database of real user profiles.
@@ -19,6 +19,12 @@ const HYDE_GENERATION_PROMPT = `
     1. **Context**: Who they are (role, background).
     2. **Skills/lnterests**: What they are good at that complements the user.
     3. **Goals**: What they are trying to achieve that aligns with the user.
+    
+    **CRITICAL INSTRUCTION - COMPLEMENTARY MATCHING:**
+    - Do NOT just look for "similar" people. Look for people who provide what the user NEEDS (Supply/Demand).
+    - If the user is a **Founder**, describe an **Investor** or **VC**.
+    - If the user is a **Learner**, describe a **Mentor** or **Expert**.
+    - If the user is a **Builder**, describe a **Collaborator** or **Co-founder**.
     
     Do NOT describe the Source User. Describe the TARGET Match.
     Do NOT invent a name for the candidate. Refer to them as "The candidate", "They", or "This individual".
@@ -58,15 +64,24 @@ export class HydeGeneratorAgent extends BaseLangChainAgent {
    * @returns Promise resolving to a string description of the *Target* user.
    */
   async generate(profile: UserMemoryProfile): Promise<string> {
+
+    const profileDescription = json2md.fromObject({
+      bio: profile.identity.bio,
+      location: profile.identity.location,
+      interests: profile.attributes?.interests || [],
+      // aspirations: profile.narrative?.aspirations || '',
+      context: profile.narrative?.context || ''
+    });
+
     const messages = [
       new SystemMessage(HYDE_GENERATION_PROMPT),
-      new HumanMessage(json2md.fromObject({
-        bio: profile.identity.bio,
-        location: profile.identity.location,
-        interests: profile.attributes?.interests || [],
-        aspirations: profile.narrative?.aspirations || '',
-        context: profile.narrative?.context || ''
-      }))
+      new HumanMessage(`
+        Person who is looking for a match:
+        ${profileDescription}
+        
+        Who is the single most valuable connection for this person right now? 
+        Describe that Person.
+      `)
     ];
 
     log.info(`[HydeGenerator] Generating HyDE profile for user...`);

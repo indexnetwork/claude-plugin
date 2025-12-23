@@ -1,8 +1,8 @@
 import db from '../lib/db';
-import { intents, intentStakes, intentStakeItems, intentIndexes } from '../lib/schema';
-import { eq, and, sql, isNull, inArray } from 'drizzle-orm';
+import { intents, intentStakes, intentStakeItems, intentIndexes, userConnectionEvents } from '../lib/schema';
+import { eq, and, sql, isNull, inArray, gt, or } from 'drizzle-orm';
 import { generateEmbedding } from '../lib/embeddings';
-import { StakeEvaluator } from '../agents/intent/stake/stake.evaluator';
+import { StakeEvaluator } from '../agents/intent/stake/evaluator/stake.evaluator';
 import { log } from '../lib/log';
 
 /**
@@ -59,7 +59,7 @@ export class StakeService {
       await this.saveMatch(
         currentIntent.id,
         match.candidateIntentId,
-        match.confidence === 'high' ? 95 : match.confidence === 'medium' ? 80 : 60,
+        match.confidence,
         match.reason,
         '028ef80e-9b1c-434b-9296-bb6130509482'
       );
@@ -232,6 +232,58 @@ export class StakeService {
       .from(intents)
       .where(eq(intents.id, intentId));
     return res[0]?.userId || null;
+  }
+
+  /**
+   * Get stakes created in the last N days
+   */
+  async getRecentStakes(daysSince: number) {
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - daysSince);
+
+    return db.select({
+      id: intentStakes.id,
+      createdAt: intentStakes.createdAt
+    })
+      .from(intentStakes)
+      .where(gt(intentStakes.createdAt, cutoffDate));
+  }
+
+  /**
+   * Get unique user IDs involved in the given stakes
+   */
+  async getAffectedUserIdsFromStakes(stakeIds: string[]) {
+    if (stakeIds.length === 0) return [];
+
+    const affectedUserRows = await db.selectDistinct({ userId: intents.userId })
+      .from(intentStakeItems)
+      .innerJoin(intents, eq(intents.id, intentStakeItems.intentId))
+      .where(inArray(intentStakeItems.stakeId, stakeIds));
+
+    return affectedUserRows.map(r => r.userId);
+  }
+
+  /**
+   * Check if there is an existing connection event between two users
+   */
+  async checkConnectionEvent(user1Id: string, user2Id: string) {
+    const events = await db.select({ id: userConnectionEvents.id })
+      .from(userConnectionEvents)
+      .where(
+        or(
+          and(
+            eq(userConnectionEvents.initiatorUserId, user1Id),
+            eq(userConnectionEvents.receiverUserId, user2Id)
+          ),
+          and(
+            eq(userConnectionEvents.initiatorUserId, user2Id),
+            eq(userConnectionEvents.receiverUserId, user1Id)
+          )
+        )
+      )
+      .limit(1);
+
+    return events.length > 0;
   }
 }
 

@@ -74,11 +74,12 @@ async function opportunityProcessor(job: Job) {
  *    - We create "Implicit Intents" (`type: 'enrichment'`) for both.
  *    - We create a Stake connecting them.
  */
-async function runOpportunityFinderCycle() {
+export async function runOpportunityFinderCycle(
+  profileService: ProfileService = new ProfileService(),
+  evaluator: OpportunityEvaluator = new OpportunityEvaluator()
+) {
   console.time('OpportunityFinderCycle');
   log.info('🔄 [OpportunityJob] Starting Opportunity Finder Cycle...');
-
-  const profileService = new ProfileService();
 
   try {
     // 1. Backfill Missing Embeddings
@@ -109,7 +110,6 @@ async function runOpportunityFinderCycle() {
 
     // 2. Run Opportunity Finder for All Users
     log.info('🚀 [OpportunityJob] Running Opportunity Matchmaking...');
-    const evaluator = new OpportunityEvaluator();
     const allCycleResults: any[] = [];
 
     // Fetch all valid profiles to act as sources

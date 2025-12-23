@@ -2,7 +2,7 @@ export interface StakeEvaluatorOutput {
   matches: {
     candidateIntentId: string;
     isMatch: boolean;
-    confidence: "high" | "medium" | "low";
+    confidence: number;
     reason: string;
   }[];
 }

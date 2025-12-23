@@ -1,6 +1,6 @@
 import db from '../lib/db';
 import { users, userNotificationSettings, userProfiles, User } from '../lib/schema';
-import { eq } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 import { log } from '../lib/log';
 
 /**
@@ -77,4 +77,77 @@ export class UserService {
             .where(eq(users.id, userId));
         return true;
     }
+
+    /**
+     * Get user details for newsletter (including settings and onboarding)
+     */
+    async getUserForNewsletter(userId: string) {
+        const userRes = await db.select({
+            id: users.id,
+            email: users.email,
+            name: users.name,
+            intro: users.intro,
+            timezone: users.timezone,
+            lastSent: users.lastWeeklyEmailSentAt,
+            prefs: userNotificationSettings.preferences,
+            unsubscribeToken: userNotificationSettings.unsubscribeToken,
+            onboarding: users.onboarding
+        })
+            .from(users)
+            .leftJoin(userNotificationSettings, eq(users.id, userNotificationSettings.userId))
+            .where(eq(users.id, userId))
+            .limit(1);
+
+        return userRes[0] || null;
+    }
+
+    /**
+     * Get basic user info for multiple users (for partner lookup)
+     */
+    async getUsersBasicInfo(userIds: string[]) {
+        if (userIds.length === 0) return [];
+        return db.select({
+            id: users.id,
+            name: users.name,
+            intro: users.intro
+        })
+            .from(users)
+            .where(inArray(users.id, userIds));
+    }
+
+    /**
+     * Update the last time a weekly email was sent
+     */
+    async updateLastWeeklyEmailSent(userId: string) {
+        await db.update(users)
+            .set({ lastWeeklyEmailSentAt: new Date() })
+            .where(eq(users.id, userId));
+    }
+
+    /**
+     * Ensure notification settings exist for a user
+     */
+    async ensureNotificationSettings(userId: string) {
+        const [upsertedSettings] = await db.insert(userNotificationSettings)
+            .values({
+                userId,
+                preferences: {
+                    connectionUpdates: true,
+                    weeklyNewsletter: true,
+                }
+            })
+            .onConflictDoUpdate({
+                target: userNotificationSettings.userId,
+                set: {
+                    updatedAt: new Date()
+                }
+            })
+            .returning({
+                unsubscribeToken: userNotificationSettings.unsubscribeToken
+            });
+
+        return upsertedSettings;
+    }
 }
+
+export const userService = new UserService();

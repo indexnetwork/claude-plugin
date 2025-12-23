@@ -1,4 +1,4 @@
-import { StakeGenerator } from '../agents/intent/stake/stake.generator';
+import { StakeGenerator } from '../agents/intent/stake/generator/stake.generator';
 import { introMaker, type IntroMakerData } from '../agents/external/intro_maker';
 import { cache } from '../lib/redis';
 import db from '../lib/db';

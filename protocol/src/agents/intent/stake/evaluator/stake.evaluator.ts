@@ -1,8 +1,8 @@
-import { createAgent, BaseLangChainAgent } from "../../../lib/langchain/langchain";
+import { createAgent, BaseLangChainAgent } from "../../../../lib/langchain/langchain";
 import { z } from "zod";
 import { StakeEvaluatorOutput } from "./stake.evaluator.types";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
-import { log } from "../../../lib/log";
+import { log } from "../../../../lib/log";
 
 export const SYSTEM_PROMPT = `
   You are a semantic relationship analyst. Determine if two intents have MUTUAL relevance.
@@ -122,7 +122,7 @@ export class StakeEvaluator extends BaseLangChainAgent {
           finalMatches.push({
             candidateIntentId: match.targetIntentId, // normalized field name from schema
             isMatch: match.isMutual,
-            confidence: this.mapConfidence(match.confidenceScore),
+            confidence: match.confidenceScore,
             reason: match.reasoning
             // Removed extra fields to match pure interface if needed, or I should update interface.
             // Interface says: { candidateIntentId, isMatch, confidence, reason }
@@ -137,12 +137,5 @@ export class StakeEvaluator extends BaseLangChainAgent {
       log.error("[StakeEvaluator] Error in StakeEvaluator run:", { error });
       return { matches: [] };
     }
-  }
-
-  private mapConfidence(score: number): "high" | "medium" | "low" {
-    if (score >= 95) return "high";
-    if (score >= 85) return "high"; // map strong to high? or keep medium?
-    if (score >= 70) return "medium";
-    return "low";
   }
 }

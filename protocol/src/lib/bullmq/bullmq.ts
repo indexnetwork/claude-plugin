@@ -51,7 +51,7 @@ export class QueueFactory {
    * @param options - Queue settings (overrides defaults).
    * @returns Configured BullMQ Queue instance.
    */
-  static createQueue<T = any>(name: string, options?: QueueOptions): Queue<T> {
+  static createQueue<T = any>(name: string, options?: Omit<QueueOptions, 'connection'>): Queue<T> {
     log.info(`[QueueFactory] Initializing Queue: ${name}`);
     return new Queue<T>(name, {
       connection: SHARED_REDIS_OPTS,
@@ -71,7 +71,7 @@ export class QueueFactory {
    * @param options - Worker settings (concurrency, etc).
    * @returns Configured BullMQ Worker instance.
    */
-  static createWorker<T = any>(name: string, processor: Processor<T>, options?: WorkerOptions): Worker<T> {
+  static createWorker<T = any>(name: string, processor: Processor<T>, options?: Omit<WorkerOptions, 'connection'>): Worker<T> {
     log.info(`[QueueFactory] Initializing Worker: ${name}`);
     return new Worker<T>(name, processor, {
       connection: SHARED_REDIS_OPTS,

@@ -1,7 +1,7 @@
 import * as dotenv from 'dotenv';
 import path from 'path';
 import { log } from '../lib/log';
-import { runOpportunityFinderCycle } from './opportunity.job';
+import { runOpportunityFinderCycle } from '../queues/opportunity.queue';
 import { ProfileService } from '../services/profile.service';
 import { OpportunityEvaluator } from '../agents/opportunity/opportunity.evaluator';
 import { UserMemoryProfile } from '../agents/intent/manager/intent.manager.types';

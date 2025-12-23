@@ -1,16 +1,15 @@
 import * as dotenv from 'dotenv';
 import path from 'path';
 import { StakeEvaluator } from './stake.evaluator';
-
 // Load env
-const envPath = path.resolve(__dirname, '../../../.env.development');
+const envPath = path.resolve(__dirname, '../../../../../.env.development');
 console.log(`Loading env from: ${envPath}`);
 dotenv.config({ path: envPath });
 
 async function runTests() {
   console.log("🧪 Starting StakeMatcher Tests...");
 
-  if (!process.env.OPENAI_API_KEY && !process.env.ANTHROPIC_API_KEY) {
+  if (!process.env.OPENROUTER_API_KEY) {
     console.warn("⚠️  No API Key found. Live LLM tests might fail.");
   }
 
@@ -38,8 +37,8 @@ async function runTests() {
     const result = await matcher.run(primaryIntent, candidates);
 
     console.log("\nMatches Found:", result.matches.length);
-    result.matches.forEach((m: any) => {
-      console.log(`   - [${m.confidence}] Matches ${m.candidateIntentId}`);
+    result.matches.forEach((m) => {
+      console.log(`   - [Score: ${m.confidence}] Matches ${m.candidateIntentId}`);
       console.log(`     Reasoning: ${m.reason}`);
     });
 

@@ -1,7 +1,7 @@
-import { BaseLangChainAgent, createAgent } from "../../../lib/langchain/langchain";
+import { BaseLangChainAgent, createAgent } from "../../../../lib/langchain/langchain";
 import { format } from 'timeago.js';
 import { z } from "zod";
-import { log } from "../../../lib/log";
+import { log } from "../../../../lib/log";
 import { StakeGeneratorInput, StakeGeneratorResult } from "./stake.generator.types";
 
 /**

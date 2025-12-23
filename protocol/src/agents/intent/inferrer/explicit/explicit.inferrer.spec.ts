@@ -12,8 +12,8 @@ async function runTests() {
     console.log("🧪 Starting ExplicitIntentDetector Tests...");
 
     // Check for API keys (generic check, could be OpenAI, Anthropic, etc used by base agent)
-    if (!process.env.OPENAI_API_KEY && !process.env.ANTHROPIC_API_KEY && !process.env.GEMINI_API_KEY) {
-        console.warn("⚠️  No API Key found (OPENAI_API_KEY, ANTHROPIC_API_KEY, or GEMINI_API_KEY). Live LLM tests might fail if not mocked.");
+    if (!process.env.OPENROUTER_API_KEY) {
+        console.warn("⚠️  No API Key found (OPENROUTER_API_KEY). Live LLM tests might fail if not mocked.");
     }
 
     const detector = new ExplicitIntentDetector();
