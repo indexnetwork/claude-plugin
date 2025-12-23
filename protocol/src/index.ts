@@ -6,7 +6,7 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 
-console.log('process.env', process.env);
+// console.log('process.env', process.env);
 import { initializeBrokers } from './agents/context_brokers/connector';
 import { queueProcessor } from './lib/queue/processor';
 import { initWeeklyNewsletterJob } from './jobs/weekly-newsletter';

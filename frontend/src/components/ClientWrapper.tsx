@@ -4,12 +4,17 @@ import { PropsWithChildren, useMemo, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import Header from "@/components/Header";
 import Sidebar from "@/components/Sidebar";
+import ChatSidebar from "@/components/chat/ChatSidebar";
+import ChatManager from "@/components/chat/ChatManager";
 import { IndexFilterProvider } from "@/contexts/IndexFilterContext";
 import { IndexesProvider } from "@/contexts/IndexesContext";
+import { TalkJSProvider } from "@/contexts/TalkJSContext";
+import { useAuthContext } from "@/contexts/AuthContext";
 
 export default function ClientWrapper({ children }: PropsWithChildren) {
   const pathname = usePathname();
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const { isAuthenticated } = useAuthContext();
 
   // Define known routes to detect 404 pages
   const knownRoutes = useMemo(() => ['/', '/inbox', '/simulation', '/onboarding', '/l', '/i', '/admin'], []);
@@ -36,54 +41,69 @@ export default function ClientWrapper({ children }: PropsWithChildren) {
     );
   }
 
+  // Show right chat sidebar when authenticated and sidebar is visible
+  const showChatSidebar = isAuthenticated && showSidebar;
+
   return (
     <IndexesProvider>
       <IndexFilterProvider>
-        <div className="backdrop relative min-h-screen">
-          <style jsx>{`
-          .backdrop:after {
-            content: "";
-            position: fixed;
-            left: 0;
-            top: 0;
-            bottom: 0;
-            right: 0;
-            background: url(/noise.jpg);
-            opacity: .12;
-            pointer-events: none;
-            z-index: -1;
-          }
-        `}</style>
+        <TalkJSProvider>
+          <div className="backdrop relative min-h-screen">
+            <style jsx>{`
+            .backdrop:after {
+              content: "";
+              position: fixed;
+              left: 0;
+              top: 0;
+              bottom: 0;
+              right: 0;
+              background: url(/noise.jpg);
+              opacity: .12;
+              pointer-events: none;
+              z-index: -1;
+            }
+          `}</style>
 
-          {/* Header stays persistent across page changes */}
-          <div className="max-w-7xl mx-auto px-2">
-            <Header
-              showNavigation={false}
-              showHeaderButtons={showHeaderButtons}
-              onToggleSidebar={showSidebar ? () => setMobileSidebarOpen((v) => !v) : undefined}
-              isSidebarOpen={showSidebar ? mobileSidebarOpen : undefined}
-            />
-          </div>
-
-          {/* Page content with sidebar */}
-          <main>
-            <div className={`max-w-7xl mx-auto px-2 mt-10 flex ${showSidebar ? 'flex-col lg:flex-row' : 'flex-col'}`}>
-              {/* Sidebar */}
-              {showSidebar && (
-                <aside id="app-sidebar" className={`w-full lg:w-1/4 lg:pr-6 lg:top-6 mb-8 lg:mb-0 ${mobileSidebarOpen ? 'block' : 'hidden'} lg:block`}>
-                  <Sidebar />
-                </aside>
-              )}
-
-              {/* Main content area */}
-              <div className={`w-full ${showSidebar ? 'lg:w-3/4' : ''}`}>
-                <div className="space-y-6 h-full">
-                  {children}
-                </div>
-              </div>
+            {/* Header stays persistent across page changes */}
+            <div className="max-w-7xl mx-auto px-2">
+              <Header
+                showNavigation={false}
+                showHeaderButtons={showHeaderButtons}
+                onToggleSidebar={showSidebar ? () => setMobileSidebarOpen((v) => !v) : undefined}
+                isSidebarOpen={showSidebar ? mobileSidebarOpen : undefined}
+              />
             </div>
-          </main>
-        </div>
+
+            {/* Page content with sidebar */}
+            <main>
+              <div className={`max-w-7xl mx-auto px-2 mt-10 flex ${showSidebar ? 'flex-col lg:flex-row' : 'flex-col'}`}>
+                {/* Left Sidebar */}
+                {showSidebar && (
+                  <aside id="app-sidebar" className={`w-full lg:w-60 lg:flex-shrink-0 lg:pr-4 lg:top-6 mb-8 lg:mb-0 ${mobileSidebarOpen ? 'block' : 'hidden'} lg:block`}>
+                    <Sidebar />
+                  </aside>
+                )}
+
+                {/* Main content area */}
+                <div className={`w-full ${showSidebar ? 'lg:flex-1 lg:min-w-0' : ''} ${showChatSidebar ? 'lg:pr-4' : ''}`}>
+                  <div className="space-y-6 h-full">
+                    {children}
+                  </div>
+                </div>
+
+                {/* Right Chat Sidebar */}
+                {showChatSidebar && (
+                  <aside className="hidden lg:block lg:w-72 lg:flex-shrink-0">
+                    <ChatSidebar />
+                  </aside>
+                )}
+              </div>
+            </main>
+
+            {/* LinkedIn-style chat windows */}
+            <ChatManager />
+          </div>
+        </TalkJSProvider>
       </IndexFilterProvider>
     </IndexesProvider>
   );

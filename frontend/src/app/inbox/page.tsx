@@ -486,6 +486,7 @@ export default function InboxPage() {
               <ConnectionActions
                 userId={user.id}
                 userName={user.name}
+                userAvatar={user.avatar || undefined}
                 connectionStatus={getConnectionStatus(tabType, requestsView, user.id)}
                 onAction={handleConnectionAction}
                 size="sm"

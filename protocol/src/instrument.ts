@@ -4,7 +4,9 @@ import path from 'path';
 
 // Load environment-specific .env file first
 const envFile = `.env.${process.env.NODE_ENV || 'development'}`;
-dotenv.config({ path: path.resolve(process.cwd(), envFile) });
+const envConfig = dotenv.config({ path: path.resolve(process.cwd(), envFile) });
+
+console.log('envConfig', envConfig);
 
 // Ensure to call this before importing any other modules!
 Sentry.init({

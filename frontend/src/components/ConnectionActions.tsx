@@ -2,14 +2,16 @@
 
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { UserPlus, X, Check, RotateCcw } from "lucide-react";
+import { UserPlus, X, Check, RotateCcw, MessageSquare } from "lucide-react";
 import { useNotifications } from "@/contexts/NotificationContext";
+import { useTalkJS } from "@/contexts/TalkJSContext";
 
 export type ConnectionAction = 'REQUEST' | 'SKIP' | 'CANCEL' | 'ACCEPT' | 'DECLINE';
 
 export interface ConnectionActionsProps {
   userId: string;
   userName: string;
+  userAvatar?: string;
   connectionStatus?: 'none' | 'pending_sent' | 'pending_received' | 'connected' | 'declined' | 'skipped';
   onAction: (action: ConnectionAction, userId: string) => Promise<void>;
   disabled?: boolean;
@@ -18,6 +20,8 @@ export interface ConnectionActionsProps {
 
 export default function ConnectionActions({
   userId,
+  userName,
+  userAvatar,
   connectionStatus = 'none',
   onAction,
   disabled = false,
@@ -25,6 +29,11 @@ export default function ConnectionActions({
 }: ConnectionActionsProps) {
   const [isLoading, setIsLoading] = useState(false);
   const { success, error } = useNotifications();
+  const { openChat, isReady: isChatReady } = useTalkJS();
+
+  const handleMessage = () => {
+    openChat(userId, userName, userAvatar);
+  };
 
   const handleAction = async (action: ConnectionAction) => {
     if (disabled || isLoading) return;
@@ -130,9 +139,22 @@ export default function ConnectionActions({
 
       case 'connected':
         return (
-          <div className="flex items-center gap-2 px-3 py-2 text-sm text-gray-600">
-            Connected
-          </div>
+          <>
+            {isChatReady && (
+              <Button
+                variant="outline"
+                size={size}
+                onClick={handleMessage}
+                className="flex items-center gap-2"
+              >
+                <MessageSquare className="h-4 w-4" />
+                Message
+              </Button>
+            )}
+            <div className="flex items-center gap-2 px-3 py-2 text-sm text-gray-600">
+              Connected
+            </div>
+          </>
         );
 
       default:
