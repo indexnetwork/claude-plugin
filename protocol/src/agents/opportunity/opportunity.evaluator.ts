@@ -134,7 +134,18 @@ export class OpportunityEvaluator extends BaseLangChainAgent {
     }
 
     /**
-     * Analyze a single match pair using the primary Agent model
+     * Analyze a single match pair using the primary Agent model.
+     * 
+     * IMPORTANT: This method prioritizes the `hydeDescription` if provided. 
+     * It treats the HyDE description as the "Gold Standard" or "Ideal Match" criteria
+     * and evaluates how well the Candidate fits that specific description, rather than 
+     * just comparing two raw profiles.
+     * 
+     * @param sourceProfile - The profile of the source user. Used as fallback if no HyDE description.
+     * @param candidateProfile - The profile of the candidate being evaluated.
+     * @param candidateUserId - The ID of the candidate user.
+     * @param hydeDescription - (Optional) The hypothetical ideal match description.
+     * @returns A promise resolving to a list of identified opportunities.
      */
     private async analyzeMatch(
         sourceProfile: UserMemoryProfile,

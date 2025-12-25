@@ -17,11 +17,11 @@ async function runTests() {
     }
 
     console.log("1️⃣  Test: Live Search (Casey Harper)");
-    const query = 'Casey Harper, "test-6285@privy.io"';
+    const objective = 'Casey Harper, "test-6285@privy.io"';
 
     try {
-        console.log(`Searching for: ${query}...`);
-        const result = await searchUser(query);
+        console.log(`Searching for: ${objective}...`);
+        const result = await searchUser({ objective });
         console.log("Result:\n", JSON.stringify(result, null, 2));
 
         if (result && Array.isArray(result.results)) {

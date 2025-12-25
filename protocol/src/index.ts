@@ -13,6 +13,13 @@ import { initWeeklyNewsletterJob } from './jobs/newsletter.job';
 import './queues/intent.queue';
 import './queues/newsletter.queue';
 import './queues/opportunity.queue';
+/**
+ * PLAYGROUND
+ */
+import { getAvailableAgents, runAgent } from './agents/playground/server/registry';
+import { PARALLEL_INPUTS } from './agents/playground/server/data/users';
+
+import path from 'path';
 
 import authRoutes from './routes/auth';
 import userRoutes from './routes/users';
@@ -52,7 +59,13 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // Serve static files from uploads directory
+// Serve static files from uploads directory
 app.use('/uploads', express.static('uploads'));
+
+// Helper to determine playground path
+const PLAYGROUND_DIST = path.resolve(__dirname, './agents/playground/dist');
+app.use('/playground', express.static(PLAYGROUND_DIST));
+
 
 // Health check
 app.get('/health', (req, res) => {
@@ -81,6 +94,28 @@ app.use('/api/queue', queueRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/feedback', feedbackRoutes);
 app.use('/api/notifications', notificationRoutes);
+
+// --- Playground API Routes ---
+app.get('/api/agents', (req, res) => {
+  res.json(getAvailableAgents());
+});
+
+app.get('/api/data/users', (req, res) => {
+  res.json(PARALLEL_INPUTS);
+});
+
+app.post('/api/run/:agentId', async (req, res) => {
+  const { agentId } = req.params;
+  const input = req.body;
+  try {
+    const result = await runAgent(agentId, input);
+    res.json(result);
+  } catch (error: any) {
+    console.error(`Error running agent ${agentId}:`, error);
+    res.status(500).json({ error: error.message || 'Internal Server Error' });
+  }
+});
+
 
 if (process.env.NODE_ENV === 'development') {
   app.use('/api/dev', devRoutes);

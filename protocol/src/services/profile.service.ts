@@ -328,14 +328,16 @@ export class ProfileService {
 
       callbacks.onStatus('Searching for public information...');
 
-      let query = `Find information about the person named ${user.name || 'Unknown'}.`;
-      if (user.email) query += `\nEmail: ${user.email}`;
-      if (socials.linkedin) query += `\nLinkedIn: ${socials.linkedin}`;
-      if (socials.x) query += `\nTwitter: ${socials.x}`;
-      if (socials.github) query += `\nGitHub: ${socials.github}`;
-      if (socials.websites?.length) query += `\nWebsites: ${socials.websites.join(', ')}`;
+      const objective = {
+        name: user.name || 'Unknown',
+        email: user.email,
+        linkedin: socials.linkedin,
+        x: socials.x,
+        github: socials.github,
+        websites: socials.websites
+      };
 
-      const searchResult = await searchUser(query);
+      const searchResult = await searchUser(objective);
 
       callbacks.onStatus('Analyzing profile data...');
 

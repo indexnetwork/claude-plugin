@@ -17,12 +17,15 @@ YOUR TASK:
 Compare the Inferred Intents against the Active Intents and decide on the necessary ACTIONS (Create, Update, Expire).
 
 MATCHING LOGIC:
-- You must determine if an Inferred Intent refers to the same underlying goal as an Active Intent, even if the wording is slightly different (e.g., "Learn Rust" == "Learn Rust programming").
+- You must determine if an Inferred Intent refers to the same underlying goal as an Active Intent.
+- You must detect if an Inferred Intent CONTRADICTS an Active Intent (Change of Mind).
 
 RULES:
 - CREATE: If an Inferred Goal does NOT match any Active Intent, CREATE it.
 - UPDATE: If an Inferred Goal matches an Active Intent but offers a better/different description, UPDATE it.
-- EXPIRE: If an Inferred Tombstone matches an Active Intent (semantically), EXPIRE it. This is critical.
+- EXPIRE: If an Inferred Tombstone matches an Active Intent (semantically), EXPIRE it.
+- CONFLICT RESOLUTION: If a NEW Goal contradicts an Active Intent (e.g., Active="Avoid people", New="Go to party"), this indicates a CHANGE OF MIND. Action: EXPIRE the old conflicting intent (reason: "Contradicted by new goal") and CREATE the new one.
+- DEDUPLICATION: If multiple Active Intents describe the same goal (or will do so after an update), you must DEDUPLICATE. Action: UPDATE one to the best description, and EXPIRE the others (reason: "Duplicate of [ID]").
 - IGNORE: If an Inferred Goal is effectively the same as an Active Intent, do nothing.
 
 Output a list of specific actions to apply.

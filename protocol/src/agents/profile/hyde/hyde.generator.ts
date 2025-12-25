@@ -66,8 +66,8 @@ export class HydeGeneratorAgent extends BaseLangChainAgent {
   async generate(profile: UserMemoryProfile): Promise<string> {
 
     const profileDescription = json2md.fromObject({
-      bio: profile.identity.bio,
-      location: profile.identity.location,
+      bio: profile.identity?.bio || '',
+      location: profile.identity?.location || '',
       interests: profile.attributes?.interests || [],
       // aspirations: profile.narrative?.aspirations || '',
       context: profile.narrative?.context || ''
