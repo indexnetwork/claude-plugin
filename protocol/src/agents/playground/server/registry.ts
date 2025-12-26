@@ -10,6 +10,13 @@ import { HydeGeneratorAgent } from '../../profile/hyde/hyde.generator';
 
 import { searchUser } from '../../../lib/parallel/parallel';
 import { json2md } from '../../../lib/json2md/json2md';
+import { IndexEmbedder } from '../../../lib/embedder';
+// Shared Embedder Instance (for default usage)
+// This embedder is used for generation only (ProfileGenerator, HydeGenerator).
+// Search capability is now handled per-agent or via memory searcher.
+const sharedEmbedder = new IndexEmbedder();
+
+import { memorySearcher } from '../../../lib/embedder/searchers/memory.searcher';
 
 // Schema Definitions
 export type AgentFieldType = 'string' | 'number' | 'boolean' | 'profile' | 'profile_array' | 'string_array' | 'hyde' | 'json';
@@ -185,9 +192,6 @@ const REGISTRY: AgentRegistryItem[] = [
     inputType: 'any',
     defaultInput: {
       sourceProfile: { identity: { name: "Alice", bio: "AI Researcher" }, attributes: { interests: ["AI", "Math"] } },
-      candidates: [
-        { identity: { name: "Bob", bio: "Crypto Founder" }, attributes: { interests: ["AI", "Finance"] } }
-      ],
       options: {
         minScore: 60,
         hydeDescription: "I am looking for a crypto-native founder who needs help with AI agent architecture. Ideally someone who has raised seed funding and is building on Ethereum."
@@ -195,12 +199,68 @@ const REGISTRY: AgentRegistryItem[] = [
     },
     fields: [
       { key: 'sourceProfile', label: 'Source Profile', type: 'profile', description: 'The user looking for opportunities.' },
-      { key: 'candidates', label: 'Candidates', type: 'profile_array', description: 'List of potential matches.' },
+      // Removed manual candidates input - now auto-retrieved via Embedder (Memory Mode from Context)
       { key: 'options.minScore', label: 'Minimum Score', type: 'number', defaultValue: 60 },
       { key: 'options.hydeDescription', label: 'HyDE Description', type: 'hyde', description: 'The hypothetical ideal match description.' }
     ],
     agentClass: OpportunityEvaluator,
-    runner: (agent, input) => agent.evaluateOpportunities(input.sourceProfile, input.candidates, input.options)
+    runner: async (agent, input) => {
+      // 1. Setup Memory Embedder
+      // We need an embedder that searches the PASSED candidates (from input.candidates injected by App.tsx)
+      const candidates = input.candidates || [];
+
+      const memoryEmbedder = new IndexEmbedder({
+        searcher: memorySearcher
+      });
+
+      // Inject this new embedder into the agent (or use it directly)
+      // Since agent.embedder is private/protected or set in constructor, we might need to rely on 
+      // the agent implementation using *an* embedder. 
+      // Our 'agent' instance here was created with 'sharedEmbedder' in runAgent(). 
+      // But that one is bound to Postgres.
+
+      // HACK: We can just use the memoryEmbedder directly here to do the work, 
+      // treating the Agent class mostly for the 'evaluateOpportunities' logic (LLM part).
+
+      // A. Generate Query
+      const queryText = input.options?.hydeDescription || agent.generateDirectQuery(input.sourceProfile);
+
+      // B. Search using Memory Embedder
+      // Use the generated query to search against the passed candidates
+      const embeddingResult = await memoryEmbedder.generate(queryText);
+      const queryVector = Array.isArray(embeddingResult[0])
+        ? (embeddingResult as number[][])[0]
+        : (embeddingResult as number[]);
+
+      const searchResults = await memoryEmbedder.search(
+        queryVector,
+        'profiles', // Collection name irrelevant for memory searcher
+        {
+          limit: input.options?.limit || 5,
+          filter: {
+            userId: { ne: input.sourceProfile.userId }
+          },
+          // CRITICAL: Pass the candidates to the memory searcher options
+          candidates: candidates
+        }
+      );
+
+      const foundCandidates = searchResults.map(r => r.item);
+
+      // C. Evaluate
+      const opportunities = await agent.evaluateOpportunities(input.sourceProfile, foundCandidates, input.options);
+
+      // Return composite debug object
+      return {
+        metadata: {
+          queryUsed: queryText,
+          totalCandidatesInContext: candidates.length,
+          opportunitiesFound: opportunities.length
+        },
+        opportunities: opportunities,
+        debug_found_candidates: foundCandidates
+      };
+    }
   },
 
   // --- Profile Agents ---
@@ -291,7 +351,19 @@ export async function runAgent(agentId: string, input: any) {
   }
 
   // Instantiate the agent (if class exists)
-  const agent = item.agentClass ? new item.agentClass() : null;
+  // Inject the shared embedder if the agent supports it
+  let agent = null;
+  if (item.agentClass) {
+    if (
+      item.agentClass === OpportunityEvaluator ||
+      item.agentClass === ProfileGenerator ||
+      item.agentClass === HydeGeneratorAgent
+    ) {
+      agent = new item.agentClass(sharedEmbedder);
+    } else {
+      agent = new item.agentClass();
+    }
+  }
 
   // Use custom runner if defined
   if (item.runner) {

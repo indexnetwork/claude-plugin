@@ -5,11 +5,22 @@ interface OpportunityEvaluatorInputProps {
   inputVal: string;
   setInputVal: (val: string) => void;
   inputMode: 'raw' | 'structured';
+  context: any[]; // Passed from App
 }
 
 const safeParse = (str: string) => {
   try { return JSON.parse(str); } catch { return {}; }
 };
+
+// --- Helper: Cosine Similarity ---
+function cosineSimilarity(vecA: number[], vecB: number[]): number {
+  if (!vecA || !vecB || vecA.length !== vecB.length) return 0;
+  const dotProduct = vecA.reduce((sum, a, i) => sum + a * vecB[i], 0);
+  const magnitudeA = Math.sqrt(vecA.reduce((sum, a) => sum + a * a, 0));
+  const magnitudeB = Math.sqrt(vecB.reduce((sum, b) => sum + b * b, 0));
+  if (magnitudeA === 0 || magnitudeB === 0) return 0;
+  return dotProduct / (magnitudeA * magnitudeB);
+}
 
 // Editable profile form for source/candidates
 const EditableProfile: React.FC<{
@@ -20,6 +31,10 @@ const EditableProfile: React.FC<{
 }> = ({ profile, label, onUpdate, onRemove }) => {
   const identity = profile?.identity || {};
   const attributes = profile?.attributes || {};
+  // ... (rest of EditableProfile remains same, reusing existing code implicitly if I could, but here I'm replacing the top part so I need to be careful not to cut off EditableProfile if I used replace_file_content on a range. 
+  // Wait, I am replacing lines 4-110. EditableProfile starts at line 15. The provided ReplacementContent MUST include EditableProfile or I must adjust the range.)
+
+  // RE-INLINING EditableProfile to be safe since I am replacing the top block including imports/interfaces
 
   const updateField = (section: string, field: string, value: any) => {
     const newProfile = {
@@ -102,7 +117,8 @@ const EditableProfile: React.FC<{
 export const OpportunityEvaluatorInput: React.FC<OpportunityEvaluatorInputProps> = ({
   inputVal,
   setInputVal,
-  inputMode
+  inputMode,
+  context
 }) => {
   // RAW mode - falls through to default textarea (handled by parent)
   if (inputMode === 'raw') {
@@ -140,6 +156,61 @@ export const OpportunityEvaluatorInput: React.FC<OpportunityEvaluatorInputProps>
 
   const hasSource = sourceProfile?.identity;
   const hasCandidates = candidates.length > 0;
+
+  /* Candidates Section */
+
+  const handleAutoDiscovery = () => {
+    if (!sourceProfile) {
+      console.warn('No source profile selected');
+      return;
+    }
+
+    // 1. Get query vector from source
+    // Ideally this is sourceProfile.embedding. If not present, we can't do vector search client side.
+    // For now, assume it's there.
+    const queryVector = sourceProfile.embedding;
+
+    if (!queryVector || !Array.isArray(queryVector)) {
+      console.warn('Source profile has no embedding vector. Cannot auto-discover.');
+      alert('Source profile missing embedding. Please ensure it was generated/fetched with an embedding.');
+      return;
+    }
+
+    // 2. Filter candidates from context
+    const potentialCandidates = context
+      .filter(c => c.type === 'profile' || (c.type === 'generated' && c.data?.identity))
+      .map(c => {
+        const data = c.data || c.value;
+        // Check for wrapped format { profile: ..., embedding: ... }
+        if (data?.profile) {
+          return {
+            ...data.profile,
+            // Use embedding from wrapper if available, else check inside profile
+            embedding: data.embedding || data.profile.embedding
+          };
+        }
+        return data;
+      })
+      .filter(p => p && p.identity && p.identity.name !== sourceProfile.identity.name) // Simple name exclusion
+      .filter(p => p.embedding && Array.isArray(p.embedding));
+
+    console.log(`[AutoDiscover] Found ${potentialCandidates.length} eligible candidates in local context.`);
+
+    // 3. Score
+    const scored = potentialCandidates.map(p => ({
+      profile: p,
+      score: cosineSimilarity(queryVector, p.embedding)
+    }));
+
+    // 4. Sort and Log
+    scored.sort((a, b) => b.score - a.score);
+
+    console.log('[AutoDiscover] Scores:', scored.map(s => `${s.profile.identity.name}: ${s.score.toFixed(4)}`));
+
+    // 5. Update Input with top 5
+    const topCandidates = scored.slice(0, 5).map(s => s.profile);
+    updateInput({ candidates: topCandidates });
+  };
 
   return (
     <div className="complex-form structured-mode" style={{ display: 'flex', flexDirection: 'column', gap: '16px', maxWidth: '100%', overflow: 'hidden' }}>
@@ -179,9 +250,26 @@ export const OpportunityEvaluatorInput: React.FC<OpportunityEvaluatorInputProps>
       {/* Candidates Section */}
       <div className="form-group">
         <div className="form-row" style={{ flexDirection: 'column', alignItems: 'stretch' }}>
-          <div className="label-col" style={{ marginBottom: '8px' }}>
-            <label style={{ color: '#00ffff' }}>Candidates</label>
-            <span className="desc-tooltip">Profiles to evaluate against the source</span>
+          <div className="label-col" style={{ marginBottom: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div>
+              <label style={{ color: '#00ffff' }}>Candidates</label>
+              <span className="desc-tooltip">Profiles to evaluate against the source</span>
+            </div>
+            <button
+              onClick={handleAutoDiscovery}
+              style={{
+                background: '#333',
+                color: '#00ffff',
+                border: '1px solid #00ffff',
+                padding: '4px 8px',
+                borderRadius: '4px',
+                fontSize: '0.75rem',
+                cursor: 'pointer',
+                fontWeight: 600
+              }}
+            >
+              Auto-Find
+            </button>
           </div>
           <div className="input-col" style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: '6px' }}>
             {hasCandidates ? (
@@ -205,6 +293,7 @@ export const OpportunityEvaluatorInput: React.FC<OpportunityEvaluatorInputProps>
                 fontSize: '0.85rem'
               }}>
                 Click a <span style={{ color: '#00ffff' }}>profile</span> → "Add to Candidates"
+                <br /><span style={{ opacity: 0.5, fontSize: '0.75rem' }}>or click Auto-Find to search local memory</span>
               </div>
             )}
           </div>

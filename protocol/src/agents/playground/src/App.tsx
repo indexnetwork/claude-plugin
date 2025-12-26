@@ -152,6 +152,33 @@ function App() {
         }
       }
 
+      // Special Case: Opportunity Evaluator - Inject Candidates from Context
+      if (selectedAgentId === 'opportunity-evaluator') {
+        const potentialCandidates = context
+          .filter(c => c.type === 'profile' || (c.type === 'generated' && c.data?.identity))
+          .map(c => {
+            // Ensure it has the structure expected by the backend
+            // For generated items, c.data might be { profile: {...}, embedding: [...] }
+            // We want to flatten it to { ...profile, embedding: [...] }
+            if (c.data?.profile) {
+              return {
+                ...c.data.profile,
+                embedding: c.data.embedding || c.data.profile.embedding
+              };
+            }
+            return c.data || c.value; // Fallback for pure profile items
+          });
+
+        // Merge into payload
+        if (typeof payload === 'object') {
+          payload = {
+            ...payload,
+            candidates: potentialCandidates
+          };
+        }
+        addLog(`Injected ${potentialCandidates.length} candidates from local context.`);
+      }
+
       const res = await runAgent(selectedAgentId, payload);
       setOutputVal(JSON.stringify(res, null, 2));
       addLog(`Execution successful.`);
@@ -323,7 +350,13 @@ function App() {
 
     // Smart unpacking for profiles
     if ((item.type === 'profile' || item.type === 'generated') && dataToInject?.profile) {
-      dataToInject = dataToInject.profile;
+      // Preserve embedding if it exists on the parent object
+      const embedding = dataToInject.embedding;
+      dataToInject = {
+        ...dataToInject.profile,
+        // Only add embedding if it exists and isn't already in the profile
+        ...(embedding ? { embedding } : {})
+      };
     }
 
     // Special handling for Opportunity Evaluator
@@ -1077,7 +1110,7 @@ function App() {
 
     // 2. Opportunity Evaluator - use component for structured mode
     if (selectedAgent.id === 'opportunity-evaluator' && inputMode === 'structured') {
-      return <OpportunityEvaluatorInput inputVal={inputVal} setInputVal={setInputVal} inputMode={inputMode} />;
+      return <OpportunityEvaluatorInput inputVal={inputVal} setInputVal={setInputVal} inputMode={inputMode} context={context} />;
     }
 
     // 3. HyDE Generator - STRUCT mode uses component, RAW mode falls through to default textarea
