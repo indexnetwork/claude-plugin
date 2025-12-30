@@ -61,14 +61,6 @@ const REGISTRY: AgentRegistryItem[] = [
       linkedin: "https://linkedin.com/in/seren",
       websites: ["https://index.network"]
     },
-    fields: [
-      { key: 'name', label: 'Name', type: 'string' },
-      { key: 'email', label: 'Email', type: 'string' },
-      { key: 'linkedin', label: 'LinkedIn', type: 'string' },
-      { key: 'twitter', label: 'X (Twitter)', type: 'string' },
-      { key: 'github', label: 'GitHub', type: 'string' },
-      { key: 'websites', label: 'Websites', type: 'string_array' }
-    ],
     runner: async (_, input) => {
       // 1. Objective Strategy
       if (typeof input === 'string') {
@@ -360,11 +352,127 @@ export function getAvailableAgents() {
   }));
 }
 
-export async function runAgent(agentId: string, input: any) {
+export interface RunAgentOptions {
+  preProcessors?: {
+    embed?: boolean;   // If true, generate embedding for the input
+    json2md?: boolean; // If true, convert input to markdown string
+  };
+}
+
+export async function runAgent(agentId: string, input: any, options?: RunAgentOptions) {
   const item = REGISTRY.find(a => a.id === agentId);
   if (!item) {
     throw new Error(`Agent ${agentId} not found in registry.`);
   }
+
+  // --- PRE-PROCESSORS ---
+  let finalInput = input;
+
+  // 1. Embedding pre-processor
+  if (options?.preProcessors?.embed) {
+    // Only fetch if input is object (Profile-like) or string
+    // If it's a string, we might just embedding it directly?
+    // For now, assume Profile Object pattern which is the main use case
+    if (typeof finalInput === 'object' && finalInput !== null) {
+      // Validate common profile fields to verify it's valid for embedding
+      const hasContent = finalInput.identity?.bio || finalInput.identity?.name || finalInput.content;
+
+      if (hasContent) {
+        // Construct text to embed
+        // Fallback: If it has 'content' field (ExplicitIntent), use that.
+        // Else if it looks like a profile, construct profile text.
+        let textToEmbed = "";
+
+        if (typeof finalInput.content === 'string') {
+          textToEmbed = finalInput.content;
+        } else {
+          // Helper to construct profile text (duplicated from queue for now, or use common?)
+          // Inline simple construction
+          const parts = [
+            finalInput.identity?.bio,
+            finalInput.identity?.location,
+            finalInput.narrative?.aspirations,
+            finalInput.narrative?.context,
+            ...(finalInput.attributes?.interests || []),
+            ...(finalInput.attributes?.skills || [])
+          ];
+          textToEmbed = parts.filter(Boolean).join(' ');
+        }
+
+        if (textToEmbed) {
+          const embedding = await sharedEmbedder.generate(textToEmbed);
+          // Attach embedding to input
+          finalInput = {
+            ...finalInput,
+            embedding: Array.isArray(embedding[0]) ? embedding[0] : embedding
+          };
+        }
+      }
+    }
+  }
+
+  // 2. Json2MD pre-processor
+  if (options?.preProcessors?.json2md) {
+    // If input is already string, skip
+    if (typeof finalInput !== 'string') {
+      // If input has 'profile' wrapper, unwrap it for formatting?
+      // Or just format the whole object?
+      // Agents usually expect specific keys if they are consuming the string, 
+      // but the Refactor made them accept "profileContext" string.
+      // So we should format the relevant part.
+
+      // Strategy: 
+      // If input has `identity` (UserMemoryProfile), format the whole thing.
+      // If input has `profile` property (IntentManager wrapper), format that property?
+      // Actually, IntentManager expects `profileContext` string argument if we changed the signature?
+      // Wait, IntentManager.processIntent(content, profileContext, activeIntents).
+      // If we pass a single string to agent.run(), we assume the agent handles one argument?
+
+      // Let's look at `runner` implementations.
+
+      // ExplicitInferrer: runner: (agent, input) => agent.run(input.content, input.profile)
+      // This runner DESTRUCTURES input. 
+      // If we convert `input` to a string, this runner FAILs.
+
+      // CRITICAL: Pre-processors should apply to the arguments *expected* by the Runner.
+      // BUT `runAgent` is generic.
+
+      // We must handle specific Agent quirks OR make the Agent accept the result of the pre-processor.
+      // Since we just refactored Agents to take Strings, checking specific agents:
+
+      // HydeGenerator: runner: agent.generate(input.profile || input)
+      // If we use json2md, `finalInput` becomes a string. 
+      // `agent.generate(string)` -> Valid!
+
+      // ExplicitIntent (ExplicitIntentDetector): 
+      // runner: (agent, input) => agent.run(input.content, input.profile)
+      // If we convert input to markdown, we lose `content` vs `profile` separation.
+      // ISSUE: ExplicitIntent needs 2 args: content (string) and profile (context string).
+      // Pre-processor `json2md` usually implies "Context Object -> Context String".
+
+      // FOR NOW: Let's apply `json2md` to formatted profile objects. 
+      // If the agent requires complex arguments (like ExplicitIntent), we might need to apply it specifically.
+      // However, for the initial refactor, let's assume `json2md` converts the *Context* object.
+
+      // If `ExplicitIntentInferrer`, we likely only want to format the `profile` part.
+      // But `runAgent` doesn't know structure.
+
+      // COMPROMISE:
+      // If input is a complex object with `profile`, and we requested json2md:
+      // We transform `input.profile` -> string.
+      // Effectively "Smart" json2md.
+
+      if (finalInput && typeof finalInput === 'object') {
+        if (finalInput.profile) {
+          finalInput.profile = json2md.fromObject(finalInput.profile);
+        } else if (finalInput.identity) {
+          // It is the profile itself
+          finalInput = json2md.fromObject(finalInput);
+        }
+      }
+    }
+  }
+
 
   // Instantiate the agent (if class exists)
   // Inject the shared embedder if the agent supports it
@@ -383,12 +491,12 @@ export async function runAgent(agentId: string, input: any) {
 
   // Use custom runner if defined
   if (item.runner) {
-    return await item.runner(agent, input);
+    return await item.runner(agent, finalInput);
   } else {
     // Default fallback
     if (!agent || typeof agent.run !== 'function') {
       throw new Error(`Agent ${agentId} does not have a .run() method.`);
     }
-    return await agent.run(input);
+    return await agent.run(finalInput);
   }
 }
