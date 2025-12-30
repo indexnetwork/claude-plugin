@@ -6,6 +6,7 @@ interface OpportunityEvaluatorInputProps {
   setInputVal: (val: string) => void;
   inputMode: 'raw' | 'structured';
   context: any[]; // Passed from App
+  onLog?: (msg: string) => void;
 }
 
 const safeParse = (str: string) => {
@@ -118,7 +119,8 @@ export const OpportunityEvaluatorInput: React.FC<OpportunityEvaluatorInputProps>
   inputVal,
   setInputVal,
   inputMode,
-  context
+  context,
+  onLog
 }) => {
   // RAW mode - falls through to default textarea (handled by parent)
   if (inputMode === 'raw') {
@@ -206,6 +208,15 @@ export const OpportunityEvaluatorInput: React.FC<OpportunityEvaluatorInputProps>
     scored.sort((a, b) => b.score - a.score);
 
     console.log('[AutoDiscover] Scores:', scored.map(s => `${s.profile.identity.name}: ${s.score.toFixed(4)}`));
+
+    console.log('[AutoDiscover] Top Candidates Selected:');
+    onLog?.('[AutoDiscover] Top Candidates Selected:');
+
+    scored.slice(0, 5).forEach((s, i) => {
+      const msg = `  ${i + 1}. ${s.profile.identity.name} - Score: ${s.score.toFixed(4)}`;
+      console.log(msg);
+      onLog?.(msg);
+    });
 
     // 5. Update Input with top 5
     const topCandidates = scored.slice(0, 5).map(s => s.profile);

@@ -1149,7 +1149,7 @@ function App() {
 
     // 2. Opportunity Evaluator - use component for structured mode
     if (selectedAgent.id === 'opportunity-evaluator' && inputMode === 'structured') {
-      return <OpportunityEvaluatorInput inputVal={inputVal} setInputVal={setInputVal} inputMode={inputMode} context={context} />;
+      return <OpportunityEvaluatorInput inputVal={inputVal} setInputVal={setInputVal} inputMode={inputMode} context={context} onLog={addLog} />;
     }
 
     // 3. HyDE Generator - STRUCT mode uses component, RAW mode falls through to default textarea
