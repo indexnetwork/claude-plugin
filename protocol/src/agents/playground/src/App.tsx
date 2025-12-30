@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+
 import {
   type Agent,
   type AgentField,
@@ -9,12 +10,12 @@ import {
 } from './lib/api';
 import './App.css';
 import { Terminal, Cpu, Database, Play, Save, Loader, Code, LayoutTemplate } from 'lucide-react';
-import { ParallelFetcherInput } from './components/ParallelFetcherInput';
-import { ProfileGeneratorInput } from './components/ProfileGeneratorInput';
-import { HydeGeneratorInput } from './components/HydeGeneratorInput';
+
+
 import { OpportunityEvaluatorInput } from './components/OpportunityEvaluatorInput';
 import { IntentManagerInput } from './components/IntentManagerInput';
 import { ExplicitIntentInferrerInput } from './components/ExplicitIntentInferrerInput';
+import { GeneralInput } from './components/GeneralInput';
 
 function App() {
   const [agents, setAgents] = useState<Agent[]>([]);
@@ -24,6 +25,8 @@ function App() {
   // Input State
   const [inputVal, setInputVal] = useState<string>('');
   const [inputMode, setInputMode] = useState<'raw' | 'structured'>('raw');
+  const [profilePreviewMode, setProfilePreviewMode] = useState<boolean>(false);
+
 
   const [outputVal, setOutputVal] = useState<string>('');
   const [isRunning, setIsRunning] = useState<boolean>(false);
@@ -34,6 +37,12 @@ function App() {
 
   // Track source context ID for intent-manager profile updates
   const [sourceProfileCtxId, setSourceProfileCtxId] = useState<string | null>(null); // Track which ctx item populated the profile
+
+  // Pre-processors State
+  const [preProcessors, setPreProcessors] = useState<{ embed: boolean; json2md: boolean }>({
+    embed: false,
+    json2md: false
+  });
 
   // Init & Persistence
   useEffect(() => {
@@ -116,6 +125,8 @@ function App() {
       setInputVal('');
     }
     setOutputVal('');
+    // Reset profile preview mode on agent switch
+    setProfilePreviewMode(false);
     addLog(`Agent selected: ${agent?.name}`);
   };
 
@@ -128,30 +139,28 @@ function App() {
       let payload: any = inputVal;
 
       // Special Case: Parallel Fetcher "Objective" strategy (mapped to 'raw') is pure string
-      if (selectedAgentId === 'parallel-fetcher' && inputMode === 'raw') {
-        payload = inputVal;
-      } else {
+
+      try {
+        payload = JSON.parse(inputVal);
+      } catch (e) {
+        // If strict JSON fails, try lenient evaluation (for trailing commas, etc.)
+        // This is safe-ish in a local playground context.
         try {
-          payload = JSON.parse(inputVal);
-        } catch (e) {
-          // If strict JSON fails, try lenient evaluation (for trailing commas, etc.)
-          // This is safe-ish in a local playground context.
-          try {
-            // Security-safe fallback: Clean common JSON errors (like trailing commas)
-            // Regex: Find commas followed by closing braces/brackets, ignoring whitespace
-            const cleaned = inputVal.replace(/,(\s*[}\]])/g, '$1');
-            payload = JSON.parse(cleaned);
-          } catch (lenientErr) {
-            // If both fail, and it's not raw_text, error out
-            if (selectedAgent?.inputType !== 'raw_text') {
-              addLog(`Error: Invalid input: ${(lenientErr as any).message}`);
-              setIsRunning(false);
-              return;
-            }
-            // For raw_text, keep as string (payload is already inputVal)
+          // Security-safe fallback: Clean common JSON errors (like trailing commas)
+          // Regex: Find commas followed by closing braces/brackets, ignoring whitespace
+          const cleaned = inputVal.replace(/,(\s*[}\]])/g, '$1');
+          payload = JSON.parse(cleaned);
+        } catch (lenientErr) {
+          // If both fail, and it's not raw_text, error out
+          if (selectedAgent?.inputType !== 'raw_text' && selectedAgent?.inputType !== 'any') {
+            addLog(`Error: Invalid input: ${(lenientErr as any).message}`);
+            setIsRunning(false);
+            return;
           }
+          // For raw_text, keep as string (payload is already inputVal)
         }
       }
+
 
       // Special Case: Opportunity Evaluator - Inject Candidates from Context
       if (selectedAgentId === 'opportunity-evaluator') {
@@ -180,7 +189,7 @@ function App() {
         addLog(`Injected ${potentialCandidates.length} candidates from local context.`);
       }
 
-      const res = await runAgent(selectedAgentId, payload);
+      const res = await runAgent(selectedAgentId, payload, { preProcessors });
       setOutputVal(JSON.stringify(res, null, 2));
       addLog(`Execution successful.`);
     } catch (e: any) {
@@ -351,13 +360,13 @@ function App() {
 
     // Smart unpacking for profiles
     if ((item.type === 'profile' || item.type === 'generated') && dataToInject?.profile) {
-      // Preserve embedding if it exists on the parent object
-      const embedding = dataToInject.embedding;
-      dataToInject = {
-        ...dataToInject.profile,
-        // Only add embedding if it exists and isn't already in the profile
-        ...(embedding ? { embedding } : {})
-      };
+      dataToInject = { ...dataToInject.profile };
+    }
+
+    // Strip embedding if present (user request)
+    if (dataToInject && typeof dataToInject === 'object' && 'embedding' in dataToInject) {
+      const { embedding, ...rest } = dataToInject;
+      dataToInject = rest;
     }
 
     // Special handling for Opportunity Evaluator
@@ -835,7 +844,6 @@ function App() {
                   fontSize: '0.7rem',
                   marginBottom: '8px',
                   textTransform: 'uppercase',
-                  marginTop: '12px'
                 }}>-- {field.label} --</div>
 
                 {renderRow('Name:', 'name', 'Enter name...')}
@@ -1138,96 +1146,91 @@ function App() {
     );
   };
 
-  const renderInputArea = () => {
+  const renderStructuredContent = () => {
     if (!selectedAgent) return null;
 
-    // 1. Profile Generator - use component
-    if (selectedAgent.id === 'profile-generator') {
-      return <ProfileGeneratorInput inputVal={inputVal} setInputVal={setInputVal} inputMode={inputMode} />;
-    }
-
-
-    // 2. Opportunity Evaluator - use component for structured mode
+    // 1. Opportunity Evaluator - use component for structured mode
     if (selectedAgent.id === 'opportunity-evaluator' && inputMode === 'structured') {
       return <OpportunityEvaluatorInput inputVal={inputVal} setInputVal={setInputVal} inputMode={inputMode} context={context} onLog={addLog} />;
     }
 
-    // 3. HyDE Generator - STRUCT mode uses component, RAW mode falls through to default textarea
-    if (selectedAgent.id === 'hyde-generator' && inputMode === 'structured') {
-      return <HydeGeneratorInput inputVal={inputVal} setInputVal={setInputVal} inputMode={inputMode} />;
-    }
+    // 2. HyDE Generator - uses component for structured mode
 
-    // 4. Intent Manager - use component for structured mode
+
+    // 3. Intent Manager - use component for structured mode
     if (selectedAgent.id === 'intent-manager' && inputMode === 'structured') {
       return <IntentManagerInput inputVal={inputVal} setInputVal={setInputVal} inputMode={inputMode} />;
     }
 
-    // 5. Explicit Intent Inferrer - use component for structured mode
+    // 4. Explicit Intent Inferrer - use component for structured mode
     if (selectedAgent.id === 'explicit-intent-detector' && inputMode === 'structured') {
       return <ExplicitIntentInferrerInput inputVal={inputVal} setInputVal={setInputVal} inputMode={inputMode} />;
     }
 
-    // 3. Parallel Fetcher - use component
-    if (selectedAgent.id === 'parallel-fetcher') {
-      return <ParallelFetcherInput inputVal={inputVal} setInputVal={setInputVal} inputMode={inputMode} />;
-    }
-
-    if (selectedAgent.inputType === 'parallel_params' && inputMode === 'structured') {
-      return renderParallelInput();
-    }
+    // 5. Parallel Fetcher - usage removed (standard raw input only)
 
     if (inputMode === 'structured' && selectedAgent.fields) {
       return renderStructuredForm(selectedAgent.fields);
     }
 
-    return (
-      <textarea
-        className="terminal-input"
-        value={inputVal}
-        onChange={(e) => setInputVal(e.target.value)}
-      />
-    );
-  };
-
-  const renderParallelInput = () => {
-    const parsed = safeParse(inputVal);
-    return (
-      <div className="complex-form">
-        {['name', 'email', 'linkedin', 'twitter', 'website', 'location', 'company', 'github'].map(field => (
-          <div key={field} className="form-row">
-            <label>{field}:</label>
-            <input
-              type="text"
-              value={parsed[field] || ''}
-              onChange={(e) => {
-                const newObj = { ...parsed, [field]: e.target.value };
-                setInputVal(JSON.stringify(newObj, null, 2));
-              }}
-              placeholder={`Enter ${field}...`}
-            />
-          </div>
-        ))}
-      </div>
-    );
+    return null;
   };
 
   const safeParse = (str: string) => {
     try { return JSON.parse(str); } catch { return {}; }
   };
 
-  const generateQueryFromParams = (params: any) => {
-    const name = params.name || 'Unknown';
-    let query = `Find information about the person named ${name}.`;
-    if (params.email) query += `\nEmail: ${params.email}`;
-    if (params.linkedin) query += `\nLinkedIn: ${params.linkedin}`;
-    if (params.twitter) query += `\nTwitter: ${params.twitter}`;
-    if (params.github) query += `\nGitHub: ${params.github}`;
-    if (params.websites && Array.isArray(params.websites) && params.websites.length > 0) {
-      query += `\nWebsites: ${params.websites.join(', ')}`;
-    }
-    return query;
-  };
 
+
+
+  const renderHeaderControls = () => {
+    if (!selectedAgent) return null;
+    return (
+      <div style={{ display: 'flex', alignItems: 'center' }}>
+        {/* Pre-Processor Toggles */}
+        {selectedAgent.id !== 'profile-generator' && (selectedAgent.category === 'profile' || selectedAgent.category === 'opportunity' || selectedAgent.category === 'intent') && (
+          <div className="pre-processors" style={{ display: 'flex', gap: '12px', marginRight: '16px' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.75rem', cursor: 'pointer', color: preProcessors.embed ? '#00ffff' : '#666' }}>
+              <input
+                type="checkbox"
+                checked={preProcessors.embed}
+                onChange={(e) => setPreProcessors(prev => ({ ...prev, embed: e.target.checked }))}
+                style={{ accentColor: '#00ffff' }}
+              />
+              <span>+Embed</span>
+            </label>
+
+            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.75rem', cursor: 'pointer', color: preProcessors.json2md ? '#00ffff' : '#666' }}>
+              <input
+                type="checkbox"
+                checked={preProcessors.json2md}
+                onChange={(e) => setPreProcessors(prev => ({ ...prev, json2md: e.target.checked }))}
+                style={{ accentColor: '#00ffff' }}
+              />
+              <span>JSON→MD</span>
+            </label>
+          </div>
+        )}
+
+        {/* MODE TOGGLE */}
+        <div className="mode-toggle">
+          {selectedAgent.id === 'profile-generator' || selectedAgent.id === 'hyde-generator' || selectedAgent.id === 'parallel-fetcher' ? (
+            /* Handled by GeneralInput viewMode */
+            null
+          ) : (
+            <>
+              <button className={`mode-btn ${inputMode === 'structured' ? 'active' : ''}`} onClick={() => setInputMode('structured')} disabled={!selectedAgent.fields && selectedAgent.inputType !== 'parallel_params'}>
+                <LayoutTemplate size={14} /> STRUCT
+              </button>
+              <button className={`mode-btn ${inputMode === 'raw' ? 'active' : ''}`} onClick={() => setInputMode('raw')}>
+                <Code size={14} /> RAW
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+    );
+  };
 
   return (
     <div className="terminal-layout">
@@ -1283,142 +1286,47 @@ function App() {
         <div className="workspace">
           {/* TOP: INPUT | OUTPUT */}
           <div className="workspace-top">
-            <div className="panel input-panel">
-              {/* INPUT HEADER */}
-              <div className="panel-header">
-                <div className="title-group">
-                  <span className="panel-label">INPUT_BUFFER</span>
-                  {selectedAgent && (
-                    <span className="badge">
-                      {selectedAgent.id === 'parallel-fetcher' ? 'ParallelSearchRequest' :
-                        selectedAgent.id === 'profile-generator' ? 'String' :
-                          selectedAgent.id === 'hyde-generator' ? 'UserMemoryProfile' :
-                            selectedAgent.inputType}
-                    </span>
-                  )}
-                </div>
-                {/* MODE TOGGLE */}
-                {selectedAgent && (
-                  <div className="mode-toggle">
-                    {selectedAgent.id === 'parallel-fetcher' ? (
-                      <>
-                        <button
-                          className={`mode-btn ${inputMode === 'raw' ? 'active' : ''}`}
-                          onClick={() => {
-                            // Convert current Struct to String
-                            const currentObj = safeParse(inputVal);
-                            const query = generateQueryFromParams(currentObj);
-                            setInputVal(query);
-                            setInputMode('raw');
-                          }}
-                        >
-                          OBJECTIVE
-                        </button>
-                        <button
-                          className={`mode-btn ${inputMode === 'structured' ? 'active' : ''}`}
-                          onClick={() => {
-                            // Revert to Default Struct (Can't easily parse string back to struct)
-                            const def = selectedAgent.defaultInput;
-                            setInputVal(JSON.stringify(def, null, 2));
-                            setInputMode('structured');
-                          }}
-                        >
-                          STRUCT
-                        </button>
-                      </>
-                    ) : selectedAgent.id === 'profile-generator' ? (
-                      <>
-                        <button
-                          className={`mode-btn ${inputMode === 'structured' ? 'active' : ''}`}
-                          onClick={() => {
-                            setInputMode('structured');
-                          }}
-                        >
-                          FROM_PARALLEL
-                        </button>
-                        <button
-                          className={`mode-btn ${inputMode === 'raw' ? 'active' : ''}`}
-                          onClick={() => {
-                            // Switch to raw mode with default text
-                            if (inputMode !== 'raw') {
-                              setInputVal(selectedAgent.defaultInput || '');
-                            }
-                            setInputMode('raw');
-                          }}
-                        >
-                          RAW
-                        </button>
-                      </>
-                    ) : selectedAgent.id === 'hyde-generator' ? (
-                      <>
-                        <button
-                          className={`mode-btn ${inputMode === 'structured' ? 'active' : ''}`}
-                          onClick={() => {
-                            setInputMode('structured');
-                          }}
-                        >
-                          STRUCT
-                        </button>
-                        <button
-                          className={`mode-btn ${inputMode === 'raw' ? 'active' : ''}`}
-                          onClick={() => {
-                            setInputMode('raw');
-                          }}
-                        >
-                          RAW
-                        </button>
-                      </>
-                    ) : (
-                      <>
-                        <button
-                          className={`mode-btn ${inputMode === 'structured' ? 'active' : ''}`}
-                          onClick={() => setInputMode('structured')}
-                          disabled={!selectedAgent.fields && selectedAgent.inputType !== 'parallel_params'}
-                          title={!selectedAgent.fields ? "No schema available" : "Structured View"}
-                        >
-                          <LayoutTemplate size={14} /> STRUCT
-                        </button>
-                        <button
-                          className={`mode-btn ${inputMode === 'raw' ? 'active' : ''}`}
-                          onClick={() => setInputMode('raw')}
-                        >
-                          <Code size={14} /> RAW
-                        </button>
-                      </>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              <div className="input-content">
-                {renderInputArea()}
-              </div>
-
-              {selectedAgent && (
-                <div className="actions-bar">
-                  <button
-                    className={`term-btn ${isRunning ? 'loading' : ''}`}
-                    onClick={handleRun}
-                    disabled={isRunning}
-                    style={{
-                      background: 'transparent',
-                      color: '#00ffff',
-                      border: '1px solid #00ffff',
-                      padding: '8px 16px',
-                      cursor: isRunning ? 'not-allowed' : 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '8px',
-                      fontFamily: 'inherit',
-                      fontSize: '0.85rem'
-                    }}
-                  >
-                    {isRunning ? <Loader size={16} className="spin" /> : <Play size={16} />}
-                    {isRunning ? 'EXECUTING...' : 'EXECUTE'}
-                  </button>
-                </div>
-              )}
-            </div>
+            <GeneralInput
+              value={inputVal}
+              onChange={setInputVal}
+              label="INPUT_BUFFER"
+              badge={selectedAgent ? (
+                selectedAgent.id === 'parallel-fetcher' ? 'JSON' :
+                  selectedAgent.id === 'profile-generator' ? 'String' :
+                    selectedAgent.id === 'hyde-generator' ? 'UserMemoryProfile' :
+                      selectedAgent.inputType
+              ) : undefined}
+              viewMode={(selectedAgent?.id === 'profile-generator' || selectedAgent?.id === 'hyde-generator') ? (profilePreviewMode ? 'preview' : 'edit') : 'edit'}
+              onViewModeChange={(mode) => setProfilePreviewMode(mode === 'preview')}
+              allowPreview={selectedAgent?.id === 'profile-generator' || selectedAgent?.id === 'hyde-generator'}
+              allowJson2Md={selectedAgent?.id === 'profile-generator' || selectedAgent?.id === 'hyde-generator'}
+              allowMarkdown={selectedAgent?.id !== 'parallel-fetcher'}
+              headerControls={renderHeaderControls()}
+              footerActions={
+                <button
+                  className={`term-btn ${isRunning ? 'loading' : ''}`}
+                  onClick={handleRun}
+                  disabled={isRunning}
+                  style={{
+                    background: 'transparent',
+                    color: '#00ffff',
+                    border: '1px solid #00ffff',
+                    padding: '8px 16px',
+                    cursor: isRunning ? 'not-allowed' : 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    fontFamily: 'inherit',
+                    fontSize: '0.85rem'
+                  }}
+                >
+                  {isRunning ? <Loader size={16} className="spin" /> : <Play size={16} />}
+                  {isRunning ? 'EXECUTING...' : 'EXECUTE'}
+                </button>
+              }
+            >
+              {renderStructuredContent()}
+            </GeneralInput>
 
             <div className="panel output-panel">
               <div className="panel-header">
@@ -1472,6 +1380,6 @@ function App() {
       </div>
     </div>
   );
-}
+};
 
 export default App;
