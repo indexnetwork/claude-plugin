@@ -108,13 +108,12 @@ app.post('/api/run/:agentId', async (req, res) => {
   const { agentId } = req.params;
   const body = req.body;
 
-  // Check for wrapper format { input: ..., options: ... }
-  // We assume if 'options' exists and 'input' exists, it's a wrapper. 
-  // Otherwise treat body as input (Legacy support).
+  // Check for wrapper format { input: ..., options?: ... }
+  // Only require 'input' key to exist - options is optional
   let input = body;
   let options = undefined;
 
-  if (body && typeof body === 'object' && 'input' in body && 'options' in body) {
+  if (body && typeof body === 'object' && 'input' in body) {
     input = body.input;
     options = body.options;
   }
