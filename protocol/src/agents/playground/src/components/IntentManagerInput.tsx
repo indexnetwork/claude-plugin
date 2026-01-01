@@ -101,7 +101,7 @@ export const IntentManagerInput: React.FC<IntentManagerInputProps> = ({
     <div className="complex-form structured-mode" style={{ display: 'flex', flexDirection: 'column', width: '100%', height: '100%' }}>
 
       {/* Content Section */}
-      <div style={{ height: '300px', width: '100%', border: '1px solid #333', borderRadius: '4px', overflow: 'hidden' }}>
+      <div style={{ minHeight: '300px', width: '100%', border: '1px solid #333', borderRadius: '4px', overflow: 'hidden' }}>
         <GeneralInput
           value={upstreamContent}
           onChange={(val) => updateInput({ content: val })}
@@ -114,7 +114,7 @@ export const IntentManagerInput: React.FC<IntentManagerInputProps> = ({
       </div>
 
       {/* Profile Section */}
-      <div style={{ height: '300px', width: '100%', border: '1px solid #333', borderRadius: '4px', overflow: 'hidden' }}>
+      <div style={{ minHeight: '300px', width: '100%', border: '1px solid #333', borderRadius: '4px', overflow: 'hidden' }}>
         <GeneralInput
           value={profileStr}
           onChange={(val) => {
@@ -136,7 +136,7 @@ export const IntentManagerInput: React.FC<IntentManagerInputProps> = ({
       </div>
 
       {/* Active Intents Section */}
-      <div style={{ height: '300px', width: '100%', border: '1px solid #333', borderRadius: '4px', overflow: 'hidden' }}>
+      <div style={{ minHeight: '300px', width: '100%', border: '1px solid #333', borderRadius: '4px', overflow: 'hidden' }}>
         <GeneralInput
           value={intentsStr}
           onChange={(val) => {

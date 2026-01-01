@@ -291,6 +291,7 @@ body {
   /* padding: 1rem; */
   /* border: 1px solid var(--term-border); -- Removed border to blend with new panel */
   background: transparent;
+  overflow-y: scroll;
 }
 
 .form-row {
