@@ -224,7 +224,7 @@ export const OpportunityEvaluatorInput: React.FC<OpportunityEvaluatorInputProps>
   };
 
   return (
-    <div className="complex-form structured-mode" style={{ display: 'flex', flexDirection: 'column', gap: '16px', maxWidth: '100%', overflow: 'hidden' }}>
+    <div className="complex-form structured-mode" style={{ display: 'flex', flexDirection: 'column', maxWidth: '100%', overflow: 'hidden' }}>
 
       {/* Source Profile Section */}
       <div className="form-group">

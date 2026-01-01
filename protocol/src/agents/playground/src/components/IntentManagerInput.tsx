@@ -98,7 +98,7 @@ export const IntentManagerInput: React.FC<IntentManagerInputProps> = ({
   const [intentsViewMode, setIntentsViewMode] = React.useState<'edit' | 'preview'>('edit');
 
   return (
-    <div className="complex-form structured-mode" style={{ display: 'flex', flexDirection: 'column', gap: '16px', width: '100%', height: '100%' }}>
+    <div className="complex-form structured-mode" style={{ display: 'flex', flexDirection: 'column', width: '100%', height: '100%' }}>
 
       {/* Content Section */}
       <div style={{ height: '300px', width: '100%', border: '1px solid #333', borderRadius: '4px', overflow: 'hidden' }}>

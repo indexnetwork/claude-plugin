@@ -150,7 +150,7 @@ body {
   flex: 1;
   min-width: 0;
   /* Critical for flex containers to not grow past 50% */
-  width: 50%;
+  /* width: 50%; */
   /* Force 50% split */
   border-right: 1px solid var(--term-border);
   position: relative;
@@ -287,8 +287,8 @@ body {
 .complex-form {
   display: flex;
   flex-direction: column;
-  gap: 0.8rem;
-  padding: 1rem;
+  /* gap: 0.8rem; */
+  /* padding: 1rem; */
   /* border: 1px solid var(--term-border); -- Removed border to blend with new panel */
   background: transparent;
 }
