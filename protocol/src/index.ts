@@ -1,6 +1,4 @@
-// Import this first! Must be before any other imports
 import './instrument';
-
 import * as Sentry from '@sentry/node';
 import express from 'express';
 import cors from 'cors';
@@ -140,11 +138,16 @@ app.post('/api/embeddings', async (req, res) => {
     // Standardize output to number[]
     const vector = Array.isArray(result[0]) ? result[0] : result;
     res.json({ vector });
+    return;
   } catch (error: any) {
     console.error('Error generating embedding:', error);
     res.status(500).json({ error: error.message });
+    return;
   }
+
 });
+
+
 
 
 if (process.env.NODE_ENV === 'development') {

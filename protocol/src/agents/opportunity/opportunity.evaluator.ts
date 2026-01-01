@@ -48,6 +48,8 @@ const OpportunityEvaluatorOutputSchema = z.object({
     opportunities: z.array(OpportunitySchema),
 });
 
+type EvaluatorOutput = z.infer<typeof OpportunityEvaluatorOutputSchema>;
+
 /**
  * OpportunityEvaluator Agent
  * 
@@ -132,20 +134,33 @@ export class OpportunityEvaluator extends BaseLangChainAgent {
      */
     async runDiscovery(
         sourceProfileContext: string,
-        options: OpportunityEvaluatorOptions & { limit?: number, candidates?: CandidateProfile[], filter?: Record<string, any> } // candidates optional for MemorySearcher
+        options: OpportunityEvaluatorOptions & { limit?: number, candidates?: CandidateProfile[], filter?: Record<string, unknown> } // candidates optional for MemorySearcher
     ): Promise<Opportunity[]> {
-        if (!this.embedder) {
-            throw new Error("Embedder must be injected to use runDiscovery");
-        }
-
         log.info('[OpportunityEvaluator] Starting Discovery run...');
+
+        const foundCandidates = await this.findCandidates(options);
+        log.info(`[OpportunityEvaluator] Found ${foundCandidates.length} potential candidates from search.`);
+
+        // 3. Evaluate Matches
+        return this.evaluateOpportunities(sourceProfileContext, foundCandidates, options);
+    }
+
+    /**
+     * Find candidates using the injected embedder (HyDE -> Embedding -> Search).
+     */
+    async findCandidates(
+        options: OpportunityEvaluatorOptions & { limit?: number, candidates?: CandidateProfile[], filter?: Record<string, unknown> }
+    ): Promise<CandidateProfile[]> {
+        if (!this.embedder) {
+            throw new Error("Embedder must be injected to use findCandidates");
+        }
 
         // 1. Generate Query Vector
         // STRICT: Use HyDE Description for Search
         const queryText = options.hydeDescription;
 
         if (!queryText) {
-            throw new Error("HyDE Description is required for Discovery Mode.");
+            throw new Error("HyDE Description is required for Search.");
         }
 
         const embeddingResult = await this.embedder.generate(queryText);
@@ -162,16 +177,13 @@ export class OpportunityEvaluator extends BaseLangChainAgent {
                 ...options, // Propagate minScore, filters, etc.
                 limit: options.limit || 5,
                 // For MemorySearcher, we might pass candidates directly in options to search against
-                candidates: options.candidates as any
+                candidates: options.candidates
             }
         );
 
-        const foundCandidates = searchResults.map(r => r.item);
-        log.info(`[OpportunityEvaluator] Found ${foundCandidates.length} potential candidates from search.`);
-
-        // 3. Evaluate Matches
-        return this.evaluateOpportunities(sourceProfileContext, foundCandidates, options);
+        return searchResults.map(r => r.item);
     }
+
 
     /**
      * Helper to generate a direct search query text.
@@ -223,16 +235,15 @@ export class OpportunityEvaluator extends BaseLangChainAgent {
             ];
 
             // Primary model is already configured with OutputSchema
-            const result = await this.model.invoke(messages) as any;
+            const result = await this.model.invoke(messages) as EvaluatorOutput | { structuredResponse: EvaluatorOutput };
 
             // Handle potential variations in structured output return
-            let opportunitiesList = [];
-            if (result.opportunities) {
+            let opportunitiesList: Opportunity[] = [];
+
+            if ('opportunities' in result && Array.isArray(result.opportunities)) {
                 opportunitiesList = result.opportunities;
-            } else if (result.structuredResponse?.opportunities) {
+            } else if ('structuredResponse' in result && result.structuredResponse?.opportunities) {
                 opportunitiesList = result.structuredResponse.opportunities;
-            } else if (typeof result === 'object' && Array.isArray(result.opportunities)) {
-                opportunitiesList = result.opportunities;
             }
 
             return opportunitiesList.map((op: Opportunity) => ({

@@ -32,8 +32,7 @@ function App() {
   const [isRunning, setIsRunning] = useState<boolean>(false);
   const [logs, setLogs] = useState<string[]>([]);
 
-  // Dropdown state for opportunity evaluator profile selection
-  const [profileDropdown, setProfileDropdown] = useState<{ ctxId: string; x: number; y: number } | null>(null);
+
 
   // Track source context ID for intent-manager profile updates
   const [sourceProfileCtxId, setSourceProfileCtxId] = useState<string | null>(null); // Track which ctx item populated the profile
@@ -424,14 +423,14 @@ function App() {
       }
       // If no targetKey and it's a profile, default to Setting Source + HyDE
       if (!targetKey && (item.type === 'profile' || item.type === 'generated')) {
-        const hydeDesc = dataToInject.hydeDescription || '';
+        const hydeDesc = dataToInject.hydeDescription || dataToInject.options?.hydeDescription || '';
         const newObj = {
           ...currentObj,
           sourceProfile: dataToInject,
           options: { ...currentObj.options, hydeDescription: hydeDesc }
         };
         setInputVal(JSON.stringify(newObj, null, 2));
-        addLog(`Set Source Profile & HyDE Description from ${item.name}`);
+        addLog(`Set Source Profile & HyDE from ${item.name}. HyDE len: ${hydeDesc.length}`);
         return;
       }
       return;
@@ -599,83 +598,13 @@ function App() {
     return (
       <>
         {/* Dropdown Menu for profile selection */}
-        {profileDropdown && (
-          <div
-            style={{
-              position: 'fixed',
-              top: profileDropdown.y,
-              left: profileDropdown.x,
-              background: '#1a1a1a',
-              border: '1px solid #333',
-              borderRadius: '4px',
-              zIndex: 1000,
-              boxShadow: '0 4px 12px rgba(0,0,0,0.3)'
-            }}
-          >
-            <button
-              onClick={() => {
-                injectContext(profileDropdown.ctxId, 'sourceProfile');
-                setProfileDropdown(null);
-              }}
-              style={{
-                display: 'block',
-                width: '100%',
-                padding: '8px 16px',
-                background: 'transparent',
-                border: 'none',
-                color: '#e6e6e6',
-                cursor: 'pointer',
-                textAlign: 'left',
-                fontSize: '0.85rem'
-              }}
-              onMouseEnter={(e) => (e.currentTarget.style.background = '#333')}
-              onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
-            >
-              Set as Source
-            </button>
-            <button
-              onClick={() => {
-                injectContext(profileDropdown.ctxId, 'candidates');
-                setProfileDropdown(null);
-              }}
-              style={{
-                display: 'block',
-                width: '100%',
-                padding: '8px 16px',
-                background: 'transparent',
-                border: 'none',
-                color: '#e6e6e6',
-                cursor: 'pointer',
-                textAlign: 'left',
-                fontSize: '0.85rem'
-              }}
-              onMouseEnter={(e) => (e.currentTarget.style.background = '#333')}
-              onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
-            >
-              Add to Candidates
-            </button>
-          </div>
-        )}
-        {/* Click outside to close dropdown */}
-        {profileDropdown && (
-          <div
-            style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 999 }}
-            onClick={() => setProfileDropdown(null)}
-          />
-        )}
+
         {filteredContext.map(c => (
           <div
             key={c.id}
             className="terminal-item context-item"
             draggable
-            onClick={(e) => {
-              // For opportunity-evaluator + profile type, show dropdown
-              if (selectedAgent?.id === 'opportunity-evaluator' && inputMode === 'structured' && c.type === 'profile') {
-                setProfileDropdown({ ctxId: c.id, x: e.clientX, y: e.clientY });
-              } else {
-                injectContext(c.id);
-              }
-            }}
+            onClick={() => injectContext(c.id)}
             style={{ cursor: 'pointer' }}
             onDragStart={(e) => e.dataTransfer.setData('text/plain', c.id)}
           >

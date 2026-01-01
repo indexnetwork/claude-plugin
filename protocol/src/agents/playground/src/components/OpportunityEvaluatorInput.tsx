@@ -2,15 +2,47 @@ import React from 'react';
 import { GeneralInput } from './GeneralInput';
 import { Search } from 'lucide-react';
 
+// --- Types ---
+
+interface Profile {
+  identity?: { name?: string; bio?: string; location?: string };
+  narrative?: { aspirations?: string; context?: string };
+  attributes?: { interests?: string[]; skills?: string[] };
+  embedding?: number[];
+  [key: string]: unknown;
+}
+
+interface ContextItem {
+  id: string;
+  type: string;
+  name: string;
+  data?: unknown; // Keep any or unknown? Usually strict implies unknown but data is complex.
+  value?: unknown;
+}
+
+
+
+interface EvaluatorOptions {
+  hydeDescription?: string;
+  minScore?: number;
+  [key: string]: unknown;
+}
+
+interface ParsedInput {
+  sourceProfile?: Profile;
+  candidates?: Profile[];
+  options?: EvaluatorOptions;
+}
+
 interface OpportunityEvaluatorInputProps {
   inputVal: string;
   setInputVal: (val: string) => void;
   inputMode: 'raw' | 'structured';
-  context: any[]; // Passed from App
+  context: ContextItem[]; // Passed from App
   onLog?: (msg: string) => void;
 }
 
-const safeParse = (str: string) => {
+const safeParse = (str: string): ParsedInput => {
   try { return JSON.parse(str); } catch { return {}; }
 };
 
@@ -23,6 +55,8 @@ function cosineSimilarity(vecA: number[], vecB: number[]): number {
   if (magnitudeA === 0 || magnitudeB === 0) return 0;
   return dotProduct / (magnitudeA * magnitudeB);
 }
+
+
 
 export const OpportunityEvaluatorInput: React.FC<OpportunityEvaluatorInputProps> = ({
   inputVal,
@@ -44,12 +78,12 @@ export const OpportunityEvaluatorInput: React.FC<OpportunityEvaluatorInputProps>
   const hydeDescription = options?.hydeDescription || '';
   const minScore = options?.minScore || 70;
 
-  const updateInput = (updates: any) => {
+  const updateInput = (updates: Partial<ParsedInput>) => {
     const newVal = { ...parsed, ...updates };
     setInputVal(JSON.stringify(newVal, null, 2));
   };
 
-  const updateOptions = (optUpdates: any) => {
+  const updateOptions = (optUpdates: Partial<EvaluatorOptions>) => {
     updateInput({ options: { ...options, ...optUpdates } });
   };
 
@@ -58,6 +92,8 @@ export const OpportunityEvaluatorInput: React.FC<OpportunityEvaluatorInputProps>
   const handleEmbedSearch = async () => {
     // 1. Determine query text (HyDE Desc > Source Profile)
     let queryText = hydeDescription;
+    let querySource = 'HyDE Description';
+
     if (!queryText && sourceProfile) {
       // Construct fallback text from profile
       const p = sourceProfile;
@@ -69,7 +105,7 @@ export const OpportunityEvaluatorInput: React.FC<OpportunityEvaluatorInputProps>
         ...(p.attributes?.skills || [])
       ];
       queryText = parts.filter(Boolean).join(' ');
-      onLog?.('[EmbedSearch] Using Source Profile text (HyDE desc empty).');
+      querySource = 'Source Profile (Fallback)';
     }
 
     if (!queryText) {
@@ -77,6 +113,7 @@ export const OpportunityEvaluatorInput: React.FC<OpportunityEvaluatorInputProps>
       return;
     }
 
+    onLog?.(`[EmbedSearch] Source: ${querySource} (${queryText.length} chars)`);
     onLog?.('[EmbedSearch] Generating embedding for query...');
 
     try {
@@ -89,7 +126,7 @@ export const OpportunityEvaluatorInput: React.FC<OpportunityEvaluatorInputProps>
       const data = await response.json();
 
       if (data.error) throw new Error(data.error);
-      const queryVector = data.vector;
+      const queryVector = data.vector as number[];
 
       if (!queryVector || !Array.isArray(queryVector)) {
         throw new Error('Invalid vector response');
@@ -99,18 +136,22 @@ export const OpportunityEvaluatorInput: React.FC<OpportunityEvaluatorInputProps>
 
       // 3. Filter candidates from context
       const potentialCandidates = context
-        .filter(c => c.type === 'profile' || (c.type === 'generated' && c.data?.identity))
+        .filter(c => c.type === 'profile' || (c.type === 'generated' && (
+          (c.data as Profile)?.identity || (c.value as Profile)?.identity
+        )))
         .map(c => {
-          const rawData = c.data || c.value;
+          const rawData = (c.data || c.value) as { profile?: Profile; embedding?: number[];[key: string]: unknown };
           // unwrapping
-          const profile = rawData?.profile || rawData;
+          const profile = rawData?.profile || (rawData as Profile);
           // embedding might be on wrapper or profile
           const embedding = rawData?.embedding || profile?.embedding;
 
           return { ...profile, embedding };
         })
         .filter(p => !sourceProfile || p.identity?.name !== sourceProfile.identity?.name) // Exclude self
-        .filter(p => p.embedding && Array.isArray(p.embedding)); // Must have embedding
+        .filter(p => p.embedding && Array.isArray(p.embedding)) as (Profile & { embedding: number[] })[];
+
+      onLog?.(`[EmbedSearch] Comparing query against ${potentialCandidates.length} Candidate Profiles (using existing embeddings).`);
 
       if (potentialCandidates.length === 0) {
         onLog?.('[EmbedSearch] No candidates with embeddings found in context.');
@@ -127,47 +168,20 @@ export const OpportunityEvaluatorInput: React.FC<OpportunityEvaluatorInputProps>
       scored.sort((a, b) => b.score - a.score);
 
       // 6. Update Input with top 10
-      const topCandidates = scored.slice(0, 10).map(s => {
-        // Should we strip embedding to save space? 
-        // Registry Runner needs embeddings to re-score/filter if it does memory search.
-        // But UI shows cleaner without it. 
-        // Let's keep it but maybe UI hides it via json2md?
-        // json2md.toMarkdown (table) will show all keys. Embedding key with huge array is bad.
-        // We should strip embedding for clean UI, but Runner needs it?
-
-        // Actually, Runner uses `memoryEmbedder` which mocks search.
-        // If `candidates` are passed WITHOUT embeddings, memorySearcher fails (lines 36 checks `!item.embedding`).
-
-        // So we MUST keep embeddings.
-        // Ideally json2md should not render huge arrays?
-        // json2md.ts changes treated `Array` -> List. 
-        // Embedding is `number[]` (Array of Primitives) -> List.
-        // A list of 1536 numbers in a table cell is terrible.
-
-        // Hack: Strip embedding for UI, but maybe Runner re-calculates? No.
-        // Or, maybe we hide it from UI input?
-
-        // If we stringify candidates with embeddings into GeneralInput, the user sees huge JSON.
-        // If we use JSON->MD, it tries to render table.
-
-        // Let's assume user accepts huge JSON/MD for now, or we strip it and assume Runner handles it?
-        // Runner checks `!item.embedding`. 
-        // If we strip, Runner fails.
-
-        // Unless we put embedding in a hidden field? No.
-
-        // Solution: We keep embedding.
-        // Maybe modify json2md to ignore `embedding` key?
-
-        return s.profile;
-      });
+      const topCandidatesWithScore = scored.slice(0, 10);
+      const topCandidates = topCandidatesWithScore.map(s => s.profile);
 
       updateInput({ candidates: topCandidates });
-      onLog?.(`[EmbedSearch] Found ${topCandidates.length} candidates.`);
+      onLog?.(`[EmbedSearch] Found ${topCandidates.length} candidates:`);
+      topCandidatesWithScore.forEach((c, i) => {
+        const name = c.profile.identity?.name || 'Unknown';
+        onLog?.(`  ${i + 1}. ${name} (${(c.score * 100).toFixed(1)}%)`);
+      });
 
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error(e);
-      onLog?.(`[EmbedSearch] Error: ${e.message}`);
+      const msg = e instanceof Error ? e.message : String(e);
+      onLog?.(`[EmbedSearch] Error: ${msg}`);
     }
   };
 
@@ -176,36 +190,13 @@ export const OpportunityEvaluatorInput: React.FC<OpportunityEvaluatorInputProps>
 
       {/* 1. Source Profile */}
       <div style={{ height: '300px', flexShrink: 0 }}>
-        <GeneralInput
+        <JsonParamsInput
           label="SOURCE PROFILE"
-          value={sourceProfile ? JSON.stringify(sourceProfile, null, 2) : ''}
-          onChange={(val) => {
-            try { updateInput({ sourceProfile: JSON.parse(val) }); }
-            catch { /* Allow invalid JSON while typing? Or block? GeneralInput handles edits. We sync via Object. */
-              // If we pass stringified object, GeneralInput 'value' changes. 
-              // GeneralInput onChange returns STRING.
-              // We try parse. If valid, update upstream.
-              // If invalid, we can't update upstream OBJECT.
-              // We need local state if we want to support editing JSON text.
-              // But here I am implementing standard uncontrolled-like pattern via upstream.
-              // If parse fails, upstream doesn't update, valid input reverts!
-              // I need local state for each input.
-            }
-          }}
-        // We need separate wrappers with local state if we want smooth editing.
-        // Re-using the logic from IntentManagerInput/ExplicitInput
-        // But I'll inline a wrapper helper.
+          value={sourceProfile}
+          onChange={(v) => updateInput({ sourceProfile: v as Profile })}
+          height="100%"
         />
-        {/* Helper function to avoid code dup? */}
       </div>
-
-      {/* I will use a helper component 'JsonParamsInput' inside */}
-      <JsonParamsInput
-        label="SOURCE PROFILE"
-        value={sourceProfile}
-        onChange={(v) => updateInput({ sourceProfile: v })}
-        height="250px"
-      />
 
       <div style={{ height: '150px', flexShrink: 0 }}>
         <GeneralInput
@@ -215,20 +206,40 @@ export const OpportunityEvaluatorInput: React.FC<OpportunityEvaluatorInputProps>
         />
       </div>
 
-      <div style={{ height: '80px', flexShrink: 0 }}>
-        {/* Min Score - treat as string/number */}
-        <GeneralInput
-          label="MIN SCORE"
-          value={String(minScore)}
-          onChange={(val) => updateOptions({ minScore: parseInt(val) || 0 })}
+      <div style={{ flexShrink: 0, padding: '0 4px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
+          <span className="panel-label">MIN SCORE</span>
+          <span style={{ color: '#00ffff', fontFamily: 'monospace' }}>{minScore}</span>
+        </div>
+        <input
+          type="range"
+          min="0"
+          max="100"
+          value={minScore}
+          onChange={(e) => updateOptions({ minScore: parseInt(e.target.value) })}
+          style={{ width: '100%', accentColor: '#00ffff', cursor: 'pointer' }}
         />
       </div>
 
       <div style={{ height: '300px', flexShrink: 0 }}>
         <JsonParamsInput
           label="CANDIDATES"
-          value={candidates}
-          onChange={(v) => updateInput({ candidates: v })}
+          // Display candidates WITHOUT embeddings to keep UI clean
+          value={candidates.map(({ embedding, ...rest }) => rest)}
+          onChange={(newVal) => {
+            // MERGE logic: Restore embeddings from original candidates if available
+            // Assume order preserved or try to match by ID? Order is safest for array edits.
+            if (Array.isArray(newVal)) {
+              const merged = (newVal as Profile[]).map((c, i) => {
+                // Find original embedding if ID matches, else try index
+                const original = candidates.find((oc) => oc.identity?.name === c.identity?.name) || candidates[i];
+                return { ...c, embedding: original?.embedding };
+              });
+              updateInput({ candidates: merged });
+            } else {
+              updateInput({ candidates: newVal as Profile[] });
+            }
+          }}
           height="100%"
           headerControls={
             <button
@@ -256,8 +267,8 @@ export const OpportunityEvaluatorInput: React.FC<OpportunityEvaluatorInputProps>
 // Helper for JSON/Object inputs (Source, Candidates) to handle valid/invalid states
 const JsonParamsInput: React.FC<{
   label: string;
-  value: any;
-  onChange: (val: any) => void;
+  value: unknown;
+  onChange: (val: unknown) => void;
   height?: string;
   headerControls?: React.ReactNode;
 }> = ({ label, value, onChange, height, headerControls }) => {

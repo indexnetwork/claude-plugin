@@ -59,11 +59,25 @@ export const GeneralInput: React.FC<GeneralInputProps> = ({
 
   const handleJson2Md = () => {
     try {
-      const obj = JSON.parse(value);
+      let obj;
+      try {
+        obj = JSON.parse(value);
+      } catch (e) {
+        // Output detailed error if it fails later, but try loose parse first
+        // Support JS Object literals (unquoted keys) common in dev tools
+        try {
+          obj = new Function('return ' + value)();
+        } catch {
+          throw e; // Throw original JSON error if loose parse also fails
+        }
+      }
+
       const md = json2md.toMarkdown(obj);
       onChange(md.trim());
-    } catch (e) {
+    } catch (e: unknown) {
       console.error("Failed to convert JSON to MD", e);
+      const msg = e instanceof Error ? e.message : String(e);
+      alert(`Failed to convert: ${msg}`);
     }
   };
 
