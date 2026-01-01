@@ -55,24 +55,29 @@ const REGISTRY: AgentRegistryItem[] = [
     category: 'external',
     inputType: 'any',
     defaultInput: {
-      objective: "",
       name: "Seren Sandikci",
       email: "seren@index.network",
       linkedin: "https://linkedin.com/in/seren",
       websites: ["https://index.network"]
     },
     runner: async (_, input) => {
+      console.log('Parallel Fetcher input:', input);
+
+      // Unwrap nested 'input' property if present (playground UI wrapping)
+      const actualInput = input?.input ?? input;
+
       // 1. Objective Strategy
-      if (typeof input === 'string') {
-        return searchUser({ objective: input });
+      if (typeof actualInput === 'string') {
+        return searchUser({ objective: actualInput });
       }
 
-      if (input.objective && input.objective.trim().length > 0) {
-        return searchUser({ objective: input.objective });
+      if (actualInput.objective && actualInput.objective.trim().length > 0) {
+        return searchUser({ objective: actualInput.objective });
       }
 
-      // 2. Struct Strategy (Pass directly)
-      return searchUser(input);
+      // 2. Struct Strategy - Extract ONLY struct fields (exclude objective)
+      const { objective, ...structFields } = actualInput;
+      return searchUser(structFields);
     }
   },
 
