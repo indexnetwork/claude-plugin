@@ -54,7 +54,7 @@ async function runTests() {
 
         const activeIntentsContext = mockActiveIntents.map(i => `ID: ${i.id}, Description: ${i.description}, Status: ${i.status}`).join('\n');
 
-        const res1 = await manager.processIntent("I need to hire a designer", profileContext, mockActiveIntents, activeIntentsContext);
+        const res1 = await manager.processIntent("I need to hire a designer", profileContext, activeIntentsContext);
         console.log("Result:", JSON.stringify(res1, null, 2));
 
         if (res1.actions.some(a => a.type === 'create' && a.payload.toLowerCase().includes('designer'))) {
@@ -80,7 +80,7 @@ async function runTests() {
 
         const activeIntentsContext = mockActiveIntents.map(i => `ID: ${i.id}, Description: ${i.description}, Status: ${i.status}`).join('\n');
 
-        const res2 = await manager.processIntent("I want to learn Rust", profileContext, mockActiveIntents, activeIntentsContext);
+        const res2 = await manager.processIntent("I want to learn Rust", profileContext, activeIntentsContext);
         console.log("Result:", JSON.stringify(res2, null, 2));
 
         // Note: Our reconcile logic now updates if description is DIFFERENT.
@@ -111,7 +111,7 @@ async function runTests() {
 
         const activeIntentsContext = mockActiveIntents.map(i => `ID: ${i.id}, Description: ${i.description}, Status: ${i.status}`).join('\n');
 
-        const res3 = await manager.processIntent("I'm done with learning Rust, I hate it", profileContext, mockActiveIntents, activeIntentsContext);
+        const res3 = await manager.processIntent("I'm done with learning Rust, I hate it", profileContext, activeIntentsContext);
         console.log("Result:", JSON.stringify(res3, null, 2));
 
         if (res3.actions.some(a => a.type === 'expire' && a.id === 'intent-1')) {
@@ -137,7 +137,7 @@ async function runTests() {
         const activeIntentsContext = mockActiveIntents.map(i => `ID: ${i.id}, Description: ${i.description}, Status: ${i.status}`).join('\n');
 
         // "Learn Rust" is active. User provides more detail.
-        const res4 = await manager.processIntent("I want to really master Rust and build systems with it", profileContext, mockActiveIntents, activeIntentsContext);
+        const res4 = await manager.processIntent("I want to really master Rust and build systems with it", profileContext, activeIntentsContext);
         console.log("Result:", JSON.stringify(res4, null, 2));
 
         if (res4.actions.some(a => a.type === 'update' && a.id === 'intent-1')) {
@@ -173,7 +173,7 @@ async function runTests() {
 
         const activeIntentsContext = perfectMatchIntents.map(i => `ID: ${i.id}, Description: ${i.description}, Status: ${i.status}`).join('\n');
 
-        const res5 = await manager.processIntent("I want to learn Rust", profileContext, perfectMatchIntents, activeIntentsContext);
+        const res5 = await manager.processIntent("I want to learn Rust", profileContext, activeIntentsContext);
         console.log("Result:", JSON.stringify(res5, null, 2));
 
         if (res5.actions.length === 0) {
