@@ -1,6 +1,6 @@
 import { IntroGenerator } from '../../intent/stake/intro/intro.generator';
 import { SynthesisGenerator } from '../../intent/stake/synthesis/synthesis.generator';
-import { ExplicitIntentDetector } from '../../intent/inferrer/explicit/explicit.inferrer';
+import { ExplicitIntentInferrer } from '../../intent/inferrer/explicit/explicit.inferrer';
 import { ImplicitInferrer } from '../../intent/inferrer/implicit/implicit.inferrer';
 import { IntentManager } from '../../intent/manager/intent.manager';
 import { StakeEvaluator } from '../../intent/stake/evaluator/stake.evaluator';
@@ -101,7 +101,19 @@ const REGISTRY: AgentRegistryItem[] = [
       { key: 'profile', label: 'Profile', type: 'profile', description: 'User memory profile for context' },
       { key: 'activeIntents', label: 'Active Intents', type: 'json', description: 'Current intents to reconcile against' }
     ],
-    runner: (agent, input) => agent.processIntent(input.content, input.profile, input.activeIntents)
+    runner: (agent, input) => {
+      // Profile is already a markdown string from the UI
+      const profileContext = input.profile || '';
+
+      // Convert activeIntents to markdown list (or use directly if already string)
+      const activeIntentsContext = typeof input.activeIntents === 'string'
+        ? input.activeIntents
+        : (Array.isArray(input.activeIntents) && input.activeIntents.length > 0
+          ? input.activeIntents.map((i: any) => `- [${i.id}]: ${i.description}`).join('\n')
+          : 'No active intents.');
+
+      return agent.processIntent(input.content, profileContext, activeIntentsContext);
+    }
   },
   {
     id: 'explicit-intent-detector',
@@ -114,12 +126,27 @@ const REGISTRY: AgentRegistryItem[] = [
       content: "I want to meet people building in the decentralized AI space, specifically looking for co-founders.",
       profile: { identity: { name: "Alice" } }
     },
-    agentClass: ExplicitIntentDetector,
+    agentClass: ExplicitIntentInferrer,
     fields: [
       { key: 'content', label: 'Content', type: 'string', description: 'Raw text content' },
       { key: 'profile', label: 'Profile', type: 'profile', description: 'User profile context' }
     ],
-    runner: (agent, input) => agent.run(input.content, input.profile)
+    runner: (agent, input) => {
+      // Convert profile JSON to markdown string (as expected by run method)
+      const profileContext = typeof input.profile === 'string'
+        ? input.profile
+        : json2md.keyValue({
+          name: input.profile?.identity?.name || '',
+          bio: input.profile?.identity?.bio || '',
+          location: input.profile?.identity?.location || '',
+          context: input.profile?.narrative?.context || '',
+          aspirations: input.profile?.narrative?.aspirations || '',
+          interests: input.profile?.attributes?.interests || [],
+          skills: input.profile?.attributes?.skills || []
+        });
+
+      return agent.run(input.content, profileContext);
+    }
   },
   {
     id: 'implicit-inferrer',

@@ -1,7 +1,7 @@
 import { BaseLangChainAgent } from "../../../lib/langchain/langchain";
-import { UserMemoryProfile, IntentManagerResponse } from "./intent.manager.types";
+import { IntentManagerResponse } from "./intent.manager.types";
 import { InferredIntent } from "../inferrer/explicit/explicit.inferrer.types";
-import { ExplicitIntentDetector } from "../inferrer/explicit/explicit.inferrer";
+import { ExplicitIntentInferrer } from "../inferrer/explicit/explicit.inferrer";
 import { z } from "zod";
 
 import { log } from "../../../lib/log";
@@ -65,17 +65,17 @@ const IntentManagerOutputSchema = z.object({
  * intents with the user's currently Active Intents.
  * 
  * CORE RESPONSIBILITY:
- * - Synthesis: Takes raw inferred intents (from ExplicitIntentDetector) and decides how they modify the Active Intent state.
+ * - Synthesis: Takes raw inferred intents (from ExplicitIntentInferrer) and decides how they modify the Active Intent state.
  * - Deduplication: Determines if a "New" intent is actually just a rephrasing of an "Active" one.
  * - Refresh: Updates descriptions of active intents if new data provides better clarity.
  * - Expiration: Detects "Tombstones" (statements of completion/abandonment) and marks active intents as expired.
  * 
  * ARCHITECTURE:
- * - Uses `ExplicitIntentDetector` as a sub-agent to extract candidates from raw text.
+ * - Uses `ExplicitIntentInferrer` as a sub-agent to extract candidates from raw text.
  * - Uses GPT-4 (via BaseLangChainAgent) for the complex reasoning required to reconcile semantic duplicates.
  */
 export class IntentManager extends BaseLangChainAgent {
-  private explicitDetector: ExplicitIntentDetector;
+  private explicitDetector: ExplicitIntentInferrer;
 
   constructor() {
     super({
@@ -83,14 +83,14 @@ export class IntentManager extends BaseLangChainAgent {
       responseFormat: IntentManagerOutputSchema,
       temperature: 0.2, // Low temp for decision making
     });
-    this.explicitDetector = new ExplicitIntentDetector();
+    this.explicitDetector = new ExplicitIntentInferrer();
   }
 
   /**
    * Main Entry Point: Orchestrates the intent detection and reconciliation process.
    * 
    * LOGIC FLOW:
-   * 1. Extraction: Calls `ExplicitIntentDetector` to extract candidate intents from the raw content.
+   * 1. Extraction: Calls `ExplicitIntentInferrer` to extract candidate intents from the raw content.
    * 2. Filtering: If no candidates are found, returns early.
    * 3. Reconciliation: Calls `reconcileIntentsWithLLM` to compare candidates against the active intents context.
    * 

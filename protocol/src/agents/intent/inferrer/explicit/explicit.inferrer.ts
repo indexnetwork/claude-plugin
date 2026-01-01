@@ -48,7 +48,7 @@ export const ExplicitInferrerOutputSchema = z.object({
 export type ExplicitInferrerOutput = z.infer<typeof ExplicitInferrerOutputSchema>;
 
 /**
- * ExplicitIntentDetector Agent
+ * ExplicitIntentInferrer Agent
  * 
  * Specialized agent for EXTRACTING intents directly from user input.
  * 
@@ -62,7 +62,7 @@ export type ExplicitInferrerOutput = z.infer<typeof ExplicitInferrerOutputSchema
  * This agent does NOT decide if an intent is "New" or a "Duplicate". 
  * It purely extracts what it sees. The `IntentManager` handles the state logic.
  */
-export class ExplicitIntentDetector extends BaseLangChainAgent {
+export class ExplicitIntentInferrer extends BaseLangChainAgent {
   constructor() {
     super({
       preset: 'intent-inferrer',
@@ -102,7 +102,7 @@ export class ExplicitIntentDetector extends BaseLangChainAgent {
       log.info(`[ExplicitIntentInferrer] Found ${response.intents.length} intents in content.`);
       return response;
     } catch (error) {
-      log.error("[ExplicitIntentInferrer] Error in ExplicitIntentDetector", { error });
+      log.error("[ExplicitIntentInferrer] Error in ExplicitIntentInferrer", { error });
       // Fallback: return empty intents if LLM fails
       return { intents: [] };
     }

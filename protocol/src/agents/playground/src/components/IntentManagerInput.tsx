@@ -1,5 +1,6 @@
 import React from 'react';
 import { GeneralInput } from './GeneralInput';
+import { json2md } from '../../../../lib/json2md/json2md';
 
 interface IntentManagerInputProps {
   inputVal: string;
@@ -40,7 +41,10 @@ export const IntentManagerInput: React.FC<IntentManagerInputProps> = ({
     try {
       const localParsed = JSON.parse(profileStr || 'null');
       if (!areStructurallyEqual(localParsed, upstreamProfile)) {
-        setProfileStr(upstreamProfile ? JSON.stringify(upstreamProfile, null, 2) : '');
+        const newProfileStr = typeof upstreamProfile === 'string'
+          ? upstreamProfile
+          : (upstreamProfile ? JSON.stringify(upstreamProfile, null, 2) : '');
+        setProfileStr(newProfileStr);
       }
     } catch (e) {
       // Local is invalid JSON, so it definitely doesn't match upstream (which is valid object).
@@ -73,7 +77,11 @@ export const IntentManagerInput: React.FC<IntentManagerInputProps> = ({
     if (!areStructurallyEqual(prevProfileRef.current, upstreamProfile)) {
       // Upstream specifically changed (Injection or other agent)
       // We overwrite local state to match new upstream
-      setProfileStr(upstreamProfile ? JSON.stringify(upstreamProfile, null, 2) : '');
+      // If profile is a string (markdown), use it directly; if object, stringify it
+      const newProfileStr = typeof upstreamProfile === 'string'
+        ? upstreamProfile
+        : (upstreamProfile ? JSON.stringify(upstreamProfile, null, 2) : '');
+      setProfileStr(newProfileStr);
     }
     prevProfileRef.current = upstreamProfile;
   }, [upstreamProfile]);
@@ -81,7 +89,11 @@ export const IntentManagerInput: React.FC<IntentManagerInputProps> = ({
   const prevIntentsRef = React.useRef(upstreamIntents);
   React.useEffect(() => {
     if (!areStructurallyEqual(prevIntentsRef.current, upstreamIntents)) {
-      setIntentsStr(upstreamIntents ? JSON.stringify(upstreamIntents, null, 2) : '[]');
+      // If intents is a string (markdown), use it directly; if array, stringify it
+      const newIntentsStr = typeof upstreamIntents === 'string'
+        ? upstreamIntents
+        : (upstreamIntents ? JSON.stringify(upstreamIntents, null, 2) : '[]');
+      setIntentsStr(newIntentsStr);
     }
     prevIntentsRef.current = upstreamIntents;
   }, [upstreamIntents]);
@@ -121,9 +133,20 @@ export const IntentManagerInput: React.FC<IntentManagerInputProps> = ({
             setProfileStr(val);
             try {
               const p = JSON.parse(val);
-              updateInput({ profile: p });
+              // Convert profile JSON to markdown string for the agent
+              const profileMd = json2md.keyValue({
+                name: p?.identity?.name || '',
+                bio: p?.identity?.bio || '',
+                location: p?.identity?.location || '',
+                context: p?.narrative?.context || '',
+                aspirations: p?.narrative?.aspirations || '',
+                interests: p?.attributes?.interests || [],
+                skills: p?.attributes?.skills || []
+              });
+              updateInput({ profile: profileMd });
             } catch (e) {
-              // Invalid JSON
+              // Not JSON - likely already markdown, pass it through directly
+              updateInput({ profile: val });
             }
           }}
           label="PROFILE"
@@ -145,7 +168,8 @@ export const IntentManagerInput: React.FC<IntentManagerInputProps> = ({
               const i = JSON.parse(val);
               updateInput({ activeIntents: i });
             } catch (e) {
-              // Invalid JSON
+              // Not JSON - likely already markdown, pass it through directly
+              updateInput({ activeIntents: val });
             }
           }}
           label="ACTIVE INTENTS"
