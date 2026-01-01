@@ -422,7 +422,18 @@ function App() {
         addLog(`Added candidate: ${item.name}`);
         return;
       }
-      // If no targetKey and it's a profile, the dropdown should have handled it
+      // If no targetKey and it's a profile, default to Setting Source + HyDE
+      if (!targetKey && (item.type === 'profile' || item.type === 'generated')) {
+        const hydeDesc = dataToInject.hydeDescription || '';
+        const newObj = {
+          ...currentObj,
+          sourceProfile: dataToInject,
+          options: { ...currentObj.options, hydeDescription: hydeDesc }
+        };
+        setInputVal(JSON.stringify(newObj, null, 2));
+        addLog(`Set Source Profile & HyDE Description from ${item.name}`);
+        return;
+      }
       return;
     }
 

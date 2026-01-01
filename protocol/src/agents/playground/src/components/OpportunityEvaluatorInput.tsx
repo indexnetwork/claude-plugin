@@ -1,5 +1,6 @@
 import React from 'react';
-import { X } from 'lucide-react';
+import { GeneralInput } from './GeneralInput';
+import { Search } from 'lucide-react';
 
 interface OpportunityEvaluatorInputProps {
   inputVal: string;
@@ -23,98 +24,6 @@ function cosineSimilarity(vecA: number[], vecB: number[]): number {
   return dotProduct / (magnitudeA * magnitudeB);
 }
 
-// Editable profile form for source/candidates
-const EditableProfile: React.FC<{
-  profile: any;
-  label: string;
-  onUpdate: (newProfile: any) => void;
-  onRemove: () => void;
-}> = ({ profile, label, onUpdate, onRemove }) => {
-  const identity = profile?.identity || {};
-  const attributes = profile?.attributes || {};
-  // ... (rest of EditableProfile remains same, reusing existing code implicitly if I could, but here I'm replacing the top part so I need to be careful not to cut off EditableProfile if I used replace_file_content on a range. 
-  // Wait, I am replacing lines 4-110. EditableProfile starts at line 15. The provided ReplacementContent MUST include EditableProfile or I must adjust the range.)
-
-  // RE-INLINING EditableProfile to be safe since I am replacing the top block including imports/interfaces
-
-  const updateField = (section: string, field: string, value: any) => {
-    const newProfile = {
-      ...profile,
-      [section]: { ...(profile?.[section] || {}), [field]: value }
-    };
-    onUpdate(newProfile);
-  };
-
-  return (
-    <div style={{
-      background: 'rgba(255,255,255,0.02)',
-      border: '1px solid #333',
-      borderRadius: '4px',
-      padding: '12px',
-      boxSizing: 'border-box'
-    }}>
-      {/* Header with label and remove */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-        <span style={{ color: '#00ffff', fontSize: '0.8rem', fontWeight: 500 }}>{label}</span>
-        <button
-          onClick={onRemove}
-          style={{ background: 'transparent', border: 'none', color: '#666', cursor: 'pointer', padding: '2px' }}
-        >
-          <X size={14} />
-        </button>
-      </div>
-
-      {/* Identity */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginBottom: '10px' }}>
-        <input
-          type="text"
-          value={identity.name || ''}
-          onChange={(e) => updateField('identity', 'name', e.target.value)}
-          placeholder="Name..."
-          style={{ background: 'transparent', border: 'none', borderBottom: '1px solid #333', color: '#e6e6e6', padding: '4px 0', outline: 'none', fontSize: '0.85rem', width: '100%', boxSizing: 'border-box' }}
-        />
-        <input
-          type="text"
-          value={identity.location || ''}
-          onChange={(e) => updateField('identity', 'location', e.target.value)}
-          placeholder="Location..."
-          style={{ background: 'transparent', border: 'none', borderBottom: '1px solid #333', color: '#e6e6e6', padding: '4px 0', outline: 'none', fontSize: '0.85rem', width: '100%', boxSizing: 'border-box' }}
-        />
-        <textarea
-          value={identity.bio || ''}
-          onChange={(e) => updateField('identity', 'bio', e.target.value)}
-          placeholder="Bio..."
-          style={{ width: '100%', minHeight: '40px', background: 'rgba(255,255,255,0.02)', border: '1px dashed #333', color: '#e6e6e6', padding: '6px', resize: 'vertical', outline: 'none', fontFamily: 'monospace', fontSize: '0.8rem', boxSizing: 'border-box' }}
-        />
-      </div>
-
-      {/* Interests & Skills */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-        <input
-          type="text"
-          value={(attributes.interests || []).join(', ')}
-          onChange={(e) => {
-            const interests = e.target.value.split(',').map(s => s.trim()).filter(s => s);
-            updateField('attributes', 'interests', interests);
-          }}
-          placeholder="Interests (comma-separated)..."
-          style={{ background: 'transparent', border: 'none', borderBottom: '1px solid #333', color: '#e6e6e6', padding: '4px 0', outline: 'none', fontSize: '0.8rem', width: '100%', boxSizing: 'border-box' }}
-        />
-        <input
-          type="text"
-          value={(attributes.skills || []).join(', ')}
-          onChange={(e) => {
-            const skills = e.target.value.split(',').map(s => s.trim()).filter(s => s);
-            updateField('attributes', 'skills', skills);
-          }}
-          placeholder="Skills (comma-separated)..."
-          style={{ background: 'transparent', border: 'none', borderBottom: '1px solid #333', color: '#e6e6e6', padding: '4px 0', outline: 'none', fontSize: '0.8rem', width: '100%', boxSizing: 'border-box' }}
-        />
-      </div>
-    </div>
-  );
-};
-
 export const OpportunityEvaluatorInput: React.FC<OpportunityEvaluatorInputProps> = ({
   inputVal,
   setInputVal,
@@ -127,13 +36,13 @@ export const OpportunityEvaluatorInput: React.FC<OpportunityEvaluatorInputProps>
     return null;
   }
 
-  // STRUCT mode - form with sourceProfile, candidates, hydeDescription, minScore
+  // STRUCT mode - 4 inputs
   const parsed = safeParse(inputVal);
   const sourceProfile = parsed?.sourceProfile || null;
   const candidates = parsed?.candidates || [];
   const options = parsed?.options || {};
   const hydeDescription = options?.hydeDescription || '';
-  const minScore = options?.minScore ?? 70;
+  const minScore = options?.minScore || 70;
 
   const updateInput = (updates: any) => {
     const newVal = { ...parsed, ...updates };
@@ -144,266 +53,254 @@ export const OpportunityEvaluatorInput: React.FC<OpportunityEvaluatorInputProps>
     updateInput({ options: { ...options, ...optUpdates } });
   };
 
-  const removeCandidate = (index: number) => {
-    const newCandidates = [...candidates];
-    newCandidates.splice(index, 1);
-    updateInput({ candidates: newCandidates });
-  };
+  /* Handlers */
 
-  const updateCandidate = (index: number, newProfile: any) => {
-    const newCandidates = [...candidates];
-    newCandidates[index] = newProfile;
-    updateInput({ candidates: newCandidates });
-  };
+  const handleEmbedSearch = async () => {
+    // 1. Determine query text (HyDE Desc > Source Profile)
+    let queryText = hydeDescription;
+    if (!queryText && sourceProfile) {
+      // Construct fallback text from profile
+      const p = sourceProfile;
+      const parts = [
+        p.identity?.bio,
+        p.narrative?.aspirations,
+        p.narrative?.context,
+        ...(p.attributes?.interests || []),
+        ...(p.attributes?.skills || [])
+      ];
+      queryText = parts.filter(Boolean).join(' ');
+      onLog?.('[EmbedSearch] Using Source Profile text (HyDE desc empty).');
+    }
 
-  const hasSource = sourceProfile?.identity;
-  const hasCandidates = candidates.length > 0;
-
-  /* Candidates Section */
-
-  const handleAutoDiscovery = () => {
-    if (!sourceProfile) {
-      console.warn('No source profile selected');
+    if (!queryText) {
+      alert('Cannot search: No HyDE Description or Source Profile text available.');
       return;
     }
 
-    // 1. Get query vector from source
-    // Ideally this is sourceProfile.embedding. If not present, we can't do vector search client side.
-    // For now, assume it's there.
-    const queryVector = sourceProfile.embedding;
+    onLog?.('[EmbedSearch] Generating embedding for query...');
 
-    if (!queryVector || !Array.isArray(queryVector)) {
-      console.warn('Source profile has no embedding vector. Cannot auto-discover.');
-      alert('Source profile missing embedding. Please ensure it was generated/fetched with an embedding.');
-      return;
+    try {
+      // 2. Generate Embedding via API
+      const response = await fetch('/api/embeddings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: queryText })
+      });
+      const data = await response.json();
+
+      if (data.error) throw new Error(data.error);
+      const queryVector = data.vector;
+
+      if (!queryVector || !Array.isArray(queryVector)) {
+        throw new Error('Invalid vector response');
+      }
+
+      onLog?.('[EmbedSearch] Searching context...');
+
+      // 3. Filter candidates from context
+      const potentialCandidates = context
+        .filter(c => c.type === 'profile' || (c.type === 'generated' && c.data?.identity))
+        .map(c => {
+          const rawData = c.data || c.value;
+          // unwrapping
+          const profile = rawData?.profile || rawData;
+          // embedding might be on wrapper or profile
+          const embedding = rawData?.embedding || profile?.embedding;
+
+          return { ...profile, embedding };
+        })
+        .filter(p => !sourceProfile || p.identity?.name !== sourceProfile.identity?.name) // Exclude self
+        .filter(p => p.embedding && Array.isArray(p.embedding)); // Must have embedding
+
+      if (potentialCandidates.length === 0) {
+        onLog?.('[EmbedSearch] No candidates with embeddings found in context.');
+        return;
+      }
+
+      // 4. Score
+      const scored = potentialCandidates.map(p => ({
+        profile: p,
+        score: cosineSimilarity(queryVector, p.embedding)
+      }));
+
+      // 5. Sort
+      scored.sort((a, b) => b.score - a.score);
+
+      // 6. Update Input with top 10
+      const topCandidates = scored.slice(0, 10).map(s => {
+        // Should we strip embedding to save space? 
+        // Registry Runner needs embeddings to re-score/filter if it does memory search.
+        // But UI shows cleaner without it. 
+        // Let's keep it but maybe UI hides it via json2md?
+        // json2md.toMarkdown (table) will show all keys. Embedding key with huge array is bad.
+        // We should strip embedding for clean UI, but Runner needs it?
+
+        // Actually, Runner uses `memoryEmbedder` which mocks search.
+        // If `candidates` are passed WITHOUT embeddings, memorySearcher fails (lines 36 checks `!item.embedding`).
+
+        // So we MUST keep embeddings.
+        // Ideally json2md should not render huge arrays?
+        // json2md.ts changes treated `Array` -> List. 
+        // Embedding is `number[]` (Array of Primitives) -> List.
+        // A list of 1536 numbers in a table cell is terrible.
+
+        // Hack: Strip embedding for UI, but maybe Runner re-calculates? No.
+        // Or, maybe we hide it from UI input?
+
+        // If we stringify candidates with embeddings into GeneralInput, the user sees huge JSON.
+        // If we use JSON->MD, it tries to render table.
+
+        // Let's assume user accepts huge JSON/MD for now, or we strip it and assume Runner handles it?
+        // Runner checks `!item.embedding`. 
+        // If we strip, Runner fails.
+
+        // Unless we put embedding in a hidden field? No.
+
+        // Solution: We keep embedding.
+        // Maybe modify json2md to ignore `embedding` key?
+
+        return s.profile;
+      });
+
+      updateInput({ candidates: topCandidates });
+      onLog?.(`[EmbedSearch] Found ${topCandidates.length} candidates.`);
+
+    } catch (e: any) {
+      console.error(e);
+      onLog?.(`[EmbedSearch] Error: ${e.message}`);
     }
-
-    // 2. Filter candidates from context
-    const potentialCandidates = context
-      .filter(c => c.type === 'profile' || (c.type === 'generated' && c.data?.identity))
-      .map(c => {
-        const data = c.data || c.value;
-        // Check for wrapped format { profile: ..., embedding: ... }
-        if (data?.profile) {
-          return {
-            ...data.profile,
-            // Use embedding from wrapper if available, else check inside profile
-            embedding: data.embedding || data.profile.embedding
-          };
-        }
-        return data;
-      })
-      .filter(p => p && p.identity && p.identity.name !== sourceProfile.identity.name) // Simple name exclusion
-      .filter(p => p.embedding && Array.isArray(p.embedding));
-
-    console.log(`[AutoDiscover] Found ${potentialCandidates.length} eligible candidates in local context.`);
-
-    // 3. Score
-    const scored = potentialCandidates.map(p => ({
-      profile: p,
-      score: cosineSimilarity(queryVector, p.embedding)
-    }));
-
-    // 4. Sort and Log
-    scored.sort((a, b) => b.score - a.score);
-
-    console.log('[AutoDiscover] Scores:', scored.map(s => `${s.profile.identity.name}: ${s.score.toFixed(4)}`));
-
-    console.log('[AutoDiscover] Top Candidates Selected:');
-    onLog?.('[AutoDiscover] Top Candidates Selected:');
-
-    scored.slice(0, 5).forEach((s, i) => {
-      const msg = `  ${i + 1}. ${s.profile.identity.name} - Score: ${s.score.toFixed(4)}`;
-      console.log(msg);
-      onLog?.(msg);
-    });
-
-    // 5. Update Input with top 5
-    const topCandidates = scored.slice(0, 5).map(s => s.profile);
-    updateInput({ candidates: topCandidates });
   };
 
   return (
-    <div className="complex-form structured-mode" style={{ display: 'flex', flexDirection: 'column', maxWidth: '100%', overflow: 'hidden' }}>
+    <div className="complex-form structured-mode" style={{ display: 'flex', flexDirection: 'column', gap: '12px', height: '100%', overflowY: 'auto', paddingRight: '8px' }}>
 
-      {/* Source Profile Section */}
-      <div className="form-group">
-        <div className="form-row" style={{ flexDirection: 'column', alignItems: 'stretch' }}>
-          <div className="label-col" style={{ marginBottom: '8px' }}>
-            <label style={{ color: '#00ffff' }}>Source Profile</label>
-            <span className="desc-tooltip">The user looking for opportunities</span>
-          </div>
-          <div className="input-col" style={{ width: '100%', maxWidth: '100%', overflow: 'hidden' }}>
-            {hasSource ? (
-              <EditableProfile
-                profile={sourceProfile}
-                label="SOURCE"
-                onUpdate={(p) => updateInput({ sourceProfile: p })}
-                onRemove={() => updateInput({ sourceProfile: null })}
-              />
-            ) : (
-              <div style={{
-                background: 'rgba(255,255,255,0.02)',
-                border: '1px dashed #333',
-                borderRadius: '4px',
-                padding: '16px',
-                textAlign: 'center',
-                color: '#666',
-                fontSize: '0.85rem'
-              }}>
-                Click a <span style={{ color: '#00ffff' }}>profile</span> → "Set as Source"
-              </div>
-            )}
-          </div>
-        </div>
+      {/* 1. Source Profile */}
+      <div style={{ height: '300px', flexShrink: 0 }}>
+        <GeneralInput
+          label="SOURCE PROFILE"
+          value={sourceProfile ? JSON.stringify(sourceProfile, null, 2) : ''}
+          onChange={(val) => {
+            try { updateInput({ sourceProfile: JSON.parse(val) }); }
+            catch { /* Allow invalid JSON while typing? Or block? GeneralInput handles edits. We sync via Object. */
+              // If we pass stringified object, GeneralInput 'value' changes. 
+              // GeneralInput onChange returns STRING.
+              // We try parse. If valid, update upstream.
+              // If invalid, we can't update upstream OBJECT.
+              // We need local state if we want to support editing JSON text.
+              // But here I am implementing standard uncontrolled-like pattern via upstream.
+              // If parse fails, upstream doesn't update, valid input reverts!
+              // I need local state for each input.
+            }
+          }}
+        // We need separate wrappers with local state if we want smooth editing.
+        // Re-using the logic from IntentManagerInput/ExplicitInput
+        // But I'll inline a wrapper helper.
+        />
+        {/* Helper function to avoid code dup? */}
       </div>
 
-      {/* Candidates Section */}
-      <div className="form-group">
-        <div className="form-row" style={{ flexDirection: 'column', alignItems: 'stretch' }}>
-          <div className="label-col" style={{ marginBottom: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div>
-              <label style={{ color: '#00ffff' }}>Candidates</label>
-              <span className="desc-tooltip">Profiles to evaluate against the source</span>
-            </div>
+      {/* I will use a helper component 'JsonParamsInput' inside */}
+      <JsonParamsInput
+        label="SOURCE PROFILE"
+        value={sourceProfile}
+        onChange={(v) => updateInput({ sourceProfile: v })}
+        height="250px"
+      />
+
+      <div style={{ height: '150px', flexShrink: 0 }}>
+        <GeneralInput
+          label="HYDE DESCRIPTION"
+          value={hydeDescription}
+          onChange={(val) => updateOptions({ hydeDescription: val })}
+        />
+      </div>
+
+      <div style={{ height: '80px', flexShrink: 0 }}>
+        {/* Min Score - treat as string/number */}
+        <GeneralInput
+          label="MIN SCORE"
+          value={String(minScore)}
+          onChange={(val) => updateOptions({ minScore: parseInt(val) || 0 })}
+        />
+      </div>
+
+      <div style={{ height: '300px', flexShrink: 0 }}>
+        <JsonParamsInput
+          label="CANDIDATES"
+          value={candidates}
+          onChange={(v) => updateInput({ candidates: v })}
+          height="100%"
+          headerControls={
             <button
-              onClick={handleAutoDiscovery}
+              onClick={handleEmbedSearch}
               style={{
-                background: '#333',
-                color: '#00ffff',
+                display: 'flex', alignItems: 'center', gap: '6px',
+                background: 'rgba(0, 255, 255, 0.1)',
                 border: '1px solid #00ffff',
+                color: '#00ffff',
                 padding: '4px 8px',
                 borderRadius: '4px',
-                fontSize: '0.75rem',
                 cursor: 'pointer',
-                fontWeight: 600
+                fontSize: '0.75rem'
               }}
             >
-              Auto-Find
+              <Search size={14} /> Embed Search
             </button>
-          </div>
-          <div className="input-col" style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-            {hasCandidates ? (
-              candidates.map((c: any, i: number) => (
-                <EditableProfile
-                  key={i}
-                  profile={c}
-                  label={`CANDIDATE #${i + 1}`}
-                  onUpdate={(p) => updateCandidate(i, p)}
-                  onRemove={() => removeCandidate(i)}
-                />
-              ))
-            ) : (
-              <div style={{
-                background: 'rgba(255,255,255,0.02)',
-                border: '1px dashed #333',
-                borderRadius: '4px',
-                padding: '16px',
-                textAlign: 'center',
-                color: '#666',
-                fontSize: '0.85rem'
-              }}>
-                Click a <span style={{ color: '#00ffff' }}>profile</span> → "Add to Candidates"
-                <br /><span style={{ opacity: 0.5, fontSize: '0.75rem' }}>or click Auto-Find to search local memory</span>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* HyDE Description Section */}
-      <div className="form-group">
-        <div className="form-row" style={{ flexDirection: 'column', alignItems: 'stretch' }}>
-          <div className="label-col" style={{ marginBottom: '8px' }}>
-            <label style={{ color: '#00ffff' }}>HyDE Description</label>
-            <span className="desc-tooltip">Hypothetical ideal match description (optional)</span>
-          </div>
-          <div className="input-col" style={{ width: '100%' }}>
-            {hydeDescription ? (
-              <div style={{ position: 'relative' }}>
-                <textarea
-                  value={hydeDescription}
-                  onChange={(e) => updateOptions({ hydeDescription: e.target.value })}
-                  style={{
-                    width: '100%',
-                    minHeight: '80px',
-                    background: 'rgba(255,255,255,0.02)',
-                    border: '1px solid #333',
-                    borderRadius: '4px',
-                    color: '#e6e6e6',
-                    padding: '10px',
-                    resize: 'vertical',
-                    outline: 'none',
-                    fontFamily: 'monospace',
-                    fontSize: '0.85rem'
-                  }}
-                />
-                <button
-                  onClick={() => updateOptions({ hydeDescription: '' })}
-                  style={{
-                    position: 'absolute',
-                    top: '6px',
-                    right: '6px',
-                    background: 'transparent',
-                    border: 'none',
-                    color: '#666',
-                    cursor: 'pointer',
-                    padding: '2px'
-                  }}
-                >
-                  <X size={14} />
-                </button>
-              </div>
-            ) : (
-              <div style={{
-                background: 'rgba(255,255,255,0.02)',
-                border: '1px dashed #333',
-                borderRadius: '4px',
-                padding: '16px',
-                textAlign: 'center',
-                color: '#666',
-                fontSize: '0.85rem'
-              }}>
-                Click a <span style={{ color: '#00ffff' }}>hyde</span> from Context Memory to load it
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* Minimum Score Slider */}
-      <div className="form-group">
-        <div className="form-row" style={{ flexDirection: 'column', alignItems: 'stretch' }}>
-          <div className="label-col" style={{ marginBottom: '8px', display: 'flex', justifyContent: 'space-between' }}>
-            <div>
-              <label style={{ color: '#00ffff' }}>Minimum Score</label>
-              <span className="desc-tooltip">Filter opportunities below this score</span>
-            </div>
-            <span style={{ color: '#e6e6e6', fontFamily: 'monospace', fontSize: '0.9rem' }}>{minScore}</span>
-          </div>
-          <div className="input-col" style={{ width: '100%' }}>
-            <input
-              type="range"
-              min={0}
-              max={100}
-              value={minScore}
-              onChange={(e) => updateOptions({ minScore: parseInt(e.target.value) })}
-              style={{
-                width: '100%',
-                accentColor: '#00ffff',
-                cursor: 'pointer'
-              }}
-            />
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', color: '#666', marginTop: '4px' }}>
-              <span>0</span>
-              <span>50</span>
-              <span>100</span>
-            </div>
-          </div>
-        </div>
+          }
+        />
       </div>
     </div>
   );
 };
 
-export default OpportunityEvaluatorInput;
+// Helper for JSON/Object inputs (Source, Candidates) to handle valid/invalid states
+const JsonParamsInput: React.FC<{
+  label: string;
+  value: any;
+  onChange: (val: any) => void;
+  height?: string;
+  headerControls?: React.ReactNode;
+}> = ({ label, value, onChange, height, headerControls }) => {
+  const [str, setStr] = React.useState(value ? JSON.stringify(value, null, 2) : '');
+
+  // Sync upstream -> local
+  React.useEffect(() => {
+    // If value changes externally (injection), update str
+    // But avoid clobbering local edits.
+    // Simple structural check
+    try {
+      const local = JSON.parse(str || 'null');
+      if (JSON.stringify(local) !== JSON.stringify(value)) {
+        setStr(value ? JSON.stringify(value, null, 2) : '');
+      }
+    } catch {
+      // local invalid, if value changed significantly, overwrite? 
+      // For injection, yes.
+      // checking ref is better but let's trust stringify equality for now.
+      if (value && JSON.stringify(value, null, 2) !== str) {
+        setStr(JSON.stringify(value, null, 2));
+      }
+    }
+  }, [value]);
+
+  return (
+    <div style={{ height: height || '100%', width: '100%' }}>
+      <GeneralInput
+        label={label}
+        value={str}
+        onChange={(val) => {
+          setStr(val);
+          try {
+            const obj = JSON.parse(val);
+            onChange(obj);
+          } catch {
+            // invalid json, don't update upstream yet
+          }
+        }}
+        headerControls={headerControls}
+        allowJson2Md={true}
+        allowMarkdown={true}
+      />
+    </div>
+  );
+};

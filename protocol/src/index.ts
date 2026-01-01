@@ -18,6 +18,9 @@ import './queues/opportunity.queue';
  */
 import { getAvailableAgents, runAgent } from './agents/playground/server/registry';
 import { PARALLEL_INPUTS } from './agents/playground/server/data/users';
+import { IndexEmbedder } from './lib/embedder';
+// Initialize shared embedder
+const sharedEmbedder = new IndexEmbedder();
 
 import path from 'path';
 
@@ -124,6 +127,22 @@ app.post('/api/run/:agentId', async (req, res) => {
   } catch (error: any) {
     console.error(`Error running agent ${agentId}:`, error);
     res.status(500).json({ error: error.message || 'Internal Server Error' });
+  }
+});
+
+app.post('/api/embeddings', async (req, res) => {
+  try {
+    const { text } = req.body;
+    if (!text) {
+      return res.status(400).json({ error: 'Text is required' });
+    }
+    const result = await sharedEmbedder.generate(text);
+    // Standardize output to number[]
+    const vector = Array.isArray(result[0]) ? result[0] : result;
+    res.json({ vector });
+  } catch (error: any) {
+    console.error('Error generating embedding:', error);
+    res.status(500).json({ error: error.message });
   }
 });
 
