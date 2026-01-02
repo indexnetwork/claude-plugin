@@ -150,9 +150,10 @@ export const OpportunityEvaluatorInput: React.FC<OpportunityEvaluatorInputProps>
         score: cosineSimilarity(queryVector, p.embedding)
       }));
 
-      // 5. Sort & Filter (Min Similarity 0.4 to align with broad search)
-      // Queue uses 0.5, but let's be slightly more permissive for playground exploration
-      const MIN_SIMILARITY = 0.4;
+      // 5. Sort & Filter
+      // Use minScore from options (0-100) mapped to 0-1 similarity
+      const MIN_SIMILARITY = minScore / 100;
+
       const filtered = scored
         .filter(s => s.score >= MIN_SIMILARITY)
         .sort((a, b) => b.score - a.score);
@@ -176,7 +177,7 @@ export const OpportunityEvaluatorInput: React.FC<OpportunityEvaluatorInputProps>
   };
 
   return (
-    <div className="complex-form structured-mode" style={{ display: 'flex', flexDirection: 'column', gap: '12px', height: '100%', overflowY: 'auto', paddingRight: '8px' }}>
+    <div className="complex-form structured-mode" style={{ display: 'flex', flexDirection: 'column', height: '100%', overflowY: 'auto', paddingRight: '8px' }}>
 
       {/* 1. Source Profile */}
       <div style={{ height: '300px', flexShrink: 0 }}>
@@ -185,6 +186,14 @@ export const OpportunityEvaluatorInput: React.FC<OpportunityEvaluatorInputProps>
           value={sourceProfile}
           onChange={(v) => updateInput({ sourceProfile: v as Profile })}
           height="100%"
+        />
+      </div>
+
+      <div style={{ height: '150px', flexShrink: 0 }}>
+        <GeneralInput
+          label="EXISTING OPPORTUNITIES"
+          value={options.existingOpportunities as string || ''}
+          onChange={(val) => updateOptions({ existingOpportunities: val })}
         />
       </div>
 

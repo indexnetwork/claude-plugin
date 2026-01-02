@@ -20,6 +20,7 @@ const ANALYSIS_SYSTEM_PROMPT = `
     Input:
     - Source Context: Either an "Ideal Partner Description" (HyDE) OR the User's own Profile.
     - Candidate Profile (JSON)
+    - Existing Opportunities (Context of matches already made)
 
     Output:
     - A list of distinct "Opportunities" (if any).
@@ -33,7 +34,12 @@ const ANALYSIS_SYSTEM_PROMPT = `
     2. COMPREHENSIVE: If multiple distinct matches exist, you MUST mention ALL of them. Do not focus on just one.
     3. SYNTHESIS: Combine these points into a single cohesive narrative paragraph.
     4. Be specific about the "Why".
+    5. DEDUPLICATION: You must NOT suggest opportunities that are effectively duplicates of "Existing Opportunities".
+       - If the Source has already matched with this Candidate for same reason -> IGNORE.
+       - If the Source has seen this exact opportunity -> IGNORE.
+       - If the match is new/distinct -> INCLUDE it.
 `;
+
 
 // --- SCHEMAS ---
 const OpportunitySchema = z.object({
@@ -112,7 +118,9 @@ export class OpportunityEvaluator extends BaseLangChainAgent {
 
     // Analyze each candidate in parallel (bounded)
     const promises = candidates.map(async (candidate) => {
-      return this.analyzeMatch(sourceProfileContext, candidate, candidate.userId);
+      // Pass existing opportunities context if provided
+      const existingContext = options.existingOpportunities || '';
+      return this.analyzeMatch(sourceProfileContext, candidate, candidate.userId, existingContext);
     });
 
     const results = await Promise.all(promises);
@@ -212,12 +220,17 @@ export class OpportunityEvaluator extends BaseLangChainAgent {
   private async analyzeMatch(
     sourceProfileContext: string,
     candidateProfile: CandidateProfile,
-    candidateUserId: string
+    candidateUserId: string,
+    existingOpportunities: string
   ): Promise<Opportunity[]> {
     try {
       // Construct the source context part of the prompt
       //STRICT: Use Source Profile
       const sourceContext = `SOURCE PROFILE:\n${sourceProfileContext}`;
+
+      const existingContextPart = existingOpportunities
+        ? `\nEXISTING OPPORTUNITIES (Deduplication Context):\n${existingOpportunities}\n`
+        : '';
 
       // Create candidate context using template string
       const candidateContext = `
@@ -233,7 +246,7 @@ export class OpportunityEvaluator extends BaseLangChainAgent {
 
       const messages = [
         new SystemMessage(ANALYSIS_SYSTEM_PROMPT),
-        new HumanMessage(`${sourceContext}\n\nCANDIDATE PROFILE:\n${candidateContext}`)
+        new HumanMessage(`${sourceContext}\n${existingContextPart}\nCANDIDATE PROFILE:\n${candidateContext}`)
       ];
 
       // Primary model is already configured with OutputSchema

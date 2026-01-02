@@ -7,6 +7,7 @@ import { StakeEvaluator } from '../../intent/stake/evaluator/stake.evaluator';
 import { OpportunityEvaluator } from '../../opportunity/opportunity.evaluator';
 import { ProfileGenerator } from '../../profile/profile.generator';
 import { HydeGeneratorAgent } from '../../profile/hyde/hyde.generator';
+import { stakeService } from '../../../services/stake.service';
 
 import { searchUser } from '../../../lib/parallel/parallel';
 import { json2md } from '../../../lib/json2md/json2md';
@@ -215,10 +216,29 @@ const REGISTRY: AgentRegistryItem[] = [
       { key: 'sourceProfile', label: 'Source Profile', type: 'profile', description: 'The user looking for opportunities.' },
       // Removed manual candidates input - now auto-retrieved via Embedder (Memory Mode from Context)
       { key: 'options.minScore', label: 'Minimum Score', type: 'number', defaultValue: 60 },
-      { key: 'options.hydeDescription', label: 'HyDE Description', type: 'hyde', description: 'The hypothetical ideal match description.' }
+      { key: 'options.hydeDescription', label: 'HyDE Description', type: 'hyde', description: 'The hypothetical ideal match description.' },
+      { key: 'options.existingOpportunities', label: 'Existing Opportunities', type: 'string', description: 'Context of previous matches to avoid duplicates.' }
     ],
     agentClass: OpportunityEvaluator,
     runner: async (agent, input) => {
+      // 0. Auto-Fetch Existing Opportunities if userId is present and field is empty
+      if (!input.options?.existingOpportunities && input.sourceProfile?.userId) {
+        try {
+          const existingStakes = await stakeService.getUserStakes(input.sourceProfile.userId, 20);
+          if (existingStakes.length > 0) {
+            const ctx = existingStakes
+              .map(s => `- Match with ${s.candidateName} (ID: ${s.candidateId}) (Score: ${s.score}): ${s.reason}`)
+              .join('\n');
+
+            if (!input.options) input.options = {};
+            input.options.existingOpportunities = ctx;
+            console.log(`[Registry] Auto-fetched ${existingStakes.length} existing opportunities for ${input.sourceProfile.userId}`);
+          }
+        } catch (e) {
+          console.error("[Registry] Failed to fetch existing stakes in playground:", e);
+        }
+      }
+
       // 1. Setup Memory Embedder
       // We need an embedder that searches the PASSED candidates (from input.candidates injected by App.tsx)
       const candidates = input.candidates || [];

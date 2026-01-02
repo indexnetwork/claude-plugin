@@ -1,5 +1,5 @@
 import db from '../lib/db';
-import { intents, intentStakes, intentStakeItems, indexMembers } from '../lib/schema';
+import { intents, intentStakes, intentStakeItems, indexMembers, userProfiles } from '../lib/schema';
 import { eq, and, sql, isNull, inArray, gt, or } from 'drizzle-orm';
 import { IndexEmbedder } from '../lib/embedder';
 
@@ -287,6 +287,62 @@ export class StakeService {
       .where(inArray(intentStakeItems.stakeId, stakeIds));
 
     return affectedUserRows.map(r => r.userId);
+  }
+
+  /**
+   * Get recent stakes for a user to provide context for deduplication.
+   * JOINs to get the Candidate's Name and the Stake Reason.
+   */
+  async getUserStakes(userId: string, limit: number = 20): Promise<{ candidateName: string, candidateId: string, reason: string, score: number }[]> {
+    // 1. Find all stakes this user is part of
+    // user -> intent -> stake_item -> stake
+    const userStakes = await db
+      .select({
+        stakeId: intentStakes.id,
+        reason: intentStakes.reasoning,
+        score: intentStakes.stake,
+        createdAt: intentStakes.createdAt
+      })
+      .from(intentStakes)
+      .innerJoin(intentStakeItems, eq(intentStakeItems.stakeId, intentStakes.id))
+      .innerJoin(intents, eq(intents.id, intentStakeItems.intentId))
+      .where(eq(intents.userId, userId))
+      .orderBy(sql`${intentStakes.createdAt} DESC`)
+      .limit(limit);
+
+    if (userStakes.length === 0) return [];
+
+    // 2. For each stake, find the OTHER user (Candidate)
+    const results: { candidateName: string, candidateId: string, reason: string, score: number }[] = [];
+
+    for (const stake of userStakes) {
+      // Find items in this stake NOT belonging to the source user
+      const otherItems = await db
+        .select({
+          userName: userProfiles.identity,
+          userId: intents.userId
+        })
+        .from(intentStakeItems)
+        .innerJoin(intents, eq(intents.id, intentStakeItems.intentId))
+        .innerJoin(userProfiles, eq(userProfiles.userId, intents.userId)) // Join profile to get name
+        .where(and(
+          eq(intentStakeItems.stakeId, stake.stakeId),
+          sql`${intents.userId} != ${userId}`
+        ))
+        .limit(1);
+
+      if (otherItems.length > 0) {
+        const candidateName = (otherItems[0].userName as any)?.name || 'Unknown';
+        results.push({
+          candidateName,
+          candidateId: otherItems[0].userId,
+          reason: stake.reason || 'No reason provided',
+          score: Number(stake.score)
+        });
+      }
+    }
+
+    return results;
   }
 
   async createCacheHash(data: any, options?: any): Promise<string> {

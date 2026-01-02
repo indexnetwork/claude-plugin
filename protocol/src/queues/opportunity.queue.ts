@@ -195,13 +195,25 @@ export async function runOpportunityFinderCycle(
         context: memoryProfile.narrative?.context || ''
       });
 
+
+      // --- DEDUPLICATION: Fetch Existing Stakes ---
+      const existingStakes = await stakeService.getUserStakes(sourceProfile.userId, 20);
+      let existingOpportunitiesContext = "";
+
+      if (existingStakes.length > 0) {
+        existingOpportunitiesContext = existingStakes
+          .map(s => `- Match with ${s.candidateName} (ID: ${s.candidateId}) (Score: ${s.score}): ${s.reason}`)
+          .join('\n');
+      }
+
       const opportunities = await evaluator.runDiscovery(profileContext, {
         hydeDescription: hydeDesc,
         limit: 20, // Check top 20 nearest neighbors
         minScore: 0.5, // Filter low quality matches early (if searcher supports it)
         filter: {
           userId: { ne: sourceProfile.userId } // Exclude self
-        } as any // Use as any to bypass Option type limitation for filter specifics
+        } as any, // Use as any to bypass Option type limitation for filter specifics
+        existingOpportunities: existingOpportunitiesContext
       });
 
       if (opportunities.length > 0) {

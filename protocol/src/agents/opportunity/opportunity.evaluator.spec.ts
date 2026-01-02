@@ -147,6 +147,47 @@ async function testMissingUserId() {
   log.info("PASSED\n");
 }
 
+
+
+async function testDeduplicationPromptLogic() {
+  log.info("--- Test: Deduplication Prompt Logic ---");
+  const evaluator = await setupEvaluator();
+
+  const spyModel = {
+    invoke: async (messages: any) => {
+      // Messages struct: [SystemMessage, HumanMessage]
+      const humanMessage = messages.find((m: any) => m.content && m.content.includes("CANDIDATE PROFILE"));
+      if (!humanMessage) throw new Error("Could not find HumanMessage with Candidate Profile");
+
+      if (!humanMessage.content.includes("EXISTING OPPORTUNITIES (Deduplication Context):")) {
+        // Log content for debug
+        console.log("Human Message Content:", humanMessage.content);
+        throw new Error("Prompt missing Deduplication Context header");
+      }
+      if (!humanMessage.content.includes("Already matched with Bob")) {
+        throw new Error("Prompt missing existing opportunities content");
+      }
+      // Return dummy response structure
+      return {
+        opportunities: []
+      };
+    }
+  };
+
+  // Inject spy model (Cast to any to bypass private/protected check for testing)
+  (evaluator as any).model = spyModel;
+
+  const existing = "Already matched with Bob (Score: 95): Great match";
+
+  await evaluator.evaluateOpportunities(sourceProfileContext, [candidateA], {
+    minScore: 0.5,
+    hydeDescription: "test",
+    existingOpportunities: existing
+  });
+
+  log.info("PASSED\n");
+}
+
 async function runAllTests() {
   log.info("=== Starting Opportunity Evaluator Test Suite ===\n");
   try {
@@ -154,9 +195,10 @@ async function runAllTests() {
     await testEmptyCandidates();
     await testHighThreshold();
     await testMissingUserId();
+    await testDeduplicationPromptLogic();
     log.info("=== All Tests Passed ===");
   } catch (e) {
-    log.error("Test Failed:", e);
+    log.error("Test Failed:", { error: e });
     process.exit(1);
   }
 }

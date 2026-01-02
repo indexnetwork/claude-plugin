@@ -432,10 +432,23 @@ function App() {
         updates.options = { ...currentObj.options || {}, hydeDescription: user.hydeDescription };
       }
 
+      // Inject Existing Opportunities from Context
+      if (user.opportunities && user.opportunities.length > 0) {
+        const existingOps = user.opportunities
+          .map((op: any) => `- Match with ${op.title?.replace('Match with ', '')} (ID: ${op.candidateId || 'Unknown'}) (Score: ${op.score}): ${op.description || 'No description'}`)
+          .join('\n');
+
+        updates.options = {
+          ...(updates.options || currentObj.options || {}),
+          existingOpportunities: existingOps
+        };
+        addLog(`Injected ${user.opportunities.length} existing opportunities.`);
+      }
+
       if (Object.keys(updates).length > 0) {
         const newObj = { ...currentObj, ...updates };
         setInputVal(JSON.stringify(newObj, null, 2));
-        addLog(`Injected Source Profile & HyDE for ${user.name}`);
+        addLog(`Injected Source Profile & Context for ${user.name}`);
       } else {
         addLog(`User ${user.name} has no Profile or HyDE description.`);
       }

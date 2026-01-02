@@ -3,6 +3,7 @@ import { UserMemoryProfile } from '../intent/manager/intent.manager.types';
 export interface OpportunityEvaluatorOptions {
     minScore?: number;
     hydeDescription: string; // REQUIRED for search phase
+    existingOpportunities?: string;
 }
 
 export interface CandidateProfile {
