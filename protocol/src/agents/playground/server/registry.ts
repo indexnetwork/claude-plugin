@@ -161,7 +161,7 @@ const REGISTRY: AgentRegistryItem[] = [
     description: 'Generates warm introduction synthesis for connecting two users.',
     category: 'intent_stakes',
     inputType: 'any', // Complex object
-    disabled: true,
+    disabled: false,
     defaultInput: {
       sender: { name: "Alice", reasonings: ["Expert in AI agents"] },
       recipient: { name: "Bob", reasonings: ["Building a decentralized protocol"] }
@@ -175,7 +175,7 @@ const REGISTRY: AgentRegistryItem[] = [
     description: 'Generates the "Vibe Check" text explaining why a match exists.',
     category: 'intent_stakes',
     inputType: 'intent_pairs',
-    disabled: true,
+    disabled: false,
     defaultInput: {
       source: { name: "Alice", bio: "AI Engineer" },
       target: { name: "Bob", bio: "Protocol Designer" },
@@ -190,7 +190,7 @@ const REGISTRY: AgentRegistryItem[] = [
     description: 'Determines if two intents have mutual relevance.',
     category: 'intent_stakes',
     inputType: 'any',
-    disabled: true,
+    disabled: false,
     defaultInput: {
       primaryIntent: { description: "Looking for DeFi projects to invest in." },
       candidates: [

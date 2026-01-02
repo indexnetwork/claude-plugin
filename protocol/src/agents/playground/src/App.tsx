@@ -16,6 +16,9 @@ import { OpportunityEvaluatorInput } from './components/OpportunityEvaluatorInpu
 import { IntentManagerInput } from './components/IntentManagerInput';
 import { ExplicitIntentInferrerInput } from './components/ExplicitIntentInferrerInput';
 import { ImplicitIntentInferrerInput } from './components/ImplicitIntentInferrerInput';
+import { IntroGeneratorInput } from './components/IntroGeneratorInput';
+import { SynthesisGeneratorInput } from './components/SynthesisGeneratorInput';
+import { StakeEvaluatorInput } from './components/StakeEvaluatorInput';
 import { GeneralInput } from './components/GeneralInput';
 
 function App() {
@@ -93,7 +96,7 @@ function App() {
   const categorizedAgents = categoryOrder.map(cat => ({
     id: cat,
     name: cat === 'external' ? 'External Tools'
-      : cat === 'intent_stakes' ? 'Intent Stake'
+      : cat === 'intent_stakes' ? 'Intent Stake (WIP)'
         : cat.charAt(0).toUpperCase() + cat.slice(1) + ' Agents',
     agents: agents.filter(a => a.category === cat)
   })).filter(g => g.agents.length > 0);
@@ -110,7 +113,17 @@ function App() {
     const agent = agents.find(a => a.id === id);
 
     // Default to Structured if fields exist, else Raw (or specialized)
-    const hasSchema = agent?.fields && agent.fields.length > 0;
+    const specializedStructuredAgents = [
+      'opportunity-evaluator',
+      'intent-manager',
+      'explicit-intent-detector',
+      'implicit-inferrer',
+      'intro-generator',
+      'synthesis-generator',
+      'stake-evaluator'
+    ];
+
+    const hasSchema = (agent?.fields && agent.fields.length > 0) || specializedStructuredAgents.includes(id);
     setInputMode(hasSchema ? 'structured' : 'raw');
 
     if (agent?.defaultInput) {
@@ -509,6 +522,89 @@ function App() {
         addLog(`Injected Profile${updates.opportunityContext ? ' & Opportunity' : ''} for ${user.name}`);
       } else {
         addLog(`User ${user.name} has no Profile or Opportunities.`);
+      }
+    }
+
+    // 8. Intro Generator: Injects Sender -> Recipient
+    if (selectedAgent?.id === 'intro-generator') {
+      const currentObj = JSON.parse(inputVal || '{}');
+      const updates: any = {};
+
+      // Slot Filling Strategy: Fill Sender if empty, else Recipient
+      if (!currentObj.sender || Object.keys(currentObj.sender).length === 0) {
+        updates.sender = user.userProfile || { identity: { name: user.name } };
+        addLog(`Injected Sender: ${user.name}`);
+      } else {
+        updates.recipient = user.userProfile || { identity: { name: user.name } };
+        addLog(`Injected Recipient: ${user.name}`);
+      }
+
+      if (Object.keys(updates).length > 0) {
+        const newObj = { ...currentObj, ...updates };
+        setInputVal(JSON.stringify(newObj, null, 2));
+      }
+      return;
+    }
+
+    // 9. Synthesis Generator: Injects Source -> Target
+    if (selectedAgent?.id === 'synthesis-generator') {
+      const currentObj = JSON.parse(inputVal || '{}');
+      const updates: any = {};
+
+      if (!currentObj.source || Object.keys(currentObj.source).length === 0) {
+        updates.source = user.userProfile || { identity: { name: user.name } };
+        addLog(`Injected Source: ${user.name}`);
+      } else {
+        updates.target = user.userProfile || { identity: { name: user.name } };
+        addLog(`Injected Target: ${user.name}`);
+      }
+
+      if (Object.keys(updates).length > 0) {
+        const newObj = { ...currentObj, ...updates };
+        setInputVal(JSON.stringify(newObj, null, 2));
+      }
+      return;
+    }
+
+    // 10. Stake Evaluator: Injects Candidates
+    if (selectedAgent?.id === 'stake-evaluator') {
+      const currentObj = JSON.parse(inputVal || '{}');
+      const updates: any = {};
+
+      // Always inject as Candidate (unless we want to support Primary Intent injection, but that's ambiguous)
+      // Wraps user in { user: ... } or { intent: ... } depending on what we have.
+      // The agent input schema roughly expects candidates: { intent: { description: ... } }[] ?
+      // Registry says: candidates: [ { intent: { description: ... } } ]
+
+      // Let's check if user has active intents
+      let newCandidate: any = null;
+
+      if (user.activeIntents && user.activeIntents.length > 0) {
+        // Use the first active intent? Or all?
+        // Let's use the most recent active intent.
+        const intent = user.activeIntents[user.activeIntents.length - 1]; // or [0]
+        newCandidate = {
+          user: { name: user.name }, // Metadata for UI
+          intent: { description: intent.description }
+        };
+      } else if (user.userProfile) {
+        // No intents, maybe use profile bio as loose intent?
+        newCandidate = {
+          user: { name: user.name },
+          intent: { description: user.userProfile.identity?.bio || "No description" }
+        };
+      } else {
+        newCandidate = {
+          user: { name: user.name },
+          intent: { description: "User has no profile or intents." }
+        };
+      }
+
+      if (newCandidate) {
+        updates.candidates = [...(currentObj.candidates || []), newCandidate];
+        const newObj = { ...currentObj, ...updates };
+        setInputVal(JSON.stringify(newObj, null, 2));
+        addLog(`Added Candidate Stake: ${user.name}`);
       }
       return;
     }
@@ -1052,29 +1148,97 @@ function App() {
   };
 
   const renderStructuredContent = () => {
-    if (!selectedAgent) return null;
+    return (
+      <>
+        {/* Specialized UI Mappings */}
+        {
+          selectedAgentId === 'opportunity-evaluator' && (
+            <OpportunityEvaluatorInput
+              inputVal={inputVal}
+              setInputVal={setInputVal}
+              inputMode={inputMode}
+              context={context}
+              onLog={addLog}
+            />
+          )
+        }
 
-    if (selectedAgent.id === 'opportunity-evaluator' && inputMode === 'structured') {
-      return <OpportunityEvaluatorInput inputVal={inputVal} setInputVal={setInputVal} inputMode={inputMode} context={context} onLog={addLog} />;
-    }
+        {
+          selectedAgentId === 'intent-manager' && (
+            <IntentManagerInput
+              inputVal={inputVal}
+              setInputVal={setInputVal}
+              inputMode={inputMode}
+            />
+          )
+        }
 
-    if (selectedAgent.id === 'intent-manager' && inputMode === 'structured') {
-      return <IntentManagerInput inputVal={inputVal} setInputVal={setInputVal} inputMode={inputMode} />;
-    }
+        {
+          selectedAgentId === 'explicit-intent-detector' && (
+            <ExplicitIntentInferrerInput
+              inputVal={inputVal}
+              setInputVal={setInputVal}
+              inputMode={inputMode}
+            />
+          )
+        }
 
-    if (selectedAgent.id === 'explicit-intent-detector' && inputMode === 'structured') {
-      return <ExplicitIntentInferrerInput inputVal={inputVal} setInputVal={setInputVal} inputMode={inputMode} />;
-    }
+        {
+          selectedAgentId === 'implicit-inferrer' && (
+            <ImplicitIntentInferrerInput
+              inputVal={inputVal}
+              setInputVal={setInputVal}
+              inputMode={inputMode}
+              context={context}
+            />
+          )
+        }
 
-    if (selectedAgent.id === 'implicit-inferrer' && inputMode === 'structured') {
-      return <ImplicitIntentInferrerInput inputVal={inputVal} setInputVal={setInputVal} inputMode={inputMode} context={context} />;
-    }
+        {
+          selectedAgentId === 'intro-generator' && (
+            <IntroGeneratorInput
+              inputVal={inputVal}
+              setInputVal={setInputVal}
+              inputMode={inputMode}
+            />
+          )
+        }
 
-    if (inputMode === 'structured' && selectedAgent.fields) {
-      return renderStructuredForm(selectedAgent.fields);
-    }
+        {
+          selectedAgentId === 'synthesis-generator' && (
+            <SynthesisGeneratorInput
+              inputVal={inputVal}
+              setInputVal={setInputVal}
+              inputMode={inputMode}
+            />
+          )
+        }
 
-    return null;
+        {
+          selectedAgentId === 'stake-evaluator' && (
+            <StakeEvaluatorInput
+              inputVal={inputVal}
+              setInputVal={setInputVal}
+              inputMode={inputMode}
+            />
+          )
+        }
+
+        {/* Fallback to Generic Structured or Raw */}
+        {
+          !['opportunity-evaluator', 'intent-manager', 'explicit-intent-detector', 'implicit-inferrer', 'intro-generator', 'synthesis-generator', 'stake-evaluator'].includes(selectedAgentId || '') && (
+            inputMode === 'structured' && selectedAgent?.fields
+              ? renderStructuredForm(selectedAgent.fields)
+              : <textarea
+                className="terminal-input"
+                style={{ width: '100%', height: '100%', resize: 'none' }}
+                value={inputVal}
+                onChange={(e) => setInputVal(e.target.value)}
+                placeholder="// Raw JSON Input..."
+              />
+          )}
+      </>
+    );
   };
 
 
