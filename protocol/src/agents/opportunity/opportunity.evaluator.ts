@@ -3,9 +3,9 @@ import { log } from '../../lib/log';
 import { SystemMessage, HumanMessage } from '@langchain/core/messages';
 import { UserMemoryProfile } from '../intent/manager/intent.manager.types';
 import {
-    Opportunity,
-    OpportunityEvaluatorOptions,
-    CandidateProfile
+  Opportunity,
+  OpportunityEvaluatorOptions,
+  CandidateProfile
 } from './opportunity.evaluator.types';
 import { z } from 'zod';
 import { Embedder } from '../common/types';
@@ -37,15 +37,15 @@ const ANALYSIS_SYSTEM_PROMPT = `
 
 // --- SCHEMAS ---
 const OpportunitySchema = z.object({
-    type: z.enum(['collaboration', 'mentorship', 'networking', 'other']),
-    title: z.string().describe('Short title of the opportunity'),
-    description: z.string().describe('Reasoning why this is a good match'),
-    score: z.number().min(0).max(100).describe('Relevance score 0-100'),
-    candidateId: z.string().describe('The user ID of the match'),
+  type: z.enum(['collaboration', 'mentorship', 'networking', 'other']),
+  title: z.string().describe('Short title of the opportunity'),
+  description: z.string().describe('Reasoning why this is a good match'),
+  score: z.number().min(0).max(100).describe('Relevance score 0-100'),
+  candidateId: z.string().describe('The user ID of the match'),
 });
 
 const OpportunityEvaluatorOutputSchema = z.object({
-    opportunities: z.array(OpportunitySchema),
+  opportunities: z.array(OpportunitySchema),
 });
 
 type EvaluatorOutput = z.infer<typeof OpportunityEvaluatorOutputSchema>;
@@ -66,160 +66,162 @@ type EvaluatorOutput = z.infer<typeof OpportunityEvaluatorOutputSchema>;
  * WHOLE PROFILE vs WHOLE PROFILE to find broader, implicit opportunities.
  */
 export class OpportunityEvaluator extends BaseLangChainAgent {
-    private embedder?: Embedder;
+  private embedder?: Embedder;
 
-    constructor(embedder?: Embedder) {
-        // Main model is for Analysis (structured output of Opportunities)
-        super({
-            model: 'openai/gpt-4o',
-            temperature: 0.1, // Low temp for stability
-            responseFormat: OpportunityEvaluatorOutputSchema
-        });
-        this.embedder = embedder;
+  constructor(embedder?: Embedder) {
+    // Main model is for Analysis (structured output of Opportunities)
+    super({
+      model: 'openai/gpt-4o',
+      temperature: 0.1, // Low temp for stability
+      responseFormat: OpportunityEvaluatorOutputSchema
+    });
+    this.embedder = embedder;
+  }
+
+  /**
+   * Main Entry Point: Batch analysis of candidates.
+   * 
+   * PROCESS:
+   * 1. Iterates through the provided list of candidates.
+   * 2. Calls the LLM to analyze the match against the Source Profile (or HyDE description).
+   * 3. Aggregates results, filters by `minScore` (default 70).
+   * 4. Returns a sorted list of the best Opportunities.
+   * 
+   * @param sourceProfileContext - The profile context string of the user we are finding opportunities FOR.
+   * @param candidates - List of potential matches to evaluate.
+   * @param options - Config (minScore, valid types, etc).
+   * @returns A sorted list of high-value `Opportunity` objects.
+   */
+  async evaluateOpportunities(
+    sourceProfileContext: string,
+    candidates: CandidateProfile[],
+    options: OpportunityEvaluatorOptions
+  ): Promise<Opportunity[]> {
+    const minScore = options.minScore || 70;
+    // hydeDescription is NOT used here anymore.
+
+    log.info(`[OpportunityEvaluator] Analyzing ${candidates.length} candidates for opportunities...`);
+
+    if (candidates.length === 0) {
+      log.info('[OpportunityEvaluator] No candidates provided.');
+      return [];
     }
 
-    /**
-     * Main Entry Point: Batch analysis of candidates.
-     * 
-     * PROCESS:
-     * 1. Iterates through the provided list of candidates.
-     * 2. Calls the LLM to analyze the match against the Source Profile (or HyDE description).
-     * 3. Aggregates results, filters by `minScore` (default 70).
-     * 4. Returns a sorted list of the best Opportunities.
-     * 
-     * @param sourceProfileContext - The profile context string of the user we are finding opportunities FOR.
-     * @param candidates - List of potential matches to evaluate.
-     * @param options - Config (minScore, valid types, etc).
-     * @returns A sorted list of high-value `Opportunity` objects.
-     */
-    async evaluateOpportunities(
-        sourceProfileContext: string,
-        candidates: CandidateProfile[],
-        options: OpportunityEvaluatorOptions
-    ): Promise<Opportunity[]> {
-        const minScore = options.minScore || 70;
-        // hydeDescription is NOT used here anymore.
+    const opportunities: Opportunity[] = [];
 
-        log.info(`[OpportunityEvaluator] Analyzing ${candidates.length} candidates for opportunities...`);
 
-        if (candidates.length === 0) {
-            log.info('[OpportunityEvaluator] No candidates provided.');
-            return [];
-        }
+    // Analyze each candidate in parallel (bounded)
+    const promises = candidates.map(async (candidate) => {
+      return this.analyzeMatch(sourceProfileContext, candidate, candidate.userId);
+    });
 
-        const opportunities: Opportunity[] = [];
+    const results = await Promise.all(promises);
+    results.flat().forEach(op => {
+      if (op.score >= minScore) {
+        opportunities.push(op as Opportunity);
+      }
+    });
 
-        // Analyze each candidate in parallel (bounded)
-        const promises = candidates.map(async (candidate) => {
-            return this.analyzeMatch(sourceProfileContext, candidate, candidate.userId);
-        });
+    // Sort by score
+    return opportunities.sort((a, b) => b.score - a.score);
+  }
 
-        const results = await Promise.all(promises);
-        results.flat().forEach(op => {
-            if (op.score >= minScore) {
-                opportunities.push(op as Opportunity);
-            }
-        });
+  /**
+   * Discovery Mode: Autonomous Retrieval + Analysis
+   * 
+   * 1. Generates search query (embedding source profile or HyDE).
+   * 2. Retrieves candidates using injected Embedder.
+   * 3. Evaluates found candidates.
+   */
+  async runDiscovery(
+    sourceProfileContext: string,
+    options: OpportunityEvaluatorOptions & { limit?: number, candidates?: CandidateProfile[], filter?: Record<string, unknown> } // candidates optional for MemorySearcher
+  ): Promise<Opportunity[]> {
+    log.info('[OpportunityEvaluator] Starting Discovery run...');
 
-        // Sort by score
-        return opportunities.sort((a, b) => b.score - a.score);
+    const foundCandidates = await this.findCandidates(options);
+    log.info(`[OpportunityEvaluator] Found ${foundCandidates.length} potential candidates from search.`);
+
+    // 3. Evaluate Matches
+    return this.evaluateOpportunities(sourceProfileContext, foundCandidates, options);
+  }
+
+  /**
+   * Find candidates using the injected embedder (HyDE -> Embedding -> Search).
+   */
+  async findCandidates(
+    options: OpportunityEvaluatorOptions & { limit?: number, candidates?: CandidateProfile[], filter?: Record<string, unknown> }
+  ): Promise<CandidateProfile[]> {
+    if (!this.embedder) {
+      throw new Error("Embedder must be injected to use findCandidates");
     }
 
-    /**
-     * Discovery Mode: Autonomous Retrieval + Analysis
-     * 
-     * 1. Generates search query (embedding source profile or HyDE).
-     * 2. Retrieves candidates using injected Embedder.
-     * 3. Evaluates found candidates.
-     */
-    async runDiscovery(
-        sourceProfileContext: string,
-        options: OpportunityEvaluatorOptions & { limit?: number, candidates?: CandidateProfile[], filter?: Record<string, unknown> } // candidates optional for MemorySearcher
-    ): Promise<Opportunity[]> {
-        log.info('[OpportunityEvaluator] Starting Discovery run...');
+    // 1. Generate Query Vector
+    // STRICT: Use HyDE Description for Search
+    const queryText = options.hydeDescription;
 
-        const foundCandidates = await this.findCandidates(options);
-        log.info(`[OpportunityEvaluator] Found ${foundCandidates.length} potential candidates from search.`);
-
-        // 3. Evaluate Matches
-        return this.evaluateOpportunities(sourceProfileContext, foundCandidates, options);
+    if (!queryText) {
+      throw new Error("HyDE Description is required for Search.");
     }
 
-    /**
-     * Find candidates using the injected embedder (HyDE -> Embedding -> Search).
-     */
-    async findCandidates(
-        options: OpportunityEvaluatorOptions & { limit?: number, candidates?: CandidateProfile[], filter?: Record<string, unknown> }
-    ): Promise<CandidateProfile[]> {
-        if (!this.embedder) {
-            throw new Error("Embedder must be injected to use findCandidates");
-        }
+    const embeddingResult = await this.embedder.generate(queryText);
+    // Handle return type (array of vector or single vector)
+    const queryVector = Array.isArray(embeddingResult[0])
+      ? (embeddingResult as number[][])[0]
+      : (embeddingResult as number[]);
 
-        // 1. Generate Query Vector
-        // STRICT: Use HyDE Description for Search
-        const queryText = options.hydeDescription;
+    // 2. Search for Candidates
+    const searchResults = await this.embedder.search<CandidateProfile>(
+      queryVector,
+      'profiles',
+      {
+        ...options, // Propagate minScore, filters, etc.
+        limit: options.limit || 5,
+        // For MemorySearcher, we might pass candidates directly in options to search against
+        candidates: options.candidates
+      }
+    );
 
-        if (!queryText) {
-            throw new Error("HyDE Description is required for Search.");
-        }
-
-        const embeddingResult = await this.embedder.generate(queryText);
-        // Handle return type (array of vector or single vector)
-        const queryVector = Array.isArray(embeddingResult[0])
-            ? (embeddingResult as number[][])[0]
-            : (embeddingResult as number[]);
-
-        // 2. Search for Candidates
-        const searchResults = await this.embedder.search<CandidateProfile>(
-            queryVector,
-            'profiles',
-            {
-                ...options, // Propagate minScore, filters, etc.
-                limit: options.limit || 5,
-                // For MemorySearcher, we might pass candidates directly in options to search against
-                candidates: options.candidates
-            }
-        );
-
-        return searchResults.map(r => r.item);
-    }
+    return searchResults.map(r => r.item);
+  }
 
 
-    /**
-     * Helper to generate a direct search query text.
-     */
-    generateDirectQuery(sourceProfile: UserMemoryProfile): string {
-        return `
+  /**
+   * Helper to generate a direct search query text.
+   */
+  generateDirectQuery(sourceProfile: UserMemoryProfile): string {
+    return `
         Bio: ${sourceProfile.identity.bio}
         Interests: ${sourceProfile.attributes?.interests?.join(', ')}
         Skills: ${sourceProfile.attributes?.skills?.join(', ')}
         Aspirations: ${sourceProfile.narrative?.aspirations}
         `;
-    }
+  }
 
-    /**
-     * Analyze a single match pair using the primary Agent model.
-     * 
-     * IMPORTANT: This method now strictly uses the Source Profile for evaluation.
-     * The HyDE description is used ONLY for the search/discovery phase (upstream).
-     * 
-     * @param sourceProfileContext - The profile context of the source user.
-     * @param candidateProfile - The profile of the candidate being evaluated.
-     * @param candidateUserId - The ID of the candidate user.
-     * @returns A promise resolving to a list of identified opportunities.
-     */
-    private async analyzeMatch(
-        sourceProfileContext: string,
-        candidateProfile: CandidateProfile,
-        candidateUserId: string
-    ): Promise<Opportunity[]> {
-        try {
-            // Construct the source context part of the prompt
-            //STRICT: Use Source Profile
-            const sourceContext = `SOURCE PROFILE:\n${sourceProfileContext}`;
+  /**
+   * Analyze a single match pair using the primary Agent model.
+   * 
+   * IMPORTANT: This method now strictly uses the Source Profile for evaluation.
+   * The HyDE description is used ONLY for the search/discovery phase (upstream).
+   * 
+   * @param sourceProfileContext - The profile context of the source user.
+   * @param candidateProfile - The profile of the candidate being evaluated.
+   * @param candidateUserId - The ID of the candidate user.
+   * @returns A promise resolving to a list of identified opportunities.
+   */
+  private async analyzeMatch(
+    sourceProfileContext: string,
+    candidateProfile: CandidateProfile,
+    candidateUserId: string
+  ): Promise<Opportunity[]> {
+    try {
+      // Construct the source context part of the prompt
+      //STRICT: Use Source Profile
+      const sourceContext = `SOURCE PROFILE:\n${sourceProfileContext}`;
 
-            // Create candidate context using template string
-            const candidateContext = `
+      // Create candidate context using template string
+      const candidateContext = `
+            ID: ${candidateUserId}
             Name: ${candidateProfile.identity?.name || 'Unknown'}
             Bio: ${candidateProfile.identity?.bio || ''}
             Location: ${candidateProfile.identity?.location || ''}
@@ -229,30 +231,32 @@ export class OpportunityEvaluator extends BaseLangChainAgent {
             Context: ${candidateProfile.narrative?.context || ''}
             `;
 
-            const messages = [
-                new SystemMessage(ANALYSIS_SYSTEM_PROMPT),
-                new HumanMessage(`${sourceContext}\n\nCANDIDATE PROFILE:\n${candidateContext}`)
-            ];
+      const messages = [
+        new SystemMessage(ANALYSIS_SYSTEM_PROMPT),
+        new HumanMessage(`${sourceContext}\n\nCANDIDATE PROFILE:\n${candidateContext}`)
+      ];
 
-            // Primary model is already configured with OutputSchema
-            const result = await this.model.invoke(messages) as EvaluatorOutput | { structuredResponse: EvaluatorOutput };
+      // Primary model is already configured with OutputSchema
+      const result = await this.model.invoke(messages) as EvaluatorOutput | { structuredResponse: EvaluatorOutput };
 
-            // Handle potential variations in structured output return
-            let opportunitiesList: Opportunity[] = [];
+      // Handle potential variations in structured output return
+      let opportunitiesList: Opportunity[] = [];
 
-            if ('opportunities' in result && Array.isArray(result.opportunities)) {
-                opportunitiesList = result.opportunities;
-            } else if ('structuredResponse' in result && result.structuredResponse?.opportunities) {
-                opportunitiesList = result.structuredResponse.opportunities;
-            }
+      if ('opportunities' in result && Array.isArray(result.opportunities)) {
+        opportunitiesList = result.opportunities;
+      } else if ('structuredResponse' in result && result.structuredResponse?.opportunities) {
+        opportunitiesList = result.structuredResponse.opportunities;
+      }
 
-            return opportunitiesList.map((op: Opportunity) => ({
-                ...op,
-                candidateId: candidateUserId
-            }));
-        } catch (e) {
-            log.info(`[OpportunityEvaluator] Analysis failed for candidate ${candidateUserId}`, { error: e });
-            return [];
-        }
+      const mappedOpportunities = opportunitiesList.map((op: Opportunity) => ({
+        ...op,
+        candidateId: candidateUserId
+      }));
+
+      return mappedOpportunities;
+    } catch (e) {
+      log.info(`[OpportunityEvaluator] Analysis failed for candidate ${candidateUserId}`, { error: e });
+      return [];
     }
+  }
 }

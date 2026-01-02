@@ -68,7 +68,6 @@ export class ImplicitInferrer extends BaseLangChainAgent {
 
     const prompt = `
       # User Profile
-      # User Profile
       ${profileContext}
 
       # Opportunity Context

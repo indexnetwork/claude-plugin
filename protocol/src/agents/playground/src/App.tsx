@@ -160,7 +160,7 @@ function App() {
         const potentialCandidates = context
           .filter(c => c.userProfile)
           .map(c => {
-            const profile = { ...c.userProfile };
+            const profile = { ...c.userProfile, userId: c.id };
             if (c.userProfileEmbedding) profile.embedding = c.userProfileEmbedding;
             return profile;
           });

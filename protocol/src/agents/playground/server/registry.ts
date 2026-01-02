@@ -237,7 +237,6 @@ const REGISTRY: AgentRegistryItem[] = [
       // treating the Agent class mostly for the 'evaluateOpportunities' logic (LLM part).
 
       // A. Generate Query
-      // A. Generate Query
       const hydeQuery = input.options?.hydeDescription;
       if (!hydeQuery) {
         throw new Error("HyDE Description is required for Opportunity Evaluation.");
@@ -279,14 +278,7 @@ const REGISTRY: AgentRegistryItem[] = [
       const opportunities = await agent.evaluateOpportunities(sourceProfileContext, foundCandidates, input.options);
 
       // Return composite debug object
-      return {
-        metadata: {
-          queryUsed: queryText,
-          totalCandidatesInContext: candidates.length,
-          opportunitiesFound: opportunities.length
-        },
-        opportunities: opportunities,
-      };
+      return opportunities;
     }
   },
 
