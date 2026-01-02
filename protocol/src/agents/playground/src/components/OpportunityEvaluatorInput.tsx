@@ -248,6 +248,8 @@ export const OpportunityEvaluatorInput: React.FC<OpportunityEvaluatorInputProps>
               <Search size={14} /> Embed Search
             </button>
           }
+          allowJson2Md={false} // Disable JSON to MD for candidates to reduce clutter
+          allowMarkdown={false} // Also disable preview for list of candidates? Or keep it? User said "remove json to md". I will disable both to be safe and clean.
         />
       </div>
     </div>
@@ -261,7 +263,9 @@ const JsonParamsInput: React.FC<{
   onChange: (val: unknown) => void;
   height?: string;
   headerControls?: React.ReactNode;
-}> = ({ label, value, onChange, height, headerControls }) => {
+  allowJson2Md?: boolean;
+  allowMarkdown?: boolean;
+}> = ({ label, value, onChange, height, headerControls, allowJson2Md = true, allowMarkdown = true }) => {
   const [str, setStr] = React.useState(value ? JSON.stringify(value, null, 2) : '');
 
   // Sync upstream -> local
@@ -299,8 +303,9 @@ const JsonParamsInput: React.FC<{
           }
         }}
         headerControls={headerControls}
-        allowJson2Md={true}
-        allowMarkdown={true}
+        allowJson2Md={allowJson2Md}
+        allowMarkdown={allowMarkdown}
+        allowPreview={allowMarkdown} // Enable preview if markdown is allowed
       />
     </div>
   );

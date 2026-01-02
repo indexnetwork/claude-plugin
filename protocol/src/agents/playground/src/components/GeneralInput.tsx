@@ -48,6 +48,20 @@ export const GeneralInput: React.FC<GeneralInputProps> = ({
   footerActions,
   children
 }) => {
+  // Support Uncontrolled View Mode:
+  // If onViewModeChange is not provided, we manage state internally.
+  const [internalViewMode, setInternalViewMode] = React.useState<'edit' | 'preview'>(viewMode || 'edit');
+
+  const isControlled = !!onViewModeChange;
+  const currentViewMode = isControlled ? viewMode : internalViewMode;
+
+  const handleModeChange = (mode: 'edit' | 'preview') => {
+    if (isControlled) {
+      onViewModeChange?.(mode);
+    } else {
+      setInternalViewMode(mode);
+    }
+  };
 
   const getExtensions = () => {
     const trimmed = value.trim();
@@ -83,7 +97,7 @@ export const GeneralInput: React.FC<GeneralInputProps> = ({
 
   /* CONTENT */
   const renderContent = () => {
-    if (viewMode === 'preview') {
+    if (currentViewMode === 'preview') {
       return (
         <div className="markdown-preview" style={{
           color: '#d4d4d4',
@@ -127,17 +141,17 @@ export const GeneralInput: React.FC<GeneralInputProps> = ({
         </div>
 
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-          {allowPreview && onViewModeChange && (
+          {allowPreview && (
             <div className="mode-toggle">
               <button
-                className={`mode-btn ${viewMode === 'edit' ? 'active' : ''}`}
-                onClick={() => onViewModeChange('edit')}
+                className={`mode-btn ${currentViewMode === 'edit' ? 'active' : ''}`}
+                onClick={() => handleModeChange('edit')}
               >
                 <Code size={14} /> Write
               </button>
               <button
-                className={`mode-btn ${viewMode === 'preview' ? 'active' : ''}`}
-                onClick={() => onViewModeChange('preview')}
+                className={`mode-btn ${currentViewMode === 'preview' ? 'active' : ''}`}
+                onClick={() => handleModeChange('preview')}
               >
                 <LayoutTemplate size={14} /> Preview
               </button>
@@ -164,7 +178,7 @@ export const GeneralInput: React.FC<GeneralInputProps> = ({
       {/* FOOTER actions */}
       <div className="actions-bar" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div className="left-actions">
-          {allowMarkdown && allowJson2Md && viewMode === 'edit' && (
+          {allowMarkdown && allowJson2Md && currentViewMode === 'edit' && (
             <button
               className="action-btn"
               onClick={handleJson2Md}
