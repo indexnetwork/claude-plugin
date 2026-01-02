@@ -4,7 +4,7 @@ import { summarizeIntent } from '../agents/core/intent_summarizer';
 import { IndexEmbedder } from '../lib/embedder';
 import { VectorStoreOption, VectorSearchResult } from '../agents/common/types';
 import { sql, eq, and, isNull, isNotNull, inArray, desc, count } from 'drizzle-orm';
-import { Events } from '../events';
+import { IntentEvents } from '../events/intent.event';
 import { INTENT_INFERRER_AGENT_ID } from '../lib/agent-ids';
 import { evaluateIntentAppropriateness } from '../agents/core/intent_indexer/evaluator';
 import { log } from '../lib/log';
@@ -470,7 +470,7 @@ export class IntentService {
     }
 
     // Trigger event
-    Events.Intent.onUpdated({
+    IntentEvents.onUpdated({
       intentId: id,
       userId,
       payload: updatedIntent[0].payload
@@ -498,7 +498,7 @@ export class IntentService {
       })
       .where(eq(intents.id, id));
 
-    Events.Intent.onArchived({
+    IntentEvents.onArchived({
       intentId: id,
       userId
     });
@@ -672,7 +672,7 @@ export class IntentService {
       }
 
       // Trigger centralized intent created event
-      Events.Intent.onCreated({
+      IntentEvents.onCreated({
         intentId: createdIntent.id,
         userId: createdIntent.userId,
         payload: createdIntent.payload

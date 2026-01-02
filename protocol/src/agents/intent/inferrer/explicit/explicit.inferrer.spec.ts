@@ -1,7 +1,8 @@
 import * as dotenv from 'dotenv';
 import path from 'path';
-import { ExplicitIntentDetector } from './explicit.inferrer';
-import { UserMemoryProfile, ActiveIntent } from '../../manager/intent.manager.types';
+import { ExplicitIntentInferrer } from './explicit.inferrer';
+import { InferredIntent } from './explicit.inferrer.types';
+import { UserMemoryProfile } from '../../manager/intent.manager.types';
 
 // Load env
 const envPath = path.resolve(__dirname, '../../../../.env.development');
@@ -9,14 +10,14 @@ console.log(`Loading env from: ${envPath}`);
 dotenv.config({ path: envPath });
 
 async function runTests() {
-    console.log("🧪 Starting ExplicitIntentDetector Tests...");
+    console.log("🧪 Starting ExplicitIntentInferrer Tests...");
 
     // Check for API keys (generic check, could be OpenAI, Anthropic, etc used by base agent)
     if (!process.env.OPENROUTER_API_KEY) {
         console.warn("⚠️  No API Key found (OPENROUTER_API_KEY). Live LLM tests might fail if not mocked.");
     }
 
-    const detector = new ExplicitIntentDetector();
+    const detector = new ExplicitIntentInferrer();
 
     // Mock Data
     const profile: UserMemoryProfile = {
@@ -41,7 +42,7 @@ async function runTests() {
     const res1 = await detector.run("I want to learn Rust", profileContext);
     console.log("Result:", JSON.stringify(res1, null, 2));
 
-    if (res1.intents.some(i => i.type === 'goal' && i.description.toLowerCase().includes('rust'))) {
+    if (res1.intents.some((i: InferredIntent) => i.type === 'goal' && i.description.toLowerCase().includes('rust'))) {
         console.log("✅ Passed (Goal inferred)");
     } else {
         console.log("❌ Failed (Expected goal inference)");
@@ -53,7 +54,7 @@ async function runTests() {
     const res2 = await detector.run("I finished learning Rust", profileContext);
     console.log("Result:", JSON.stringify(res2, null, 2));
 
-    if (res2.intents.some(i => i.type === 'tombstone')) {
+    if (res2.intents.some((i: InferredIntent) => i.type === 'tombstone')) {
         console.log("✅ Passed (Tombstone inferred)");
     } else {
         console.log("❌ Failed (Expected tombstone inference)");

@@ -14,7 +14,8 @@ import {
   checkUserIndexAccess,
   EVERYONE_USER_ID
 } from '../lib/index-access';
-import { Events } from '../events';
+import { IndexEvents } from '../events/index.event';
+import { MemberEvents } from '../events/user.event';
 import { IntentService } from '../services/intent.service';
 import { resolveFileUser } from '../lib/user-utils';
 import { addMemberToIndex } from '../lib/index-members';
@@ -553,7 +554,7 @@ router.put('/:id',
 
       // If index prompt changed, trigger centralized event
       if (prompt !== undefined) {
-        Events.Index.onPromptUpdated({
+        IndexEvents.onPromptUpdated({
           indexId: id,
           promptChanged: true
         });
@@ -1282,7 +1283,7 @@ router.put('/:id/member-settings',
 
       // If prompt or autoAssign changed, trigger centralized event
       if (prompt !== undefined || autoAssign !== undefined) {
-        Events.Member.onSettingsUpdated({
+        MemberEvents.onSettingsUpdated({
           userId: req.user!.id,
           indexId: id,
           promptChanged: prompt !== undefined,
