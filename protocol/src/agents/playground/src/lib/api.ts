@@ -98,6 +98,9 @@ export interface UserContext {
   // 6. Active Intents
   activeIntents?: any[];
 
+  // 7. Opportunities
+  opportunities?: any[];
+
   // Timestamp for sorting
   timestamp?: number;
 }

@@ -297,6 +297,18 @@ function App() {
         return;
       }
 
+      if (selectedAgent?.id === 'opportunity-evaluator') {
+        const matches = data.matches || data.opportunities || data;
+        const newOpportunities = Array.isArray(matches) ? matches : [matches];
+
+        const existing = context.find(c => c.id === targetUserId)?.opportunities || [];
+        updateUser(targetUserId, {
+          opportunities: [...existing, ...newOpportunities]
+        });
+        addLog(`Saved ${newOpportunities.length} opportunities.`);
+        return;
+      }
+
       addLog('Output saved (No persistent update strategy for this agent).');
 
     } catch (e) {
@@ -516,6 +528,7 @@ function App() {
               {c.userProfile && <span style={{ fontSize: '0.7rem', background: 'rgba(0, 255, 255, 0.2)', padding: '2px 4px', borderRadius: '3px', color: '#00ffff' }}>PROFILE</span>}
               {c.hydeDescription && <span style={{ fontSize: '0.7rem', background: 'rgba(255, 100, 255, 0.2)', padding: '2px 4px', borderRadius: '3px', color: '#ff66ff' }}>HyDE</span>}
               {c.activeIntents && c.activeIntents.length > 0 && <span style={{ fontSize: '0.7rem', background: 'rgba(255, 255, 0, 0.2)', padding: '2px 4px', borderRadius: '3px', color: '#ffff00' }}>INTENTS ({c.activeIntents.length})</span>}
+              {c.opportunities && c.opportunities.length > 0 && <span style={{ fontSize: '0.7rem', background: 'rgba(50, 255, 50, 0.2)', padding: '2px 4px', borderRadius: '3px', color: '#33ff33' }}>OPPORTUNITIES ({c.opportunities.length})</span>}
             </div>
           </div>
         ))}
