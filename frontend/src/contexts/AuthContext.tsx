@@ -105,18 +105,13 @@ function AuthProviderInner({ children }: { children: ReactNode }) {
 
     const isHomePage = pathname === '/';
     const isOnboardingPage = pathname === '/onboarding';
-    const isPublicPage = pathname.startsWith('/simulation') || pathname.startsWith('/l') || pathname.startsWith('/i');
-    const isProtectedPage = pathname.startsWith('/inbox') || isOnboardingPage;
+    const isPublicPage = pathname.startsWith('/simulation') || pathname.startsWith('/l') || pathname.startsWith('/index/');
+    const isProtectedPage = pathname.startsWith('/inbox') || pathname.startsWith('/i/') || isOnboardingPage;
 
     // Determine if we need to redirect
-    const shouldRedirectToIndexes = authenticated && isHomePage;
+    // Don't redirect authenticated users from root - they should see inbox there
     const shouldRedirectToHome = !authenticated && (isProtectedPage || (!isHomePage && !isPublicPage));
     const shouldRedirectOnboardingToHome = !authenticated && isOnboardingPage;
-
-    if (shouldRedirectToIndexes) {
-      router.push('/inbox');
-      return; // Will re-evaluate when pathname changes
-    }
 
     if (shouldRedirectToHome || shouldRedirectOnboardingToHome) {
       router.push('/');

@@ -107,7 +107,7 @@ export default function Header({ showNavigation = true, onToggleSidebar, isSideb
   // Memoize the navigation logic to avoid recalculating on every render
   const navigationItems = useMemo(() => [
     {
-      href: "/inbox",
+      href: "/",
       icon: (color: string) => (
         <svg
           width={44}
@@ -178,7 +178,7 @@ export default function Header({ showNavigation = true, onToggleSidebar, isSideb
               </svg>
             </button>
           )}
-          <Link href={authenticated ? "/inbox" : "/"}>
+          <Link href="/">
             <div className="relative mr-2 cursor-pointer">
               <Image
                 src="/logo-black.svg"
@@ -250,16 +250,15 @@ export default function Header({ showNavigation = true, onToggleSidebar, isSideb
                         <Settings className="h-4 w-4 mr-2" />
                         Preferences
                       </button>
-                      {/* <button
+                      { true && <button
                       className="w-full px-4 py-2 text-left text-gray-700 hover:bg-gray-50 flex items-center"
                       onClick={() => {
                         setDropdownOpen(false);
                         setCreateIndexModalOpen(true);
                       }}
                     >
-                      <Plus className="h-4 w-4 mr-2" />
                       Create Index
-                    </button> */}
+                    </button> }
                       <button
                         className="w-full px-4 py-2 text-left text-red-600 hover:bg-red-50 hover:text-red-700 flex items-center transition-colors font-ibm-plex-mono text-sm"
                         onClick={() => {

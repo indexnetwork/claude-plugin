@@ -7,8 +7,10 @@ import { useIndexesState } from '@/contexts/IndexesContext';
 import { useAuthContext } from '@/contexts/AuthContext';
 import { Index as IndexType } from '@/lib/types';
 import MemberSettingsModal from '@/components/modals/MemberSettingsModal';
+import LibraryModal from '@/components/modals/LibraryModal';
 import { Shield, ArrowLeft, Inbox, Users, Settings, Crown } from 'lucide-react';
-import { useAdmin } from '@/contexts/APIContext';
+import { useAdmin, useIntents } from '@/contexts/APIContext';
+import { formatDate } from '@/lib/utils';
 
 interface IndexItem {
   id: string;
@@ -18,16 +20,27 @@ interface IndexItem {
   fullIndex?: IndexType;
 }
 
+interface LatestIntent {
+  id: string;
+  payload: string;
+  summary?: string | null;
+  createdAt: string;
+}
+
 export default function Sidebar() {
   const router = useRouter();
   const pathname = usePathname();
   const { indexes: rawIndexes, loading } = useIndexesState();
   const { user: currentUser } = useAuthContext();
   const adminService = useAdmin();
+  const intentsService = useIntents();
   const [indexes, setIndexes] = useState<IndexItem[]>([]);
   const [selectedIndexId, setSelectedIndexId] = useState<string>('all');
   const [memberSettingsIndex, setMemberSettingsIndex] = useState<IndexType | null>(null);
   const [pendingCount, setPendingCount] = useState<number>(0);
+  const [latestIntents, setLatestIntents] = useState<LatestIntent[]>([]);
+  const [loadingIntents, setLoadingIntents] = useState(false);
+  const [libraryModalOpen, setLibraryModalOpen] = useState(false);
   const { setSelectedIndexIds } = useIndexFilter();
   
   // Check if we're in admin mode
@@ -93,6 +106,25 @@ export default function Sidebar() {
     }
   }, [isAdminMode, adminIndexId, adminIndex?.permissions?.requireApproval, adminService]);
 
+  // Fetch latest intents (only in normal mode, not admin mode)
+  useEffect(() => {
+    if (isAdminMode) return;
+    
+    const fetchLatestIntents = async () => {
+      try {
+        setLoadingIntents(true);
+        const response = await intentsService.getIntents(1, 5, false);
+        setLatestIntents(response.intents.slice(0, 5));
+      } catch (error) {
+        console.error('Failed to fetch latest intents:', error);
+      } finally {
+        setLoadingIntents(false);
+      }
+    };
+
+    fetchLatestIntents();
+  }, [isAdminMode, intentsService]);
+
   const handleIndexClick = (indexId: string) => {
     console.log('Index clicked:', indexId);
     setSelectedIndexId(indexId);
@@ -117,7 +149,7 @@ export default function Sidebar() {
         <>
           <div className="bg-white rounded-sm border-black border p-4">
             <button
-              onClick={() => router.push('/inbox')}
+              onClick={() => router.push('/')}
               className="flex items-center gap-2 text-blue-600 hover:text-blue-700 font-ibm-plex-mono text-sm mb-6 transition-colors"
             >
               <ArrowLeft className="w-4 h-4" />
@@ -182,17 +214,40 @@ export default function Sidebar() {
           </div>
         </>
       ) : (
-        /* Normal Sidebar */
-        <div className="bg-white rounded-sm border-black border p-3 pb-6 pt-6">
-          
-          <div className="space-y-1.5">
-            {loading ? (
-              <div className="text-center text-gray-500 py-4">
-                Loading indexes...
-              </div>
-            ) : (
-              indexes.map((index) => {
-                if (index.isSelectAll) {
+        <>
+          {/* Normal Sidebar */}
+          <div className="bg-white rounded-sm border-black border p-3 pb-6 pt-6">
+            
+            <div className="space-y-1.5">
+              {loading ? (
+                <div className="text-center text-gray-500 py-4">
+                  Loading indexes...
+                </div>
+              ) : (
+                indexes.map((index) => {
+                  if (index.isSelectAll) {
+                    return (
+                      <div
+                        key={index.id}
+                        onClick={() => handleIndexClick(index.id)}
+                        className={`flex items-center justify-between group rounded cursor-pointer px-3 h-10 ${
+                          index.isSelected ? 'bg-gray-200' : 'hover:bg-gray-50'
+                        }`}
+                      >
+                        <div className="flex items-center min-w-0">
+                          <span
+                            className={`text-[14px] text-black truncate ${index.isSelected ? 'font-bold' : ''}`}
+                            title={index.name}
+                          >
+                            {index.name}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  const isOwner = true;//currentUser && index.fullIndex?.user && currentUser.id === index.fullIndex.user.id;
+
                   return (
                     <div
                       key={index.id}
@@ -209,62 +264,80 @@ export default function Sidebar() {
                           {index.name}
                         </span>
                       </div>
-                    </div>
-                  );
-                }
-
-                const isOwner = currentUser && index.fullIndex?.user && currentUser.id === index.fullIndex.user.id;
-
-                return (
-                  <div
-                    key={index.id}
-                    onClick={() => handleIndexClick(index.id)}
-                    className={`flex items-center justify-between group rounded cursor-pointer px-3 h-10 ${
-                      index.isSelected ? 'bg-gray-200' : 'hover:bg-gray-50'
-                    }`}
-                  >
-                    <div className="flex items-center min-w-0">
-                      <span
-                        className={`text-[14px] text-black truncate ${index.isSelected ? 'font-bold' : ''}`}
-                        title={index.name}
-                      >
-                        {index.name}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      {/* Admin button for owners */}
-                      {isOwner && (
+                      <div className="flex items-center gap-1">
+                        {/* Admin button for owners */}
+                        {isOwner && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              router.push(`/admin/${index.id}`);
+                            }}
+                            className="p-1 cursor-pointer rounded opacity-0 group-hover:opacity-100 transition-opacity hover:bg-gray-200"
+                            title="Admin - Approve Connections"
+                          >
+                            <Crown className="w-4 h-4 text-blue-600" />
+                          </button>
+                        )}
+                        {/* Manage what you're sharing button */}
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
-                            router.push(`/admin/${index.id}`);
+                            if (index.fullIndex) {
+                              handleMemberSettings(index.fullIndex);
+                            }
                           }}
                           className="p-1 cursor-pointer rounded opacity-0 group-hover:opacity-100 transition-opacity hover:bg-gray-200"
-                          title="Admin - Approve Connections"
+                          title="Manage what you're sharing"
                         >
-                          <Crown className="w-4 h-4 text-blue-600" />
+                          <Users className="w-4 h-4 text-gray-600" />
                         </button>
-                      )}
-                      {/* Manage what you're sharing button */}
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (index.fullIndex) {
-                            handleMemberSettings(index.fullIndex);
-                          }
-                        }}
-                        className="p-1 cursor-pointer rounded opacity-0 group-hover:opacity-100 transition-opacity hover:bg-gray-200"
-                        title="Manage what you're sharing"
-                      >
-                        <Users className="w-4 h-4 text-gray-600" />
-                      </button>
+                      </div>
                     </div>
-                  </div>
-                );
-              })
+                  );
+                })
+              )}
+            </div>
+          </div>
+
+          {/* Latest Intents Section */}
+          <div className="bg-white rounded-sm border-black border p-3 pb-6 pt-6">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-bold text-black font-ibm-plex-mono">Latest Intents</h3>
+              <button
+                onClick={() => setLibraryModalOpen(true)}
+                className="text-xs text-gray-600 hover:text-black font-ibm-plex-mono transition-colors"
+              >
+                View all
+              </button>
+            </div>
+            {loadingIntents ? (
+              <div className="text-center text-gray-500 py-4 text-sm">
+                Loading...
+              </div>
+            ) : latestIntents.length === 0 ? (
+              <div className="text-center text-gray-500 py-4 text-sm">
+                No intents yet
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {latestIntents.map((intent) => (
+                  <button
+                    key={intent.id}
+                    onClick={() => router.push(`/i/${intent.id}`)}
+                    className="w-full text-left px-2 py-2 rounded hover:bg-gray-50 transition-colors group"
+                  >
+                    <div className="text-xs text-black font-ibm-plex-mono line-clamp-2 mb-1 group-hover:text-gray-700">
+                      {intent.summary || intent.payload}
+                    </div>
+                    <div className="text-[10px] text-gray-500 font-ibm-plex-mono">
+                      {formatDate(intent.createdAt)}
+                    </div>
+                  </button>
+                ))}
+              </div>
             )}
           </div>
-        </div>
+        </>
       )}
 
       {memberSettingsIndex && (
@@ -274,6 +347,11 @@ export default function Sidebar() {
           index={memberSettingsIndex}
         />
       )}
+
+      <LibraryModal
+        open={libraryModalOpen}
+        onOpenChange={setLibraryModalOpen}
+      />
     </div>
   );
 }

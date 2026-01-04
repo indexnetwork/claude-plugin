@@ -4,9 +4,10 @@ import { Mail } from "lucide-react";
 import Image from "next/image";
 import ClientLayout from "@/components/ClientLayout";
 import { Button } from "@/components/ui/button";
+import { useAuthContext } from "@/contexts/AuthContext";
+import InboxContent from "@/components/InboxContent";
 
-export default function LandingPage() {
-
+function LandingPage() {
   return (
     <ClientLayout>
       <div className="flex flex-col min-h-screen">
@@ -246,4 +247,20 @@ Gives trusted agents real context to understand you.</div>
       </div>
     </ClientLayout>
   );
+}
+
+export default function RootPage() {
+  const { isAuthenticated, isLoading } = useAuthContext();
+
+  // Show loading state while checking auth
+  if (isLoading) {
+    return null; // AuthContext handles loading UI
+  }
+
+  // Show inbox for authenticated users, landing page for unauthenticated
+  if (isAuthenticated) {
+    return <InboxContent />;
+  }
+
+  return <LandingPage />;
 }

@@ -1,23 +1,15 @@
 "use client";
 
-import { useState, useRef, useEffect, forwardRef, useImperativeHandle, useMemo } from "react";
-import { Link, Paperclip, Radio } from "lucide-react";
-import { ReactTyped } from "react-typed";
+import { forwardRef, useImperativeHandle, useRef, useState, useCallback, useEffect } from "react";
 import { useAPI } from "@/contexts/APIContext";
 import { usePrivy } from "@privy-io/react-auth";
 import { useNotifications } from "@/contexts/NotificationContext";
-import { validateFiles, getSupportedFileExtensions } from "../lib/file-validation";
+import { validateFiles, getSupportedFileExtensions, formatFileSize, getFileCategoryBadge } from "@/lib/file-validation";
+import { ArrowUp, X, Paperclip } from "lucide-react";
 
 interface DiscoveryFormProps {
   onSubmit?: (intents: Array<{id: string; payload: string; summary?: string; createdAt: string}>) => void;
-}
-
-interface AttachmentItem {
-  id: string;
-  type: 'file' | 'link';
-  name: string;
-  file?: File; // Optional for links
-  url?: string; // Optional for files
+  floating?: boolean; // If true, renders as fixed floating at bottom; if false, renders inline
 }
 
 export interface DiscoveryFormRef {
@@ -25,542 +17,111 @@ export interface DiscoveryFormRef {
   focus: () => void;
 }
 
-const DiscoveryForm = forwardRef<DiscoveryFormRef, DiscoveryFormProps>(({ onSubmit }, ref) => {
-  const [inputFocused, setInputFocused] = useState(false);
-  const [attachments, setAttachments] = useState<AttachmentItem[]>([]);
-  const [isFileDialogOpen, setIsFileDialogOpen] = useState(false);
-  const [isProcessing, setIsProcessing] = useState(false);
+interface Attachment {
+  id: string;
+  file: File;
+  preview?: string;
+}
 
-  const [recentIntents, setRecentIntents] = useState<Array<{id: string; payload: string; summary: string | null; createdAt: Date}>>([]);
-  const [hasContent, setHasContent] = useState(false);
-  const [showTypedAnimation, setShowTypedAnimation] = useState(false);
-  const contentRef = useRef<HTMLDivElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const processingTimer = useRef<NodeJS.Timeout | null>(null);
-  const undoStack = useRef<Array<{html: string; attachments: AttachmentItem[]; cursorPos: {start: number; end: number} | null}>>([]);
-  const redoStack = useRef<Array<{html: string; attachments: AttachmentItem[]; cursorPos: {start: number; end: number} | null}>>([]);
-  const isUndoRedoing = useRef(false);
-  const { discoverService, intentsService } = useAPI();
+const DiscoveryForm = forwardRef<DiscoveryFormRef, DiscoveryFormProps>(({ onSubmit, floating = false }, ref) => {
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [inputValue, setInputValue] = useState("");
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const { discoverService } = useAPI();
   const { getAccessToken } = usePrivy();
   const { error } = useNotifications();
+  const inputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const previewUrlsRef = useRef<string[]>([]);
 
   // Expose methods to parent via ref
   useImperativeHandle(ref, () => ({
     handleFileDrop: (files: FileList) => {
-      if (files.length > 0) {
-        const file = files[0];
-        
-        // Validate combined file set
-        const nextFiles = [...attachments.filter(a => a.type === 'file').map(a => a.file!), file];
-        const validation = validateFiles(nextFiles, 'general');
-        if (!validation.isValid) {
-          error(validation.message || 'Invalid file');
-          return;
-        }
-        
-        const newAttachment: AttachmentItem = {
-          id: Date.now().toString(),
-          type: 'file',
-          name: file.name,
-          file: file,
-        };
-        setAttachments(prev => [...prev, newAttachment]);
-        setInputFocused(true);
-        
-        // Insert attachment at cursor position
-        setTimeout(() => {
-          contentRef.current?.focus();
-          insertAttachment(newAttachment);
-        }, 0);
-      }
+      handleFiles(Array.from(files));
     },
     focus: () => {
-      if (contentRef.current) {
-        contentRef.current.focus();
-        setInputFocused(true);
-        
-        // Move cursor to the end of content
-        const selection = window.getSelection();
-        if (selection) {
-          const range = document.createRange();
-          range.selectNodeContents(contentRef.current);
-          range.collapse(false);
-          selection.removeAllRanges();
-          selection.addRange(range);
-        }
-      }
+      inputRef.current?.focus();
     }
   }));
 
-  // URL regex - stops at spaces and invalid characters (including unicode spaces)
-  const URLInTextRegex = /https?:\/\/[a-zA-Z0-9.-]+(?::[0-9]+)?(?:\/[a-zA-Z0-9._~:/?#[\]@!$&'()*+,;=%-]*)?/g;
+  const handleFiles = useCallback((files: File[]) => {
+    // Validate combined file set
+    const nextFiles = [...attachments.map(a => a.file), ...files];
+    const validation = validateFiles(nextFiles, 'general');
+    if (!validation.isValid) {
+      error(validation.message || 'Invalid file');
+      return;
+    }
 
-  // Start typed animation after 3 seconds
+    const newAttachments: Attachment[] = files.map(file => {
+      const id = `${Date.now()}-${Math.random()}`;
+      const preview = file.type.startsWith('image/') ? URL.createObjectURL(file) : undefined;
+      if (preview) {
+        previewUrlsRef.current.push(preview);
+      }
+      return { id, file, preview };
+    });
+
+    setAttachments(prev => [...prev, ...newAttachments]);
+    inputRef.current?.focus();
+  }, [attachments, error]);
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (files && files.length > 0) {
+      handleFiles(Array.from(files));
+      e.target.value = '';
+    }
+  };
+
+  const removeAttachment = (id: string) => {
+    setAttachments(prev => {
+      const attachment = prev.find(a => a.id === id);
+      if (attachment?.preview) {
+        URL.revokeObjectURL(attachment.preview);
+        previewUrlsRef.current = previewUrlsRef.current.filter(url => url !== attachment.preview);
+      }
+      return prev.filter(a => a.id !== id);
+    });
+  };
+
+  // Cleanup blob URLs on unmount
   useEffect(() => {
-    const timer = setTimeout(() => {
-      setShowTypedAnimation(true);
-    }, 3000);
-
-    return () => clearTimeout(timer);
+    return () => {
+      previewUrlsRef.current.forEach(url => {
+        URL.revokeObjectURL(url);
+      });
+      previewUrlsRef.current = [];
+    };
   }, []);
 
-  // Save current state to undo stack
-  const saveToUndoStack = () => {
-    if (isUndoRedoing.current || !contentRef.current) return;
+  const handleSubmit = async () => {
+    if (isProcessing || (!inputValue.trim() && attachments.length === 0)) return;
     
-    const currentHtml = contentRef.current.innerHTML;
-    const currentCursorPos = saveSelection();
-    const currentAttachments = JSON.parse(JSON.stringify(attachments)); // Deep copy
+    const text = inputValue.trim();
+    const files = attachments.map(a => a.file);
     
-    undoStack.current.push({
-      html: currentHtml,
-      attachments: currentAttachments,
-      cursorPos: currentCursorPos
-    });
-    
-    // Limit undo stack size to 50
-    if (undoStack.current.length > 50) {
-      undoStack.current.shift();
-    }
-    
-    // Clear redo stack when new action is performed
-    redoStack.current = [];
-  };
-
-  // Undo operation
-  const performUndo = () => {
-    if (undoStack.current.length === 0 || !contentRef.current) return;
-    
-    isUndoRedoing.current = true;
-    
-    // Save current state to redo stack
-    const currentHtml = contentRef.current.innerHTML;
-    const currentCursorPos = saveSelection();
-    const currentAttachments = JSON.parse(JSON.stringify(attachments));
-    
-    redoStack.current.push({
-      html: currentHtml,
-      attachments: currentAttachments,
-      cursorPos: currentCursorPos
-    });
-    
-    // Pop from undo stack and restore
-    const previousState = undoStack.current.pop();
-    if (previousState) {
-      contentRef.current.innerHTML = previousState.html;
-      setAttachments(previousState.attachments);
-      
-      // Focus and restore cursor position
-      contentRef.current.focus();
-      if (previousState.cursorPos) {
-        // Use requestAnimationFrame to ensure DOM is updated
-        requestAnimationFrame(() => {
-          restoreSelection(previousState.cursorPos!);
-        });
-      } else {
-        // If no cursor position saved, move to end
-        requestAnimationFrame(() => {
-          const selection = window.getSelection();
-          if (selection && contentRef.current) {
-            const range = document.createRange();
-            range.selectNodeContents(contentRef.current);
-            range.collapse(false);
-            selection.removeAllRanges();
-            selection.addRange(range);
-          }
-        });
-      }
-    }
-    
-    isUndoRedoing.current = false;
-  };
-
-  // Redo operation
-  const performRedo = () => {
-    if (redoStack.current.length === 0 || !contentRef.current) return;
-    
-    isUndoRedoing.current = true;
-    
-    // Save current state to undo stack
-    const currentHtml = contentRef.current.innerHTML;
-    const currentCursorPos = saveSelection();
-    const currentAttachments = JSON.parse(JSON.stringify(attachments));
-    
-    undoStack.current.push({
-      html: currentHtml,
-      attachments: currentAttachments,
-      cursorPos: currentCursorPos
-    });
-    
-    // Pop from redo stack and restore
-    const nextState = redoStack.current.pop();
-    if (nextState) {
-      contentRef.current.innerHTML = nextState.html;
-      setAttachments(nextState.attachments);
-      
-      // Focus and restore cursor position
-      contentRef.current.focus();
-      if (nextState.cursorPos) {
-        // Use requestAnimationFrame to ensure DOM is updated
-        requestAnimationFrame(() => {
-          restoreSelection(nextState.cursorPos!);
-        });
-      } else {
-        // If no cursor position saved, move to end
-        requestAnimationFrame(() => {
-          const selection = window.getSelection();
-          if (selection && contentRef.current) {
-            const range = document.createRange();
-            range.selectNodeContents(contentRef.current);
-            range.collapse(false);
-            selection.removeAllRanges();
-            selection.addRange(range);
-          }
-        });
-      }
-    }
-    
-    isUndoRedoing.current = false;
-  };
-
-  // Handle file selection
-  const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (file) {
-      // Validate combined file set to enforce cumulative limits
-      const nextFiles = [...attachments.filter(a => a.type === 'file').map(a => a.file!), file];
-      const validation = validateFiles(nextFiles, 'general');
-      if (!validation.isValid) {
-        error(validation.message || 'Invalid file');
-        event.target.value = '';
-        setIsFileDialogOpen(false);
-        return;
-      }
-      
-      const newAttachment: AttachmentItem = {
-        id: Date.now().toString(),
-        type: 'file',
-        name: file.name,
-        file: file,
-      };
-      setAttachments(prev => [...prev, newAttachment]);
-      
-      // Insert attachment at cursor position
-      insertAttachment(newAttachment);
-      
-      event.target.value = '';
-    }
-    setIsFileDialogOpen(false);
-  };
-
-  // Get display name for file
-  const getDisplayName = (name: string) => {
-    const nameWithoutExt = name.replace(/\.[^/.]+$/, '');
-    const cleaned = nameWithoutExt.replace(/[_-]/g, ' ').trim();
-    return cleaned.length > 20 ? cleaned.substring(0, 20) + '...' : cleaned;
-  };
-
-  // Insert attachment at cursor position
-  const insertAttachment = (attachment: AttachmentItem) => {
-    if (!contentRef.current) return;
-
-    const selection = window.getSelection();
-    if (!selection || selection.rangeCount === 0) return;
-
-    const range = selection.getRangeAt(0);
-    
-    // Create attachment element with data attributes for reconstruction
-    const attachmentElement = document.createElement('span');
-    attachmentElement.className = 'attachment-tag inline-flex items-center gap-1 mx-1 px-2 py-1 bg-gray-100 text-gray-700 rounded-full text-sm cursor-pointer hover:bg-gray-200';
-    attachmentElement.contentEditable = 'false';
-    attachmentElement.dataset.attachmentId = attachment.id;
-    attachmentElement.dataset.attachmentName = attachment.name;
-    attachmentElement.dataset.attachmentType = attachment.type;
-    
-    // Create attachment content
-    attachmentElement.innerHTML = `
-      ${attachment.type === 'link' ? '🔗' : '📄'} ${getDisplayName(attachment.name)}
-      <svg class="w-3 h-3 text-red-500 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
-      </svg>
-    `;
-
-    // Insert at cursor position
-    range.deleteContents();
-    range.insertNode(attachmentElement);
-    
-    // Insert a zero-width space after attachment for cursor visibility
-    const zwsp = document.createTextNode('\u200B');
-    attachmentElement.parentNode?.insertBefore(zwsp, attachmentElement.nextSibling);
-    
-    // Move cursor after the zero-width space
-    range.setStart(zwsp, 1);
-    range.setEnd(zwsp, 1);
-    selection.removeAllRanges();
-    selection.addRange(range);
-  };
-
-  // Remove attachment
-  const removeAttachment = (attachmentId: string) => {
-    // Remove from state
-    setAttachments(prev => prev.filter(att => att.id !== attachmentId));
-    
-    // Remove from DOM
-    if (contentRef.current) {
-      const attachmentElement = contentRef.current.querySelector(`[data-attachment-id="${attachmentId}"]`);
-      if (attachmentElement) {
-        attachmentElement.remove();
-      }
-    }
-  };
-
-  // Save cursor position
-  const saveSelection = () => {
-    if (!contentRef.current || !window.getSelection) return null;
-
-    const selection = window.getSelection();
-    if (!selection || selection.rangeCount === 0) return null;
-
-    const range = selection.getRangeAt(0);
-    const preSelectionRange = range.cloneRange();
-    preSelectionRange.selectNodeContents(contentRef.current);
-    preSelectionRange.setEnd(range.startContainer, range.startOffset);
-    const start = preSelectionRange.toString().length;
-
-    return {
-      start: start,
-      end: start + range.toString().length
-    };
-  };
-
-  // Restore cursor position
-  const restoreSelection = (position: { start: number; end: number }) => {
-    if (!contentRef.current || !position || !document.createRange || !window.getSelection) return;
-
-    const range = document.createRange();
-    let charIndex = 0;
-    let foundStart = false;
-    let foundEnd = false;
-    
-    // Helper function to traverse all text nodes
-    const traverseNodes = (node: Node): boolean => {
-      if (foundEnd) return true;
-      
-      if (node.nodeType === Node.TEXT_NODE) {
-        const textNode = node as Text;
-        const textLength = textNode.textContent?.length || 0;
-        const nextCharIndex = charIndex + textLength;
-        
-        if (!foundStart && position.start >= charIndex && position.start <= nextCharIndex) {
-          range.setStart(textNode, Math.min(position.start - charIndex, textLength));
-          foundStart = true;
-        }
-        
-        if (foundStart && position.end >= charIndex && position.end <= nextCharIndex) {
-          range.setEnd(textNode, Math.min(position.end - charIndex, textLength));
-          foundEnd = true;
-          return true;
-        }
-        
-        charIndex = nextCharIndex;
-      } else if (node.nodeType === Node.ELEMENT_NODE) {
-        // Skip attachment tags when counting characters
-        if ((node as Element).classList?.contains('attachment-tag')) {
-          return false;
-        }
-        
-        for (let i = 0; i < node.childNodes.length; i++) {
-          if (traverseNodes(node.childNodes[i])) {
-            return true;
-          }
-        }
-      }
-      
-      return false;
-    };
-
-    traverseNodes(contentRef.current);
-
-    // If we found a valid range, apply it
-    if (foundStart) {
-      const selection = window.getSelection();
-      if (selection) {
-        selection.removeAllRanges();
-        selection.addRange(range);
-      }
-    } else {
-      // Fallback: place cursor at the end
-      const selection = window.getSelection();
-      if (selection) {
-        const range = document.createRange();
-        range.selectNodeContents(contentRef.current);
-        range.collapse(false);
-        selection.removeAllRanges();
-        selection.addRange(range);
-      }
-    }
-  };
-
-
-  // Idle-based content processing to avoid constant DOM manipulation
-  const scheduleContentProcessing = () => {
-    if (processingTimer.current) {
-      clearTimeout(processingTimer.current);
-    }
-    
-    processingTimer.current = setTimeout(() => {
-      processContent();
-      processingTimer.current = null;
-    }, 50); // Process after 500ms of inactivity
-  };
-
-  // Process content - only process text nodes, preserve attachments
-  const processContent = () => {
-    if (!contentRef.current) return;
-
-    // Save cursor position
-    const position = saveSelection();
-    
-    
-    // Walk through text nodes only, skipping attachments
-    const walker = document.createTreeWalker(
-      contentRef.current,
-      NodeFilter.SHOW_TEXT,
-      {
-        acceptNode: (node) => {
-          // Skip text nodes inside attachment tags
-          const parent = node.parentElement;
-          if (parent?.classList.contains('attachment-tag')) {
-            return NodeFilter.FILTER_REJECT;
-          }
-          return NodeFilter.FILTER_ACCEPT;
-        }
-      }
-    );
-
-    const textNodes: Text[] = [];
-    let node;
-    while (node = walker.nextNode()) {
-      textNodes.push(node as Text);
-    }
-
-    // Process each text node for URLs
-    textNodes.forEach(textNode => {
-      const text = textNode.textContent || '';
-      const regex = new RegExp(`(${URLInTextRegex.source})\\s`, 'g');
-      const matches = Array.from(text.matchAll(regex));
-
-      if (matches.length > 0) {
-        const fragment = document.createDocumentFragment();
-        let lastIndex = 0;
-
-        matches.forEach(match => {
-          const url = match[1]; // The URL is in the first capturing group
-          const matchIndex = match.index ?? 0;
-
-          // Add text before the URL
-          if (matchIndex > lastIndex) {
-            fragment.appendChild(document.createTextNode(text.slice(lastIndex, matchIndex)));
-          }
-
-          // Create and add the attachment
-          const newAttachment: AttachmentItem = {
-            id: Date.now().toString() + Math.random(),
-            type: 'link',
-            name: url,
-            url: url,
-          };
-          setAttachments(prev => [...prev, newAttachment]);
-          
-          const attachmentElement = document.createElement('span');
-          attachmentElement.className = 'attachment-tag inline-flex items-center gap-1 mx-1 px-2 py-1 bg-gray-100 text-gray-700 rounded-full text-sm cursor-pointer hover:bg-gray-200';
-          attachmentElement.contentEditable = 'false';
-          attachmentElement.dataset.attachmentId = newAttachment.id;
-          attachmentElement.dataset.attachmentName = newAttachment.name;
-          attachmentElement.dataset.attachmentType = newAttachment.type;
-          attachmentElement.innerHTML = `🔗 ${getDisplayName(newAttachment.name)} <svg class="w-3 h-3 text-red-500 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>`;
-          fragment.appendChild(attachmentElement);
-
-          // Add the space that triggered the match
-          fragment.appendChild(document.createTextNode(' '));
-
-          lastIndex = matchIndex + match[0].length;
-        });
-
-        // Add any remaining text after the last URL
-        if (lastIndex < text.length) {
-          fragment.appendChild(document.createTextNode(text.slice(lastIndex)));
-        }
-
-        textNode.parentNode?.replaceChild(fragment, textNode);
+    // Clean up preview URLs
+    attachments.forEach(attachment => {
+      if (attachment.preview) {
+        URL.revokeObjectURL(attachment.preview);
       }
     });
-
-    // Restore cursor position
-    if (position) {
-      setTimeout(() => restoreSelection(position), 0);
-    }
-  };
-
-
-
-  // Trigger file input
-  const handleFileButtonClick = () => {
-    setIsFileDialogOpen(true);
-    fileInputRef.current?.click();
-  };
-
-  // Handle discovery submission
-  const handleDiscoverySubmit = async () => {
-    if (isProcessing) return;
+    previewUrlsRef.current = [];
     
+    setInputValue("");
+    setAttachments([]);
     setIsProcessing(true);
     
     try {
-      // Get text content from contentEditable div, excluding attachment tags
-      let textContent = '';
-      if (contentRef.current) {
-        contentRef.current.childNodes.forEach(node => {
-          // Add text only from text nodes, ignoring attachment spans
-          if (node.nodeType === Node.TEXT_NODE) {
-            textContent += node.textContent;
-          }
-        });
+      // Submit discovery request with text and files
+      const result = await discoverService.submitDiscoveryRequest(files, text || undefined)(getAccessToken);
+      
+      if (onSubmit && result.success) {
+        onSubmit(result.intents);
       }
       
-      // Get files from attachments
-      const files = attachments.filter(att => att.type === 'file').map(att => att.file!);
-      const links = attachments.filter(att => att.type === 'link').map(att => att.url!);
-
-      // The backend's /discover/new endpoint now handles link creation and crawling within the same request.
-      // Calling linksService from the client here would be redundant and use the wrong workflow.
-      
-      // Validate that we have either files or text or links
-      if (files.length === 0 && !textContent.trim() && links.length === 0) {
-        error('Please add files, links, or enter text to start discovery');
-        setIsProcessing(false);
-        return;
-      }
-      
-      // Combine text and links for the payload
-      const payload = [textContent, ...links].join('\n').trim();
-
-      // Submit discovery request
-      const result = await discoverService.submitDiscoveryRequest(files, payload)(getAccessToken);
-      
-      // After processing, clear attachments and reset form state
-      setAttachments([]);
-      setRecentIntents([]);
-      setInputFocused(false);
-      contentRef.current?.blur();
-
-      if (onSubmit) {
-        // Pass both file-based intents and any newly created link-based intents
-        const allIntents = result.success ? result.intents : [];
-        onSubmit(allIntents);
-      }
-      
-      if (!result.success && links.length === 0) {
+      if (!result.success) {
         error('Failed to generate intents. Please try again.');
       }
     } catch (err) {
@@ -571,462 +132,119 @@ const DiscoveryForm = forwardRef<DiscoveryFormRef, DiscoveryFormProps>(({ onSubm
     }
   };
 
-  // Auto-focus input on keypress
-  useEffect(() => {
-    const handleKeyPress = (e: KeyboardEvent) => {
-      // Check if any modal is open by looking for modal elements
-      const hasModalOpen = document.querySelector('[data-radix-dialog-content], [role="dialog"]') !== null;
-      
-      // Check if user is already typing in an input/textarea
-      const activeElement = document.activeElement;
-      const isTypingInInput = activeElement && (
-        activeElement.tagName === 'INPUT' || 
-        activeElement.tagName === 'TEXTAREA' || 
-        (activeElement as HTMLElement).isContentEditable
-      );
-      
-      if (contentRef.current && !inputFocused && !hasModalOpen && !isTypingInInput) {
-        // Focus on Enter or when typing regular characters
-        if (e.key === 'Enter' || (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey)) {
-          e.preventDefault();
-          contentRef.current.focus();
-          
-          // Move cursor to the end of content
-          const selection = window.getSelection();
-          if (selection) {
-            const range = document.createRange();
-            range.selectNodeContents(contentRef.current);
-            range.collapse(false); // Collapse to end
-            selection.removeAllRanges();
-            selection.addRange(range);
-            
-            if (e.key.length === 1) {
-              // Insert the character at the end
-              const textNode = document.createTextNode(e.key);
-              range.insertNode(textNode);
-              range.setStartAfter(textNode);
-              range.setEndAfter(textNode);
-              selection.removeAllRanges();
-              selection.addRange(range);
-              // Update hasContent immediately to hide placeholder
-              setHasContent(true);
-            }
-            setInputFocused(true);
-          }
-        }
-      }
-    };
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
 
-    document.addEventListener('keydown', handleKeyPress);
-    return () => {
-      document.removeEventListener('keydown', handleKeyPress);
-      // Clean up processing timer
-      if (processingTimer.current) {
-        clearTimeout(processingTimer.current);
-      }
-    };
-  }, [inputFocused]);
-
-  // Close input when any modal opens
-  useEffect(() => {
-    const checkForModals = () => {
-      const hasModalOpen = document.querySelector('[data-radix-dialog-content], [role="dialog"]') !== null;
-      
-      if (hasModalOpen && inputFocused) {
-        // Modal is open and input is focused, close it
-        setInputFocused(false);
-        contentRef.current?.blur();
-      }
-    };
-
-    // Check immediately
-    checkForModals();
-
-    // Use MutationObserver to detect when modals are added to the DOM
-    const observer = new MutationObserver(checkForModals);
-    observer.observe(document.body, {
-      childList: true,
-      subtree: true,
-    });
-
-    return () => {
-      observer.disconnect();
-    };
-  }, [inputFocused]);
-
-  // Fetch recent discovery intents when input is focused
-  useEffect(() => {
-    if (inputFocused) {
-      const fetchRecentIntents = async () => {
-        try {
-          const response = await intentsService.getIntents(1, 3, false, undefined, 'discovery_form');
-          if (response.data) {
-            setRecentIntents(response.data.map(intent => ({
-              id: intent.id,
-              payload: intent.payload,
-              summary: intent.summary ?? null,
-              createdAt: new Date(intent.createdAt)
-            })));
-          }
-        } catch (err) {
-          console.error('Failed to fetch recent discovery intents:', err);
-          setRecentIntents([]); // Clear on error
-        }
-      };
-      fetchRecentIntents();
-    } else {
-      setRecentIntents([]);
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const files = e.dataTransfer.files;
+    if (files.length > 0) {
+      handleFiles(Array.from(files));
     }
-  }, [inputFocused, intentsService]);
+  };
 
-  const attachmentCounts = useMemo(() => {
-    return attachments.reduce(
-      (counts, attachment) => {
-        if (attachment.file) {
-          counts.files++;
-        }
-        if (attachment.url) {
-          counts.urls++;
-        }
-        return counts;
-      },
-      { files: 0, urls: 0 }
-    );
-  }, [attachments]);
+  const containerClasses = floating
+    ? "fixed bottom-6 left-1/2 -translate-x-1/2 w-full max-w-3xl z-[9999] px-4"
+    : "w-full";
 
   return (
-    <div className="relative">
-      {/* Focus Overlay */}
-      {inputFocused && (
-        <div
-          className="fixed inset-0 z-[9998] transition-opacity backdrop-blur-xs"
-          style={{
-            minHeight: '100vh',
-            opacity: 0.9,
-            backgroundColor: 'rgba(0, 0, 0, 0.2)'
-          }}
-          onClick={() => {
-            setInputFocused(false);
-            contentRef.current?.blur();
-          }}
-        >
-          <div 
-            className="absolute inset-0 pointer-events-none"
-            style={{
-              backgroundImage: 'url(/noise.jpg)',
-              backgroundSize: 'cover',
-              opacity: 0.3
-            }}
-          />
-        </div>
-      )}
-      
-      <div className={`bg-white border border-b-2 border-gray-800 flex items-center px-4 py-2 min-h-[54px] relative ${inputFocused ? 'z-[9999]' : 'z-0'}`}>
-            <div className="flex-1 relative">
-              {/* ContentEditable div */}
+    <div className={containerClasses}>
+      <div 
+        className="bg-white border border-b-2 border-gray-800 rounded-none shadow-lg flex flex-col"
+        onDragOver={handleDragOver}
+        onDrop={handleDrop}
+      >
+        {/* Attachment chips - inside input area */}
+        {attachments.length > 0 && (
+          <div className="px-2 pt-2 pb-1 flex flex-wrap gap-2">
+            {attachments.map((attachment) => (
               <div
-                ref={contentRef}
-                contentEditable
-                suppressContentEditableWarning
-                onInput={(e) => {
-                  scheduleContentProcessing();
-                  
-                  // Clean up empty content to ensure placeholder shows
-                  const target = e.currentTarget;
-                  const text = target.innerText.trim();
-                  if (!text && attachments.length === 0) {
-                    target.innerHTML = '';
-                    setHasContent(false);
-                  } else {
-                    setHasContent(true);
-                  }
-                }}
-                onPaste={(e) => {
-                  e.preventDefault();
-                  saveToUndoStack();
-                  const text = e.clipboardData?.getData('text/plain') || '';
-                  const urlMatch = text.match(URLInTextRegex);
-
-                  if (urlMatch && urlMatch[0] === text.trim()) { // Only treat as link if it's the only thing pasted
-                    const newAttachment: AttachmentItem = {
-                      id: Date.now().toString(),
-                      type: 'link',
-                      name: urlMatch[0],
-                      url: urlMatch[0],
-                    };
-                    setAttachments(prev => [...prev, newAttachment]);
-                    insertAttachment(newAttachment);
-                    setHasContent(true);
-                  } else {
-                    const selection = window.getSelection();
-                    if (selection && selection.rangeCount > 0) {
-                      const range = selection.getRangeAt(0);
-                      range.deleteContents();
-                      const textNode = document.createTextNode(text);
-                      range.insertNode(textNode);
-                      range.setStartAfter(textNode);
-                      range.setEndAfter(textNode);
-                      selection.removeAllRanges();
-                      selection.addRange(range);
-                    }
-                    // Update hasContent based on pasted text
-                    if (text.trim() || attachments.length > 0) {
-                      setHasContent(true);
-                    }
-                  }
-                  setTimeout(() => {
-                    processContent();
-                  }, 0);
-                }}
-                onClick={(e) => {
-                  const target = e.target as HTMLElement;
-                  if (target.closest('.attachment-tag')) {
-                    const attachmentElement = target.closest('.attachment-tag') as HTMLElement;
-                    const attachmentId = attachmentElement.dataset.attachmentId;
-                    if (attachmentId) {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      removeAttachment(attachmentId);
-                    }
-                  }
-                }}
-                onFocus={() => setInputFocused(true)}
-                onBlur={() => {
-                  if (!isFileDialogOpen) {
-                    setTimeout(() => setInputFocused(false), 100);
-                  }
-                }}
-                onKeyDown={async (e) => {
-                  // Handle undo (Cmd+Z or Ctrl+Z)
-                  if ((e.metaKey || e.ctrlKey) && e.key === 'z' && !e.shiftKey) {
-                    e.preventDefault();
-                    performUndo();
-                    return;
-                  }
-                  
-                  // Handle redo (Cmd+Shift+Z or Ctrl+Shift+Z)
-                  if ((e.metaKey || e.ctrlKey) && e.key === 'z' && e.shiftKey) {
-                    e.preventDefault();
-                    performRedo();
-                    return;
-                  }
-                  
-                  // Save state before any modification
-                  if (!e.metaKey && !e.ctrlKey && e.key.length === 1) {
-                    saveToUndoStack();
-                  }
-                  
-                  if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault();
-                    await handleDiscoverySubmit();
-                  } else if (e.key === 'Enter' && e.shiftKey) {
-                    e.preventDefault();
-                    setInputFocused(true);
-                  } else if (e.key === 'Escape') {
-                    setInputFocused(false);
-                    contentRef.current?.blur();
-                  } else if (e.key === 'Backspace' || e.key === 'Delete') {
-                    // Save state before deletion
-                    saveToUndoStack();
-                    
-                    // Handle attachment deletion
-                    const selection = window.getSelection();
-                    if (selection && selection.rangeCount > 0 && selection.isCollapsed) {
-                      const range = selection.getRangeAt(0);
-                      const container = range.startContainer;
-                      const offset = range.startOffset;
-                      
-                      if (e.key === 'Backspace') {
-                        // Check if we're at the start of a text node right after an attachment
-                        if (offset === 0 && container.nodeType === 3) {
-                          const prevNode = container.previousSibling;
-                          if (prevNode && (prevNode as Element).classList?.contains('attachment-tag')) {
-                            e.preventDefault();
-                            const attachmentId = (prevNode as Element).getAttribute('data-attachment-id');
-                            if (attachmentId) {
-                              removeAttachment(attachmentId);
-                            }
-                            return;
-                          }
-                        }
-                        
-                        // Check if we're deleting a zero-width space before an attachment
-                        if (container.nodeType === 3 && offset > 0) {
-                          const charBefore = (container as Text).textContent?.[offset - 1];
-                          if (charBefore === '\u200B') {
-                            // Check if there's an attachment before this zero-width space
-                            const prevNode = container.previousSibling;
-                            if (prevNode && (prevNode as Element).classList?.contains('attachment-tag')) {
-                              e.preventDefault();
-                              const attachmentId = (prevNode as Element).getAttribute('data-attachment-id');
-                              if (attachmentId) {
-                                removeAttachment(attachmentId);
-                              }
-                              return;
-                            }
-                          }
-                        }
-                      } else if (e.key === 'Delete') {
-                        // Check if we're at the end of a text node right before an attachment
-                        if (container.nodeType === 3) {
-                          const textLength = (container as Text).textContent?.length || 0;
-                          if (offset === textLength) {
-                            const nextNode = container.nextSibling;
-                            if (nextNode && (nextNode as Element).classList?.contains('attachment-tag')) {
-                              e.preventDefault();
-                              const attachmentId = (nextNode as Element).getAttribute('data-attachment-id');
-                              if (attachmentId) {
-                                removeAttachment(attachmentId);
-                              }
-                              return;
-                            }
-                          }
-                        }
-                      }
-                    }
-                  }
-                }}
-                className="text-lg font-ibm-plex-mono text-black min-h-[24px] py-1 focus:outline-none"
-                style={{ 
-                  lineHeight: '1.5',
-                  wordBreak: 'break-word'
-                }}
-                data-placeholder="What do you want to discover?"
-              />
-              
-              {/* Placeholder */}
-              {!hasContent && attachments.length === 0 && (
-                <div
-                  className="absolute top-0 left-0 text-lg font-ibm-plex-mono text-gray-500 py-1 pointer-events-none"
-                  style={{ lineHeight: '1.5' }}
+                key={attachment.id}
+                className="group inline-flex items-center gap-2 bg-gray-100 border border-gray-300 rounded-sm px-2 py-1 hover:border-gray-400 transition-colors"
+              >
+                {attachment.preview ? (
+                  <img
+                    src={attachment.preview}
+                    alt={attachment.file.name}
+                    className="w-4 h-4 object-cover rounded"
+                  />
+                ) : (
+                  <div className="px-2 py-0.5 bg-gray-300 rounded flex items-center justify-center">
+                    <span className="text-[8px] font-ibm-plex-mono text-gray-600 font-bold">
+                      {getFileCategoryBadge(attachment.file.name)}
+                    </span>
+                  </div>
+                )}
+                <span className="text-xs font-ibm-plex-mono text-gray-900">
+                  {attachment.file.name}
+                </span>
+                <button
+                  onClick={() => removeAttachment(attachment.id)}
+                  className="opacity-0 group-hover:opacity-100 transition-opacity text-gray-600 hover:text-black"
+                  aria-label="Remove attachment"
                 >
-                  {inputFocused ? (
-                    // Static placeholder when focused
-                    <span>What do you want to discover?</span>
-                  ) : !showTypedAnimation ? (
-                    // Static text for first 3 seconds
-                    <span>What do you want to discover?</span>
-                  ) : (
-                    // Then start animation
-                    <ReactTyped
-                      strings={[
-                        "Meet founders building next-gen robotics platforms",
-                        "Connect with researchers working on materials science",
-                        "Collaborate with engineers building autonomous agents",
-                      ]}
-                      typeSpeed={20}
-                      backSpeed={0}
-                      backDelay={4000}
-                      startDelay={0}
-                      loopCount={3}
-                      showCursor={true}
-                    />
-                  )}
-                </div>
-              )}
-            </div>
-            
-            <div className="flex items-center gap-2 ml-2">
-              {attachmentCounts.files > 0 && (
-                <div className="flex items-center gap-1 text-gray-600">
-                  <Paperclip className="w-4 h-4" />
-                  <span className="text-sm font-ibm-plex-mono">{attachmentCounts.files}</span>
-                </div>
-              )}
-              {attachmentCounts.urls > 0 && (
-                <div className="flex items-center gap-1 text-gray-600">
-                  <Link className="w-4 h-4" />
-                  <span className="text-sm font-ibm-plex-mono">{attachmentCounts.urls}</span>
-                </div>
-              )}
-            </div>
-            
-            {/* Dropdown when focused */}
-            {inputFocused && (
-               <div className="absolute top-full left-0 right-0 bg-white border-l border-r border-b border-gray-800 z-[9999] shadow-lg" style={{
-                 marginLeft: '-1px',
-                 marginRight: '-1px',
-               }}>
-                <div className="px-4 pb-4 pt-2 space-y-4">
-                  {/* Upload section */}
-                  <div className="flex items-center gap-3">
-                    <button 
-                      className="flex items-center gap-2 px-3 py-2 border border-gray-300 hover:border-black text-sm font-ibm-plex-mono text-black"
-                      onClick={handleFileButtonClick}
-                      onMouseDown={(e) => e.preventDefault()}
-                    >
-                      <Paperclip className="w-4 h-4" />
-                      <span className="hidden sm:inline">Add from a file</span>
-                    </button>
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      onChange={handleFileSelect}
-                      className="hidden"
-                      accept={getSupportedFileExtensions('general')}
-                    />
-                    <p className="text-xs text-gray-500 font-ibm-plex-mono">
-                      upload your pitch deck, one-pager, or paste a link.
-                    </p>
-                  </div>
-                  
-                  {/* Recent discovery intents */}
-                  {recentIntents.length > 0 && (
-                    <>
-                      {/* Horizontal border */}
-                      <div className="border-t border-gray-200"></div>
-                      
-                      <ul className="space-y-1">
-                        {recentIntents.map((intent) => (
-                          <li key={intent.id}>
-                            <button 
-                              onClick={() => {
-                                // Set the intent as a filter
-                                if (onSubmit) {
-                                  onSubmit([{
-                                    id: intent.id,
-                                    payload: intent.payload,
-                                    summary: intent.summary || undefined,
-                                    createdAt: intent.createdAt.toISOString()
-                                  }]);
-                                }
-                                setInputFocused(false);
-                                contentRef.current?.blur();
-                              }}
-                              onMouseDown={(e) => e.preventDefault()}
-                              className="w-full text-left text-sm text-gray-600 hover:text-black hover:bg-gray-50 font-ibm-plex-mono flex items-center gap-2 px-2 py-1 rounded"
-                            >
-                              {intent.summary || intent.payload}
-                            </button>
-                          </li>
-                        ))}
-                      </ul>
-                    </>
-                  )}
-                  
-                  {/* Turn on Discovery - right aligned */}
-                  <div className="flex justify-end">
-                    <button 
-                      className="flex items-center gap-2 px-3 py-2 bg-black border border-black hover:bg-gray-800 text-sm font-ibm-plex-mono text-white disabled:opacity-50 disabled:cursor-not-allowed"
-                      onMouseDown={(e) => e.preventDefault()}
-                      onClick={handleDiscoverySubmit}
-                      disabled={isProcessing}
-                    >
-                      {isProcessing ? (
-                        <>
-                          <span className="h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin inline-block" />
-                          Signal processing
-                        </>
-                      ) : (
-                        <>
-                          <Radio className="w-4 h-4" /> Turn on Discovery
-                        </>
-                      )}
-                    </button>
-                  </div>
-                </div>
+                  <X className="w-3 h-3" />
+                </button>
               </div>
+            ))}
+          </div>
+        )}
+
+        {/* Input row */}
+        <div className="flex items-center px-2 py-2 min-h-[54px]">
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            className="mr-2 text-gray-600 hover:text-black transition-colors p-1"
+            aria-label="Attach file"
+            disabled={isProcessing}
+          >
+            <Paperclip className="w-5 h-5" />
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            className="hidden"
+            accept={getSupportedFileExtensions('general')}
+            onChange={handleFileSelect}
+          />
+          <input
+            ref={inputRef}
+            type="text"
+            value={inputValue}
+            onChange={(e) => setInputValue(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                handleSubmit();
+              }
+            }}
+            placeholder={floating ? "Ask a follow-up question...." : "What do you want to discover?"}
+            className="flex-1 font-ibm-plex-mono text-black text-lg focus:outline-none bg-transparent"
+            disabled={isProcessing}
+          />
+          <div className="flex items-center gap-2 ml-2">
+            {isProcessing ? (
+              <button
+                onClick={() => setIsProcessing(false)}
+                className="h-9 w-9 rounded-full bg-black text-white flex items-center justify-center hover:bg-gray-800 transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            ) : (
+              <button
+                onClick={handleSubmit}
+                disabled={!inputValue.trim() && attachments.length === 0}
+                className="h-9 w-9 rounded-full bg-black text-white flex items-center justify-center hover:bg-gray-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+              >
+                <ArrowUp className="w-4 h-4" />
+              </button>
             )}
+          </div>
+        </div>
       </div>
     </div>
   );

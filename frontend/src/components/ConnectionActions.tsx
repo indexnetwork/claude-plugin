@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { UserPlus, X, Check, RotateCcw, MessageSquare } from "lucide-react";
 import { useNotifications } from "@/contexts/NotificationContext";
-import { useTalkJS } from "@/contexts/TalkJSContext";
+import { useStreamChat } from "@/contexts/StreamChatContext";
 
 export type ConnectionAction = 'REQUEST' | 'SKIP' | 'CANCEL' | 'ACCEPT' | 'DECLINE';
 
@@ -29,7 +29,7 @@ export default function ConnectionActions({
 }: ConnectionActionsProps) {
   const [isLoading, setIsLoading] = useState(false);
   const { success, error } = useNotifications();
-  const { openChat, isReady: isChatReady } = useTalkJS();
+  const { openChat, isReady: isChatReady } = useStreamChat();
 
   const handleMessage = () => {
     openChat(userId, userName, userAvatar);
@@ -139,22 +139,9 @@ export default function ConnectionActions({
 
       case 'connected':
         return (
-          <>
-            {isChatReady && (
-              <Button
-                variant="outline"
-                size={size}
-                onClick={handleMessage}
-                className="flex items-center gap-2"
-              >
-                <MessageSquare className="h-4 w-4" />
-                Message
-              </Button>
-            )}
-            <div className="flex items-center gap-2 px-3 py-2 text-sm text-gray-600">
-              Connected
-            </div>
-          </>
+          <div className="flex items-center gap-2 px-3 py-2 text-sm text-gray-600">
+            Connected
+          </div>
         );
 
       default:
@@ -164,6 +151,18 @@ export default function ConnectionActions({
 
   return (
     <div className="flex items-center gap-2">
+      {/* Temporary: Always show message button */}
+      {isChatReady && (
+        <Button
+          variant="outline"
+          size={size}
+          onClick={handleMessage}
+          className="flex items-center gap-2"
+        >
+          <MessageSquare className="h-4 w-4" />
+          Message
+        </Button>
+      )}
       {renderActions()}
     </div>
   );

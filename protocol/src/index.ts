@@ -29,6 +29,7 @@ import queueRoutes from './routes/queue';
 import adminRoutes from './routes/admin';
 import feedbackRoutes from './routes/feedback';
 import notificationRoutes from './routes/notifications';
+import chatRoutes from './routes/chat';
 import devRoutes from './routes/dev';
 
 const app = express();
@@ -80,6 +81,7 @@ app.use('/api/queue', queueRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/feedback', feedbackRoutes);
 app.use('/api/notifications', notificationRoutes);
+app.use('/api/chat', chatRoutes);
 
 if (process.env.NODE_ENV === 'development') {
   app.use('/api/dev', devRoutes);

@@ -336,9 +336,9 @@ export default function OnboardingPage() {
       const config = FLOW_CONFIGS[currentFlow];
       const f = searchParams.get('f');
       
-      // If onboarding is already completed, redirect to inbox UNLESS f=2 is present
+      // If onboarding is already completed, redirect to root UNLESS f=2 is present
       if (user.onboarding?.completedAt && f !== '2') {
-        router.push('/inbox');
+        router.push('/');
         return;
       }
       
@@ -893,7 +893,7 @@ export default function OnboardingPage() {
       // Refetch user to get updated onboarding state
       await refetchUser();
       
-      router.push('/inbox');
+      router.push('/');
     } catch (error) {
       console.error('Error completing onboarding:', error);
     } finally {
