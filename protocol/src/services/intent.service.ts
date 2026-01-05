@@ -6,7 +6,7 @@ import { VectorStoreOption, VectorSearchResult } from '../agents/common/types';
 import { sql, eq, and, isNull, isNotNull, inArray, desc, count } from 'drizzle-orm';
 import { IntentEvents } from '../events/intent.event';
 import { INTENT_INFERRER_AGENT_ID } from '../lib/agent-ids';
-import { evaluateIntentAppropriateness } from '../agents/core/intent_indexer/evaluator';
+import { IntentEvaluator } from '../agents/intent/evaluator/intent.evaluator';
 import { log } from '../lib/log';
 import { getDisplayName } from '../lib/integrations/config';
 
@@ -748,15 +748,51 @@ export class IntentService {
       const isCurrentlyAssigned = existingAssignment.length > 0;
 
       // Evaluate appropriateness
-      const appropriatenessScore = await evaluateIntentAppropriateness(
+      const evaluator = new IntentEvaluator();
+
+      // Simple source name resolution
+      const sourceName = intent.sourceType ? `${intent.sourceType}:${intent.sourceId || ''}` : undefined;
+
+      const result = await evaluator.evaluate(
         intent.payload,
-        targetIndex.indexPrompt || '',
-        targetIndex.memberPrompt || '',
-        intent.sourceType,
-        intent.sourceId
+        targetIndex.indexPrompt || null,
+        targetIndex.memberPrompt || null,
+        sourceName
       );
 
-      const isAppropriate = appropriatenessScore > 0.7;
+      if (!result) return;
+
+      const { indexScore, memberScore } = result;
+      const QUALIFICATION_THRESHOLD = 0.7;
+
+      let isAppropriate = false;
+      let finalScore = 0.0;
+
+      // Logic from old evaluator:
+      // If index prompt exists: indexScore must be > 0.7.
+      // If member prompt exists: memberScore must be > 0.7.
+      // If both: weighted average (0.6 index + 0.4 member).
+
+      if (targetIndex.indexPrompt && targetIndex.memberPrompt) {
+        if (indexScore > QUALIFICATION_THRESHOLD && memberScore > QUALIFICATION_THRESHOLD) {
+          isAppropriate = true;
+          finalScore = (indexScore * 0.6) + (memberScore * 0.4);
+        }
+      } else if (targetIndex.indexPrompt) {
+        if (indexScore > QUALIFICATION_THRESHOLD) {
+          isAppropriate = true;
+          finalScore = indexScore;
+        }
+      } else if (targetIndex.memberPrompt) {
+        if (memberScore > QUALIFICATION_THRESHOLD) {
+          isAppropriate = true;
+          finalScore = memberScore;
+        }
+      } else {
+        // No prompts = automatic match? Old logic said yes.
+        isAppropriate = true;
+        finalScore = 1.0;
+      }
 
       if (isAppropriate && !isCurrentlyAssigned) {
         // Index it
@@ -764,7 +800,7 @@ export class IntentService {
           intentId,
           indexId
         });
-        console.log(`[IntentService] Indexed intent ${intentId} to index ${indexId} (Score: ${appropriatenessScore})`);
+        console.log(`[IntentService] Indexed intent ${intentId} to index ${indexId} (Score: ${finalScore})`);
       } else if (!isAppropriate && isCurrentlyAssigned) {
         // De-index it
         await db.delete(intentIndexes)
@@ -772,7 +808,7 @@ export class IntentService {
             eq(intentIndexes.intentId, intentId),
             eq(intentIndexes.indexId, indexId)
           ));
-        console.log(`[IntentService] Removed intent ${intentId} from index ${indexId} (Score: ${appropriatenessScore})`);
+        console.log(`[IntentService] Removed intent ${intentId} from index ${indexId} (Score: ${finalScore})`);
       }
 
     } catch (error) {
