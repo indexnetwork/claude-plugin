@@ -19,6 +19,9 @@ import { ImplicitIntentInferrerInput } from './components/ImplicitIntentInferrer
 import { IntroGeneratorInput } from './components/IntroGeneratorInput';
 import { SynthesisGeneratorInput } from './components/SynthesisGeneratorInput';
 import { StakeEvaluatorInput } from './components/StakeEvaluatorInput';
+import { ParallelFetcherInput } from './components/ParallelFetcherInput';
+import { ProfileGeneratorInput } from './components/ProfileGeneratorInput';
+import { HydeGeneratorInput } from './components/HydeGeneratorInput';
 import { GeneralInput } from './components/GeneralInput';
 
 function App() {
@@ -29,7 +32,6 @@ function App() {
   // Input State
   const [inputVal, setInputVal] = useState<string>('');
   const [inputMode, setInputMode] = useState<'raw' | 'structured'>('raw');
-  const [profilePreviewMode, setProfilePreviewMode] = useState<boolean>(false);
 
 
   const [outputVal, setOutputVal] = useState<string>('');
@@ -120,7 +122,10 @@ function App() {
       'implicit-inferrer',
       'intro-generator',
       'synthesis-generator',
-      'stake-evaluator'
+      'stake-evaluator',
+      'parallel-fetcher',
+      'profile-generator',
+      'hyde-generator'
     ];
 
     const hasSchema = (agent?.fields && agent.fields.length > 0) || specializedStructuredAgents.includes(id);
@@ -132,8 +137,6 @@ function App() {
       setInputVal('');
     }
     setOutputVal('');
-    // Reset profile preview mode on agent switch
-    setProfilePreviewMode(false);
     addLog(`Agent selected: ${agent?.name}`);
   };
 
@@ -1225,9 +1228,39 @@ function App() {
           )
         }
 
+        {
+          selectedAgentId === 'parallel-fetcher' && (
+            <ParallelFetcherInput
+              inputVal={inputVal}
+              setInputVal={setInputVal}
+              inputMode={inputMode}
+            />
+          )
+        }
+
+        {
+          selectedAgentId === 'profile-generator' && (
+            <ProfileGeneratorInput
+              inputVal={inputVal}
+              setInputVal={setInputVal}
+              inputMode={inputMode}
+            />
+          )
+        }
+
+        {
+          selectedAgentId === 'hyde-generator' && (
+            <HydeGeneratorInput
+              inputVal={inputVal}
+              setInputVal={setInputVal}
+              inputMode={inputMode}
+            />
+          )
+        }
+
         {/* Fallback to Generic Structured or Raw */}
         {
-          !['opportunity-evaluator', 'intent-manager', 'explicit-intent-detector', 'implicit-inferrer', 'intro-generator', 'synthesis-generator', 'stake-evaluator'].includes(selectedAgentId || '') && (
+          !['opportunity-evaluator', 'intent-manager', 'explicit-intent-detector', 'implicit-inferrer', 'intro-generator', 'synthesis-generator', 'stake-evaluator', 'parallel-fetcher', 'profile-generator', 'hyde-generator'].includes(selectedAgentId || '') && (
             inputMode === 'structured' && selectedAgent?.fields
               ? renderStructuredForm(selectedAgent.fields)
               : <textarea
@@ -1305,17 +1338,8 @@ function App() {
               value={inputVal}
               onChange={setInputVal}
               label="INPUT_BUFFER"
-              badge={selectedAgent ? (
-                selectedAgent.id === 'parallel-fetcher' ? 'JSON' :
-                  selectedAgent.id === 'profile-generator' ? 'String' :
-                    selectedAgent.id === 'hyde-generator' ? 'UserMemoryProfile' :
-                      selectedAgent.inputType
-              ) : undefined}
-              viewMode={(selectedAgent?.id === 'profile-generator' || selectedAgent?.id === 'hyde-generator') ? (profilePreviewMode ? 'preview' : 'edit') : 'edit'}
-              onViewModeChange={(mode) => setProfilePreviewMode(mode === 'preview')}
-              allowPreview={selectedAgent?.id === 'profile-generator' || selectedAgent?.id === 'hyde-generator'}
-              allowJson2Md={selectedAgent?.id === 'profile-generator' || selectedAgent?.id === 'hyde-generator'}
-              allowMarkdown={selectedAgent?.id !== 'parallel-fetcher'}
+              badge={selectedAgent?.inputType}
+              operations={[]}
               footerActions={
                 <button
                   className={`term-btn ${isRunning ? 'loading' : ''}`}
