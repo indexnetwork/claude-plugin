@@ -14,7 +14,9 @@ interface EligibleIndex {
   memberPrompt: string | null;
 }
 
-/** @deprecated */
+/**
+ * @deprecated Use IntentService.processIntentForIndex and IntentEvaluator instead.
+ */
 export class IntentIndexer {
 
   /**
@@ -140,5 +142,7 @@ export class IntentIndexer {
 }
 
 // Export singleton instance
-/** @deprecated */
+/**
+ * @deprecated Use IntentService instead.
+ */
 export const intentIndexer = new IntentIndexer();

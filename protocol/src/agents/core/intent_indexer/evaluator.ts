@@ -7,6 +7,9 @@ import { getDisplayName } from '../../../lib/integrations/config';
 // Toggle to enable/disable logs
 const ENABLE_LOGS = false;
 
+/**
+ * @deprecated
+ */
 async function getIntentSourceName(sourceType: string | null, sourceId: string | null): Promise<string> {
   if (!sourceType || !sourceId) {
     return '';
@@ -167,7 +170,7 @@ Score:`
 /**
  * Uses context isolation - evaluates index prompt first, then member prompt only if index qualifies
  * Both scores must be separately > 0.7 to proceed
- * @deprecated
+ * @deprecated Use IntentEvaluator agent instead
  */
 export async function evaluateIntentAppropriateness(
   intentPayload: string,
