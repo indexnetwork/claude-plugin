@@ -6,8 +6,7 @@ import {
   triggerBrokersOnIntentUpdated,
   triggerBrokersOnIntentArchived
 } from '../agents/context_brokers/connector';
-import { addIndexIntentJob, queueEvents } from './queue/llm-queue';
-
+import { intentQueue, queueEvents } from '../queues/intent.queue';
 
 export interface IntentEvent {
   intentId: string;
@@ -61,11 +60,11 @@ export class IntentEvents {
       // These are time-sensitive user actions that should be processed immediately
       const indexingJobs = await Promise.all(
         eligibleIndexes.map(({ id: indexId }) =>
-          addIndexIntentJob({
+          intentQueue.add('index_intent', {
             intentId: event.intentId,
             indexId,
             userId: event.userId, // Include userId for per-user queuing
-          }, 8)
+          }, { priority: 8 })
         )
       );
 
@@ -123,11 +122,11 @@ export class IntentEvents {
       // These are time-sensitive user actions that should be processed immediately
       const indexingJobs = await Promise.all(
         eligibleIndexes.map(({ id: indexId }) =>
-          addIndexIntentJob({
+          intentQueue.add('index_intent', {
             intentId: event.intentId,
             indexId,
             userId: event.userId, // Include userId for per-user queuing
-          }, 8)
+          }, { priority: 8 })
         )
       );
 
@@ -195,11 +194,11 @@ export class IndexEvents {
       // When an index prompt changes, re-indexing can happen in background
       // Less urgent than direct user actions (creating/updating intents)
       const queuePromises = memberIntents.map(({ intentId, userId }) =>
-        addIndexIntentJob({
+        intentQueue.add('index_intent', {
           intentId,
           indexId: event.indexId,
           userId, // Include userId for per-user queuing
-        }, 4) // Highest priority
+        }, { priority: 4 }) // Highest priority
       );
 
       await Promise.all(queuePromises);
@@ -231,11 +230,11 @@ export class MemberEvents {
         // When a member's auto-assign changes, their intents need re-indexing
         // Less urgent than user intent actions but more important than background tasks
         const queuePromises = userIntents.map(({ id: intentId }) =>
-          addIndexIntentJob({
+          intentQueue.add('index_intent', {
             intentId,
             indexId: event.indexId,
             userId: event.userId!, // Include userId for per-user queuing
-          }, 6)
+          }, { priority: 6 })
         );
 
         await Promise.all(queuePromises);

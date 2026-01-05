@@ -1,4 +1,4 @@
-import { addIndexIntentJob } from '../queues/intent.queue';
+import { intentQueue } from '../queues/intent.queue';
 import { indexService } from '../services/index.service';
 
 export interface IndexEvent {
@@ -23,11 +23,11 @@ export class IndexEvents {
       // When an index prompt changes, re-indexing can happen in background
       // Less urgent than direct user actions (creating/updating intents)
       const queuePromises = memberIntents.map(({ intentId, userId }) =>
-        addIndexIntentJob({
+        intentQueue.add('index_intent', {
           intentId,
           indexId: event.indexId,
           userId, // Include userId for per-user queuing
-        }, 4) // Highest priority
+        }, { priority: 4 }) // Highest priority
       );
 
       await Promise.all(queuePromises);

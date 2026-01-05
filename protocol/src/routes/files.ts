@@ -9,7 +9,7 @@ import { eq, isNull, and, count, desc } from 'drizzle-orm';
 import { getUploadsPath } from '../lib/paths';
 import { processUploadedFiles } from '../lib/uploads';
 import { createUploadClient } from '../lib/uploads';
-import { addGenerateIntentsJob } from '../queues/intent.queue';
+import { intentQueue } from '../queues/intent.queue';
 import { FileRecord, FileUploadResponse } from '../types';
 
 // Extend the Request interface to include generatedFileId
@@ -252,12 +252,12 @@ async function generateIntentsForUpload(options: {
     return;
   }
 
-  await addGenerateIntentsJob({
+  await intentQueue.add('generate_intents', {
     userId,
     sourceId: fileRecord.id,
     sourceType: 'file',
     content
-  }, 8);
+  }, { priority: 8 });
 
   console.log(`🤖 Intent generation queued for ${fileRecord.id}`);
 }

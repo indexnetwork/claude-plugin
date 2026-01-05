@@ -1,4 +1,4 @@
-import { addIndexIntentJob, queueEvents } from '../queues/intent.queue';
+import { intentQueue, queueEvents } from '../queues/intent.queue';
 import { stakeService } from '../services/stake.service';
 import { indexService } from '../services/index.service';
 
@@ -33,11 +33,11 @@ export class IntentEvents {
       // These are time-sensitive user actions that should be processed immediately
       const indexingJobs = await Promise.all(
         eligibleIndexes.map(({ id: indexId }) =>
-          addIndexIntentJob({
+          intentQueue.add('index_intent', {
             intentId: event.intentId,
             indexId,
             userId: event.userId, // Include userId for per-user queuing
-          }, 8)
+          }, { priority: 8 })
         )
       );
 
@@ -87,11 +87,11 @@ export class IntentEvents {
       // Priority 8: Updated intents - HIGHEST priority (user just modified intent)
       const indexingJobs = await Promise.all(
         eligibleIndexes.map(({ id: indexId }) =>
-          addIndexIntentJob({
+          intentQueue.add('index_intent', {
             intentId: event.intentId,
             indexId,
             userId: event.userId, // Include userId for per-user queuing
-          }, 8)
+          }, { priority: 8 })
         )
       );
 

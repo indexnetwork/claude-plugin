@@ -1,4 +1,4 @@
-import { addIndexIntentJob } from '../queues/intent.queue';
+import { intentQueue } from '../queues/intent.queue';
 import { intentService } from '../services/intent.service';
 
 export interface MemberEvent {
@@ -23,11 +23,11 @@ export class MemberEvents {
 
         // Priority 6: Member settings updates - MEDIUM priority
         const queuePromises = userIntents.map((intent) =>
-          addIndexIntentJob({
+          intentQueue.add('index_intent', {
             intentId: intent.id,
             indexId: event.indexId,
             userId: event.userId,
-          }, 6)
+          }, { priority: 6 })
         );
 
         await Promise.all(queuePromises);

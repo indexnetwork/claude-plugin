@@ -128,17 +128,4 @@ export async function addJob(
   });
 }
 
-export async function addIndexIntentJob(data: IndexIntentJobData, priority: number = 0): Promise<Job> {
-  return await addJob('index_intent', data, priority);
-}
 
-export async function addGenerateIntentsJob(data: GenerateIntentsJobData, priority: number = 0): Promise<void> {
-  if (data.createdAt && typeof data.createdAt !== 'number') {
-    try {
-      data.createdAt = (data.createdAt as Date).getTime();
-    } catch (e) {
-      data.createdAt = Date.now();
-    }
-  }
-  await addJob('generate_intents', data, priority);
-}
