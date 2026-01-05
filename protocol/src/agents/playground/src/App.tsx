@@ -43,6 +43,9 @@ function App() {
   // Track source context ID for intent-manager profile updates
   const [sourceProfileCtxId, setSourceProfileCtxId] = useState<string | null>(null); // Track which ctx item populated the profile
 
+  // Flip-flop toggle for intro-generator: true = fill sender next, false = fill recipient next
+  const [introFillSender, setIntroFillSender] = useState<boolean>(true);
+
   // Init & Persistence
   useEffect(() => {
     fetchAgents().then(setAgents);
@@ -530,23 +533,28 @@ function App() {
     }
 
     // 8. Intro Generator: Injects Sender -> Recipient
+    // Uses { name, reasonings[] } format expected by IntroGenerator agent
     if (selectedAgent?.id === 'intro-generator') {
       const currentObj = JSON.parse(inputVal || '{}');
-      const updates: any = {};
 
-      // Slot Filling Strategy: Fill Sender if empty, else Recipient
-      if (!currentObj.sender || Object.keys(currentObj.sender).length === 0) {
-        updates.sender = user.userProfile || { identity: { name: user.name } };
-        addLog(`Injected Sender: ${user.name}`);
+      // Extract name from userProfile or fallback to context name
+      const userName = user.userProfile?.identity?.name || user.name;
+
+      // Flip-flop: alternate between sender and recipient on each click
+      let updates: any = {};
+      if (introFillSender) {
+        updates.sender = { name: userName, reasonings: [] };
+        addLog(`Injected Sender: ${userName}`);
       } else {
-        updates.recipient = user.userProfile || { identity: { name: user.name } };
-        addLog(`Injected Recipient: ${user.name}`);
+        updates.recipient = { name: userName, reasonings: [] };
+        addLog(`Injected Recipient: ${userName}`);
       }
 
-      if (Object.keys(updates).length > 0) {
-        const newObj = { ...currentObj, ...updates };
-        setInputVal(JSON.stringify(newObj, null, 2));
-      }
+      // Toggle for next click
+      setIntroFillSender(!introFillSender);
+
+      const newObj = { ...currentObj, ...updates };
+      setInputVal(JSON.stringify(newObj, null, 2));
       return;
     }
 
