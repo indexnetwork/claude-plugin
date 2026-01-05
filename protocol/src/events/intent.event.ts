@@ -77,21 +77,14 @@ export class IntentEvents {
       // Get all eligible indexes for this user
       const eligibleIndexes = await indexService.getEligibleIndexesForUser(event.userId);
 
-      // If no eligible indexes, trigger brokers immediately
-      /* 
-         NOTE: Legacy behavior called triggerBrokersOnIntentUpdated here.
-         We are only migrating the CREATE flow to StakeService currently.
-         Update logic for Stakes is not defined yet. 
-         Leaving placeholder or NO-OP unless logic is added to StakeService 
-      */
+      // If no eligible indexes, trigger brokers immediately (via StakeService)
       if (eligibleIndexes.length === 0) {
-        // await triggerBrokersOnIntentUpdated(event.intentId, event.previousStatus);
+        await stakeService.processIntent(event.intentId);
         return;
       }
 
       // Queue individual intent-index pairs
       // Priority 8: Updated intents - HIGHEST priority (user just modified intent)
-      // These are time-sensitive user actions that should be processed immediately
       const indexingJobs = await Promise.all(
         eligibleIndexes.map(({ id: indexId }) =>
           addIndexIntentJob({
@@ -120,8 +113,8 @@ export class IntentEvents {
         console.error('Error waiting for indexing jobs to complete:', error);
       }
 
-      // Trigger logic after update (Placeholder)
-      // await triggerBrokersOnIntentUpdated(event.intentId, event.previousStatus);
+      // Trigger Stake Service via processIntent (Re-evaluation)
+      await stakeService.processIntent(event.intentId);
 
     } catch (error) {
       // Failed to queue intent indexing
