@@ -25,9 +25,8 @@ export class IndexService {
    */
   async getEligibleIndexesForUser(userId: string) {
     log.info('[IndexService] Getting eligible indexes for user', { userId });
-    return await db.select({
-      id: indexes.id
-    })
+    return await db
+      .select({ id: indexes.id })
       .from(indexes)
       .innerJoin(indexMembers, eq(indexes.id, indexMembers.indexId))
       .where(and(
@@ -37,7 +36,6 @@ export class IndexService {
       ));
   }
 
-  /**
   /**
    * Get intents for all members of an index where autoAssign is true.
    * 
@@ -49,10 +47,8 @@ export class IndexService {
    */
   async getIntentsForIndexMembers(indexId: string) {
     log.info('[IndexService] Getting intents for index members', { indexId });
-    return await db.select({
-      intentId: intents.id,
-      userId: intents.userId
-    })
+    return await db
+      .select({ intentId: intents.id, userId: intents.userId })
       .from(intents)
       .innerJoin(indexMembers, eq(intents.userId, indexMembers.userId))
       .where(and(
