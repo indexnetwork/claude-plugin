@@ -36,17 +36,15 @@ Copy and adapt this template for your new agent.
 ### 1. Types Definition (`[agent-name].types.ts`)
 
 ```typescript
-import { z } from "zod";
-
-// Define the schema for the agent's output
-export const MyAgentOutputSchema = z.object({
-  analysis: z.string().describe("High-level analysis of the input"),
-  score: z.number().min(0).max(10).describe("Relevance score"),
-  tags: z.array(z.string()).describe("List of relevant tags"),
-});
-
-// Export the inferred type
-export type MyAgentOutput = z.infer<typeof MyAgentOutputSchema>;
+// Define the interface for the agent's output (Do NOT import Zod here)
+export interface MyAgentOutput {
+  /** High-level analysis of the input */
+  analysis: string;
+  /** Relevance score */
+  score: number;
+  /** List of relevant tags */
+  tags: string[];
+}
 ```
 
 ### 2. Agent Implementation (`[agent-name].ts`)
@@ -56,7 +54,7 @@ import { BaseLangChainAgent } from "../../../lib/langchain/langchain";
 import { z } from "zod";
 import { SystemMessage, HumanMessage } from "@langchain/core/messages";
 import { log } from "../../../lib/log";
-import { MyAgentOutputSchema, MyAgentOutput } from "./[agent-name].types";
+import { MyAgentOutput } from "./[agent-name].types";
 
 const SYSTEM_PROMPT = `
 You are an expert [Role Name].
@@ -73,6 +71,13 @@ OUTPUT RULES:
 - Score the content from 0-10 based on [Criteria].
 - Extract relevant tags.
 `;
+
+// Define the Zod schema locally for the agent to use
+const MyAgentOutputSchema = z.object({
+  analysis: z.string().describe("High-level analysis of the input"),
+  score: z.number().min(0).max(10).describe("Relevance score"),
+  tags: z.array(z.string()).describe("List of relevant tags"),
+});
 
 export class MyAgent extends BaseLangChainAgent {
   constructor() {
@@ -130,4 +135,4 @@ export class MyAgent extends BaseLangChainAgent {
 *   **Prompt Engineering**: Iterate on your `SYSTEM_PROMPT`. Be specific about edge cases.
 *   **Logging**: Use `log.info` and `log.error` to track agent execution and failures.
 *   **Error Handling**: Always wrap model invocations in try-catch blocks to handle API failures or schema validation errors gracefully.
-*   **Type Safety**: Always cast `result.structuredResponse` to your Zod-inferred type.
+*   **Type Safety**: Keep your Zod schema and TypeScript interface in sync manually or via tests. 
