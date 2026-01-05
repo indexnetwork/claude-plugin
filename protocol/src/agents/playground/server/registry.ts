@@ -226,20 +226,26 @@ const REGISTRY: AgentRegistryItem[] = [
     agentClass: OpportunityEvaluator,
     runner: async (agent, input) => {
       // 0. Auto-Fetch Existing Opportunities if userId is present and field is empty
-      if (!input.options?.existingOpportunities && input.sourceProfile?.userId) {
-        try {
-          const existingStakes = await stakeService.getUserStakes(input.sourceProfile.userId, 20);
-          if (existingStakes.length > 0) {
-            const ctx = existingStakes
-              .map(s => `- Match with ${s.candidateName} (ID: ${s.candidateId}) (Score: ${s.score}): ${s.reason}`)
-              .join('\n');
+      const isUUID = (id: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
 
-            if (!input.options) input.options = {};
-            input.options.existingOpportunities = ctx;
-            console.log(`[Registry] Auto-fetched ${existingStakes.length} existing opportunities for ${input.sourceProfile.userId}`);
+      if (!input.options?.existingOpportunities && input.sourceProfile?.userId) {
+        if (isUUID(input.sourceProfile.userId)) {
+          try {
+            const existingStakes = await stakeService.getUserStakes(input.sourceProfile.userId, 20);
+            if (existingStakes.length > 0) {
+              const ctx = existingStakes
+                .map(s => `- Match with ${s.candidateName} (ID: ${s.candidateId}) (Score: ${s.score}): ${s.reason}`)
+                .join('\n');
+
+              if (!input.options) input.options = {};
+              input.options.existingOpportunities = ctx;
+              console.log(`[Registry] Auto-fetched ${existingStakes.length} existing opportunities for ${input.sourceProfile.userId}`);
+            }
+          } catch (e) {
+            console.error("[Registry] Failed to fetch existing stakes in playground:", e);
           }
-        } catch (e) {
-          console.error("[Registry] Failed to fetch existing stakes in playground:", e);
+        } else {
+          console.log(`[Registry] Skipping existing stakes fetch for non-UUID userId: ${input.sourceProfile.userId}`);
         }
       }
 
@@ -279,7 +285,7 @@ const REGISTRY: AgentRegistryItem[] = [
         'profiles', // Collection name irrelevant for memory searcher
         {
           limit: input.options?.limit || 5,
-          minScore: 0.5, // Force 0.5 minimum similarity for vector search (matches Queue logic)
+          minScore: (input.options?.minScore || 0) / 100, // Use user input for retrieval threshold (normalized 0-1)
           filter: {
             userId: { ne: input.sourceProfile.userId }
           },
