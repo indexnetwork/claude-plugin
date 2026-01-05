@@ -445,82 +445,81 @@ export default function InboxContent() {
     const lastUpdated = !isStakeCard ? (data as UserConnection).lastUpdated : undefined;
 
     return (
-      <div key={user.id} className="">
-        <div className="py-4 px-2 sm:px-4 ">
-          {/* User Header */}
-          <div className="flex flex-wrap sm:flex-nowrap justify-between items-start mb-4">
-            <div className="flex items-center gap-4 w-full sm:w-auto mb-2 sm:mb-0">
+      <div key={user.id} className="pt-4">
+        {/* User Header */}
+        <div className="flex flex-wrap sm:flex-nowrap justify-between items-start mb-4">
+          <div className="flex items-center gap-4 w-full sm:w-auto mb-2 sm:mb-0">
+            <button
+              onClick={() => handleUserClick(user)}
+              className="flex-shrink-0 cursor-pointer transition-opacity hover:opacity-80"
+            >
+              <Image
+                src={getAvatarUrl(user)}
+                alt={user.name}
+                width={36}
+                height={36}
+                className="rounded-full"
+              />
+            </button>
+            <div>
               <button
                 onClick={() => handleUserClick(user)}
-                className="flex-shrink-0 cursor-pointer transition-opacity hover:opacity-80"
+                className="cursor-pointer transition-opacity hover:opacity-80"
               >
-                <Image
-                  src={getAvatarUrl(user)}
-                  alt={user.name}
-                  width={48}
-                  height={48}
-                  className="rounded-full"
-                />
+                <h2 className="font-bold text-md text-gray-900 font-ibm-plex-mono text-left">{user.name}</h2>
               </button>
-              <div>
-                <button
-                  onClick={() => handleUserClick(user)}
-                  className="cursor-pointer transition-opacity hover:opacity-80"
-                >
-                  <h2 className="font-bold text-lg text-gray-900 font-ibm-plex-mono text-left">{user.name}</h2>
-                </button>
-                <div className="flex items-center gap-4 text-sm text-gray-500 font-ibm-plex-mono">
-                  {intents !== undefined ? (
-                    intents.length > 0 ? (
-                      <span>{intents.length} mutual intent{intents.length !== 1 ? 's' : ''}</span>
-                    ) : (
-                      <span>Potential connection</span>
-                    )
+              <div className="flex items-center gap-4 text-sm text-gray-500 font-ibm-plex-mono">
+                {intents !== undefined ? (
+                  intents.length > 0 ? (
+                    <span>{intents.length} mutual intent{intents.length !== 1 ? 's' : ''}</span>
                   ) : (
-                    <span>{formatDate(lastUpdated!)}</span>
-                  )}
-                </div>
+                    <span>Potential connection</span>
+                  )
+                ) : (
+                  <span>{formatDate(lastUpdated!)}</span>
+                )}
               </div>
             </div>
-            {/* Connection Actions */}
-            <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
-              <ConnectionActions
-                userId={user.id}
-                userName={user.name}
-                userAvatar={user.avatar || undefined}
-                connectionStatus={getConnectionStatus(tabType, requestsView, user.id)}
-                onAction={handleConnectionAction}
-                size="sm"
-              />
-            </div>
           </div>
-
-          {/* Synthesis Section */}
-          {(synthesisLoading[user.id] || syntheses[user.id]) && (
-            <div className="mb-4">
-              {synthesisLoading[user.id] ? (
-                <div className="animate-pulse space-y-2">
-                  <div className="h-3 bg-gray-200 rounded w-full"></div>
-                  <div className="h-3 bg-gray-200 rounded w-full"></div>
-                  <div className="h-3 bg-gray-200 rounded w-11/12"></div>
-                  <div className="h-3 bg-gray-200 rounded w-full"></div>
-                  <div className="h-3 bg-gray-200 rounded w-10/12"></div>
-                  <div className="h-3 bg-gray-200 rounded w-full"></div>
-                  <div className="h-3 bg-gray-200 rounded w-9/12"></div>
-                  <div className="mt-3 pt-2">
-                    <div className="h-3 bg-gray-200 rounded w-3/4"></div>
-                  </div>
-                </div>
-              ) : (
-                <SynthesisMarkdown
-                  content={syntheses[user.id]}
-                  className="text-gray-700 text-sm leading-relaxed prose prose-sm max-w-none [&_ul]:list-disc [&_ul]:pl-6 [&_ol]:list-decimal [&_ol]:pl-6 [&_li]:mb-1 [&_h1]:text-lg [&_h1]:font-bold [&_h1]:mb-2 [&_h2]:text-base [&_h2]:font-semibold [&_h2]:mb-2 [&_h3]:text-sm [&_h3]:font-medium [&_h3]:mb-1 [&_p]:mb-2 [&_strong]:font-semibold [&_em]:italic [&_code]:bg-gray-100 [&_code]:px-1 [&_code]:rounded [&_code]:text-sm"
-                  onArchive={fetchData}
-                  popoverControlRef={popoverControlRef}
-                />
-              )}            </div>
-          )}
+          {/* Connection Actions */}
+          <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
+            <ConnectionActions
+              userId={user.id}
+              userName={user.name}
+              userAvatar={user.avatar || undefined}
+              connectionStatus={getConnectionStatus(tabType, requestsView, user.id)}
+              onAction={handleConnectionAction}
+              size="sm"
+            />
+          </div>
         </div>
+
+        {/* Synthesis Section */}
+        {(synthesisLoading[user.id] || syntheses[user.id]) && (
+          <div className="mb-4">
+            {synthesisLoading[user.id] ? (
+              <div className="animate-pulse space-y-2">
+                <div className="h-3 bg-gray-200 rounded w-full"></div>
+                <div className="h-3 bg-gray-200 rounded w-full"></div>
+                <div className="h-3 bg-gray-200 rounded w-11/12"></div>
+                <div className="h-3 bg-gray-200 rounded w-full"></div>
+                <div className="h-3 bg-gray-200 rounded w-10/12"></div>
+                <div className="h-3 bg-gray-200 rounded w-full"></div>
+                <div className="h-3 bg-gray-200 rounded w-9/12"></div>
+                <div className="mt-3 pt-2">
+                  <div className="h-3 bg-gray-200 rounded w-3/4"></div>
+                </div>
+              </div>
+            ) : (
+              <SynthesisMarkdown
+                content={syntheses[user.id]}
+                className="text-gray-700 text-sm leading-relaxed prose prose-sm max-w-none [&_ul]:list-disc [&_ul]:pl-6 [&_ol]:list-decimal [&_ol]:pl-6 [&_li]:mb-1 [&_h1]:text-lg [&_h1]:font-bold [&_h1]:mb-2 [&_h2]:text-base [&_h2]:font-semibold [&_h2]:mb-2 [&_h3]:text-sm [&_h3]:font-medium [&_h3]:mb-1 [&_p]:mb-2 [&_strong]:font-semibold [&_em]:italic [&_code]:bg-gray-100 [&_code]:px-1 [&_code]:rounded [&_code]:text-sm synthesis-markdown-content"
+                onArchive={fetchData}
+                popoverControlRef={popoverControlRef}
+              />
+            )}
+          </div>
+        )}
       </div>
     );
   }, [synthesisLoading, syntheses, requestsView, handleConnectionAction, handleUserClick, fetchData, getConnectionStatus]);
@@ -582,61 +581,52 @@ export default function InboxContent() {
         </div>
       )}
 
-      <div className="w-full border border-gray-800 rounded-md px-2 sm:px-4 py-4 sm:py-8" style={{
-        backgroundImage: 'url(/grid.png)',
-        backgroundColor: 'white',
-        backgroundSize: '888px'
-      }}>
+      {/* Discovery input - separate row above content when no intent selected */}
+      {activeTab === 'discover' && !discoveryIntents && (
+        <DiscoveryForm
+          ref={discoveryFormRef}
+          floating={false}
+          onSubmit={(intents) => {
+            if (intents && intents.length > 0) {
+              router.push(`/i/${intents[0].id}`);
+            }
+          }}
+        />
+      )}
+
+      <div className="bg-white w-full border border-gray-800 rounded-sm px-4 py-2">
+        {!discoveryIntents && (
+          <div className="font-ibm-plex-mono text-black text-md font-bold mb-4" style={{ marginTop: '8px' }}>
+            Discoveries waiting for action
+          </div>
+        )}
 
         <div className="flex flex-col justify-between mb-4">
           {/* Header section */}
-          <div className="space-y-4">
-            {/* Discovery input section */}
-            {activeTab === 'discover' && (
-              <div className="flex flex-col gap-4">
-                {/* Intent title display - show when intent is selected */}
-                {discoveryIntents && (
-                  <div>
-                    {/* Back to inbox button */}
-                    <div className="">
-                      <button
-                        onClick={handleBackToInbox}
-                        className="bg-black text-white px-4 py-2 font-ibm-plex-mono text-sm hover:bg-gray-800 transition-colors"
-                      >
-                        ← Back to inbox
-                      </button>
-                    </div>
-                    
-                    {/* Intent title display */}
-                    <div className="bg-white border border-b-2 border-gray-800 px-4 py-4">
-                      <div className="font-ibm-plex-mono text-black text-lg">
-                        {discoveryIntents[0]?.summary || discoveryIntents[0]?.payload || 'Discovery filter'}
-                      </div>
+          {activeTab === 'discover' && (
+            <div className="space-y-4">
+              {/* Intent title display - show when intent is selected */}
+              {discoveryIntents && (
+                <div className="bg-white pb-2 border-b border-gray-200 mb-4">
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={handleBackToInbox}
+                      className="cursor-pointer transition-opacity hover:opacity-80 text-black text-xl font-bold mr-2"
+                    >
+                      ←
+                    </button>
+                    <div className="font-ibm-plex-mono text-black text-lg" style={{ fontWeight: 'bold', marginTop: '8px' }}>
+                      {discoveryIntents[0]?.summary || discoveryIntents[0]?.payload || 'Discovery filter'}
                     </div>
                   </div>
-                )}
-                
-                {/* Discovery input - above inbox when no intent selected */}
-                {!discoveryIntents && (
-                  <div className="flex-1">
-                    <DiscoveryForm
-                      ref={discoveryFormRef}
-                      floating={false}
-                      onSubmit={(intents) => {
-                        if (intents && intents.length > 0) {
-                          router.push(`/i/${intents[0].id}`);
-                        }
-                      }}
-                    />
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Discover Content */}
           {activeTab === 'discover' && (
-            <div className="mt-4 bg-white border border-b-2 border-gray-800">
+            <div className="bg-white">
               {discoveryLoading ? (
                 <div className="flex flex-col items-center justify-center px-6 pb-8">
                   <Image

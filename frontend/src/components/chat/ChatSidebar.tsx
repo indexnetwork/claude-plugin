@@ -1,20 +1,30 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { usePathname } from 'next/navigation';
 import { useStreamChat } from '@/contexts/StreamChatContext';
-import { useInboxContext } from '@/contexts/InboxContext';
-import { MessageSquare } from 'lucide-react';
+import { useNotifications } from '@/contexts/NotificationContext';
+import { MessageSquare, Inbox, Check, X, SkipForward, Loader2 } from 'lucide-react';
 import Image from 'next/image';
 import { getAvatarUrl } from '@/lib/file-utils';
 
 export default function ChatSidebar() {
-  const pathname = usePathname();
-  const isInboxPage = pathname === '/' || pathname?.startsWith('/i/');
-  const inboxContext = useInboxContext();
-  const { client, isReady, openChat, activeChatId, setActiveChat } = useStreamChat();
+  const { 
+    client, 
+    isReady, 
+    openChat, 
+    activeChatId, 
+    setActiveChat,
+    messageRequests,
+    messageRequestsLoading,
+    respondToMessageRequest,
+  } = useStreamChat();
+  const { success, error: showError } = useNotifications();
   const [channels, setChannels] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [respondingTo, setRespondingTo] = useState<string | null>(null);
+
+  // Calculate total unread count
+  const totalUnreadCount = channels.reduce((sum, ch) => sum + (ch.state?.unreadCount || 0), 0);
 
   // Fetch channels/conversations
   useEffect(() => {
@@ -85,6 +95,35 @@ export default function ChatSidebar() {
     [client, openChat, setActiveChat]
   );
 
+  // Handle responding to message requests
+  const handleMessageRequestResponse = useCallback(async (
+    channelId: string, 
+    action: 'ACCEPT' | 'DECLINE' | 'SKIP',
+    requesterName: string
+  ) => {
+    setRespondingTo(channelId);
+    try {
+      await respondToMessageRequest(channelId, action);
+      
+      switch (action) {
+        case 'ACCEPT':
+          success('Request accepted', `You can now chat with ${requesterName}`);
+          break;
+        case 'DECLINE':
+          success('Request declined', 'The message request has been declined.');
+          break;
+        case 'SKIP':
+          success('Request skipped', 'You can revisit this later.');
+          break;
+      }
+    } catch (err: any) {
+      console.error('Failed to respond to message request:', err);
+      showError('Failed', err?.message || 'Please try again later.');
+    } finally {
+      setRespondingTo(null);
+    }
+  }, [respondToMessageRequest, success, showError]);
+
   if (!isReady) {
     return (
       <div className="bg-white rounded-sm border-black border p-3">
@@ -101,119 +140,115 @@ export default function ChatSidebar() {
 
   return (
     <div className="bg-white rounded-sm border-black border overflow-hidden flex flex-col">
-      {/* Inbox Tabs - only show on inbox page */}
-      {isInboxPage && inboxContext && (
-        <>
-          {/* View Requests button - show when on discover tab */}
-          {inboxContext.activeTab === 'discover' && (
-            <button
-              onClick={() => inboxContext.setActiveTab('requests')}
-              className="w-full font-ibm-plex-mono px-4 py-3 border-b-2 border-black flex items-center justify-between bg-white text-black hover:bg-gray-50 border-b border-gray-200"
-            >
-              <span>View Requests</span>
-              {inboxContext.connectionsLoading ? (
-                <span className="text-xs px-2 py-1 rounded bg-black text-white">
-                  0
-                </span>
-              ) : (
-                <span className="text-xs px-2 py-1 rounded bg-black text-white">
-                  {inboxContext.inboxConnectionsCount + inboxContext.pendingConnectionsCount + inboxContext.historyConnectionsCount}
-                </span>
-              )}
-            </button>
-          )}
-
-          {/* Sub-tabs: Inbox, Sent, History - always visible when on inbox page */}
-          <div className="flex border-b border-gray-200">
-            <button
-              onClick={() => {
-                inboxContext.setActiveTab('requests');
-                inboxContext.setRequestsView('received');
-              }}
-              className={`flex-1 font-ibm-plex-mono px-4 py-2 border-r border-gray-200 flex items-center justify-center gap-2 ${
-                inboxContext.activeTab === 'requests' && inboxContext.requestsView === 'received'
-                  ? 'bg-black text-white'
-                  : 'bg-white text-black hover:bg-gray-50'
-              }`}
-            >
-              Inbox
-              {inboxContext.inboxConnectionsCount > 0 && (
-                <span className={`text-xs px-2 py-1 rounded ${
-                  inboxContext.activeTab === 'requests' && inboxContext.requestsView === 'received'
-                    ? 'bg-white text-black'
-                    : 'bg-black text-white'
-                }`}>
-                  {inboxContext.inboxConnectionsCount}
-                </span>
-              )}
-            </button>
-            <button
-              onClick={() => {
-                inboxContext.setActiveTab('requests');
-                inboxContext.setRequestsView('sent');
-              }}
-              className={`flex-1 font-ibm-plex-mono px-4 py-2 border-r border-gray-200 flex items-center justify-center gap-2 ${
-                inboxContext.activeTab === 'requests' && inboxContext.requestsView === 'sent'
-                  ? 'bg-black text-white'
-                  : 'bg-white text-black hover:bg-gray-50'
-              }`}
-            >
-              Sent
-              {inboxContext.pendingConnectionsCount > 0 && (
-                <span className={`text-xs px-2 py-1 rounded ${
-                  inboxContext.activeTab === 'requests' && inboxContext.requestsView === 'sent'
-                    ? 'bg-white text-black'
-                    : 'bg-black text-white'
-                }`}>
-                  {inboxContext.pendingConnectionsCount}
-                </span>
-              )}
-            </button>
-            <button
-              onClick={() => {
-                inboxContext.setActiveTab('requests');
-                inboxContext.setRequestsView('history');
-              }}
-              className={`flex-1 font-ibm-plex-mono px-4 py-2 flex items-center justify-center gap-2 ${
-                inboxContext.activeTab === 'requests' && inboxContext.requestsView === 'history'
-                  ? 'bg-black text-white'
-                  : 'bg-white text-black hover:bg-gray-50'
-              }`}
-            >
-              History
-              {inboxContext.historyConnectionsCount > 0 && (
-                <span className={`text-xs px-2 py-1 rounded ${
-                  inboxContext.activeTab === 'requests' && inboxContext.requestsView === 'history'
-                    ? 'bg-white text-black'
-                    : 'bg-black text-white'
-                }`}>
-                  {inboxContext.historyConnectionsCount}
-                </span>
-              )}
-            </button>
+      {/* Message Requests section */}
+      {messageRequests.length > 0 && (
+        <div className="border-b border-gray-200">
+          <div className="flex items-center gap-2 px-3 py-3 bg-amber-50">
+            <Inbox className="w-5 h-5 text-amber-600" />
+            <h2 className="font-bold text-sm text-black font-ibm-plex-mono">
+              Message Requests
+            </h2>
+            <span className="ml-auto text-xs px-2 py-1 rounded bg-amber-600 text-white">
+              {messageRequests.length}
+            </span>
           </div>
-
-          {/* Back to Discovery button - show when on requests tab */}
-          {inboxContext.activeTab === 'requests' && (
-            <button
-              onClick={() => {
-                inboxContext.setActiveTab('discover');
-              }}
-              className="w-full font-ibm-plex-mono px-4 py-2 border-t border-gray-200 bg-black text-white hover:bg-gray-800 flex items-center justify-between"
-            >
-              <span>Back to Discovery</span>
-              <span className="bg-white text-black text-xs px-2 py-1 rounded">
-                {inboxContext.discoverStakesCount}
-              </span>
-            </button>
-          )}
-        </>
+          <div className="max-h-[200px] overflow-y-auto">
+            {messageRequestsLoading ? (
+              <div className="flex items-center justify-center py-4">
+                <Loader2 className="w-4 h-4 animate-spin text-gray-400" />
+              </div>
+            ) : (
+              <div className="divide-y divide-gray-100">
+                {messageRequests.map((request) => {
+                  const isResponding = respondingTo === request.channelId;
+                  return (
+                    <div
+                      key={request.channelId}
+                      className="px-3 py-3 bg-white hover:bg-gray-50"
+                    >
+                      <div className="flex items-start gap-3">
+                        <Image
+                          src={getAvatarUrl({ 
+                            avatar: request.requester?.avatar, 
+                            id: request.requester?.id || '', 
+                            name: request.requester?.name || 'User' 
+                          })}
+                          alt={request.requester?.name || 'User'}
+                          width={40}
+                          height={40}
+                          className="rounded-full flex-shrink-0"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <span className="font-bold text-sm font-ibm-plex-mono text-gray-900 block truncate">
+                            {request.requester?.name || 'User'}
+                          </span>
+                          {request.firstMessage && (
+                            <p className="text-xs text-gray-500 font-ibm-plex-mono truncate mt-0.5">
+                              {request.firstMessage}
+                            </p>
+                          )}
+                          <div className="flex items-center gap-1 mt-2">
+                            <button
+                              onClick={() => handleMessageRequestResponse(
+                                request.channelId, 
+                                'ACCEPT',
+                                request.requester?.name || 'User'
+                              )}
+                              disabled={isResponding}
+                              className="flex items-center gap-1 px-2 py-1 bg-green-600 hover:bg-green-700 text-white text-xs rounded transition-colors disabled:opacity-50"
+                            >
+                              {isResponding ? (
+                                <Loader2 className="w-3 h-3 animate-spin" />
+                              ) : (
+                                <Check className="w-3 h-3" />
+                              )}
+                              Accept
+                            </button>
+                            <button
+                              onClick={() => handleMessageRequestResponse(
+                                request.channelId, 
+                                'SKIP',
+                                request.requester?.name || 'User'
+                              )}
+                              disabled={isResponding}
+                              className="flex items-center gap-1 px-2 py-1 bg-gray-200 hover:bg-gray-300 text-gray-700 text-xs rounded transition-colors disabled:opacity-50"
+                            >
+                              <SkipForward className="w-3 h-3" />
+                              Skip
+                            </button>
+                            <button
+                              onClick={() => handleMessageRequestResponse(
+                                request.channelId, 
+                                'DECLINE',
+                                request.requester?.name || 'User'
+                              )}
+                              disabled={isResponding}
+                              className="flex items-center gap-1 px-2 py-1 text-red-500 hover:bg-red-50 text-xs rounded transition-colors disabled:opacity-50"
+                            >
+                              <X className="w-3 h-3" />
+                              Decline
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
       )}
 
       {/* Conversations header */}
       <div className="flex items-center gap-2 px-3 py-3">
         <MessageSquare className="w-5 h-5 text-gray-600" />
         <h2 className="font-bold text-sm text-black font-ibm-plex-mono">Conversations</h2>
+        {totalUnreadCount > 0 && (
+          <span className="ml-auto text-xs px-2 py-1 rounded-full bg-black text-white font-ibm-plex-mono">
+            {totalUnreadCount}
+          </span>
+        )}
       </div>
       <div className="flex-1 overflow-y-auto min-h-[300px]">
         {loading ? (
@@ -237,7 +272,7 @@ export default function ChatSidebar() {
 
               const lastMessage = channel.state.messages[channel.state.messages.length - 1];
               const unreadCount = channel.state.unreadCount || 0;
-
+              const hasUnread = unreadCount > 0;
               const isActive = activeChatId === otherUser.id;
 
               return (
@@ -247,7 +282,9 @@ export default function ChatSidebar() {
                   className={`w-full px-3 py-3 transition-colors text-left ${
                     isActive
                       ? 'bg-gray-100 border-l-2 border-black'
-                      : 'hover:bg-gray-50'
+                      : hasUnread
+                        ? 'bg-gray-50'
+                        : 'hover:bg-gray-50'
                   }`}
                 >
                   <div className="flex items-center gap-3">
@@ -260,12 +297,12 @@ export default function ChatSidebar() {
                     />
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between mb-1">
-                        <span className={`font-bold text-sm font-ibm-plex-mono truncate ${
-                          isActive ? 'text-black' : 'text-gray-900'
+                        <span className={`text-sm font-ibm-plex-mono truncate ${
+                          hasUnread ? 'font-bold text-black' : 'font-medium text-gray-900'
                         }`}>
                           {otherUser.name || 'User'}
                         </span>
-                        {unreadCount > 0 && (
+                        {hasUnread && (
                           <span className="bg-black text-white text-xs px-2 py-0.5 rounded-full font-ibm-plex-mono">
                             {unreadCount}
                           </span>
@@ -273,7 +310,7 @@ export default function ChatSidebar() {
                       </div>
                       {lastMessage && (
                         <p className={`text-xs font-ibm-plex-mono truncate ${
-                          isActive ? 'text-gray-700' : 'text-gray-500'
+                          hasUnread ? 'text-gray-800' : 'text-gray-500'
                         }`}>
                           {lastMessage.text || 'Attachment'}
                         </p>

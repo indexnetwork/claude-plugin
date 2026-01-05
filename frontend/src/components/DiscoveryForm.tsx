@@ -5,7 +5,7 @@ import { useAPI } from "@/contexts/APIContext";
 import { usePrivy } from "@privy-io/react-auth";
 import { useNotifications } from "@/contexts/NotificationContext";
 import { validateFiles, getSupportedFileExtensions, formatFileSize, getFileCategoryBadge } from "@/lib/file-validation";
-import { ArrowUp, X, Paperclip } from "lucide-react";
+import { ArrowUp, X } from "lucide-react";
 
 interface DiscoveryFormProps {
   onSubmit?: (intents: Array<{id: string; payload: string; summary?: string; createdAt: string}>) => void;
@@ -146,108 +146,114 @@ const DiscoveryForm = forwardRef<DiscoveryFormRef, DiscoveryFormProps>(({ onSubm
     }
   };
 
-  const containerClasses = floating
-    ? "fixed bottom-6 left-1/2 -translate-x-1/2 w-full max-w-3xl z-[9999] px-4"
-    : "w-full";
+  const formContent = (
+    <>
+      {/* Attachment chips */}
+      {attachments.length > 0 && (
+        <div className="px-2 pt-2 pb-1 flex flex-wrap gap-2">
+          {attachments.map((attachment) => (
+            <div
+              key={attachment.id}
+              className="group inline-flex items-center gap-2 bg-gray-100 border border-gray-300 rounded-sm px-2 py-1 hover:border-gray-400 transition-colors"
+            >
+              {attachment.preview ? (
+                <img
+                  src={attachment.preview}
+                  alt={attachment.file.name}
+                  className="w-4 h-4 object-cover rounded"
+                />
+              ) : (
+                <div className="px-2 py-0.5 bg-gray-300 rounded flex items-center justify-center">
+                  <span className="text-[8px] font-ibm-plex-mono text-gray-600 font-bold">
+                    {getFileCategoryBadge(attachment.file.name)}
+                  </span>
+                </div>
+              )}
+              <span className="text-xs font-ibm-plex-mono text-gray-900">
+                {attachment.file.name}
+              </span>
+              <button
+                onClick={() => removeAttachment(attachment.id)}
+                className="opacity-0 group-hover:opacity-100 transition-opacity text-gray-600 hover:text-black"
+                aria-label="Remove attachment"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
 
-  return (
-    <div className={containerClasses}>
+      {/* Input row */}
+      <div className="flex items-center px-4 py-2 min-h-[54px]">
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          className="hidden"
+          accept={getSupportedFileExtensions('general')}
+          onChange={handleFileSelect}
+        />
+        <input
+          ref={inputRef}
+          type="text"
+          value={inputValue}
+          onChange={(e) => setInputValue(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+              e.preventDefault();
+              handleSubmit();
+            }
+          }}
+          placeholder={floating ? "Ask a follow-up question...." : "What do you want to discover?"}
+          className="flex-1 font-ibm-plex-mono text-black text-lg focus:outline-none bg-transparent"
+          disabled={isProcessing}
+        />
+        {isProcessing ? (
+          <button
+            onClick={() => setIsProcessing(false)}
+            className="h-9 w-9 rounded-full bg-black text-white flex items-center justify-center hover:bg-gray-800 transition-colors cursor-pointer ml-2"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        ) : (
+          <button
+            onClick={handleSubmit}
+            disabled={!inputValue.trim() && attachments.length === 0}
+            className="h-9 w-9 rounded-full bg-black text-white flex items-center justify-center hover:bg-gray-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer ml-2"
+          >
+            <ArrowUp className="w-4 h-4" />
+          </button>
+        )}
+      </div>
+    </>
+  );
+
+  const formClasses = floating
+    ? "bg-white border border-gray-800 rounded-sm shadow-lg flex flex-col"
+    : "w-full bg-white border border-gray-800 rounded-sm shadow-lg flex flex-col";
+
+  const formElement = (
+    <div className="space-y-4 mb-4 rounded-lg">
       <div 
-        className="bg-white border border-b-2 border-gray-800 rounded-none shadow-lg flex flex-col"
+        className={formClasses}
         onDragOver={handleDragOver}
         onDrop={handleDrop}
       >
-        {/* Attachment chips - inside input area */}
-        {attachments.length > 0 && (
-          <div className="px-2 pt-2 pb-1 flex flex-wrap gap-2">
-            {attachments.map((attachment) => (
-              <div
-                key={attachment.id}
-                className="group inline-flex items-center gap-2 bg-gray-100 border border-gray-300 rounded-sm px-2 py-1 hover:border-gray-400 transition-colors"
-              >
-                {attachment.preview ? (
-                  <img
-                    src={attachment.preview}
-                    alt={attachment.file.name}
-                    className="w-4 h-4 object-cover rounded"
-                  />
-                ) : (
-                  <div className="px-2 py-0.5 bg-gray-300 rounded flex items-center justify-center">
-                    <span className="text-[8px] font-ibm-plex-mono text-gray-600 font-bold">
-                      {getFileCategoryBadge(attachment.file.name)}
-                    </span>
-                  </div>
-                )}
-                <span className="text-xs font-ibm-plex-mono text-gray-900">
-                  {attachment.file.name}
-                </span>
-                <button
-                  onClick={() => removeAttachment(attachment.id)}
-                  className="opacity-0 group-hover:opacity-100 transition-opacity text-gray-600 hover:text-black"
-                  aria-label="Remove attachment"
-                >
-                  <X className="w-3 h-3" />
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Input row */}
-        <div className="flex items-center px-2 py-2 min-h-[54px]">
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            className="mr-2 text-gray-600 hover:text-black transition-colors p-1"
-            aria-label="Attach file"
-            disabled={isProcessing}
-          >
-            <Paperclip className="w-5 h-5" />
-          </button>
-          <input
-            ref={fileInputRef}
-            type="file"
-            multiple
-            className="hidden"
-            accept={getSupportedFileExtensions('general')}
-            onChange={handleFileSelect}
-          />
-          <input
-            ref={inputRef}
-            type="text"
-            value={inputValue}
-            onChange={(e) => setInputValue(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                handleSubmit();
-              }
-            }}
-            placeholder={floating ? "Ask a follow-up question...." : "What do you want to discover?"}
-            className="flex-1 font-ibm-plex-mono text-black text-lg focus:outline-none bg-transparent"
-            disabled={isProcessing}
-          />
-          <div className="flex items-center gap-2 ml-2">
-            {isProcessing ? (
-              <button
-                onClick={() => setIsProcessing(false)}
-                className="h-9 w-9 rounded-full bg-black text-white flex items-center justify-center hover:bg-gray-800 transition-colors cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            ) : (
-              <button
-                onClick={handleSubmit}
-                disabled={!inputValue.trim() && attachments.length === 0}
-                className="h-9 w-9 rounded-full bg-black text-white flex items-center justify-center hover:bg-gray-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-              >
-                <ArrowUp className="w-4 h-4" />
-              </button>
-            )}
-          </div>
-        </div>
+        {formContent}
       </div>
     </div>
   );
+
+  if (floating) {
+    return (
+      <div className="fixed bottom-6 left-1/2 -translate-x-1/2 w-full max-w-3xl z-[9999] px-4">
+        {formElement}
+      </div>
+    );
+  }
+
+  return formElement;
 });
 
 DiscoveryForm.displayName = 'DiscoveryForm';

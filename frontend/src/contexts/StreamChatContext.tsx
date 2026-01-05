@@ -13,17 +13,48 @@ interface ChatWindow {
   minimized: boolean;
 }
 
+interface MessageRequest {
+  channelId: string;
+  requester: {
+    id: string;
+    name: string;
+    avatar?: string;
+  } | null;
+  firstMessage: string | null;
+  createdAt: string;
+}
+
+interface CanMessageResponse {
+  canMessageDirectly: boolean;
+  connectionStatus: string | null;
+  isInitiator: boolean;
+  requiresRequest: boolean;
+}
+
+interface SendMessageRequestResponse {
+  channelId: string;
+  pending: boolean;
+  awaitingAdminApproval?: boolean;
+  alreadyConnected?: boolean;
+}
+
 interface StreamChatContextType {
   client: StreamChat | null;
   isReady: boolean;
   openChats: ChatWindow[];
   activeChatId: string | null;
+  messageRequests: MessageRequest[];
+  messageRequestsLoading: boolean;
   openChat: (userId: string, userName: string, userAvatar?: string) => void;
   closeChat: (userId: string) => void;
   toggleMinimize: (userId: string) => void;
   setActiveChat: (userId: string | null) => void;
   clearActiveChat: () => void;
   getOrCreateChannel: (userId: string, userName: string, userAvatar?: string) => Promise<Channel | null>;
+  checkCanMessage: (targetUserId: string) => Promise<CanMessageResponse>;
+  sendMessageRequest: (targetUserId: string, message: string, targetUserName: string, targetUserAvatar?: string) => Promise<SendMessageRequestResponse>;
+  respondToMessageRequest: (channelId: string, action: 'ACCEPT' | 'DECLINE' | 'SKIP') => Promise<void>;
+  refreshMessageRequests: () => Promise<void>;
 }
 
 const StreamChatContext = createContext<StreamChatContextType | undefined>(undefined);
@@ -38,6 +69,8 @@ export function StreamChatProvider({ children }: { children: ReactNode }) {
   const [isReady, setIsReady] = useState(false);
   const [openChats, setOpenChats] = useState<ChatWindow[]>([]);
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
+  const [messageRequests, setMessageRequests] = useState<MessageRequest[]>([]);
+  const [messageRequestsLoading, setMessageRequestsLoading] = useState(false);
 
   // Generate token via backend API
   const generateToken = useCallback(async (userId: string): Promise<string> => {
@@ -198,6 +231,60 @@ export function StreamChatProvider({ children }: { children: ReactNode }) {
     );
   }, []);
 
+  // Check if user can message another user directly
+  const checkCanMessage = useCallback(async (targetUserId: string): Promise<CanMessageResponse> => {
+    const response = await api.get<CanMessageResponse>(`/chat/can-message/${targetUserId}`);
+    return response;
+  }, [api]);
+
+  // Send a message request (Instagram-style)
+  const sendMessageRequest = useCallback(async (
+    targetUserId: string, 
+    message: string, 
+    targetUserName: string, 
+    targetUserAvatar?: string
+  ): Promise<SendMessageRequestResponse> => {
+    const response = await api.post<SendMessageRequestResponse>('/chat/request', {
+      targetUserId,
+      message,
+      targetUserName,
+      targetUserAvatar
+    });
+    return response;
+  }, [api]);
+
+  // Respond to a message request
+  const respondToMessageRequest = useCallback(async (
+    channelId: string, 
+    action: 'ACCEPT' | 'DECLINE' | 'SKIP'
+  ): Promise<void> => {
+    await api.post('/chat/request/respond', { channelId, action });
+    // Refresh message requests after responding
+    await refreshMessageRequests();
+  }, [api]);
+
+  // Fetch pending message requests
+  const refreshMessageRequests = useCallback(async (): Promise<void> => {
+    if (!isReady) return;
+    
+    setMessageRequestsLoading(true);
+    try {
+      const response = await api.get<{ requests: MessageRequest[] }>('/chat/requests');
+      setMessageRequests(response.requests);
+    } catch (error) {
+      console.error('Failed to fetch message requests:', error);
+    } finally {
+      setMessageRequestsLoading(false);
+    }
+  }, [api, isReady]);
+
+  // Fetch message requests when ready
+  useEffect(() => {
+    if (isReady) {
+      refreshMessageRequests();
+    }
+  }, [isReady, refreshMessageRequests]);
+
   return (
     <StreamChatContext.Provider
       value={{
@@ -205,12 +292,18 @@ export function StreamChatProvider({ children }: { children: ReactNode }) {
         isReady,
         openChats,
         activeChatId,
+        messageRequests,
+        messageRequestsLoading,
         openChat,
         closeChat,
         toggleMinimize,
         setActiveChat,
         clearActiveChat,
         getOrCreateChannel,
+        checkCanMessage,
+        sendMessageRequest,
+        respondToMessageRequest,
+        refreshMessageRequests,
       }}
     >
       {children}

@@ -2,7 +2,7 @@ import { Button } from "@/components/ui/button";
 import { usePathname, useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
-import { UserPlus, LogIn, Settings, Blocks, Library, User as UserIcon } from "lucide-react";
+import { UserPlus, LogIn, Settings, Blocks, Library, User as UserIcon, ChevronDown, Crown, Users } from "lucide-react";
 import { usePrivy } from '@privy-io/react-auth';
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { getAvatarUrl } from '@/lib/file-utils';
@@ -10,10 +10,13 @@ import { useIndexes } from '@/contexts/APIContext';
 import { useIndexesState } from '@/contexts/IndexesContext';
 import { useNotifications } from '@/contexts/NotificationContext';
 import { useAuthContext } from '@/contexts/AuthContext';
+import { useIndexFilter } from '@/contexts/IndexFilterContext';
+import { Index as IndexType } from '@/lib/types';
 import ProfileSettingsModal from '@/components/modals/ProfileSettingsModal';
 import PreferencesModal from '@/components/modals/PreferencesModal';
 import LibraryModal from '@/components/modals/LibraryModal';
 import CreateIndexModal from '@/components/modals/CreateIndexModal';
+import MemberSettingsModal from '@/components/modals/MemberSettingsModal';
 
 interface HeaderProps {
   showNavigation?: boolean;
@@ -34,10 +37,35 @@ export default function Header({ showNavigation = true, onToggleSidebar, isSideb
   const [libraryModalOpen, setLibraryModalOpen] = useState(false);
   const [createIndexModalOpen, setCreateIndexModalOpen] = useState(false);
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [indexDropdownOpen, setIndexDropdownOpen] = useState(false);
+  const [selectedIndexId, setSelectedIndexId] = useState<string>('all');
+  const [memberSettingsIndex, setMemberSettingsIndex] = useState<IndexType | null>(null);
   const indexesService = useIndexes();
-  const { addIndex } = useIndexesState();
+  const { indexes: rawIndexes, loading: indexesLoading, addIndex } = useIndexesState();
+  const { setSelectedIndexIds } = useIndexFilter();
   const { success, error } = useNotifications();
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const indexDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Check if we're in admin mode
+  const isAdminMode = pathname?.startsWith('/admin/');
+
+  // Get selected index name
+  const selectedIndexName = useMemo(() => {
+    if (selectedIndexId === 'all') return 'All Indexes';
+    const found = rawIndexes?.find(idx => idx.id === selectedIndexId);
+    return found?.title || 'All Indexes';
+  }, [selectedIndexId, rawIndexes]);
+
+  const handleIndexClick = (indexId: string) => {
+    setSelectedIndexId(indexId);
+    setIndexDropdownOpen(false);
+    if (indexId === 'all') {
+      setSelectedIndexIds([]);
+    } else {
+      setSelectedIndexIds([indexId]);
+    }
+  };
 
   // Memoize alpha parameter check to prevent unnecessary re-runs
   const alphaParam = searchParams.get('alpha');
@@ -94,15 +122,18 @@ export default function Header({ showNavigation = true, onToggleSidebar, isSideb
       if (dropdownOpen && dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
         setDropdownOpen(false);
       }
+      if (indexDropdownOpen && indexDropdownRef.current && !indexDropdownRef.current.contains(event.target as Node)) {
+        setIndexDropdownOpen(false);
+      }
     };
 
-    if (dropdownOpen) {
+    if (dropdownOpen || indexDropdownOpen) {
       document.addEventListener('mousedown', handleClickOutside);
       return () => {
         document.removeEventListener('mousedown', handleClickOutside);
       };
     }
-  }, [dropdownOpen]);
+  }, [dropdownOpen, indexDropdownOpen]);
 
   // Memoize the navigation logic to avoid recalculating on every render
   const navigationItems = useMemo(() => [
@@ -189,13 +220,94 @@ export default function Header({ showNavigation = true, onToggleSidebar, isSideb
               />
             </div>
           </Link>
+          
+          {/* Index Dropdown - only show when authenticated and not in admin mode */}
+          {authenticated && !isAdminMode && (
+            <div className="relative" ref={indexDropdownRef}>
+              <button
+                onClick={() => setIndexDropdownOpen(!indexDropdownOpen)}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-ibm-plex-mono text-black border border-black rounded-[2px] hover:bg-gray-50 transition-colors"
+              >
+                <span className="max-w-[140px] truncate">{selectedIndexName}</span>
+                <ChevronDown className={`w-4 h-4 transition-transform ${indexDropdownOpen ? 'rotate-180' : ''}`} />
+              </button>
+
+              {indexDropdownOpen && (
+                <div className="absolute left-0 mt-1 w-64 bg-white border border-black shadow-[0px_1px_0px_#000000] rounded-[2px] z-50 max-h-80 overflow-y-auto">
+                  {indexesLoading ? (
+                    <div className="px-3 py-4 text-center text-gray-500 text-sm">Loading...</div>
+                  ) : (
+                    <div className="py-1">
+                      {/* All Indexes option */}
+                      <button
+                        onClick={() => handleIndexClick('all')}
+                        className={`w-full px-3 py-2 text-left text-sm font-ibm-plex-mono text-black flex items-center justify-between hover:bg-gray-50 ${
+                          selectedIndexId === 'all' ? 'bg-gray-100 font-medium' : ''
+                        }`}
+                      >
+                        <span>All Indexes</span>
+                      </button>
+                      
+                      {/* Divider */}
+                      {rawIndexes && rawIndexes.length > 0 && (
+                        <div className="border-t border-gray-200 my-1" />
+                      )}
+                      
+                      {/* Index items */}
+                      {rawIndexes?.map((index) => (
+                        <div
+                          key={index.id}
+                          className={`group flex items-center justify-between px-3 py-2 hover:bg-gray-50 ${
+                            selectedIndexId === index.id ? 'bg-gray-100' : ''
+                          }`}
+                        >
+                          <button
+                            onClick={() => handleIndexClick(index.id)}
+                            className={`flex-1 text-left text-sm font-ibm-plex-mono text-black truncate ${
+                              selectedIndexId === index.id ? 'font-medium' : ''
+                            }`}
+                          >
+                            {index.title}
+                          </button>
+                          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setIndexDropdownOpen(false);
+                                router.push(`/admin/${index.id}`);
+                              }}
+                              className="p-1 rounded hover:bg-gray-200"
+                              title="Admin"
+                            >
+                              <Crown className="w-3.5 h-3.5 text-blue-600" />
+                            </button>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setIndexDropdownOpen(false);
+                                setMemberSettingsIndex(index);
+                              }}
+                              className="p-1 rounded hover:bg-gray-200"
+                              title="Member settings"
+                            >
+                              <Users className="w-3.5 h-3.5 text-gray-600" />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
         </div>
         {showHeaderButtons && (
           authenticated ? (
             <div className="flex items-center gap-2">
               <button
                 onClick={() => setLibraryModalOpen(true)}
-                className="flex items-center justify-center px-3 py-1 gap-2 bg-white border border-black shadow-[0px_1px_0px_#000000] rounded-[2px] hover:bg-gray-50 transition-colors h-[48px] w-[132px]"
+                className="flex items-center justify-center px-3 py-1 gap-2 bg-white border border-black rounded-xs hover:bg-gray-50 transition-colors h-[48px] w-[132px]"
               >
                 <Library className="h-6 w-6 text-black" strokeWidth={2} />
                 <span className="text-black font-medium font-ibm-plex-mono text-[16px] leading-[23px]">
@@ -205,7 +317,7 @@ export default function Header({ showNavigation = true, onToggleSidebar, isSideb
 
               <div className="relative" ref={dropdownRef}>
                 <div
-                  className="flex items-center justify-center px-3 py-2 gap-2 bg-white border border-black shadow-[0px_1px_0px_#000000] rounded-[2px] cursor-pointer hover:bg-gray-50 transition-colors h-[48px] w-[80px]"
+                  className="flex items-center justify-center px-3 py-2 gap-2 bg-white border border-black  rounded-xs cursor-pointer hover:bg-gray-50 transition-colors h-[48px] w-[80px]"
                   onClick={() => setDropdownOpen(!dropdownOpen)}
                 >
                   <div className="w-8 h-8 rounded-full overflow-hidden flex-shrink-0">
@@ -354,6 +466,15 @@ export default function Header({ showNavigation = true, onToggleSidebar, isSideb
         onOpenChange={setCreateIndexModalOpen}
         onSubmit={handleCreateIndex}
       />
+
+      {/* Member Settings Modal */}
+      {memberSettingsIndex && (
+        <MemberSettingsModal
+          open={!!memberSettingsIndex}
+          onOpenChange={(open) => !open && setMemberSettingsIndex(null)}
+          index={memberSettingsIndex}
+        />
+      )}
     </div>
   );
 } 
