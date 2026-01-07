@@ -1,10 +1,10 @@
 import cron from 'node-cron';
-import { addOpportunityJob } from '../queues/opportunity.queue';
+import { addJob } from '../queues/opportunity.queue';
 import { log } from '../lib/log';
 
 export async function runOpportunityFinderCycle() {
   log.info('🔄 [OpportunityJob] Triggering Opportunity Finder Queue...');
-  await addOpportunityJob({
+  await addJob('process_opportunities', {
     timestamp: Date.now(),
     force: false // Default
   });

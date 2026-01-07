@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { sendWeeklyNewsletter } from '../jobs/newsletter.job';
-import { addOpportunityJob } from '../queues/opportunity.queue';
+import { addJob } from '../queues/opportunity.queue';
 import { cache } from '../lib/redis';
 
 const router = Router();
@@ -35,7 +35,7 @@ router.post('/newsletter/trigger', async (req: Request, res: Response) => {
 router.post('/opportunity-finder/trigger', async (req: Request, res: Response) => {
     try {
         console.log('Manually triggering Opportunity Finder Cycle via Queue');
-        await addOpportunityJob({
+        await addJob('process_opportunities', {
             timestamp: Date.now(),
             force: true
         });

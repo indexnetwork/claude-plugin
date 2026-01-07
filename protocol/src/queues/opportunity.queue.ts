@@ -347,10 +347,24 @@ export async function runOpportunityFinderCycle(
 
 }
 
-export const opportunityWorker = QueueFactory.createWorker<OpportunityJobData>(QUEUE_NAME, opportunityProcessor);
 
-export async function addOpportunityJob(data: OpportunityJobData, priority: number = 0): Promise<Job<OpportunityJobData>> {
-  return opportunityQueue.add('process_opportunities', data, {
+export const opportunityWorker = QueueFactory.createWorker<OpportunityJobData>(QUEUE_NAME, opportunityProcessor);
+export const queueEvents = QueueFactory.createQueueEvents(QUEUE_NAME);
+
+/**
+ * Add a job to the Opportunity Queue.
+ *
+ * @param name - The name of the job ('process_opportunities').
+ * @param data - The payload for the job.
+ * @param priority - Optional priority level (higher number = higher priority).
+ * @returns The created Job instance.
+ */
+export async function addJob(
+  name: string,
+  data: OpportunityJobData,
+  priority: number = 0
+): Promise<Job<OpportunityJobData>> {
+  return opportunityQueue.add(name, data, {
     priority: priority > 0 ? priority : undefined,
   });
 }
