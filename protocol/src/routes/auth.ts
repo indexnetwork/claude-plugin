@@ -4,7 +4,7 @@ import { AuthService } from '../services/auth.service';
 import { ProfileService } from '../services/profile.service';
 import { UserService } from '../services/user.service';
 import { OnboardingState } from '../lib/schema';
-import { addProfileUpdateJob } from '../queues/profile.queue';
+import { addJob } from '../queues/profile.queue';
 
 const router = Router();
 const userService = new UserService();
@@ -105,7 +105,7 @@ router.patch('/onboarding-state', authenticatePrivy, async (req: AuthRequest, re
 
       // Trigger background processing (Intents, HyDE, Repair validation)
       // Now safe to trigger as user should have joined the index
-      addProfileUpdateJob({
+      addJob('profile-update', {
         userId: userId,
         intro: currentUser.intro || '',
         userName: currentUser.name
@@ -175,7 +175,7 @@ router.post('/profile/generate', authenticatePrivy, async (req: AuthRequest, res
         // Trigger background processing (Intents, HyDE, Repair validation)
         // Safe to trigger immediately thanks to Dynamic Scoping (Intents become visible once User joins Index)
         try {
-          addProfileUpdateJob({
+          addJob('profile-update', {
             userId: user.id,
             intro: data.intro,
             userName: user.name

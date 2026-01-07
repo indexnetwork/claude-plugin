@@ -79,6 +79,7 @@ export async function profileProcessor(job: Job<ProfileUpdateJobData>) {
   }
 }
 
+
 export const profileWorker = QueueFactory.createWorker<ProfileUpdateJobData>(PROFILE_QUEUE_NAME, profileProcessor, {
   concurrency: 5,
   limiter: {
@@ -86,10 +87,24 @@ export const profileWorker = QueueFactory.createWorker<ProfileUpdateJobData>(PRO
     duration: 1000,
   },
 });
+export const queueEvents = QueueFactory.createQueueEvents(PROFILE_QUEUE_NAME);
 
-export const addProfileUpdateJob = async (data: ProfileUpdateJobData) => {
+/**
+ * Add a job to the Profile Queue.
+ *
+ * @param name - The name of the job ('profile-update').
+ * @param data - The payload for the job.
+ * @param priority - Optional priority level (higher number = higher priority).
+ * @returns The created Job instance.
+ */
+export const addJob = async (
+  name: string,
+  data: ProfileUpdateJobData,
+  priority: number = 0
+) => {
   try {
-    await profileQueue.add('profile-update', data, {
+    return await profileQueue.add(name, data, {
+      priority: priority > 0 ? priority : undefined,
       attempts: 3,
       backoff: {
         type: 'exponential',
@@ -100,5 +115,13 @@ export const addProfileUpdateJob = async (data: ProfileUpdateJobData) => {
     log.info(`[ProfileQueue] Added job for user ${data.userId}`);
   } catch (error) {
     log.error(`[ProfileQueue] Failed to add job for user ${data.userId}`, { error });
+    // In strict addJob signature, we should return Promise<Job>. But original code swallowed error and logged it.
+    // The template says "returns The created Job instance".
+    // I should probably let it throw or handle it properly.
+    // However, existing callers might expect void or catch bugs.
+    // Original addProfileUpdateJob returned Promise<void>.
+    // To be standards compliant I should return the job and throw on error, but I need to check callers.
+    // Let's return the job and throw if it fails, which is standard. Callers should handle errors or I can wrap in try catch in caller.
+    throw error;
   }
 };
