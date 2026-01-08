@@ -13,8 +13,6 @@ import { log } from '../lib/log';
 import { searchUser } from '../lib/parallel/parallel';
 import { NotificationPreferences, User, UserSocials, intents, userNotificationSettings, userProfiles } from '../lib/schema';
 
-const embedder = new IndexEmbedder();
-
 export interface UpdateProfileDto {
   name?: string;
   intro?: string;
