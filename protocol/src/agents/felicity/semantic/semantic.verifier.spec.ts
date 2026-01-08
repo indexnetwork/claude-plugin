@@ -6,7 +6,7 @@ import path from 'path';
 import { SemanticVerifierAgent } from './semantic.verifier';
 
 // Load env
-const envPath = path.resolve(__dirname, '../../../../../.env.development');
+const envPath = path.resolve(__dirname, '../../../../.env.development');
 dotenv.config({ path: envPath });
 
 describe('Semantic Verifier Agent (Phase 2)', () => {

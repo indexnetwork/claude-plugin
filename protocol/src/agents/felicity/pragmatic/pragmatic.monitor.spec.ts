@@ -6,70 +6,68 @@ import path from 'path';
 import { PragmaticMonitorAgent } from './pragmatic.monitor';
 
 // Load env
-const envPath = path.resolve(__dirname, '../../../../../.env.development');
+const envPath = path.resolve(__dirname, '../../../../.env.development');
 dotenv.config({ path: envPath });
 
-describe('Pragmatic Monitor Agent (Phase 3)', () => {
+describe('Pragmatic Monitor (Discourse Analysis)', () => {
   let agent: PragmaticMonitorAgent;
 
   beforeAll(() => {
-    if (!process.env.OPENAI_API_KEY) {
-      throw new Error("⚠️  No OPENAI_API_KEY found. Live LLM tests might fail.");
-    }
     agent = new PragmaticMonitorAgent();
   });
 
-  // TEST 1: Execution Success (Austin's Completeness Condition met)
-  test('Status: FULFILLED - Action found in logs', async () => {
-    const intent = "I will fund the treasury with 500 USDC.";
-    const logs = JSON.stringify([
-      { timestamp: "10:00", action: "user_login" },
-      { timestamp: "10:05", action: "wallet_connect" },
-      { timestamp: "10:06", action: "transaction_success", details: "Transfer 500 USDC to Treasury" }
-    ]);
+  // TEST 1: Explicit Completion
+  test('Detects FULFILLED status from chat', async () => {
+    const intent = "I will write the introduction for the blog post.";
+    const discourse = `
+      [User]: Hey, just checking in.
+      [User]: I finished the intro section this morning, it's on the drive.
+      [User]: Now I'm starting on the conclusion.
+    `;
 
-    const res = await agent.run(intent, logs);
+    const res = await agent.run(intent, discourse);
 
     expect(res).toBeDefined();
     if (res) {
       expect(res.status).toBe("FULFILLED");
-      expect(res.execution_score).toBeGreaterThan(90);
-      expect(res.evidence_summary).toContain("transaction_success");
+      expect(res.evidence_quote).toContain("finished the intro");
+      expect(res.confidence_score).toBeGreaterThan(90);
     }
   });
 
-  // TEST 2: Execution Failure (Timeout/Inaction)
-  test('Status: BREACHED - Timeout / No Action', async () => {
-    const intent = "I will upload the design files immediately.";
-    const logs = JSON.stringify([
-      { timestamp: "10:00", action: "msg_sent", text: "I will upload..." },
-      { timestamp: "12:00", action: "system_check", status: "idle" },
-      { timestamp: "24:00", action: "system_check", status: "idle" }
-    ]);
+  // TEST 2: Change of Mind (Contradiction)
+  test('Detects CONTRADICTED status from new goals', async () => {
+    const intent = "I am building a mobile app with React Native.";
+    const discourse = `
+      [User]: I've been thinking about the tech stack.
+      [User]: Honestly, React Native is too sluggish for this.
+      [User]: I decided to switch to Flutter entirely.
+    `;
 
-    const res = await agent.run(intent, logs);
+    const res = await agent.run(intent, discourse);
 
     expect(res).toBeDefined();
     if (res) {
-      expect(res.status).toBe("BREACHED"); // or PENDING depending on strictness, but 14h gap implies breach of "immediately"
-      expect(res.flags).toBeDefined();
+      expect(res.status).toBe("CONTRADICTED"); // or BREACHED
+      expect(res.evidence_quote).toContain("switch to Flutter");
+      expect(res.reasoning).toContain("contradicts");
     }
   });
 
   // TEST 3: Ambiguity (Pending)
-  test('Status: PENDING - User is active but action is partial', async () => {
-    const intent = "I will fix the bug.";
-    const logs = JSON.stringify([
-      { timestamp: "10:00", action: "github_pr_open", details: "WIP: Fix bug" }
-    ]);
+  test('Status PENDING when topic is unrelated', async () => {
+    const intent = "I will fix the login bug.";
+    const discourse = `
+      [User]: Did you see the game last night?
+      [User]: Also, we need to order lunch.
+    `;
 
-    // PR is open but not merged/completed.
-    const res = await agent.run(intent, logs);
+    const res = await agent.run(intent, discourse);
 
     expect(res).toBeDefined();
     if (res) {
       expect(res.status).toBe("PENDING");
-      expect(res.evidence_summary).toContain("WIP");
+      expect(res.confidence_score).toBeLessThan(50); // Low confidence because no signal exists
     }
   });
 });
