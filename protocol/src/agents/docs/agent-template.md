@@ -135,6 +135,7 @@ export class MyAgent extends BaseLangChainAgent {
 Create an integration test script to verify the agent's behavior with real LLM calls.
 
 ```typescript
+import { describe, test, expect, beforeAll } from 'bun:test';
 import * as dotenv from 'dotenv';
 import path from 'path';
 import { MyAgent } from './[agent-name]';
@@ -143,35 +144,34 @@ import { MyAgent } from './[agent-name]';
 const envPath = path.resolve(__dirname, '../../../../.env.development');
 dotenv.config({ path: envPath });
 
-async function runTests() {
-  console.log("🧪 Starting MyAgent Tests...");
+describe('MyAgent Tests', () => {
+  let agent: MyAgent;
 
-  if (!process.env.OPENAI_API_KEY) {
-    console.warn("⚠️  No OPENAI_API_KEY found. Live LLM tests might fail.");
-  }
-
-  const agent = new MyAgent();
-
-  // Test 1: Happy Path
-  console.log("\n1️⃣  Test: Happy Path");
-  try {
-    const content = "Test content that should pass validation.";
-    const context = "User context data.";
-    
-    const res = await agent.run(content, context);
-    console.log("Result:", JSON.stringify(res, null, 2));
-
-    if (res && res.score > 5) {
-      console.log("✅ Passed (Expected high score)");
-    } else {
-      console.log("❌ Failed (Expected high score)");
+  beforeAll(() => {
+    if (!process.env.OPENAI_API_KEY) {
+      console.warn("⚠️  No OPENAI_API_KEY found. Live LLM tests might fail.");
     }
-  } catch (err) {
-    console.error("❌ Error:", err);
-  }
-}
+    agent = new MyAgent();
+  });
 
-runTests().catch(console.error);
+  test('Happy Path', async () => {
+    try {
+      const content = "Test content that should pass validation.";
+      const context = "User context data.";
+      
+      const res = await agent.run(content, context);
+      console.log("Result:", JSON.stringify(res, null, 2));
+
+      expect(res).toBeDefined();
+      if (res) {
+        expect(res.score).toBeGreaterThan(5);
+      }
+    } catch (err) {
+      console.error("❌ Error:", err);
+      throw err;
+    }
+  });
+});
 ```
 
 ## Best Practices
