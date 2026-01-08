@@ -1,8 +1,10 @@
+import { describe, test, expect, beforeAll } from 'bun:test';
 import * as dotenv from 'dotenv';
 import path from 'path';
 import { HydeGeneratorAgent } from './hyde.generator';
 import { UserMemoryProfile } from '../../intent/manager/intent.manager.types';
 import { IndexEmbedder } from '../../../lib/embedder';
+
 // Load env
 const envPath = path.resolve(__dirname, '../../../../.env.development');
 dotenv.config({ path: envPath });
@@ -38,43 +40,32 @@ const mockProfile: UserMemoryProfile = {
       "data privacy"
     ]
   }
-}
+} as any;
 
-async function runTests() {
-  console.log("🧪 Starting Hyde Generator Tests...\n");
+describe('Hyde Generator Tests', () => {
+  let agent: HydeGeneratorAgent;
 
-  const agent = new HydeGeneratorAgent(new IndexEmbedder());
+  beforeAll(() => {
+    agent = new HydeGeneratorAgent(new IndexEmbedder());
+  });
 
-  console.log("1️⃣  Test: Generate HyDE Description");
-  try {
+  test('Generate HyDE Description', async () => {
     const profileContext = `
-    Bio: ${mockProfile.identity.bio}
-    Location: ${mockProfile.identity.location}
-    Interests: ${mockProfile.attributes.interests.join(', ')}
-    Skills: ${mockProfile.attributes.skills.join(', ')}
-    Aspirations: ${mockProfile.narrative?.aspirations || ''}
-    `;
+        Bio: ${mockProfile.identity.bio}
+        Location: ${mockProfile.identity.location}
+        Interests: ${mockProfile.attributes.interests.join(', ')}
+        Skills: ${mockProfile.attributes.skills.join(', ')}
+        Aspirations: ${mockProfile.narrative?.aspirations || ''}
+        `;
 
-    const result = await agent.generate(profileContext);
-    const description = result.description;
-    console.log("Generated Description:\n", description);
+    try {
+      const result = await agent.generate(profileContext);
+      const description = result.description;
 
-    if (description && description.length > 50) {
-      console.log("✅ Passed (Description generated and has sufficient length)");
-    } else {
-      console.error("❌ Failed (Description empty or too short)");
-      process.exit(1);
+      expect(description).toBeDefined();
+      expect(description.length).toBeGreaterThan(50);
+    } catch (error) {
+      throw error;
     }
-  } catch (error) {
-    console.error("❌ Failed with error:", error);
-    process.exit(1);
-  }
-}
-
-// Check if running directly
-if (require.main === module) {
-  runTests().catch(console.error);
-}
-
-// Export for test runners if needed
-export { runTests };
+  }, 60000); // Increased timeout to 60s
+});

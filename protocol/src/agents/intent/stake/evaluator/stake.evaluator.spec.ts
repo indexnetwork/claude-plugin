@@ -1,22 +1,14 @@
+import { describe, test, expect, beforeAll } from 'bun:test';
 import * as dotenv from 'dotenv';
 import path from 'path';
 import { StakeEvaluator } from './stake.evaluator';
+
 // Load env
 const envPath = path.resolve(__dirname, '../../../../../.env.development');
-console.log(`Loading env from: ${envPath}`);
 dotenv.config({ path: envPath });
 
-async function runTests() {
-  console.log("🧪 Starting StakeMatcher Tests...");
-
-  if (!process.env.OPENROUTER_API_KEY) {
-    console.warn("⚠️  No API Key found. Live LLM tests might fail.");
-  }
-
-  // Override preset with a standard model for testing
-  const matcher = new StakeEvaluator({ model: 'openai/gpt-4o-mini' });
-
-  // Mock Data
+describe('StakeMatcher Tests', () => {
+  let matcher: StakeEvaluator;
   const primaryIntent = {
     id: "primary-123",
     payload: "I want to learn Rust programming"
@@ -28,30 +20,22 @@ async function runTests() {
     { id: "c3", payload: "I like baking bread" } // Irrelevant
   ];
 
-  try {
-    console.log(`Test Intent: "${primaryIntent.payload}"`);
-    console.log(`Candidates: ${candidates.length}`);
-
-    // Run Matcher (Pure)
-    console.log("\n1️⃣  Test: Run Matcher");
-    const result = await matcher.run(primaryIntent, candidates);
-
-    console.log("\nMatches Found:", result.matches.length);
-    result.matches.forEach((m) => {
-      console.log(`   - [Score: ${m.confidence}] Matches ${m.candidateIntentId}`);
-      console.log(`     Reasoning: ${m.reason}`);
-    });
-
-    if (result.matches.length > 0) {
-      console.log("✅ Passed (Found matches)");
-    } else {
-      // Depending on LLM this might vary, but Rust + Teaching Rust should match
-      console.warn("⚠️ Warning (No matches found - check LLM logic)");
+  beforeAll(() => {
+    if (!process.env.OPENROUTER_API_KEY) {
+      throw new Error("⚠️  No API Key found. Live LLM tests might fail.");
     }
+    // Override preset with a standard model for testing
+    matcher = new StakeEvaluator({ model: 'openai/gpt-4o-mini' });
+  });
 
-  } catch (error) {
-    console.error("❌ Test Failed:", error);
-  }
-}
-
-runTests().catch(console.error);
+  test('Run Matcher', async () => {
+    // Run Matcher (Pure)
+    const result = await matcher.run(primaryIntent, candidates);
+    result.matches.forEach((m) => {
+    });
+    expect(Array.isArray(result.matches)).toBe(true);
+    // We generally expect matches here, but since it's an LLM test, strict assertion might be flaky without mocks. 
+    // The original test just warned. I'll add a loose expectation that it returns a valid structure.
+    expect(result).toHaveProperty('matches');
+  });
+});

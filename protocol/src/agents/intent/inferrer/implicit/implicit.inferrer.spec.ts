@@ -1,3 +1,4 @@
+import { describe, test, expect, beforeAll } from 'bun:test';
 import * as dotenv from 'dotenv';
 import path from 'path';
 import { ImplicitInferrer } from './implicit.inferrer';
@@ -23,17 +24,16 @@ const mockProfile: UserMemoryProfile = {
     values: ["open source"],
     personality: ["curious"]
   }
-} as any; // Cast as any if other optional fields are annoying, but filling these helps.
+} as any;
 
-async function runTest() {
-  console.log("🧪 Starting ImplicitInferrer Name Exclusion Test...");
+describe('ImplicitInferrer Tests', () => {
+  test('Name Exclusion Test', async () => {
 
-  const inferrer = new ImplicitInferrer();
+    const inferrer = new ImplicitInferrer();
 
-  // Input context intentionally contains a specific name
-  const context = "Opportunity: Collaborate with Alice Wonderland to build a Rust-based DeFi platform. Reason: Strong skill match.";
+    // Input context intentionally contains a specific name
+    const context = "Opportunity: Collaborate with Alice Wonderland to build a Rust-based DeFi platform. Reason: Strong skill match.";
 
-  try {
     const profileContext = `
       Bio: ${mockProfile.identity.bio}
       Location: ${mockProfile.identity.location}
@@ -44,25 +44,11 @@ async function runTest() {
 
     const result = await inferrer.run(profileContext, context);
 
-    if (!result) {
-      console.error("❌ Test Failed: No result returned.");
-      return;
-    }
+    expect(result).not.toBeNull();
 
-    console.log(`\nInput Context: "${context}"`);
-    console.log(`Output Intent: "${result.payload}"`);
 
     const bannedName = "Alice";
-    if (result.payload.includes(bannedName) || result.payload.includes("Wonderland")) {
-      console.error(`❌ Test Failed: Intent contains specific name "${bannedName}".`);
-      process.exit(1);
-    } else {
-      console.log("✅ Passed: Intent does not contain the specific name.");
-    }
-
-  } catch (error) {
-    console.error("❌ Test Error:", error);
-  }
-}
-
-runTest();
+    const hasBannedName = result!.payload.includes(bannedName) || result!.payload.includes("Wonderland");
+    expect(hasBannedName).toBe(false);
+  });
+});

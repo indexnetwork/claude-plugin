@@ -1,3 +1,4 @@
+import { describe, test, expect, beforeAll } from 'bun:test';
 import * as dotenv from 'dotenv';
 import path from 'path';
 import { IntentEvaluator } from './intent.evaluator';
@@ -6,90 +7,59 @@ import { IntentEvaluator } from './intent.evaluator';
 const envPath = path.resolve(__dirname, '../../../../.env.development');
 dotenv.config({ path: envPath });
 
-async function runTests() {
-  console.log("🧪 Starting IntentEvaluator Tests...");
+describe('IntentEvaluator Tests', () => {
+  let evaluator: IntentEvaluator;
 
-  if (!process.env.OPENROUTER_API_KEY) {
-    console.warn("⚠️  No OPENROUTER_API_KEY found. Live LLM tests might fail.");
-  }
+  beforeAll(() => {
+    if (!process.env.OPENROUTER_API_KEY) {
+      throw new Error("⚠️  No OPENROUTER_API_KEY found. Live LLM tests might fail.");
+    }
+    evaluator = new IntentEvaluator();
+  });
 
-  const evaluator = new IntentEvaluator();
-
-  // Test 1: Highly Appropriate Fit
-  console.log("\n1️⃣  Test: Highly Appropriate Fit");
-  try {
+  test('Highly Appropriate Fit', async () => {
     const intent = "I want to learn how to build autonomous agents";
     const indexPrompt = "A community for builders and researchers working on autonomous AI agents.";
     const memberPrompt = "Interested in AI, agents, and LLMs.";
 
     const res = await evaluator.evaluate(intent, indexPrompt, memberPrompt, "test");
-    console.log("Result:", JSON.stringify(res, null, 2));
 
-    if (res && res.indexScore > 0.8 && res.memberScore > 0.8) {
-      console.log("✅ Passed (High scores as expected)");
-    } else {
-      console.log("❌ Failed (Expected high scores)");
-    }
-  } catch (err) {
-    console.error("❌ Error:", err);
-  }
+    expect(res).not.toBeNull();
+    expect(res!.indexScore).toBeGreaterThan(0.8);
+    expect(res!.memberScore).toBeGreaterThan(0.8);
+  });
 
-  // Test 2: Poor Index Fit
-  console.log("\n2️⃣  Test: Poor Index Fit");
-  try {
+  test('Poor Index Fit', async () => {
     const intent = "Selling my old car";
     const indexPrompt = "A community for builders and researchers working on autonomous AI agents.";
     const memberPrompt = "Interested in AI, agents, and LLMs.";
 
     const res = await evaluator.evaluate(intent, indexPrompt, memberPrompt, "test");
-    console.log("Result:", JSON.stringify(res, null, 2));
 
-    if (res && res.indexScore < 0.3) {
-      console.log("✅ Passed (Low index score as expected)");
-    } else {
-      console.log("❌ Failed (Expected low index score)");
-    }
-  } catch (err) {
-    console.error("❌ Error:", err);
-  }
+    expect(res).not.toBeNull();
+    expect(res!.indexScore).toBeLessThan(0.3);
+  });
 
-  // Test 3: Good Index Fit, Poor Member Fit
-  console.log("\n3️⃣  Test: Good Index Fit, Poor Member Fit");
-  try {
+  test('Good Index Fit, Poor Member Fit', async () => {
     const intent = "Looking for co-founders for a crypto trading bot";
     const indexPrompt = "A place to find co-founders for tech startups.";
     const memberPrompt = "I am strictly interested in biotech and health tech. No crypto.";
 
     const res = await evaluator.evaluate(intent, indexPrompt, memberPrompt, "test");
-    console.log("Result:", JSON.stringify(res, null, 2));
 
-    if (res && res.indexScore >= 0.7 && res.memberScore < 0.3) {
-      console.log("✅ Passed (High index score, low member score)");
-    } else {
-      console.log("❌ Failed (Expected high index score, low member score)");
-    }
-  } catch (err) {
-    console.error("❌ Error:", err);
-  }
+    expect(res).not.toBeNull();
+    expect(res!.indexScore).toBeGreaterThanOrEqual(0.7);
+    expect(res!.memberScore).toBeLessThan(0.3);
+  });
 
-  // Test 4: Missing Member Prompt
-  console.log("\n4️⃣  Test: Missing Member Prompt");
-  try {
+  test('Missing Member Prompt', async () => {
     const intent = "Just hanging out";
     const indexPrompt = "General chat.";
 
     // @ts-ignore
     const res = await evaluator.evaluate(intent, indexPrompt, null, "test");
-    console.log("Result:", JSON.stringify(res, null, 2));
 
-    if (res && res.memberScore === 0) {
-      console.log("✅ Passed (Member score 0 as expected)");
-    } else {
-      console.log("❌ Failed (Expected member score 0)");
-    }
-  } catch (err) {
-    console.error("❌ Error:", err);
-  }
-}
-
-runTests().catch(console.error);
+    expect(res).not.toBeNull();
+    expect(res!.memberScore).toBe(0);
+  });
+});

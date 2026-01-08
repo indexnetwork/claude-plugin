@@ -1,4 +1,5 @@
 
+import { describe, test, expect, beforeAll } from 'bun:test';
 import { OpportunityEvaluator } from './opportunity.evaluator';
 import { memorySearcher } from '../../lib/embedder/searchers/memory.searcher';
 import { Embedder, VectorSearchResult, VectorStoreOption } from '../common/types';
@@ -45,8 +46,6 @@ const candidateB: CandidateProfile & { embedding: number[] } = {
   embedding: [1, 0, 0] // Identical to query [1,0,0] -> Similarity 1
 };
 
-
-
 async function setupEvaluator() {
   const embedder = new MockMemoryEmbedder();
   const evaluator = new OpportunityEvaluator(embedder);
@@ -75,132 +74,102 @@ const sourceProfileContext = json2md.keyValue({
   context: sourceProfile.narrative?.context || ''
 });
 
-async function testBasicFlow() {
-  log.info("--- Test: Basic Flow & Filtering (MinScore 0.5) ---");
-  const evaluator = await setupEvaluator();
+describe('Opportunity Evaluator Tests', () => {
+  test('Basic Flow & Filtering (MinScore 0.5)', async () => {
+    log.info("--- Test: Basic Flow & Filtering (MinScore 0.5) ---");
+    const evaluator = await setupEvaluator();
 
-  const opportunities = await evaluator.runDiscovery(sourceProfileContext, {
-    candidates: [candidateA, candidateB],
-    hydeDescription: "Looking for a co-founder",
-    limit: 5,
-    minScore: 0.5
+    const opportunities = await evaluator.runDiscovery(sourceProfileContext, {
+      candidates: [candidateA, candidateB],
+      hydeDescription: "Looking for a co-founder",
+      limit: 5,
+      minScore: 0.5
+    });
+
+    expect(opportunities.length).toBe(1);
+    expect(opportunities[0].candidateId).toBe('user-b');
   });
 
-  if (opportunities.length !== 1) throw new Error(`Expected 1 opportunity, found ${opportunities.length}`);
-  if (opportunities[0].candidateId !== 'user-b') throw new Error(`Expected Charlie (user-b), found ${opportunities[0].candidateId}`);
-  log.info("PASSED\n");
-}
+  test('Empty Candidates List', async () => {
+    log.info("--- Test: Empty Candidates List ---");
+    const evaluator = await setupEvaluator();
 
-async function testEmptyCandidates() {
-  log.info("--- Test: Empty Candidates List ---");
-  const evaluator = await setupEvaluator();
+    const opportunities = await evaluator.runDiscovery(sourceProfileContext, {
+      candidates: [],
+      hydeDescription: "Looking for anyone",
+      limit: 5
+    });
 
-  const opportunities = await evaluator.runDiscovery(sourceProfileContext, {
-    candidates: [],
-    hydeDescription: "Looking for anyone",
-    limit: 5
+    expect(opportunities.length).toBe(0);
   });
 
-  if (opportunities.length !== 0) throw new Error(`Expected 0 opportunities, found ${opportunities.length}`);
-  log.info("PASSED\n");
-}
+  test('High Threshold (MinScore 1.5 - Impossible)', async () => {
+    log.info("--- Test: High Threshold (MinScore 1.5 - Impossible) ---");
+    const evaluator = await setupEvaluator();
 
-async function testHighThreshold() {
-  log.info("--- Test: High Threshold (MinScore 1.5 - Impossible) ---");
-  const evaluator = await setupEvaluator();
+    // candidateB has score 1.0 (vector match). If we ask for 1.1, should find nothing.
+    // Note: memorySearcher handles minScore filtering.
+    const opportunities = await evaluator.runDiscovery(sourceProfileContext, {
+      candidates: [candidateB],
+      hydeDescription: "Looking for perfection",
+      limit: 5,
+      minScore: 1.1
+    });
 
-  // candidateB has score 1.0 (vector match). If we ask for 1.1, should find nothing.
-  // Note: memorySearcher handles minScore filtering.
-  const opportunities = await evaluator.runDiscovery(sourceProfileContext, {
-    candidates: [candidateB],
-    hydeDescription: "Looking for perfection",
-    limit: 5,
-    minScore: 1.1
+    expect(opportunities.length).toBe(0);
   });
 
-  if (opportunities.length !== 0) throw new Error(`Expected 0 opportunities, found ${opportunities.length}`);
-  log.info("PASSED\n");
-}
+  test('Candidate Missing UserId (Graceful Fail)', async () => {
+    log.info("--- Test: Candidate Missing UserId (Graceful Fail) ---");
+    const evaluator = await setupEvaluator();
 
-async function testMissingUserId() {
-  log.info("--- Test: Candidate Missing UserId (Graceful Fail) ---");
-  const evaluator = await setupEvaluator();
+    const candidateNoId = { ...candidateB, userId: undefined } as any;
 
-  const candidateNoId = { ...candidateB, userId: undefined } as any;
+    const opportunities = await evaluator.runDiscovery(sourceProfileContext, {
+      candidates: [candidateNoId],
+      hydeDescription: "Searching...",
+      limit: 5
+    });
 
-  // Should filter this out potentially or handle it? 
-  // Evaluator logs warning. The mock currently returns map based on userId. 
-  // If userId is missing, candidateId will be undefined.
-
-  const opportunities = await evaluator.runDiscovery(sourceProfileContext, {
-    candidates: [candidateNoId],
-    hydeDescription: "Searching...",
-    limit: 5
-  });
-
-  // Depending on behavior, it returns an op with undefined candidateId
-  if (opportunities.length > 0) {
-    if (opportunities[0].candidateId !== undefined) {
-      throw new Error("Expected undefined candidateId for candidate without userId");
+    // Depending on behavior, it returns an op with undefined candidateId
+    if (opportunities.length > 0) {
+      expect(opportunities[0].candidateId).toBeUndefined();
     }
-  }
-  log.info("PASSED\n");
-}
-
-
-
-async function testDeduplicationPromptLogic() {
-  log.info("--- Test: Deduplication Prompt Logic ---");
-  const evaluator = await setupEvaluator();
-
-  const spyModel = {
-    invoke: async (messages: any) => {
-      // Messages struct: [SystemMessage, HumanMessage]
-      const humanMessage = messages.find((m: any) => m.content && m.content.includes("CANDIDATE PROFILE"));
-      if (!humanMessage) throw new Error("Could not find HumanMessage with Candidate Profile");
-
-      if (!humanMessage.content.includes("EXISTING OPPORTUNITIES (Deduplication Context):")) {
-        // Log content for debug
-        console.log("Human Message Content:", humanMessage.content);
-        throw new Error("Prompt missing Deduplication Context header");
-      }
-      if (!humanMessage.content.includes("Already matched with Bob")) {
-        throw new Error("Prompt missing existing opportunities content");
-      }
-      // Return dummy response structure
-      return {
-        opportunities: []
-      };
-    }
-  };
-
-  // Inject spy model (Cast to any to bypass private/protected check for testing)
-  (evaluator as any).model = spyModel;
-
-  const existing = "Already matched with Bob (Score: 95): Great match";
-
-  await evaluator.evaluateOpportunities(sourceProfileContext, [candidateA], {
-    minScore: 0.5,
-    hydeDescription: "test",
-    existingOpportunities: existing
   });
 
-  log.info("PASSED\n");
-}
+  test('Deduplication Prompt Logic', async () => {
+    log.info("--- Test: Deduplication Prompt Logic ---");
+    const evaluator = await setupEvaluator();
 
-async function runAllTests() {
-  log.info("=== Starting Opportunity Evaluator Test Suite ===\n");
-  try {
-    await testBasicFlow();
-    await testEmptyCandidates();
-    await testHighThreshold();
-    await testMissingUserId();
-    await testDeduplicationPromptLogic();
-    log.info("=== All Tests Passed ===");
-  } catch (e) {
-    log.error("Test Failed:", { error: e });
-    process.exit(1);
-  }
-}
+    const spyModel = {
+      invoke: async (messages: any) => {
+        // Messages struct: [SystemMessage, HumanMessage]
+        const humanMessage = messages.find((m: any) => m.content && m.content.includes("CANDIDATE PROFILE"));
+        if (!humanMessage) throw new Error("Could not find HumanMessage with Candidate Profile");
 
-runAllTests().catch(console.error);
+        if (!humanMessage.content.includes("EXISTING OPPORTUNITIES (Deduplication Context):")) {
+          throw new Error("Prompt missing Deduplication Context header");
+        }
+        if (!humanMessage.content.includes("Already matched with Bob")) {
+          throw new Error("Prompt missing existing opportunities content");
+        }
+        // Return dummy response structure
+        return {
+          opportunities: []
+        };
+      }
+    };
+
+    // Inject spy model (Cast to any to bypass private/protected check for testing)
+    (evaluator as any).model = spyModel;
+
+    const existing = "Already matched with Bob (Score: 95): Great match";
+
+    // This should trigger the spy assertion
+    await evaluator.evaluateOpportunities(sourceProfileContext, [candidateA], {
+      minScore: 0.5,
+      hydeDescription: "test",
+      existingOpportunities: existing
+    });
+  });
+});

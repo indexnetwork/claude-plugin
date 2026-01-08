@@ -1,3 +1,4 @@
+import { describe, test, expect, beforeAll } from 'bun:test';
 import * as dotenv from 'dotenv';
 import path from 'path';
 import { ExplicitIntentInferrer } from './explicit.inferrer';
@@ -6,71 +7,61 @@ import { UserMemoryProfile } from '../../manager/intent.manager.types';
 
 // Load env
 const envPath = path.resolve(__dirname, '../../../../../.env.development');
-console.log(`Loading env from: ${envPath}`);
 dotenv.config({ path: envPath });
 
-async function runTests() {
-    console.log("🧪 Starting ExplicitIntentInferrer Tests...");
+describe('ExplicitIntentInferrer Tests', () => {
+  let detector: ExplicitIntentInferrer;
+  let profileContext: string;
 
-    // Check for API keys (generic check, could be OpenAI, Anthropic, etc used by base agent)
+  beforeAll(() => {
+    // Check for API keys
     if (!process.env.OPENROUTER_API_KEY) {
-        console.warn("⚠️  No API Key found (OPENROUTER_API_KEY). Live LLM tests might fail if not mocked.");
+      throw new Error("⚠️  No API Key found (OPENROUTER_API_KEY). Live LLM tests might fail if not mocked.");
     }
 
-    const detector = new ExplicitIntentInferrer();
+    detector = new ExplicitIntentInferrer();
 
     // Mock Data
     const profile: UserMemoryProfile = {
-        userId: "test-user",
-        identity: { name: "Test User", bio: "Dev", location: "Earth" },
-        attributes: { interests: ["Coding"], skills: [], goals: [] },
-        narrative: { context: "Context", aspirations: "Aspirations" }
+      userId: "test-user",
+      identity: { name: "Test User", bio: "Dev", location: "Earth" },
+      attributes: { interests: ["Coding"], skills: [], goals: [] },
+      narrative: { context: "Context", aspirations: "Aspirations" }
     };
 
-    // Test 1: Inference
-    console.log("\n1️⃣  Test: Goal Inference");
-    console.log("Input: 'I want to learn Rust'");
     // Note: Inferrer doesn't know about active intents anymore
-    const profileContext = `
-    Bio: ${profile.identity.bio}
-    Location: ${profile.identity.location}
-    Interests: ${profile.attributes.interests.join(', ')}
-    Skills: ${profile.attributes.skills.join(', ')}
-    Aspirations: ${profile.narrative?.aspirations || ''}
+    profileContext = `
+      Bio: ${profile.identity.bio}
+      Location: ${profile.identity.location}
+      Interests: ${profile.attributes.interests.join(', ')}
+      Skills: ${profile.attributes.skills.join(', ')}
+      Aspirations: ${profile.narrative?.aspirations || ''}
     `;
+  });
 
+  test('Goal Inference', async () => {
     const res1 = await detector.run("I want to learn Rust", profileContext);
-    console.log("Result:", JSON.stringify(res1, null, 2));
 
-    if (res1.intents.some((i: InferredIntent) => i.type === 'goal' && i.description.toLowerCase().includes('rust'))) {
-        console.log("✅ Passed (Goal inferred)");
-    } else {
-        console.log("❌ Failed (Expected goal inference)");
-    }
+    const hasGoal = res1.intents.some((i: InferredIntent) => i.type === 'goal' && i.description.toLowerCase().includes('rust'));
+    expect(hasGoal).toBe(true);
+  });
 
-    // Test 2: Tombstone Inference
-    console.log("\n2️⃣  Test: Tombstone Inference");
-    console.log("Input: 'I finished learning Rust'");
+  test('Tombstone Inference', async () => {
     const res2 = await detector.run("I finished learning Rust", profileContext);
-    console.log("Result:", JSON.stringify(res2, null, 2));
 
-    if (res2.intents.some((i: InferredIntent) => i.type === 'tombstone')) {
-        console.log("✅ Passed (Tombstone inferred)");
-    } else {
-        console.log("❌ Failed (Expected tombstone inference)");
-    }
+    const hasTombstone = res2.intents.some((i: InferredIntent) => i.type === 'tombstone');
+    expect(hasTombstone).toBe(true);
+  });
 
-    // Test 3: No Content (Bootstrap from Profile)
-    console.log("\n3️⃣  Test: Bootstrap from Profile");
+  test('Bootstrap from Profile', async () => {
     const res3 = await detector.run(null, profileContext);
-    console.log("Result:", JSON.stringify(res3, null, 2));
 
     // Should infer something from "Aspirations: Aspirations" or "Interests: Coding"
-    if (res3.intents.length > 0) {
-        console.log("✅ Passed (Inferred from profile)");
-    } else {
-        console.log("⚠️ Warning (Nothing inferred from mock profile - might depend on LLM, check logs)");
+    if (res3.intents.length === 0) {
     }
-}
-
-runTests().catch(console.error);
+    // logical check: if it returns something, good. If not, it's a warning but let's assert length >= 0 which is trivial, 
+    // or check if it SHOULD infer something. The original test had a warning. 
+    // Let's expect it to be an array at least.
+    expect(Array.isArray(res3.intents)).toBe(true);
+  });
+});
