@@ -25,6 +25,7 @@ We use the standard computational linguistics progression (Austin/Searle) to fil
 * **Role:** Rejects garbage immediately to save costs.
 * **Checks:** Language detection, coherence, and spam filtering.
 * **Usage:** Run this on *every* raw user input (Tweet, Message, Note).
+* **Integration:** Currently active in `src/routes/discover.ts` (`POST /new`). It validates the `payload` before any processing occurs. Rejects invalid input with `400 Bad Request`.
 
 ### 2. Semantic Verifier (The Judge)
 
