@@ -13,6 +13,7 @@ import { crawlLinksForIndex } from '../lib/crawl/web_crawler';
 import { analyzeObjects } from '../agents/core/intent_inferrer';
 import { CreatedIntent, intentService } from '../services/intent.service';
 import { createUploadClient } from '../lib/uploads';
+import { SyntacticValidatorAgent } from '../agents/felicity/syntactic/syntactic.validator';
 
 const router = Router();
 
@@ -77,6 +78,27 @@ router.post('/new',
       }
 
       // Files are already validated by multer fileFilter and limits
+
+      // 0. Syntactic Validation (Gatekeeper) on Payload
+      if (payload) {
+        try {
+          const validator = new SyntacticValidatorAgent();
+          const validationResult = await validator.run(payload);
+
+          if (validationResult && validationResult.status === 'FAIL') {
+            console.warn(`[Discover] 🚫 Payload rejected by SyntacticValidator:`, {
+              reason: validationResult.rejection_reason,
+              payload: payload.substring(0, 50) + '...'
+            });
+            return res.status(400).json({
+              error: 'Input rejected by safety validation',
+              reason: validationResult.rejection_reason
+            });
+          }
+        } catch (validationError) {
+          console.error(`[Discover] SyntacticValidator crashed, failing open:`, validationError);
+        }
+      }
 
       const savedFileIds: string[] = [];
       const savedLinkIds: string[] = [];
