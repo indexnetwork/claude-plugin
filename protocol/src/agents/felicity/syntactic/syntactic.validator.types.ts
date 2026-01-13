@@ -20,5 +20,5 @@ export interface SyntacticValidatorOutput {
    * If status is FAIL, this field explains why.
    * e.g., "Detected non-English input", "High perplexity/Gibberish".
    */
-  rejection_reason?: string;
+  rejection_reason: string | null;
 }

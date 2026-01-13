@@ -39,7 +39,7 @@ const SyntacticValidatorOutputSchema = z.object({
   status: z.enum(["PASS", "FAIL"]).describe("Validation result"),
   language: z.string().length(2).describe("ISO 639-1 Language Code (e.g., 'en')"),
   is_intelligible: z.boolean().describe("Is the text coherent English?"),
-  rejection_reason: z.string().optional().describe("Reason for failure, if any"),
+  rejection_reason: z.string().nullable().describe("Reason for failure, if any"),
 });
 
 export class SyntacticValidatorAgent extends BaseLangChainAgent {
@@ -57,7 +57,7 @@ export class SyntacticValidatorAgent extends BaseLangChainAgent {
    * * @param content - The raw user text (intent).
    * @param context - (Optional) Unused in this phase, kept for interface consistency.
    */
-  async run(content: string, context: string = ""): Promise<SyntacticValidatorOutput | null> {
+  async run(content: string): Promise<SyntacticValidatorOutput | null> {
     log.info(`[InputValidator] Validating input length: ${content.length}`);
 
     // Pre-flight optimization: Auto-fail empty or extremely short strings
@@ -84,6 +84,7 @@ export class SyntacticValidatorAgent extends BaseLangChainAgent {
       log.info(`[InputValidator] Validation complete. Status: ${output.status}`);
       return output;
     } catch (error) {
+      console.error(error)
       log.error("[InputValidator] Error during execution", { error });
       return null;
     }
