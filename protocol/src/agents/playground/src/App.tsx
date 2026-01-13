@@ -23,6 +23,9 @@ import { ParallelFetcherInput } from './components/ParallelFetcherInput';
 import { ProfileGeneratorInput } from './components/ProfileGeneratorInput';
 import { HydeGeneratorInput } from './components/HydeGeneratorInput';
 import { GeneralInput } from './components/GeneralInput';
+import { SyntacticValidatorInput } from './components/SyntacticValidatorInput';
+import { SemanticVerifierInput } from './components/SemanticVerifierInput';
+import { PragmaticMonitorInput } from './components/PragmaticMonitorInput';
 
 function App() {
   const [agents, setAgents] = useState<Agent[]>([]);
@@ -97,7 +100,7 @@ function App() {
   const selectedAgent = agents.find(a => a.id === selectedAgentId);
 
   // Categorize Agents: External > Profile > Opportunity > Others
-  const categoryOrder = ['external', 'profile', 'opportunity', 'intent', 'intent_stakes'];
+  const categoryOrder = ['external', 'profile', 'opportunity', 'intent', 'intent_stakes', 'felicity'];
   const categorizedAgents = categoryOrder.map(cat => ({
     id: cat,
     name: cat === 'external' ? 'External Tools'
@@ -128,7 +131,12 @@ function App() {
       'stake-evaluator',
       'parallel-fetcher',
       'profile-generator',
-      'hyde-generator'
+      'parallel-fetcher',
+      'profile-generator',
+      'hyde-generator',
+      'syntactic-validator',
+      'semantic-verifier',
+      'pragmatic-monitor'
     ];
 
     const hasSchema = (agent?.fields && agent.fields.length > 0) || specializedStructuredAgents.includes(id);
@@ -365,6 +373,25 @@ function App() {
 
     // Track Source
     setSourceProfileCtxId(user.id);
+
+    {/* Intent -> Context Logic */ }
+    if (selectedAgent?.id === 'semantic-verifier') {
+      const currentObj = JSON.parse(inputVal || '{}');
+      const updates: any = {};
+
+      if (user.userProfile) {
+        updates.context = user.userProfile;
+        addLog(`Injected Context for ${user.name}`);
+      } else {
+        addLog(`User ${user.name} has no Profile.`);
+      }
+
+      if (Object.keys(updates).length > 0) {
+        const newObj = { ...currentObj, ...updates };
+        setInputVal(JSON.stringify(newObj, null, 2));
+      }
+      return;
+    }
 
     // 1. Parallel Fetcher: Injects Parallel Params
     if (selectedAgent?.id === 'parallel-fetcher') {
@@ -1265,10 +1292,49 @@ function App() {
             />
           )
         }
+        {
+          selectedAgentId === 'hyde-generator' && (
+            <HydeGeneratorInput
+              inputVal={inputVal}
+              setInputVal={setInputVal}
+              inputMode={inputMode}
+            />
+          )
+        }
+
+        {
+          selectedAgentId === 'syntactic-validator' && (
+            <SyntacticValidatorInput
+              inputVal={inputVal}
+              setInputVal={setInputVal}
+              inputMode={inputMode}
+            />
+          )
+        }
+
+        {
+          selectedAgentId === 'semantic-verifier' && (
+            <SemanticVerifierInput
+              inputVal={inputVal}
+              setInputVal={setInputVal}
+              inputMode={inputMode}
+            />
+          )
+        }
+
+        {
+          selectedAgentId === 'pragmatic-monitor' && (
+            <PragmaticMonitorInput
+              inputVal={inputVal}
+              setInputVal={setInputVal}
+              inputMode={inputMode}
+            />
+          )
+        }
 
         {/* Fallback to Generic Structured or Raw */}
         {
-          !['opportunity-evaluator', 'intent-manager', 'explicit-intent-detector', 'implicit-inferrer', 'intro-generator', 'synthesis-generator', 'stake-evaluator', 'parallel-fetcher', 'profile-generator', 'hyde-generator'].includes(selectedAgentId || '') && (
+          !['opportunity-evaluator', 'intent-manager', 'explicit-intent-detector', 'implicit-inferrer', 'intro-generator', 'synthesis-generator', 'stake-evaluator', 'parallel-fetcher', 'profile-generator', 'hyde-generator', 'syntactic-validator', 'semantic-verifier', 'pragmatic-monitor'].includes(selectedAgentId || '') && (
             inputMode === 'structured' && selectedAgent?.fields
               ? renderStructuredForm(selectedAgent.fields)
               : <textarea
