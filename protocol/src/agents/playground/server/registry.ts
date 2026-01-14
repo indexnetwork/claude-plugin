@@ -304,8 +304,7 @@ const REGISTRY: AgentRegistryItem[] = [
         bio: input.sourceProfile.identity.bio,
         location: input.sourceProfile.identity.location,
         interests: input.sourceProfile.attributes.interests,
-        skills: input.sourceProfile.attributes.skills,
-        aspirations: input.sourceProfile.narrative?.aspirations || ''
+        skills: input.sourceProfile.attributes.skills
       });
 
       const opportunities = await agent.evaluateOpportunities(sourceProfileContext, foundCandidates, input.options);
@@ -370,7 +369,7 @@ const REGISTRY: AgentRegistryItem[] = [
     inputType: 'any', // Takes UserMemoryProfile
     defaultInput: {
       identity: { name: "Yanki", bio: "AI Researcher", location: "SF" },
-      narrative: { context: "Building AI agents", aspirations: "Scale autonomous systems" },
+      narrative: { context: "Building AI agents" },
       attributes: { interests: ["Agents", "Protocols"], skills: ["AI", "TypeScript"], goals: [] }
     },
     // No fields - UI handled directly in App.tsx
@@ -488,7 +487,7 @@ export async function runAgent(agentId: string, input: any, options?: RunAgentOp
           const parts = [
             finalInput.identity?.bio,
             finalInput.identity?.location,
-            finalInput.narrative?.aspirations,
+
             finalInput.narrative?.context,
             ...(finalInput.attributes?.interests || []),
             ...(finalInput.attributes?.skills || [])

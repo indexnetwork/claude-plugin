@@ -115,7 +115,7 @@ async function generateIntents(data: GenerateIntentsJobData): Promise<void> {
   // Build Profile Context for Agent
   const profileContext = `
     Bio: ${userProfile.identity?.bio || 'None'}
-    Narrative: ${userProfile.narrative?.aspirations || 'None'}
+    Narrative: ${userProfile.narrative?.context || 'None'}
     Interests: ${(userProfile.attributes?.interests || []).join(', ')}
     Skills: ${(userProfile.attributes?.skills || []).join(', ')}
   `;

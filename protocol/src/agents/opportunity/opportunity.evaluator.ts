@@ -202,7 +202,7 @@ export class OpportunityEvaluator extends BaseLangChainAgent {
         Bio: ${sourceProfile.identity.bio}
         Interests: ${sourceProfile.attributes?.interests?.join(', ')}
         Skills: ${sourceProfile.attributes?.skills?.join(', ')}
-        Aspirations: ${sourceProfile.narrative?.aspirations}
+
         `;
   }
 
@@ -240,7 +240,7 @@ export class OpportunityEvaluator extends BaseLangChainAgent {
             Location: ${candidateProfile.identity?.location || ''}
             Interests: ${candidateProfile.attributes?.interests?.join(', ') || ''}
             Skills: ${candidateProfile.attributes?.skills?.join(', ') || ''}
-            Aspirations: ${candidateProfile.narrative?.aspirations || ''}
+
             Context: ${candidateProfile.narrative?.context || ''}
             `;
 

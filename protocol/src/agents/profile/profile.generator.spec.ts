@@ -51,7 +51,7 @@ describe('ProfileGenerator Tests', () => {
       const hasBio = !!result.profile.identity.bio;
       const hasLocation = !!result.profile.identity.location;
       const hasInterests = result.profile.attributes.interests.length > 0;
-      const hasNarrative = !!result.profile.narrative.context && !!result.profile.narrative.aspirations;
+      const hasNarrative = !!result.profile.narrative.context;
       const hasEmbedding = !!result.embedding && result.embedding.length > 0;
 
       expect(hasBio).toBe(true);

@@ -7,7 +7,6 @@ export interface UserMemoryProfile {
   };
   narrative?: {
     context: string;
-    aspirations: string;
   };
   attributes: {
     interests: string[];

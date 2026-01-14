@@ -100,7 +100,7 @@ export const userProfiles = pgTable('user_profiles', {
   id: uuid('id').primaryKey().defaultRandom(),
   userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }).unique(),
   identity: json('identity').$type<{ name: string; bio: string; location: string }>(),
-  narrative: json('narrative').$type<{ context: string; aspirations: string }>(),
+  narrative: json('narrative').$type<{ context: string }>(),
   attributes: json('attributes').$type<{ interests: string[]; skills: string[] }>(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),

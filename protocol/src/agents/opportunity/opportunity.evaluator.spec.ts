@@ -61,8 +61,7 @@ const candidates: (CandidateProfile & { embedding: number[] })[] = [
       location: "New York, United States"
     },
     narrative: {
-      context: "Seren Sandikci is currently based in New York, where they co-founded Index Network. Having previously held a senior UX designer role at QNB Finansbank and gaining experience in various design and development capacities, Seren is well-equipped to navigate the intersection of technology and user experience. At Index Network, they focus on developing custom search engines that prioritize user privacy and provide more tailored content discovery. This role allows them to apply their technological insight into a burgeoning venture that responds to the challenges posed by traditional web discovery tools.",
-      aspirations: "Seren's ambition lies in transforming how individuals connect with information online. They aspire to innovate user interaction within digital platforms, using AI to create solutions that respect user privacy while providing meaningful, personalized experiences. Seren seeks to establish partnerships with other creative minds and stakeholders in the tech industry to expand their reach, develop new features, and enhance user engagement in their projects. Additionally, they aim to mentor upcoming designers, fostering a culture of learning and innovation within the tech space."
+      context: "Seren Sandikci is currently based in New York, where they co-founded Index Network. Having previously held a senior UX designer role at QNB Finansbank and gaining experience in various design and development capacities, Seren is well-equipped to navigate the intersection of technology and user experience. At Index Network, they focus on developing custom search engines that prioritize user privacy and provide more tailored content discovery. This role allows them to apply their technological insight into a burgeoning venture that responds to the challenges posed by traditional web discovery tools."
     },
     attributes: {
       interests: [
@@ -92,8 +91,7 @@ const candidates: (CandidateProfile & { embedding: number[] })[] = [
       location: "Unknown City, Unknown Country"
     },
     narrative: {
-      context: "Brad's journey began with a solid foundation in computer science and economics, where he developed a keen interest in how technology shapes the understanding of information. His career trajectory as a venture capitalist has been guided by a commitment to supporting startups that further the cause of meaningful knowledge discovery. He has become known for his thought-provoking questions during pitches, always seeking to understand the deeper implications of new technologies. Currently, he is actively involved in identifying and investing in projects that prioritize relevance and transparency in information dissemination, a mission that reflects his broader vision of empowering individuals in their quest for knowledge.",
-      aspirations: "Looking ahead, Brad aims to build a diverse portfolio of innovative companies that not only disrupt industry norms but also fundamentally change the way we interact with information. He seeks to connect with like-minded visionaries and thought leaders who share his belief in the transformative power of technology. His ultimate goal is to foster advancements that enhance learning and make knowledge more accessible and trustworthy, enabling individuals to discover insights that were previously out of reach."
+      context: "Brad's journey began with a solid foundation in computer science and economics, where he developed a keen interest in how technology shapes the understanding of information. His career trajectory as a venture capitalist has been guided by a commitment to supporting startups that further the cause of meaningful knowledge discovery. He has become known for his thought-provoking questions during pitches, always seeking to understand the deeper implications of new technologies. Currently, he is actively involved in identifying and investing in projects that prioritize relevance and transparency in information dissemination, a mission that reflects his broader vision of empowering individuals in their quest for knowledge."
     },
     attributes: {
       interests: [
@@ -121,8 +119,7 @@ const candidates: (CandidateProfile & { embedding: number[] })[] = [
       location: "Istanbul, Turkey"
     },
     narrative: {
-      context: "Yankı Ekin Yüksel is a bright and ambitious individual navigating his academic journey at Boğaziçi University, where he is immersed in the fields of technology and digital media. He has a passion for exploring the intersection of software development and media consumption, which is evident in his work as a CTO at Aposto!, a dynamic new media company based in Istanbul. Balancing his studies along with the responsibilities of leading tech initiatives, Yankı often finds himself under pressure to excel both academically and professionally. His commitments to projects on GitHub and contributions to open-source initiatives have cultivated a robust online presence, reflecting his dedication to learning and collaboration. Although he's currently grounded in the vibrant city life of Istanbul, he is motivated by the latest technological advancements and how they can shape the future of media and communication.",
-      "aspirations": "Yankı aims to establish himself as a prominent figure in the tech and media landscape. He dreams of developing innovative software solutions that educate and inspire others, particularly in the realm of digital storytelling and content creation. In the longer term, he envisions leading initiatives that bridge technology and society, creating a more informed public space where content can flourish responsibly. He seeks to connect with industry leaders and visionaries, hoping to collaborate on projects that push the boundaries of current digital media practices."
+      context: "Yankı Ekin Yüksel is a bright and ambitious individual navigating his academic journey at Boğaziçi University, where he is immersed in the fields of technology and digital media. He has a passion for exploring the intersection of software development and media consumption, which is evident in his work as a CTO at Aposto!, a dynamic new media company based in Istanbul. Balancing his studies along with the responsibilities of leading tech initiatives, Yankı often finds himself under pressure to excel both academically and professionally. His commitments to projects on GitHub and contributions to open-source initiatives have cultivated a robust online presence, reflecting his dedication to learning and collaboration. Although he's currently grounded in the vibrant city life of Istanbul, he is motivated by the latest technological advancements and how they can shape the future of media and communication."
     },
     attributes: {
       interests: [
@@ -171,7 +168,7 @@ const sourceProfileContext = json2md.keyValue({
   location: sourceProfile.identity.location,
   interests: sourceProfile.attributes.interests,
   skills: sourceProfile.attributes.skills,
-  aspirations: sourceProfile.narrative?.aspirations || '',
+
   context: sourceProfile.narrative?.context || ''
 });
 

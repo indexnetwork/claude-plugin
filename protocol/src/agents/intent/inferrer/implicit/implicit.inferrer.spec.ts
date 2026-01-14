@@ -16,7 +16,7 @@ const mockProfile: UserMemoryProfile = {
     location: "San Francisco"
   },
   narrative: {
-    aspirations: "Want to learn Rust and build a DAO."
+    context: "Want to learn Rust and build a DAO."
   },
   attributes: {
     interests: ["coding"],
@@ -39,7 +39,6 @@ describe('ImplicitInferrer Tests', () => {
       Location: ${mockProfile.identity.location}
       Interests: ${mockProfile.attributes.interests.join(', ')}
       Skills: ${mockProfile.attributes.skills.join(', ')}
-      Aspirations: ${mockProfile.narrative?.aspirations || ''}
     `;
 
     const result = await inferrer.run(profileContext, context);

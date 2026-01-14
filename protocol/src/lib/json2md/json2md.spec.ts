@@ -95,8 +95,7 @@ const fullProfile = {
         goals: [] // Empty array
     },
     narrative: {
-        context: "Long context string...",
-        aspirations: "Big dreams"
+        context: "Long context string..."
     }
 };
 

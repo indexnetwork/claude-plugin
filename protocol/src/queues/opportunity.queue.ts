@@ -42,7 +42,7 @@ function constructProfileText(profile: typeof userProfiles.$inferSelect): string
   const parts = [
     profile.identity?.bio,
     profile.identity?.location,
-    profile.narrative?.aspirations,
+
     profile.narrative?.context,
     ...(profile.attributes?.interests || []),
     ...(profile.attributes?.skills || [])
@@ -158,7 +158,6 @@ export async function runOpportunityFinderCycle(
             location: memoryProfile.identity.location,
             interests: memoryProfile.attributes.interests,
             skills: memoryProfile.attributes.skills,
-            aspirations: memoryProfile.narrative?.aspirations || '',
             context: memoryProfile.narrative?.context || ''
           });
 
@@ -195,7 +194,6 @@ export async function runOpportunityFinderCycle(
         location: memoryProfile.identity.location,
         interests: memoryProfile.attributes.interests,
         skills: memoryProfile.attributes.skills,
-        aspirations: memoryProfile.narrative?.aspirations || '',
         context: memoryProfile.narrative?.context || ''
       });
 
@@ -258,7 +256,6 @@ export async function runOpportunityFinderCycle(
               location: memoryProfile.identity.location,
               interests: memoryProfile.attributes.interests,
               skills: memoryProfile.attributes.skills,
-              aspirations: memoryProfile.narrative?.aspirations || '',
               context: memoryProfile.narrative?.context || ''
             });
 
@@ -296,7 +293,6 @@ export async function runOpportunityFinderCycle(
               location: candidateMemoryProfile.identity.location,
               interests: candidateMemoryProfile.attributes.interests,
               skills: candidateMemoryProfile.attributes.skills,
-              aspirations: candidateMemoryProfile.narrative?.aspirations || '',
               context: candidateMemoryProfile.narrative?.context || ''
             });
 

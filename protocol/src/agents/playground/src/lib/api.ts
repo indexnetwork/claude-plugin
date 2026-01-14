@@ -23,7 +23,6 @@ export interface Profile {
     biography?: string;
     context?: string;
     goals?: string[];
-    aspirations?: string;
   };
   attributes?: {
     skills?: string[];

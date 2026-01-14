@@ -6,8 +6,6 @@ export interface UserProfileIdentity {
 
 export interface UserProfileNarrative {
     context: string;
-    // TODO: (@yanekyuk) Remove aspirations
-    aspirations: string;
 }
 
 export interface UserProfileAttributes {

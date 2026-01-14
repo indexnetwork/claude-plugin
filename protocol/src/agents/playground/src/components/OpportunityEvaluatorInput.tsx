@@ -88,7 +88,6 @@ export const OpportunityEvaluatorInput: React.FC<OpportunityEvaluatorInputProps>
       const p = sourceProfile;
       const parts = [
         p.identity?.bio,
-        p.narrative?.aspirations,
         p.narrative?.context,
         ...(p.attributes?.interests || []),
         ...(p.attributes?.skills || [])

@@ -13,8 +13,7 @@ export const SYSTEM_PROMPT = `
     2. Synthesize a coherent 'bio'.
     3. Infer their current 'location' (City, Country formatted).
     4. Write a rich 'narrative.context' describing their current situation, constraints, and background in detail.
-    5. Write a rich 'narrative.aspirations' describing what they effectively want to achieve or find.
-    6. Extract specific 'skills' and 'interests'.
+    5. Extract specific 'skills' and 'interests'.
 `;
 
 // Zod Schemas for local validation/structured output definition
@@ -26,7 +25,6 @@ export const UserProfileSchema = z.object({
     }),
     narrative: z.object({
         context: z.string().describe("A rich, detailed narrative about the user's current situation, background, and what they are currently working on. Use raw, natural language."),
-        aspirations: z.string().describe("A rich, detailed narrative about what the user wants to achieve, who they want to meet, and their future goals. Use raw, natural language."),
     }),
     attributes: z.object({
         interests: z.array(z.string()).describe("Inferred or explicit interests"),
@@ -91,7 +89,6 @@ export class ProfileGenerator extends BaseLangChainAgent {
                 p.identity.bio,
                 p.identity.location,
                 p.narrative.context,
-                p.narrative.aspirations,
                 ...p.attributes.interests,
                 ...p.attributes.skills
             ];

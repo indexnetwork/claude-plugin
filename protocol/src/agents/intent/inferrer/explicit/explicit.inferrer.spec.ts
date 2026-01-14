@@ -26,7 +26,7 @@ describe('ExplicitIntentInferrer Tests', () => {
       userId: "test-user",
       identity: { name: "Test User", bio: "Dev", location: "Earth" },
       attributes: { interests: ["Coding"], skills: [], goals: [] },
-      narrative: { context: "Context", aspirations: "Aspirations" }
+      narrative: { context: "Context" }
     };
 
     // Note: Inferrer doesn't know about active intents anymore
@@ -35,7 +35,7 @@ describe('ExplicitIntentInferrer Tests', () => {
       Location: ${profile.identity.location}
       Interests: ${profile.attributes.interests.join(', ')}
       Skills: ${profile.attributes.skills.join(', ')}
-      Aspirations: ${profile.narrative?.aspirations || ''}
+
     `;
   });
 
