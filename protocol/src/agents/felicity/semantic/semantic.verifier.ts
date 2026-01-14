@@ -40,7 +40,7 @@ OUTPUT RULES:
 - Return a strict JSON object.
 - If 'Authority' or 'Sincerity' is < 50, add a specific FLAG (e.g., "SKILL_MISMATCH", "WEAK_COMMITMENT").
 - 'Classification' must be one of Searle's 5 categories:
-  1. COMMUNISSIVE: Speaker commits to a future action (e.g., "I will learn Rust", "I promise to fix this"). -> VALID GOAL
+  1. COMMISSIVE: Speaker commits to a future action (e.g., "I will learn Rust", "I promise to fix this"). -> VALID GOAL
   2. DIRECTIVE: Speaker gets listener to do something (e.g., "Find me a co-founder", "Help me build this"). -> VALID GOAL
   3. DECLARATION: Speaker changes reality via words (e.g., "I quit", "Project is cancelled"). -> TOMBSTONE
   4. ASSERTIVE: Speaker states a fact/belief (e.g., "Rust is fast", "The sky is blue"). -> INVALID (Noise)
