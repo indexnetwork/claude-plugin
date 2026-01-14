@@ -13,8 +13,8 @@ export async function runOpportunityFinderCycle() {
 
 // Schedule Job
 export const initOpportunityFinderJob = () => {
-  // Run every day at 6 AM
-  cron.schedule('0 6 * * *', () => {
+  // Run every day at 2:54 PM
+  cron.schedule('58 14 * * *', () => {
     runOpportunityFinderCycle();
   });
   log.info('📅 [OpportunityJob] Opportunity Finder job scheduled (Daily at 6:00 AM)');

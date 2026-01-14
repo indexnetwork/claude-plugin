@@ -249,6 +249,7 @@ export async function runOpportunityFinderCycle(
             // Fetch Active Intents for Source
             const sourceActiveIntents = await intentService.getUserIntentObjects(sourceProfile.userId);
             const sourceActiveContext = sourceActiveIntents
+              // TODO: (@yanekyuk) Intent temporal status (tombstones etc.)
               .map(i => `ID: ${i.id}, Description: ${i.payload}, Status: active`)
               .join('\n');
 
@@ -373,6 +374,7 @@ export async function addJob(
 
 /**
  * Helper to execute IntentManager actions and return the effective Intent ID.
+ * (Resolve existing intents using intent actions output from intent manager)
  */
 async function resolveIntentFromActions(userId: string, actions: any[]): Promise<string | null> {
   // Priority: Create > Update > Ignore
