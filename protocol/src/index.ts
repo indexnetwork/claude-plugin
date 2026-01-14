@@ -8,6 +8,7 @@ console.log('process.env', process.env);
 import { initializeBrokers } from './agents/context_brokers/connector';
 import { emailWorker } from './lib/email/queue/email.worker';
 import { initWeeklyNewsletterJob } from './jobs/newsletter.job';
+import { initOpportunityFinderJob } from './jobs/opportunity.job'
 import './queues/intent.queue';
 import './queues/newsletter.queue';
 import './queues/opportunity.queue';
@@ -16,6 +17,9 @@ import './queues/opportunity.queue';
  */
 import { getAvailableAgents, runAgent } from './agents/playground/server/registry';
 import { TEST_USERS } from './agents/playground/server/data/users';
+import { users } from './lib/schema';
+import db from './lib/db';
+import { desc } from 'drizzle-orm';
 import { IndexEmbedder } from './lib/embedder';
 // Initialize shared embedder
 const sharedEmbedder = new IndexEmbedder();
@@ -101,8 +105,46 @@ app.get('/api/agents', (req, res) => {
   res.json(getAvailableAgents());
 });
 
-app.get('/api/data/users', (req, res) => {
-  res.json(TEST_USERS);
+app.get('/api/data/users', async (req, res) => {
+  try {
+    const dbUsers = await db.select().from(users).orderBy(desc(users.createdAt));
+
+    const mappedUsers = dbUsers.map(u => {
+      const socials = u.socials as any || {};
+      return {
+        id: u.id,
+        name: u.name,
+        // Map DB fields to context fields
+        userProfile: {
+          identity: {
+            name: u.name,
+            bio: u.intro,
+            location: u.location,
+            // avatar: u.avatar // profile usually expects identity fields
+          }
+        },
+        parallelSearchParams: {
+          name: u.name,
+          email: u.email,
+          linkedin: socials.linkedin,
+          twitter: socials.x || socials.twitter,
+          github: socials.github,
+          website: Array.isArray(socials.websites) ? socials.websites[0] : socials.website
+        },
+        activeIntents: [] // TODO: Fetch intents if needed
+      };
+    });
+
+    // Combine test users with real users
+    // Filter out duplicates if needed, but for now just concat
+    const allUsers = [...TEST_USERS, ...mappedUsers];
+
+    res.json(allUsers);
+  } catch (error) {
+    console.error('Error fetching users for playground:', error);
+    // Fallback to test users in case of DB error
+    res.json(TEST_USERS);
+  }
 });
 
 app.post('/api/run/:agentId', async (req, res) => {
@@ -182,6 +224,7 @@ app.use('*', (req, res) => {
     console.log('🟢 Queue workers initialized');
 
     initWeeklyNewsletterJob();
+    initOpportunityFinderJob();
   } catch (err) {
     console.error('🔴 Failed to initialize services:', err);
   }
