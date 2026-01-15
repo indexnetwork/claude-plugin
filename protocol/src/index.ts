@@ -12,6 +12,7 @@ import { initOpportunityFinderJob } from './jobs/opportunity.job'
 import './queues/intent.queue';
 import './queues/newsletter.queue';
 import './queues/opportunity.queue';
+import './queues/profile.queue';
 /**
  * PLAYGROUND
  */
