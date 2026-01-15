@@ -80,9 +80,6 @@ router.post('/new',
       }
 
       // Files are already validated by multer fileFilter and limits
-
-      // Note: Syntactic validation now happens in IntentEvaluator (unified flow)
-
       const savedFileIds: string[] = [];
       const savedLinkIds: string[] = [];
       let combinedContent = '';

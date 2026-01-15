@@ -15,7 +15,7 @@ interface EligibleIndex {
 }
 
 /**
- * @deprecated Use IntentService.processIntentForIndex and IntentEvaluator instead.
+ * @deprecated Use IntentService.processIntentForIndex and IntentIndexer instead.
  */
 export class IntentIndexer {
 

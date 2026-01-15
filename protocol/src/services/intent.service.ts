@@ -6,7 +6,7 @@ import { VectorStoreOption, VectorSearchResult } from '../agents/common/types';
 import { sql, eq, and, isNull, isNotNull, inArray, desc, count } from 'drizzle-orm';
 import { IntentEvents } from '../events/intent.event';
 import { INTENT_INFERRER_AGENT_ID } from '../lib/agent-ids';
-import { IntentEvaluator } from '../agents/intent/evaluator/intent.evaluator';
+import { IntentIndexer } from '../agents/intent/indexer/intent.indexer';
 import { log } from '../lib/log';
 import { getDisplayName } from '../lib/integrations/config';
 
@@ -748,12 +748,12 @@ export class IntentService {
       const isCurrentlyAssigned = existingAssignment.length > 0;
 
       // Evaluate appropriateness
-      const evaluator = new IntentEvaluator();
+      const indexer = new IntentIndexer();
 
       // Simple source name resolution
       const sourceName = intent.sourceType ? `${intent.sourceType}:${intent.sourceId || ''}` : undefined;
 
-      const result = await evaluator.evaluate(
+      const result = await indexer.evaluate(
         intent.payload,
         targetIndex.indexPrompt || null,
         targetIndex.memberPrompt || null,

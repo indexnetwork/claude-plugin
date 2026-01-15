@@ -2,7 +2,7 @@ import { BaseLangChainAgent } from "../../../lib/langchain/langchain";
 import { z } from "zod";
 import { SystemMessage, HumanMessage } from "@langchain/core/messages";
 import { log } from "../../../lib/log";
-import { IntentEvaluatorOutput } from "./intent.evaluator.types";
+import { IntentIndexerOutput } from "./intent.indexer.types";
 
 const SYSTEM_PROMPT = `
 You are an expert Intent Evaluator for a social networking protocol.
@@ -32,17 +32,17 @@ OUTPUT RULES:
 /**
  * Zod schema for the Intent Evaluator output.
  */
-const IntentEvaluatorOutputSchema = z.object({
+const IntentIndexerOutputSchema = z.object({
   indexScore: z.number().min(0).max(1).describe("Score for index appropriateness (0.0-1.0)"),
   memberScore: z.number().min(0).max(1).describe("Score for member preference match (0.0-1.0)"),
   reasoning: z.string().describe("Brief reasoning for the scores"),
 });
 
-export class IntentEvaluator extends BaseLangChainAgent {
+export class IntentIndexer extends BaseLangChainAgent {
   constructor() {
     super({
       model: 'openai/gpt-4o',
-      responseFormat: IntentEvaluatorOutputSchema,
+      responseFormat: IntentIndexerOutputSchema,
       temperature: 0.1, // Deterministic evaluation
     });
   }
@@ -60,8 +60,8 @@ export class IntentEvaluator extends BaseLangChainAgent {
     indexPrompt: string | null,
     memberPrompt: string | null,
     sourceName?: string | null
-  ): Promise<IntentEvaluatorOutput | null> {
-    log.info(`[IntentEvaluator] Evaluating intent...`);
+  ): Promise<IntentIndexerOutput | null> {
+    log.info(`[IntentIndexer] Evaluating intent...`);
 
     const contextParts = [];
     if (sourceName) contextParts.push(`Source: ${sourceName}`);
@@ -88,12 +88,12 @@ export class IntentEvaluator extends BaseLangChainAgent {
 
     try {
       const result = await this.model.invoke({ messages });
-      const output = result.structuredResponse as IntentEvaluatorOutput;
+      const output = result.structuredResponse as IntentIndexerOutput;
 
-      log.info(`[IntentEvaluator] Evaluation complete. IndexScore: ${output.indexScore}, MemberScore: ${output.memberScore}`);
+      log.info(`[IntentIndexer] Evaluation complete. IndexScore: ${output.indexScore}, MemberScore: ${output.memberScore}`);
       return output;
     } catch (error) {
-      log.error("[IntentEvaluator] Error during execution", { error });
+      log.error("[IntentIndexer] Error during execution", { error });
       return null;
     }
   }

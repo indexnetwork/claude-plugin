@@ -170,7 +170,7 @@ Score:`
 /**
  * Uses context isolation - evaluates index prompt first, then member prompt only if index qualifies
  * Both scores must be separately > 0.7 to proceed
- * @deprecated Use IntentEvaluator agent instead
+ * @deprecated Use IntentIndexer agent instead
  */
 export async function evaluateIntentAppropriateness(
   intentPayload: string,

@@ -1,7 +1,7 @@
 /**
- * Output structure for the Intent Evaluator agent.
+ * Output structure for the Intent Indexer agent.
  */
-export interface IntentEvaluatorOutput {
+export interface IntentIndexerOutput {
   /**
    * Score indicating how appropriate the intent is for the index purpose (0.0 to 1.0).
    * 0.0 = Not appropriate at all

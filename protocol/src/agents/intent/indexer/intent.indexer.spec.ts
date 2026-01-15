@@ -1,20 +1,20 @@
 import { describe, test, expect, beforeAll } from 'bun:test';
 import * as dotenv from 'dotenv';
 import path from 'path';
-import { IntentEvaluator } from './intent.evaluator';
+import { IntentIndexer } from './intent.indexer';
 
 // Load env
 const envPath = path.resolve(__dirname, '../../../../.env.development');
 dotenv.config({ path: envPath });
 
-describe('IntentEvaluator Tests', () => {
-  let evaluator: IntentEvaluator;
+describe('IntentIndexer Tests', () => {
+  let indexer: IntentIndexer;
 
   beforeAll(() => {
     if (!process.env.OPENROUTER_API_KEY) {
       throw new Error("⚠️  No OPENROUTER_API_KEY found. Live LLM tests might fail.");
     }
-    evaluator = new IntentEvaluator();
+    indexer = new IntentIndexer();
   });
 
   test('Highly Appropriate Fit', async () => {
@@ -22,7 +22,7 @@ describe('IntentEvaluator Tests', () => {
     const indexPrompt = "A community for builders and researchers working on autonomous AI agents.";
     const memberPrompt = "Interested in AI, agents, and LLMs.";
 
-    const res = await evaluator.evaluate(intent, indexPrompt, memberPrompt, "test");
+    const res = await indexer.evaluate(intent, indexPrompt, memberPrompt, "test");
 
     expect(res).not.toBeNull();
     expect(res!.indexScore).toBeGreaterThan(0.8);
@@ -34,7 +34,7 @@ describe('IntentEvaluator Tests', () => {
     const indexPrompt = "A community for builders and researchers working on autonomous AI agents.";
     const memberPrompt = "Interested in AI, agents, and LLMs.";
 
-    const res = await evaluator.evaluate(intent, indexPrompt, memberPrompt, "test");
+    const res = await indexer.evaluate(intent, indexPrompt, memberPrompt, "test");
 
     expect(res).not.toBeNull();
     expect(res!.indexScore).toBeLessThan(0.3);
@@ -45,7 +45,7 @@ describe('IntentEvaluator Tests', () => {
     const indexPrompt = "A place to find co-founders for tech startups.";
     const memberPrompt = "I am strictly interested in biotech and health tech. No crypto.";
 
-    const res = await evaluator.evaluate(intent, indexPrompt, memberPrompt, "test");
+    const res = await indexer.evaluate(intent, indexPrompt, memberPrompt, "test");
 
     expect(res).not.toBeNull();
     expect(res!.indexScore).toBeGreaterThanOrEqual(0.7);
