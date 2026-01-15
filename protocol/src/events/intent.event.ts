@@ -15,6 +15,7 @@ export interface IntentEvent {
 export class IntentEvents {
   /**
    * Triggered when a new intent is created
+   * TODO: (@yanekyuk) Use intent.evaluator.ts here. 
    */
   static async onCreated(event: IntentEvent): Promise<void> {
 

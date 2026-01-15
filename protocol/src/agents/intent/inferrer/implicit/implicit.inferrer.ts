@@ -5,8 +5,8 @@ import { ImplicitInferrerOutputSchema, ImplicitIntent } from "./implicit.inferre
 import { log } from "../../../../lib/log";
 import { SystemMessage, HumanMessage } from "@langchain/core/messages";
 
-// TODO: (@yanekyuk) Re-evaluate if this is this necessary
-
+// TODO: (@yanekyuk) Currently this returns "Expand my professional network in the tech community to gain insights into AI applications in AdTech"
+//                    AdTech Part is too much specificity.
 const SYSTEM_PROMPT = `
 You are an expert Implicit Intent Inferrer.
 Your task is to deduce the UNDERLYING user goal (Implicit Intent) that makes a specific Opportunity relevant to them.
