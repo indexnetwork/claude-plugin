@@ -1,9 +1,7 @@
 import { eq, and, isNull, sql, ne, isNotNull } from 'drizzle-orm';
-import { IntentManager } from '../agents/intent/manager/intent.manager';
-import { ActiveIntent, UserMemoryProfile } from '../agents/intent/manager/intent.manager.types';
+import { UserMemoryProfile } from '../agents/intent/manager/intent.manager.types';
 import { HydeGeneratorAgent } from '../agents/profile/hyde/hyde.generator';
 import { ProfileGenerator } from '../agents/profile/profile.generator';
-import type { CreateIntentOptions } from './intent.service';
 import db from '../lib/db';
 import { IndexEmbedder } from '../lib/embedder';
 import { VectorStoreOption, VectorSearchResult, Embedder } from '../agents/common/types';
@@ -11,7 +9,7 @@ import { checkAndTriggerSocialSync } from '../lib/integrations/social-sync';
 import { json2md } from '../lib/json2md/json2md';
 import { log } from '../lib/log';
 import { searchUser } from '../lib/parallel/parallel';
-import { NotificationPreferences, User, UserSocials, intents, userNotificationSettings, userProfiles } from '../lib/schema';
+import { NotificationPreferences, User, UserSocials, userNotificationSettings, userProfiles } from '../lib/schema';
 
 export interface UpdateProfileDto {
   name?: string;
@@ -165,15 +163,6 @@ export class ProfileService {
   }
 
   /**
-   * Helper: Generate Intent Data from Profile.
-   * Internal logic exposed for Worker.
-   * Returns intent options to be created by the caller.
-   */
-  async generateIntentDataFromProfile(userId: string, userProfile: typeof userProfiles.$inferSelect): Promise<CreateIntentOptions[]> {
-    return this._generateIntentDataFromProfile(userId, userProfile);
-  }
-
-  /**
    * Step 1: Repair Profile if incomplete (Private Impl).
    */
   private async _repairProfileIfIncomplete(userId: string, intro: string, userName: string | null) {
@@ -228,100 +217,6 @@ export class ProfileService {
     }
     return userProfile;
   }
-
-  /**
-   * Step 2: Generate Intents Data from Profile Narrative/Bio (Private Impl).
-   * Returns Array of CreateIntentOptions.
-   */
-  private async _generateIntentDataFromProfile(userId: string, userProfile: typeof userProfiles.$inferSelect): Promise<CreateIntentOptions[]> {
-    const newIntentOptions: CreateIntentOptions[] = [];
-    log.info(`[ProfileService] _generateIntentDataFromProfile called for ${userId}`);
-    try {
-      // Fetch active intents to avoid duplicates
-      const activeIntentsData = await db.select().from(intents).where(and(
-        eq(intents.userId, userId),
-        isNull(intents.archivedAt)
-      ));
-
-      const activeIntents: ActiveIntent[] = activeIntentsData.map(i => ({
-        id: i.id,
-        description: i.payload,
-        status: 'active',
-        created_at: i.createdAt.getTime()
-      }));
-
-      // Construct memory profile for Intent Manager
-      const memoryProfile: UserMemoryProfile = {
-        userId: userId,
-        identity: {
-          name: userProfile.identity?.name || 'User',
-          bio: userProfile.identity?.bio || '',
-          location: userProfile.identity?.location || ''
-        },
-        narrative: userProfile.narrative || undefined,
-        attributes: {
-          interests: userProfile.attributes?.interests || [],
-          skills: userProfile.attributes?.skills || [],
-          goals: []
-        }
-      };
-
-      const manager = new IntentManager();
-
-      const profileContext = json2md.keyValue({
-        bio: memoryProfile.identity.bio,
-        location: memoryProfile.identity.location,
-        interests: memoryProfile.attributes.interests,
-        skills: memoryProfile.attributes.skills,
-      });
-
-      const activeIntentsContext = activeIntents.length > 0 ?
-        json2md.table(activeIntents.map(i => ({
-          ID: i.id,
-          Description: i.description,
-          Status: i.status
-        })), { columns: [{ header: "ID", key: "ID" }, { header: "Description", key: "Description" }, { header: "Status", key: "Status" }] }) :
-        "No active intents.";
-
-      // TODO: (@yanekyuk) Experiment with running opportunity evaluator here instead of explicit intent inferrer
-      const result = await manager.processExplicitIntent(null, profileContext, activeIntentsContext);
-
-      // Filter out no-op updates (where payload equals current description)
-      const filteredActions = result.actions.filter(action => {
-        if (action.type === 'update') {
-          const original = activeIntents.find(a => a.id === action.id);
-          if (original && original.description === action.payload) {
-            return false;
-          }
-        }
-        return true;
-      });
-
-      log.info('[ProfileService] Intent detection result:', { actions: filteredActions.length });
-
-      if (filteredActions.length > 0) {
-        for (const action of filteredActions) {
-          if (action.type === 'create') {
-            log.info(`[ProfileService] Creating inferred intent: "${action.payload}"`);
-
-            newIntentOptions.push({
-              userId,
-              payload: action.payload,
-              confidence: 0.8, // High confidence for bio-inferred intents
-              inferenceType: 'implicit',
-              sourceType: 'enrichment',
-              sourceId: userProfile.id
-            });
-          }
-        }
-      }
-    } catch (error) {
-      log.error('[ProfileService] Failed to generate intents from profile:', { error });
-      console.error(error)
-    }
-    return newIntentOptions;
-  }
-
 
   /**
    * Helper to generate and save HyDE profile.
