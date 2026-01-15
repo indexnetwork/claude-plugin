@@ -13,8 +13,8 @@ describe('Semantic Verifier Agent (Phase 2)', () => {
   let agent: SemanticVerifierAgent;
 
   beforeAll(() => {
-    if (!process.env.OPENAI_API_KEY) {
-      console.warn("⚠️  No OPENAI_API_KEY found. Live LLM tests might fail.");
+    if (!process.env.OPENROUTER_API_KEY) {
+      console.warn("⚠️  No OPENROUTER_API_KEY found. Live LLM tests might fail.");
     }
     agent = new SemanticVerifierAgent();
   });

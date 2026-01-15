@@ -13,8 +13,8 @@ describe('Input Validator Agent (Phase 1)', () => {
   let agent: SyntacticValidatorAgent;
 
   beforeAll(() => {
-    if (!process.env.OPENAI_API_KEY) {
-      throw new Error("⚠️  No OPENAI_API_KEY found. Live LLM tests might fail.");
+    if (!process.env.OPENROUTER_API_KEY) {
+      throw new Error("⚠️  No OPENROUTER_API_KEY found. Live LLM tests might fail.");
     }
     agent = new SyntacticValidatorAgent();
   });
