@@ -1,10 +1,10 @@
 // src/agents/intent/felicity/semantic/semantic-verifier.ts
 
-import { BaseLangChainAgent } from "../../../lib/langchain/langchain";
+import { BaseLangChainAgent } from "../../../../lib/langchain/langchain";
 import { z } from "zod";
 import { SystemMessage, HumanMessage } from "@langchain/core/messages";
-import { log } from "../../../lib/log";
-import { SemanticVerifierOutput } from "./semantic.verifier.types";
+import { log } from "../../../../lib/log";
+import { SemanticVerifierOutput } from "./semantic.evaluator.types";
 
 const SYSTEM_PROMPT = `
 You are the Semantic Verification Engine (Illocutionary Layer).

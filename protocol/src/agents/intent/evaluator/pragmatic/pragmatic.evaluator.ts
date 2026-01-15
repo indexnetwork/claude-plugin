@@ -1,10 +1,10 @@
 // src/agents/intent/felicity/pragmatic/pragmatic-monitor.ts
 
-import { BaseLangChainAgent } from "../../../lib/langchain/langchain";
+import { BaseLangChainAgent } from "../../../../lib/langchain/langchain";
 import { z } from "zod";
 import { SystemMessage, HumanMessage } from "@langchain/core/messages";
-import { log } from "../../../lib/log";
-import { PragmaticMonitorOutput } from "./pragmatic.monitor.types";
+import { log } from "../../../../lib/log";
+import { PragmaticMonitorOutput } from "./pragmatic.evaluator.types";
 
 const SYSTEM_PROMPT = `
 You are the Pragmatic Monitor (Discourse consistency Checker).

@@ -3,7 +3,7 @@
 import { describe, test, expect, beforeAll } from 'bun:test';
 import * as dotenv from 'dotenv';
 import path from 'path';
-import { SemanticVerifierAgent } from './semantic.verifier';
+import { SemanticVerifierAgent } from './semantic.evaluator';
 
 // Load env
 const envPath = path.resolve(__dirname, '../../../../.env.development');

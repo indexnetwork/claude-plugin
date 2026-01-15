@@ -7,9 +7,6 @@ import { StakeEvaluator } from '../../intent/stake/evaluator/stake.evaluator';
 import { OpportunityEvaluator } from '../../opportunity/opportunity.evaluator';
 import { ProfileGenerator } from '../../profile/profile.generator';
 import { HydeGeneratorAgent } from '../../profile/hyde/hyde.generator';
-import { SyntacticValidatorAgent } from '../../felicity/syntactic/syntactic.validator';
-import { SemanticVerifierAgent } from '../../felicity/semantic/semantic.verifier';
-import { PragmaticMonitorAgent } from '../../felicity/pragmatic/pragmatic.monitor';
 import { stakeService } from '../../../services/stake.service';
 
 import { searchUser } from '../../../lib/parallel/parallel';
@@ -380,59 +377,6 @@ const REGISTRY: AgentRegistryItem[] = [
       return agent.generate(profile);
     }
   },
-
-  // --- Felicity Agents ---
-  {
-    id: 'syntactic-validator',
-    name: 'Syntactic Validator',
-    description: 'Validates input for structural integrity and language.',
-    category: 'felicity',
-    inputType: 'raw_text',
-    disabled: false,
-    defaultInput: "Hello world, this is a test.",
-    agentClass: SyntacticValidatorAgent,
-    runner: (agent, input) => agent.run(input)
-  },
-  {
-    id: 'semantic-verifier',
-    name: 'Semantic Verifier',
-    description: 'Verifies Felicity Conditions (Clarity, Authority, Sincerity).',
-    category: 'felicity',
-    inputType: 'any',
-    disabled: false,
-    defaultInput: {
-      content: "I will deploy the contract tomorrow.",
-      context: { identity: { name: "Alice", bio: "Senior Dev" }, attributes: { skills: ["Solidity"] } }
-    },
-    agentClass: SemanticVerifierAgent,
-    fields: [
-      { key: 'content', label: 'Content', type: 'string' },
-      { key: 'context', label: 'Context', type: 'json' }
-    ],
-    runner: (agent, input) => {
-      const content = input.content || "";
-      const context = typeof input.context === 'string' ? input.context : JSON.stringify(input.context || {});
-      return agent.run(content, context);
-    }
-  },
-  {
-    id: 'pragmatic-monitor',
-    name: 'Pragmatic Monitor',
-    description: 'Checks discourse consistency against past promises.',
-    category: 'felicity',
-    inputType: 'any',
-    disabled: false,
-    defaultInput: {
-      target_intent: "I will write the docs.",
-      subsequent_discourse: "I haven't started yet."
-    },
-    agentClass: PragmaticMonitorAgent,
-    fields: [
-      { key: 'target_intent', label: 'Target Intent', type: 'string' },
-      { key: 'subsequent_discourse', label: 'Subsequent Discourse', type: 'string' }
-    ],
-    runner: (agent, input) => agent.run(input.target_intent, input.subsequent_discourse)
-  }
 ];
 
 export function getAvailableAgents() {

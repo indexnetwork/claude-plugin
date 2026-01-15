@@ -1,10 +1,10 @@
 // src/agents/intent/input-validator/input-validator.ts
 
-import { BaseLangChainAgent } from "../../../lib/langchain/langchain";
+import { BaseLangChainAgent } from "../../../../lib/langchain/langchain";
 import { z } from "zod";
 import { SystemMessage, HumanMessage } from "@langchain/core/messages";
-import { log } from "../../../lib/log";
-import { SyntacticValidatorOutput } from "./syntactic.validator.types";
+import { log } from "../../../../lib/log";
+import { SyntacticValidatorOutput } from "./syntactic.evaluator.types";
 
 const SYSTEM_PROMPT = `
   You are the Input Validation Gatekeeper for an Intent Protocol.
