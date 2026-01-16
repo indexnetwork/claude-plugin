@@ -55,7 +55,7 @@ export default function InvitationPage({ params }: InvitationPageProps) {
         const index = await publicIndexesService.getIndexByShareCode(resolvedParams.code);
         setState(prev => ({ ...prev, index }));
 
-        // Reject public indexes - they should use /i/[indexId] instead
+        // Reject public indexes - they should use /index/[indexId] instead
         if (index.permissions?.joinPolicy === 'anyone') {
           setState(prev => ({ 
             ...prev, 
@@ -117,8 +117,8 @@ export default function InvitationPage({ params }: InvitationPageProps) {
               return;
             }
             
-            // User is authenticated, member, and onboarded - go to inbox
-            router.push('/inbox');
+            // User is authenticated, member, and onboarded - go to root
+            router.push('/');
           }
         } catch (err) {
           console.error('Failed to fetch user:', err);

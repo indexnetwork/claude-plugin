@@ -258,7 +258,7 @@ export default function SettingsPage({ params }: { params: Promise<{ indexId: st
       removeIndex(indexId);
       success('Index deleted successfully');
       setShowDeleteConfirmation(false);
-      window.location.href = '/inbox';
+      window.location.href = '/';
     } catch (err) {
       console.error('Error deleting index:', err);
       error('Failed to delete index');
@@ -303,7 +303,7 @@ export default function SettingsPage({ params }: { params: Promise<{ indexId: st
 
   const handleCopyLink = async (linkType: 'index' | 'invitation', code?: string) => {
     const url = linkType === 'index' 
-      ? `${window.location.origin}/i/${indexId}`
+      ? `${window.location.origin}/index/${indexId}`
       : `${window.location.origin}/l/${code}`;
     
     try {

@@ -9,6 +9,7 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@assistant-ui/react": "^0.11.53",
     "@heroicons/react": "^2.2.0",
     "@lobehub/icons": "^2.45.0",
     "@privy-io/react-auth": "^3.8.1",
@@ -34,6 +35,7 @@
     "react-markdown": "^10.1.0",
     "react-syntax-highlighter": "^16.1.0",
     "react-typed": "^2.0.12",
+    "stream-chat": "^9.27.2",
     "tailwind-merge": "^3.2.0"
   },
   "devDependencies": {

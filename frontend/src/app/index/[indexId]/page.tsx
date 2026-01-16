@@ -106,8 +106,8 @@ export default function PublicJoinPage({ params }: PublicJoinPageProps) {
               return;
             }
             
-            // User is authenticated, member, and onboarded - go to inbox
-            router.push('/inbox');
+            // User is authenticated, member, and onboarded - go to root
+            router.push('/');
           }
         } catch (err) {
           console.error('Failed to fetch user:', err);
@@ -153,8 +153,8 @@ export default function PublicJoinPage({ params }: PublicJoinPageProps) {
         success(`Successfully joined ${result?.index?.title || state.index.title}!`);
         // Refresh indexes context
         await refreshIndexes();
-        // Redirect to the index page
-        router.push(`/inbox`);
+        // Redirect to root
+        router.push(`/`);
       }
     } catch (err) {
       console.error('Failed to join index:', err);
@@ -325,7 +325,7 @@ export default function PublicJoinPage({ params }: PublicJoinPageProps) {
               </p>
             </div>
             <Button
-              onClick={() => router.push(`/inbox`)}
+              onClick={() => router.push(`/`)}
               className="bg-black text-white hover:bg-gray-800 font-ibm-plex-mono"
             >
               Go to your Inbox

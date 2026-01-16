@@ -4,7 +4,7 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 
-console.log('process.env', process.env);
+// console.log('process.env', process.env);
 import { initializeBrokers } from './agents/context_brokers/connector';
 import { emailWorker } from './lib/email/queue/email.worker';
 import { initWeeklyNewsletterJob } from './jobs/newsletter.job';
@@ -43,6 +43,7 @@ import queueRoutes from './routes/queue';
 import adminRoutes from './routes/admin';
 import feedbackRoutes from './routes/feedback';
 import notificationRoutes from './routes/notifications';
+import chatRoutes from './routes/chat';
 import devRoutes from './routes/dev';
 
 const app = express();
@@ -100,6 +101,7 @@ app.use('/api/queue', queueRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/feedback', feedbackRoutes);
 app.use('/api/notifications', notificationRoutes);
+app.use('/api/chat', chatRoutes);
 
 // --- Playground API Routes ---
 app.get('/api/agents', (req, res) => {
