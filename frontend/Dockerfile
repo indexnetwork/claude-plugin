@@ -2,9 +2,6 @@
 FROM oven/bun:1 AS builder
 WORKDIR /app
 
-# Enable corepack for Yarn
-RUN corepack enable
-
 # Accept build arguments
 ARG NEXT_PUBLIC_PRIVY_APP_ID
 ARG NEXT_PUBLIC_PRIVY_CLIENT_ID
