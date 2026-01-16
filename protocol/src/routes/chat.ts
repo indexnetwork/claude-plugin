@@ -267,7 +267,7 @@ router.post('/request',
         pending: true,
         requestedBy: userId,
         awaitingAdminApproval: needsAdminApproval,
-      });
+      } as any);
       await channel.create();
 
       // Send the first message
@@ -349,8 +349,8 @@ router.post('/request/respond',
       if (action === 'ACCEPT') {
         // Update channel to remove pending state
         await channel.updatePartial({
-          set: { pending: false, awaitingAdminApproval: false },
-          unset: ['requestedBy']
+          set: { pending: false, awaitingAdminApproval: false } as any,
+          unset: ['requestedBy'] as any
         });
 
         // Send acceptance notification
@@ -368,7 +368,7 @@ router.post('/request/respond',
             pending: false, 
             declined: action === 'DECLINE',
             skipped: action === 'SKIP'
-          }
+          } as any
         });
 
         return res.json({ 
@@ -400,7 +400,7 @@ router.get('/requests',
         type: 'messaging',
         members: { $in: [userId] },
         pending: true
-      }, { created_at: -1 });
+      } as any, { created_at: -1 });
 
       // Filter out channels where user is the requester or awaiting admin approval
       const channels = allPendingChannels.filter(ch => {
