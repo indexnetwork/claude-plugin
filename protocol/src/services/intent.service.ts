@@ -9,6 +9,7 @@ import { INTENT_INFERRER_AGENT_ID } from '../lib/agent-ids';
 import { IntentIndexer } from '../agents/intent/indexer/intent.indexer';
 import { log } from '../lib/log';
 import { getDisplayName } from '../lib/integrations/config';
+import { IntentManager } from '../agents/intent/manager/intent.manager';
 
 export interface CreateIntentOptions {
   payload: string;
@@ -54,6 +55,74 @@ export class IntentService {
     this.intentEmbedder = new IndexEmbedder({
       searcher: this.searchIntents.bind(this)
     });
+  }
+
+  /**
+   * Process an explicit interaction (e.g. from discovery form) through the IntentManager.
+   * This handles extraction, deduplication, and lifecycle actions (Create/Update/Expire).
+   */
+  async processExplicitInteraction(
+    userId: string,
+    payload: string,
+    profileContext: string
+  ): Promise<{ actions: any[]; generatedIntents: CreatedIntent[] }> {
+    console.log(`[IntentService] Processing explicit interaction regarding: "${payload.substring(0, 50)}..."`);
+
+    // 1. Get Active Intents Context
+    const activeIntents = await this.getUserIntentObjects(userId);
+    const activeIntentsContext = activeIntents
+      .map(i => `ID: ${i.id}, Description: ${i.payload}, Summary: ${i.summary || 'N/A'}`)
+      .join('\n') || "No active intents.";
+
+    // 2. Instantiate Manager
+    const manager = new IntentManager();
+
+    // 3. Process via Manager
+    const result = await manager.processExplicitIntent(payload, profileContext, activeIntentsContext);
+
+    // 4. Execute Actions
+    const generatedIntents: CreatedIntent[] = [];
+
+    for (const action of result.actions) {
+      try {
+        if (action.type === 'create') {
+          // Create new intent
+          const newIntent = await this.createIntent({
+            payload: action.payload,
+            userId: userId,
+            isIncognito: false,
+            confidence: action.score ? action.score / 100 : 1.0, // Convert 0-100 to 0-1
+            inferenceType: 'explicit',
+            sourceType: 'discovery_form',
+            // Reasoning/Score isn't stored directly on intent, but stake is created in createIntent
+          });
+          generatedIntents.push(newIntent);
+          console.log(`[IntentService] Executed CREATE action: ${newIntent.id}`);
+
+        } else if (action.type === 'update') {
+          // Update existing intent
+          await this.updateIntent(action.id, userId, {
+            payload: action.payload
+          });
+          console.log(`[IntentService] Executed UPDATE action: ${action.id}`);
+
+          // Fetch updated intent to return if needed, though strictly it's not "generated" new
+          // We might want to add it to generated lists if we want to show "effect"
+          const updated = await this.getIntentById(action.id, userId);
+          // @ts-ignore
+          if (updated) generatedIntents.push(updated);
+
+        } else if (action.type === 'expire') {
+          // Archive intent
+          await this.archiveIntent(action.id, userId);
+          console.log(`[IntentService] Executed EXPIRE action: ${action.id}`);
+        }
+      } catch (error) {
+        console.error(`[IntentService] Failed to execute action ${action.type}:`, error);
+      }
+    }
+
+    return { actions: result.actions, generatedIntents };
   }
 
   /**
