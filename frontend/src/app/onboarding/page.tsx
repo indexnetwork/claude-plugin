@@ -510,7 +510,7 @@ export default function OnboardingPage() {
 
         try {
           const token = await getAccessToken();
-          const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/auth/generate-summary`, {
+          const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/auth/profile/generate`, {
             method: 'POST',
             headers: {
               'Authorization': `Bearer ${token}`,
