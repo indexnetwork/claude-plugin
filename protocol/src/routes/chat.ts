@@ -1,11 +1,12 @@
 import { Router, Response } from 'express';
 import { body, validationResult } from 'express-validator';
-import { StreamChat } from 'stream-chat';
+import { StreamChat, type PartialUpdateChannel } from 'stream-chat';
 import { authenticatePrivy, AuthRequest } from '../middleware/auth';
 import db from '../lib/db';
 import { users, userConnectionEvents, indexMembers, indexes } from '../lib/schema';
 import { eq, isNull, and, or, desc, inArray, sql } from 'drizzle-orm';
 import { sendConnectionRequestNotification, sendConnectionAcceptedNotification } from '../lib/notification-service';
+import type { CustomChannelData, CustomChannelFilters, CustomChannelMember } from '../types/stream-chat';
 
 const router = Router();
 
@@ -267,7 +268,7 @@ router.post('/request',
         pending: true,
         requestedBy: userId,
         awaitingAdminApproval: needsAdminApproval,
-      } as any);
+      } as CustomChannelData);
       await channel.create();
 
       // Send the first message
@@ -317,7 +318,7 @@ router.post('/request/respond',
       }
 
       const channel = channels[0];
-      const channelData = channel.data as any;
+      const channelData = channel.data as CustomChannelData;
 
       // Verify this is a pending request
       if (!channelData?.pending) {
@@ -337,21 +338,25 @@ router.post('/request/respond',
 
       // Find the requester
       const requesterId = channelData.requestedBy;
+      if (!requesterId) {
+        return res.status(400).json({ error: 'Invalid channel: missing requester' });
+      }
 
       // Create connection event
       await db.insert(userConnectionEvents)
         .values({
           initiatorUserId: userId,
           receiverUserId: requesterId,
-          eventType: action as any,
+          eventType: action as 'ACCEPT' | 'DECLINE' | 'SKIP',
         });
 
       if (action === 'ACCEPT') {
         // Update channel to remove pending state
+        // Note: Stream Chat supports custom fields at runtime, but TypeScript types don't include them
         await channel.updatePartial({
-          set: { pending: false, awaitingAdminApproval: false } as any,
-          unset: ['requestedBy'] as any
-        });
+          set: { pending: false, awaitingAdminApproval: false },
+          unset: ['requestedBy']
+        } as unknown as PartialUpdateChannel);
 
         // Send acceptance notification
         sendConnectionAcceptedNotification(userId, requesterId).catch(console.error);
@@ -363,13 +368,14 @@ router.post('/request/respond',
       } else {
         // DECLINE or SKIP - hide or delete the channel
         // For now, just mark as not pending and let it be hidden
+        // Note: Stream Chat supports custom fields at runtime, but TypeScript types don't include them
         await channel.updatePartial({
           set: { 
             pending: false, 
             declined: action === 'DECLINE',
             skipped: action === 'SKIP'
-          } as any
-        });
+          }
+        } as unknown as PartialUpdateChannel);
 
         return res.json({ 
           message: `Message request ${action.toLowerCase()}ed`,
@@ -400,11 +406,11 @@ router.get('/requests',
         type: 'messaging',
         members: { $in: [userId] },
         pending: true
-      } as any, { created_at: -1 });
+      } as CustomChannelFilters, { created_at: -1 });
 
       // Filter out channels where user is the requester or awaiting admin approval
       const channels = allPendingChannels.filter(ch => {
-        const data = ch.data as any;
+        const data = ch.data as CustomChannelData;
         // User should NOT be the requester (they should see incoming requests)
         if (data.requestedBy === userId) return false;
         // Don't show if waiting for admin approval
@@ -413,20 +419,20 @@ router.get('/requests',
       });
 
       const requests = channels.map(ch => {
-        const data = ch.data as any;
-        const members = Object.values(ch.state.members || {});
-        const requester = members.find((m: any) => m.user_id === data.requestedBy);
+        const data = ch.data as CustomChannelData;
+        const members = Object.values(ch.state.members || {}) as CustomChannelMember[];
+        const requester = members.find((m) => m.user_id === data.requestedBy);
         const lastMessage = ch.state.messages?.[ch.state.messages.length - 1];
 
         return {
           channelId: ch.id,
           requester: requester ? {
-            id: (requester as any).user_id,
-            name: (requester as any).user?.name,
-            avatar: (requester as any).user?.image
+            id: requester.user_id,
+            name: requester.user?.name,
+            avatar: requester.user?.image
           } : null,
           firstMessage: lastMessage?.text || null,
-          createdAt: data.created_at
+          createdAt: ch.data?.created_at
         };
       });
 
