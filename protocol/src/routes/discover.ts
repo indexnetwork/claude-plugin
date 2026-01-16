@@ -13,7 +13,7 @@ import { crawlLinksForIndex } from '../lib/crawl/web_crawler';
 import { analyzeObjects } from '../agents/core/intent_inferrer';
 import { CreatedIntent, intentService } from '../services/intent.service';
 import { createUploadClient } from '../lib/uploads';
-import { ExplicitIntentInferrer } from '../agents/intent/inferrer/explicit/explicit.inferrer';
+
 import { profileService } from '../services/profile.service';
 import { json2md } from '../lib/json2md/json2md';
 
@@ -201,31 +201,20 @@ router.post('/new',
             });
           }
 
-          // 2. Explicit Inference (Filters phatic comms like "Hello World")
-          const inferrer = new ExplicitIntentInferrer();
-          const { intents: inferredIntents } = await inferrer.run(payload, profileContext);
+          // 2. Process via IntentService (replaces direct Inferrer + Creator)
+          // This uses IntentManager internally for Deduplication/Actions
+          const { generatedIntents: createdIntents, actions } = await intentService.processExplicitInteraction(
+            userId,
+            payload,
+            profileContext
+          );
 
-          if (inferredIntents.length === 0) {
-            console.warn(`[Discover] ⚠️ No intents inferred from payload (likely phatic or empty).`);
+          generatedIntents.push(...createdIntents);
+
+          if (generatedIntents.length === 0 && actions.length === 0) {
+            console.warn(`[Discover] ⚠️ No intents created (Manager might have ignored or filtered them).`);
           } else {
-            // Create intents directly - felicity checks happen during background index processing
-            for (const intent of inferredIntents) {
-              try {
-                const createdIntent: CreatedIntent = await intentService.createIntent({
-                  payload: intent.description,
-                  userId: userId,
-                  sourceId: undefined,
-                  sourceType: 'discovery_form',
-                  isIncognito: false,
-                  confidence: 1.0,
-                  inferenceType: 'explicit',
-                });
-                generatedIntents.push(createdIntent);
-                console.log(`✅ Intent created: ${createdIntent.id}`);
-              } catch (error) {
-                console.error(`❌ Failed to create intent:`, error);
-              }
-            }
+            console.log(`[Discover] ✅ Processed explicit interaction. Result: ${actions.length} actions, ${createdIntents.length} generated.`);
           }
 
         } catch (err) {
