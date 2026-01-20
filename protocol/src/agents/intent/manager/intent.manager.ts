@@ -177,45 +177,32 @@ export class IntentManager extends BaseLangChainAgent {
         continue;
       }
 
-      // CLARITY is useful debug info, but hard to threshold (valid intents can be vague).
-      // We enforce Authority and Sincerity.
-      const MIN_SCORE = 40;
-
-      // Filter by Speech Act Type: Goals must be Commissive (Commitment) or Directive (Action).
-      // Expressive (Greetings) and Assertive (Facts) are not goals.
+      // Filter by Speech Act Type only: Goals must be Commissive (Commitment), Directive (Action), or Declaration.
+      // Expressive (Greetings) and Assertive (Facts) are not actionable goals.
+      // Authority and Sincerity are NOT used for filtering—they flow through for stake scoring.
       const VALID_TYPES = ['COMMISSIVE', 'DIRECTIVE', 'DECLARATION'];
-      // Be lenient with classification if Auth/Sinc are high (e.g. 80+)
-      const isStrongIntent = verdict.felicity_scores.authority >= 70 && verdict.felicity_scores.sincerity >= 70;
-      const isValidType = VALID_TYPES.includes(verdict.classification) || isStrongIntent;
+      const isValidType = VALID_TYPES.includes(verdict.classification);
 
-      if (
-        verdict.felicity_scores.authority >= MIN_SCORE &&
-        verdict.felicity_scores.sincerity >= MIN_SCORE &&
-        isValidType
-      ) {
-        // Calculate Average Score for Stake
-        // Score = avg(Authority, Sincerity, Clarity)
-        const score = Math.floor(
-          (verdict.felicity_scores.authority + verdict.felicity_scores.sincerity + verdict.felicity_scores.clarity) / 3
-        );
-
-        // Append score and reasoning to the intent so it can be passed to the LLM
-        // We use a temporary property or append to reasoning string to carry it through
-        intent.reasoning = `${intent.reasoning}. Verification: ${verdict.classification} (Score: ${score}, Auth: ${verdict.felicity_scores.authority}, Sinc: ${verdict.felicity_scores.sincerity}, Clarity: ${verdict.felicity_scores.clarity}). ${verdict.reasoning}`;
-
-        // We can also attach the raw score if we extending InferredIntent type,
-        // but since we are limited to the existing type, let's inject it into the reasoning 
-        // so the LLM sees it and we can ask it to extract/pass it.
-        // BETTER: Extend the InferredIntent type in memory here or trust the LLM to pick it up.
-        // Let's rely on the LLM to see the score in the reasoning and put it into the Action's score field.
-
-        verifiedIntents.push({ ...intent, score } as any); // We need to cast or extend the type momentarily
-      } else {
-        log.warn(`[IntentManagerAgent] Rejected intent: "${intent.description}" Type: ${verdict.classification}`, {
+      if (!isValidType) {
+        log.warn(`[IntentManagerAgent] Rejected intent (invalid Speech Act Type): "${intent.description}" Type: ${verdict.classification}`, {
           reason: verdict.reasoning,
           scores: verdict.felicity_scores
         });
+        continue;
       }
+
+      // Calculate Felicity Score for Stake (used downstream for single and multi-intent stakes)
+      // Score = min(Authority, Sincerity, Clarity) — the weakest link determines overall quality
+      const score = Math.min(
+        verdict.felicity_scores.authority,
+        verdict.felicity_scores.sincerity,
+        verdict.felicity_scores.clarity
+      );
+
+      // Append score and reasoning to the intent so it can be passed to the LLM
+      intent.reasoning = `${intent.reasoning}. Verification: ${verdict.classification} (Score: ${score}, Auth: ${verdict.felicity_scores.authority}, Sinc: ${verdict.felicity_scores.sincerity}, Clarity: ${verdict.felicity_scores.clarity}). ${verdict.reasoning}`;
+
+      verifiedIntents.push({ ...intent, score } as any);
     }
 
     if (verifiedIntents.length === 0) {
