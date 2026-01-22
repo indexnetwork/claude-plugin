@@ -55,7 +55,7 @@ export const StakeEvaluatorSchema = z.object({
 export class StakeEvaluator extends BaseLangChainAgent {
   constructor(options: Partial<Parameters<typeof createAgent>[0]> = {}) {
     super({
-      model: 'openai/gpt-4o',
+      preset: 'intent-stake-evaluator',
       responseFormat: StakeEvaluatorSchema,
       temperature: 0.2, // Low temp for consistent scoring
       ...options

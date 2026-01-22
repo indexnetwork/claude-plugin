@@ -44,7 +44,7 @@ Constraint:
 export class ImplicitInferrer extends BaseLangChainAgent {
   constructor() {
     super({
-      model: 'openai/gpt-4o', // Capable model for reasoning
+      preset: 'implicit-intent-inferrer', // Capable model for reasoning
       responseFormat: ImplicitInferrerOutputSchema,
       temperature: 0.1,
     });
