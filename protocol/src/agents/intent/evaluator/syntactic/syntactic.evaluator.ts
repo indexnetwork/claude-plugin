@@ -46,7 +46,7 @@ export class SyntacticValidatorAgent extends BaseLangChainAgent {
   constructor() {
     super({
       // Phase 1 uses a fast, cheap model as it runs on EVERY input
-      model: 'openai/gpt-4o-mini',
+      preset: 'syntactic-evaluator',
       responseFormat: SyntacticValidatorOutputSchema,
       temperature: 0.0, // Strict determinism required for filters
     });

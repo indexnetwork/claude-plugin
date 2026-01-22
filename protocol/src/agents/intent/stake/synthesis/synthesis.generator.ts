@@ -68,7 +68,7 @@ export type SynthesisGeneratorOutput = z.infer<typeof SynthesisGeneratorOutputSc
 export class SynthesisGenerator extends BaseLangChainAgent {
   constructor(options: Partial<Parameters<typeof createAgent>[0]> = {}) {
     super({
-      model: 'openai/gpt-4o',
+      preset: 'synthesis-generator',
       responseFormat: SynthesisGeneratorOutputSchema,
       temperature: 0.2,
       ...options

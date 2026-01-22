@@ -76,7 +76,7 @@ Be thoughtful about intent types but err on the side of caution.`;
 export class IntentAuditor extends BaseLangChainAgent {
   constructor() {
     super({
-      model: 'openai/gpt-4o',
+      preset: 'intent-auditor',
       responseFormat: IntentAuditorOutputSchema,
       temperature: 0.1,
     });

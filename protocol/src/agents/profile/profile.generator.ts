@@ -49,14 +49,14 @@ export const ProfileGeneratorOutputSchema = z.object({
  * - Narrative Synthesis: Writes the "Story" of the user (Bio, Context, Aspirations) based on scattered data points.
  * - Structuring: Converts loose text into strictly typed JSON (Zod schema).
  * 
- * This is the entry point for creating a "Digital Twin" of a user in the system.
+* This is the entry point for creating a "Digital Twin" of a user in the system.
  */
 export class ProfileGenerator extends BaseLangChainAgent {
     private embedder?: Embedder;
 
     constructor(embedder?: Embedder) {
         super({
-            model: 'openai/gpt-4o-mini', // Use a strong model for synthesis
+            preset: 'profile-generator', // Use a strong model for synthesis
             responseFormat: ProfileGeneratorOutputSchema
         });
         this.embedder = embedder;

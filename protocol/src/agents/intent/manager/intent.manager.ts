@@ -29,9 +29,10 @@ RULES:
 - EXPIRE: If an Inferred Tombstone matches an Active Intent (semantically), EXPIRE it.
 - CONFLICT RESOLUTION: If a NEW Goal contradicts an Active Intent (e.g., Active="Avoid people", New="Go to party"), this indicates a CHANGE OF MIND. Action: EXPIRE the old conflicting intent (reason: "Contradicted by new goal") and CREATE the new one.
 - DEDUPLICATION: If multiple Active Intents describe the same goal (or will do so after an update), you must DEDUPLICATE. Action: UPDATE one to the best description, and EXPIRE the others (reason: "Duplicate of [ID]").
-- IGNORE: If an Inferred Goal is effectively the same as an Active Intent, do nothing.
+- IGNORE: If an Inferred Goal is effectively the same as an Active Intent, do nothing (e.g. Active="Learn Rust", Inferred="I want to learn Rust" -> Ignore).
 
 Output a list of specific actions to apply.
+IMPORTANT: The \`type\` field MUST be exactly one of: "create", "update", "expire" (lowercase).
 `;
 
 const CreateIntentActionSchema = z.object({
@@ -88,7 +89,7 @@ export class IntentManager extends BaseLangChainAgent {
 
   constructor() {
     super({
-      model: 'openai/gpt-4o', // Use a strong model for synthesis
+      preset: 'intent-manager', // Use a strong model for synthesis
       responseFormat: IntentManagerOutputSchema,
       temperature: 0.2, // Low temp for decision making
     });

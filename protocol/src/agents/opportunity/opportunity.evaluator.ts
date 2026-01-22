@@ -80,7 +80,7 @@ export class OpportunityEvaluator extends BaseLangChainAgent {
   constructor(embedder?: Embedder) {
     // Main model is for Analysis (structured output of Opportunities)
     super({
-      model: 'openai/gpt-4o',
+      preset: 'opportunity-evaluator',
       temperature: 0.1, // Low temp for stability
       responseFormat: OpportunityEvaluatorOutputSchema
     });

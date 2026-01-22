@@ -66,7 +66,7 @@ export type ExplicitInferrerOutput = z.infer<typeof ExplicitInferrerOutputSchema
 export class ExplicitIntentInferrer extends BaseLangChainAgent {
   constructor() {
     super({
-      model: 'openai/gpt-4o',
+      preset: 'explicit-intent-inferrer',
       responseFormat: ExplicitInferrerOutputSchema,
       temperature: 0.5,
     });

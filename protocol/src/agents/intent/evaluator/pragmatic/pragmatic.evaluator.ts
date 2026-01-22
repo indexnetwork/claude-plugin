@@ -48,7 +48,7 @@ const PragmaticMonitorOutputSchema = z.object({
 export class PragmaticMonitorAgent extends BaseLangChainAgent {
   constructor() {
     super({
-      model: 'openai/gpt-4o', // Logic required to detect contradictions
+      preset: 'pragmatic-evaluator', // Logic required to detect contradictions
       responseFormat: PragmaticMonitorOutputSchema,
       temperature: 0.0,
     });
