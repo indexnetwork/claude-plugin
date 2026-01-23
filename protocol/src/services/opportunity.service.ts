@@ -433,12 +433,18 @@ export class OpportunityService {
   }
 
   /**
-   * Helper to get user ID for an intent.
+   * Retrieves the user ID associated with a given intent.
    * 
-   * @param intentId - The intent ID.
-   * @returns User ID or null.
+   * This helper exists because stakes link intents rather than users directly,
+   * but we often need to know which user owns an intent when creating notifications
+   * or validating stake participants. The indirection through intents allows for
+   * more flexible matching (e.g., multiple intents per user can match independently).
+   * 
+   * @param intentId - The unique identifier of the intent.
+   * @returns The user ID who owns the intent, or null if the intent doesn't exist.
+   * @private Only used internally by saveMatch to resolve stake participants.
    */
-  async getIntentUser(intentId: string): Promise<string | null> {
+  private async getIntentUser(intentId: string): Promise<string | null> {
     const res = await db.select({ odaUserId: intents.userId })
       .from(intents)
       .where(eq(intents.id, intentId));
@@ -446,13 +452,25 @@ export class OpportunityService {
   }
 
   /**
-   * Save a new stake between two intents into the database.
-   * Creates the stake entry and join table entries in a transaction.
+   * Persists a stake (match record) between two intents in a single transaction.
    * 
-   * @param params - Stake creation parameters.
-   * @returns The created stake ID.
+   * Stakes are the core "match" artifact in the opportunity system. They represent
+   * a confirmed connection between two users based on complementary intents. The
+   * transactional approach ensures atomicity: either both the stake and all its
+   * join table entries are created, or none are (preventing orphaned records).
+   * 
+   * Intent IDs are sorted before storage to ensure consistent deduplication—
+   * a stake between [A, B] and [B, A] would otherwise create duplicates.
+   * 
+   * @param params.intents - Array of intent IDs to link (exactly 2 for pair matches).
+   * @param params.stake - Confidence score as BigInt (0-100 scale).
+   * @param params.reasoning - Human-readable explanation of why this match was made.
+   * @param params.agentId - ID of the agent that created this stake (for auditing).
+   * @param params.userIds - User IDs corresponding to each intent (same order as intents).
+   * @returns The newly created stake's unique identifier.
+   * @private Only used internally by saveMatch; external code should use saveMatch.
    */
-  async createStake(params: {
+  private async createStake(params: {
     intents: string[];
     stake: bigint;
     reasoning: string;
@@ -470,7 +488,7 @@ export class OpportunityService {
         agentId: params.agentId
       }).returning({ id: intentStakes.id });
 
-      // Insert into join table
+      // Insert into join table for efficient querying by intent or user
       await tx.insert(intentStakeItems).values(
         sortedIntents.map((intentId, i) => ({
           stakeId: newStake.id,
@@ -524,13 +542,21 @@ export class OpportunityService {
   // ============================================================================
 
   /**
-   * Construct searchable text from a profile.
-   * Combines bio, location, context, interests, and skills.
+   * Constructs a single text blob from profile fields for embedding generation.
    * 
-   * @param profile - The user profile.
-   * @returns Concatenated profile text for embedding.
+   * Embedding models work best with natural text that captures the essence of
+   * what we're trying to match. By concatenating bio, location, context, interests,
+   * and skills, we create a holistic representation of the user that enables
+   * semantic similarity search. The order matters less than having all relevant
+   * signals present—the embedding model will capture the relationships.
+   * 
+   * Empty/null values are filtered out to avoid noise in the embedding.
+   * 
+   * @param profile - The user profile record from the database.
+   * @returns A space-separated string of all profile text content.
+   * @private Only used internally during embedding backfill and discovery.
    */
-  constructProfileText(profile: typeof userProfiles.$inferSelect): string {
+  private constructProfileText(profile: typeof userProfiles.$inferSelect): string {
     const parts = [
       profile.identity?.bio,
       profile.identity?.location,
@@ -542,12 +568,22 @@ export class OpportunityService {
   }
 
   /**
-   * Helper to execute IntentManager actions and return the effective Intent ID.
-   * Resolves intent actions (create/update) and returns the intent ID.
+   * Translates IntentManager action responses into actual database operations.
    * 
-   * @param userId - The user ID.
-   * @param actions - Array of intent actions from IntentManager.
-   * @returns The intent ID and score, or null if no actionable intent.
+   * The IntentManager agent returns declarative "actions" (create, update, expire,
+   * ignore) rather than performing operations directly. This method bridges that
+   * gap by executing the appropriate database calls based on the action type.
+   * 
+   * Priority order matters: Create takes precedence over Update because if the
+   * agent suggests creating a new intent, it means the opportunity is distinct
+   * enough to warrant a separate record rather than modifying an existing one.
+   * 
+   * Returns both the intent ID and its score because stake calculation needs
+   * both pieces of information to compute the final pair stake score.
+   * 
+   * @param userId - The user for whom the intent should be created/updated.
+   * @param actions - Array of action objects from IntentManager.processImplicitIntent().
+   * @returns Object with intent ID and felicity score, or null if no actionable intent.
    */
   async resolveIntentFromActions(userId: string, actions: any[]): Promise<{ id: string; score: number } | null> {
     // Priority: Create > Update > Ignore
@@ -800,7 +836,7 @@ export class OpportunityService {
 
               const candidateResponse = await intentManager.processImplicitIntent(
                 candidateProfileContext,
-                `Opportunity: ${op.title}. Reason: ${op.description}`,
+                `Opportunity: ${op.title}. Reason: ${op.candidateDescription}`,
                 candidateActiveContext
               );
 
@@ -1015,7 +1051,7 @@ export class OpportunityService {
 
           const candidateResponse = await intentManager.processImplicitIntent(
             candidateProfileContext,
-            `Opportunity: ${op.title}. Reason: ${op.description}`,
+            `Opportunity: ${op.title}. Reason: ${op.candidateDescription}`,
             candidateActiveContext
           );
 
