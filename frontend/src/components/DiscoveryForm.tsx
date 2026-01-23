@@ -16,11 +16,25 @@ interface RefinementSuggestion {
   prefill?: string;       // For prompt type
 }
 
+export interface MentionUser {
+  id: string;
+  name: string;
+  avatar?: string | null;
+}
+
 interface DiscoveryFormProps {
   onSubmit?: (intents: Array<{ id: string; payload: string; summary?: string; createdAt: string }>, actions?: IntentAction[]) => void;
   onRefine?: (intent: Intent) => void;
   intentId?: string; // When provided, form operates in refine mode
   floating?: boolean; // If true, renders as fixed floating at bottom; if false, renders inline
+  // Mention support props
+  enableMentions?: boolean;
+  onMentionSearch?: (query: string) => Promise<MentionUser[]>;
+  mentions?: MentionUser[];
+  onMentionsChange?: (mentions: MentionUser[]) => void;
+  // Custom submit for admin mode
+  onPromptSubmit?: (prompt: string, mentions: MentionUser[]) => void;
+  placeholder?: string;
 }
 
 export interface DiscoveryFormRef {
@@ -34,13 +48,31 @@ interface Attachment {
   preview?: string;
 }
 
-const DiscoveryForm = forwardRef<DiscoveryFormRef, DiscoveryFormProps>(({ onSubmit, onRefine, intentId, floating = false }, ref) => {
+const DiscoveryForm = forwardRef<DiscoveryFormRef, DiscoveryFormProps>(({ 
+  onSubmit, 
+  onRefine, 
+  intentId, 
+  floating = false,
+  enableMentions = false,
+  onMentionSearch,
+  mentions = [],
+  onMentionsChange,
+  onPromptSubmit,
+  placeholder
+}, ref) => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [inputValue, setInputValue] = useState("");
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [suggestions, setSuggestions] = useState<RefinementSuggestion[]>([]);
   const [isLoadingSuggestions, setIsLoadingSuggestions] = useState(false);
   const [applyingSuggestionIndex, setApplyingSuggestionIndex] = useState<number | null>(null);
+  // Mention state
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null);
+  const [mentionResults, setMentionResults] = useState<MentionUser[]>([]);
+  const [isMentionLoading, setIsMentionLoading] = useState(false);
+  const [selectedMentionIndex, setSelectedMentionIndex] = useState(0);
+  const mentionDropdownRef = useRef<HTMLDivElement>(null);
+  
   const { discoverService, intentsService } = useAPI();
   const { getAccessToken } = usePrivy();
   const { error } = useNotifications();
@@ -132,6 +164,96 @@ const DiscoveryForm = forwardRef<DiscoveryFormRef, DiscoveryFormProps>(({ onSubm
     };
   }, []);
 
+  // Mention search effect
+  useEffect(() => {
+    if (!enableMentions || !onMentionSearch || mentionQuery === null) {
+      // Only update if there are results to clear
+      if (mentionResults.length > 0) {
+        setMentionResults([]);
+      }
+      return;
+    }
+
+    const searchMentions = async () => {
+      if (mentionQuery.length === 0) {
+        if (mentionResults.length > 0) {
+          setMentionResults([]);
+        }
+        return;
+      }
+      
+      setIsMentionLoading(true);
+      try {
+        const results = await onMentionSearch(mentionQuery);
+        // Filter out already mentioned users
+        const filteredResults = results.filter(
+          r => !mentions.some(m => m.id === r.id)
+        );
+        setMentionResults(filteredResults);
+        setSelectedMentionIndex(0);
+      } catch (err) {
+        console.error('Mention search failed:', err);
+        setMentionResults([]);
+      } finally {
+        setIsMentionLoading(false);
+      }
+    };
+
+    const timeoutId = setTimeout(searchMentions, 200);
+    return () => clearTimeout(timeoutId);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mentionQuery, enableMentions, onMentionSearch, mentions]);
+
+  // Handle input change with @ detection
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    setInputValue(value);
+
+    if (!enableMentions) return;
+
+    // Detect @ mention
+    const cursorPos = e.target.selectionStart || value.length;
+    const textBeforeCursor = value.slice(0, cursorPos);
+    const atMatch = textBeforeCursor.match(/@(\w*)$/);
+    
+    if (atMatch) {
+      setMentionQuery(atMatch[1]);
+    } else {
+      setMentionQuery(null);
+    }
+  };
+
+  // Handle selecting a mention
+  const handleSelectMention = (user: MentionUser) => {
+    // Replace @query with @name in input
+    const cursorPos = inputRef.current?.selectionStart || inputValue.length;
+    const textBeforeCursor = inputValue.slice(0, cursorPos);
+    const atMatch = textBeforeCursor.match(/@(\w*)$/);
+    
+    if (atMatch) {
+      const beforeAt = textBeforeCursor.slice(0, atMatch.index);
+      const afterCursor = inputValue.slice(cursorPos);
+      const newValue = `${beforeAt}@${user.name} ${afterCursor}`;
+      setInputValue(newValue);
+    }
+    
+    // Add to mentions
+    if (onMentionsChange) {
+      onMentionsChange([...mentions, user]);
+    }
+    
+    setMentionQuery(null);
+    setMentionResults([]);
+    inputRef.current?.focus();
+  };
+
+  // Remove a mention
+  const handleRemoveMention = (userId: string) => {
+    if (onMentionsChange) {
+      onMentionsChange(mentions.filter(m => m.id !== userId));
+    }
+  };
+
   // Handle refining intent with followup text
   const handleRefine = async (followupText: string) => {
     if (!intentId || isProcessing) return;
@@ -185,6 +307,18 @@ const DiscoveryForm = forwardRef<DiscoveryFormRef, DiscoveryFormProps>(({ onSubm
     // If in refine mode (intentId provided), use refine flow
     if (intentId && text) {
       await handleRefine(text);
+      return;
+    }
+
+    // If using onPromptSubmit (admin mode), use that instead
+    if (onPromptSubmit) {
+      setIsProcessing(true);
+      try {
+        await onPromptSubmit(text, mentions);
+        setInputValue("");
+      } finally {
+        setIsProcessing(false);
+      }
       return;
     }
 
@@ -269,6 +403,26 @@ const DiscoveryForm = forwardRef<DiscoveryFormRef, DiscoveryFormProps>(({ onSubm
         </div>
       )}
 
+      {/* Mention chips (when mentions are enabled) */}
+      {enableMentions && mentions.length > 0 && (
+        <div className="px-3 pt-2 pb-1 flex flex-wrap gap-1.5">
+          {mentions.map((user) => (
+            <div
+              key={user.id}
+              className="inline-flex items-center gap-1.5 px-2 py-1 bg-blue-50 border border-blue-200 rounded text-xs font-ibm-plex-mono text-blue-700"
+            >
+              <span>@{user.name}</span>
+              <button
+                onClick={() => handleRemoveMention(user.id)}
+                className="hover:text-blue-900 transition-colors"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* Attachment chips */}
       {attachments.length > 0 && (
         <div className="px-2 pt-2 pb-1 flex flex-wrap gap-2">
@@ -307,7 +461,7 @@ const DiscoveryForm = forwardRef<DiscoveryFormRef, DiscoveryFormProps>(({ onSubm
       )}
 
       {/* Input row */}
-      <div className="flex items-center px-3 py-2 min-h-[48px]">
+      <div className="relative flex items-center px-3 py-2 min-h-[48px]">
         <input
           ref={fileInputRef}
           type="file"
@@ -320,17 +474,71 @@ const DiscoveryForm = forwardRef<DiscoveryFormRef, DiscoveryFormProps>(({ onSubm
           ref={inputRef}
           type="text"
           value={inputValue}
-          onChange={(e) => setInputValue(e.target.value)}
+          onChange={handleInputChange}
           onKeyDown={(e) => {
+            // Handle mention navigation
+            if (mentionQuery !== null && mentionResults.length > 0) {
+              if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                setSelectedMentionIndex(i => Math.min(i + 1, mentionResults.length - 1));
+                return;
+              }
+              if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                setSelectedMentionIndex(i => Math.max(i - 1, 0));
+                return;
+              }
+              if (e.key === 'Enter' || e.key === 'Tab') {
+                e.preventDefault();
+                handleSelectMention(mentionResults[selectedMentionIndex]);
+                return;
+              }
+              if (e.key === 'Escape') {
+                e.preventDefault();
+                setMentionQuery(null);
+                return;
+              }
+            }
+            
             if (e.key === 'Enter' && !e.shiftKey) {
               e.preventDefault();
               handleSubmit();
             }
           }}
-          placeholder={isProcessing ? "Thinking..." : (intentId ? "Ask a follow-up question..." : (floating ? "Ask a follow-up question..." : "What's your most important work?"))}
+          placeholder={isProcessing ? "Thinking..." : (placeholder || (intentId ? "Ask a follow-up question..." : (floating ? "Ask a follow-up question..." : "What's your most important work?")))}
           className={`flex-1 font-ibm-plex-mono text-black ${floating ? 'text-md' : 'text-lg'} focus:outline-none bg-transparent disabled:opacity-50 disabled:cursor-not-allowed`}
           disabled={isProcessing}
         />
+        
+        {/* Mention dropdown */}
+        {enableMentions && mentionQuery !== null && (mentionResults.length > 0 || isMentionLoading) && (
+          <div 
+            ref={mentionDropdownRef}
+            className="absolute left-3 right-3 bottom-full mb-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-48 overflow-y-auto z-50"
+          >
+            {isMentionLoading ? (
+              <div className="px-3 py-2 text-xs text-gray-500 font-ibm-plex-mono flex items-center gap-2">
+                <Loader2 className="w-3 h-3 animate-spin" />
+                Searching...
+              </div>
+            ) : (
+              mentionResults.map((user, index) => (
+                <button
+                  key={user.id}
+                  onClick={() => handleSelectMention(user)}
+                  className={`w-full px-3 py-2 text-left text-sm font-ibm-plex-mono flex items-center gap-2 transition-colors ${
+                    index === selectedMentionIndex ? 'bg-gray-100' : 'hover:bg-gray-50'
+                  }`}
+                >
+                  {user.avatar && (
+                    <img src={user.avatar} alt="" className="w-5 h-5 rounded-full" />
+                  )}
+                  <span className="text-gray-900">{user.name}</span>
+                </button>
+              ))
+            )}
+          </div>
+        )}
         {isProcessing ? (
           <button
             onClick={() => setIsProcessing(false)}
