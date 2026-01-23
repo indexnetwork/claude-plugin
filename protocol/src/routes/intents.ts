@@ -8,7 +8,8 @@ import { suggestTags } from '../agents/core/intent_tag_suggester';
 import { summarizeIntent } from '../agents/core/intent_summarizer';
 import { intentService } from '../services/intent.service';
 import { generateEmbedding } from '../lib/embeddings';
-import { traceableLlm, traceableStructuredLlm } from '../lib/agents';
+import { IntentSuggester } from '../agents/intent/suggester/intent.suggester';
+import { IntentRefiner } from '../agents/intent/refiner/intent.refiner';
 import db from '../lib/db';
 import { intents } from '../lib/schema';
 import { Events } from '../lib/events';
@@ -309,44 +310,24 @@ router.post('/:id/refine',
 
       const originalPayload = intent[0].payload;
 
-      // Use LLM to generate refined payload
-      const refineCall = traceableLlm('intent-suggester', {
-        intentId: id,
-        originalLength: originalPayload.length,
-        followupLength: followupText.length
-      });
+      // Use IntentRefiner agent to generate refined payload
+      const refiner = new IntentRefiner();
+      const refineResult = await refiner.run(originalPayload, followupText);
 
-      const systemMessage = {
-        role: 'system',
-        content: `You are an intent refinement specialist. Your task is to refine a user's intent based on their followup input.
+      if (!refineResult) {
+        return res.status(500).json({ error: 'Failed to refine intent' });
+      }
 
-Rules:
-- Combine the original intent with the followup refinement
-- Keep the refined intent concise and clear (under 500 characters)
-- Preserve the core meaning while incorporating the refinement
-- Output ONLY the refined intent text, nothing else`
-      };
-
-      const userMessage = {
-        role: 'user',
-        content: `Original intent: ${originalPayload}
-
-Followup refinement: ${followupText}
-
-Generate the refined intent:`
-      };
-
-      const response = await refineCall([systemMessage, userMessage]);
-      const refinedPayload = (response.content as string).trim();
+      const refinedPayload = refineResult.refinedPayload;
 
       // Update the intent with refined payload
       const newSummary = await summarizeIntent(refinedPayload);
-      
+
       const updateData: any = {
         payload: refinedPayload,
         updatedAt: new Date()
       };
-      
+
       if (newSummary) {
         updateData.summary = newSummary;
       }
@@ -422,66 +403,12 @@ router.get('/:id/suggestions',
         return res.status(403).json({ error: 'Access denied' });
       }
 
-      // Use LLM to generate refinement suggestions
-      const suggestionsSchema = {
-        name: 'refinement_suggestions',
-        type: 'object',
-        properties: {
-          suggestions: {
-            type: 'array',
-            items: {
-              type: 'object',
-              properties: {
-                label: { type: 'string', description: 'Short chip label (max 40 chars)' },
-                type: { type: 'string', enum: ['direct', 'prompt'], description: 'direct = apply on click, prompt = prefill input for user to complete' },
-                followupText: { type: 'string', description: 'The followup text to apply (required for direct type)' },
-                prefill: { type: 'string', description: 'Partial text to prefill input (required for prompt type)' }
-              },
-              required: ['label', 'type']
-            }
-          }
-        },
-        required: ['suggestions']
-      };
-
-      const suggestCall = traceableStructuredLlm('intent-suggester', {
-        intentId: id,
-        payloadLength: intent[0].payload.length
-      });
-
-      const systemMessage = {
-        role: 'system',
-        content: `You are a helpful assistant that suggests ways to refine or narrow down a user's intent.
-
-Generate 3-5 contextual refinement suggestions based on the user's intent. Each suggestion has:
-- label: Short chip label (max 40 chars)
-- type: Either "direct" or "prompt"
-- followupText: Complete refinement text (required for "direct" type)
-- prefill: Partial text for user to complete (required for "prompt" type)
-
-Use "direct" type when the suggestion is complete and can be applied immediately:
-- { label: "Founded recently", type: "direct", followupText: "Founded in the last 2 years" }
-- { label: "Seed stage only", type: "direct", followupText: "Only seed stage companies" }
-
-Use "prompt" type when user input is needed to complete the refinement:
-- { label: "Add location", type: "prompt", prefill: "Focus on companies based in " }
-- { label: "Specific industry", type: "prompt", prefill: "In the " }
-- { label: "Company size", type: "prompt", prefill: "With team size of " }
-
-Mix both types to give users quick options and customizable refinements.`
-      };
-
-      const userMessage = {
-        role: 'user',
-        content: `Generate refinement suggestions for this intent:
-
-${intent[0].payload}`
-      };
-
-      const response = await suggestCall([systemMessage, userMessage], suggestionsSchema);
+      // Use IntentSuggester agent to generate refinement suggestions
+      const suggester = new IntentSuggester();
+      const result = await suggester.run(intent[0].payload);
 
       return res.json({
-        suggestions: response.suggestions || []
+        suggestions: result?.suggestions || []
       });
     } catch (error) {
       console.error('Get suggestions error:', error);
