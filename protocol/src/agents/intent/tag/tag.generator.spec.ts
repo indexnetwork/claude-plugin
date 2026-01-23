@@ -31,7 +31,7 @@ describe('IntentTagGenerator Tests', () => {
 
     const hasDevTag = res!.suggestions.some(t => t.value.includes('dev') || t.value.includes('engineer') || t.value.includes('react'));
     expect(hasDevTag).toBe(true);
-  });
+  }, 20000);
 
   test('With User Prompt "Crypto"', async () => {
     const intents = [
@@ -49,5 +49,5 @@ describe('IntentTagGenerator Tests', () => {
 
     const hasCryptoTag = res!.suggestions.some(t => t.value.includes('defi') || t.value.includes('crypto') || t.value.includes('blockchain'));
     expect(hasCryptoTag).toBe(true);
-  });
+  }, 20000);
 });

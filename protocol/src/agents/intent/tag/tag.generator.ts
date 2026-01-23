@@ -28,7 +28,7 @@ Tag rules:
 export class IntentTagGenerator extends BaseLangChainAgent {
   constructor() {
     super({
-      model: 'openai/gpt-4o',
+      preset: 'intent-tag-generator',
       responseFormat: IntentTagGeneratorOutputSchema,
       temperature: 0.1,
     });

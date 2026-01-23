@@ -72,7 +72,7 @@ export class SemanticVerifierAgent extends BaseLangChainAgent {
   constructor() {
     super({
       // Phase 2 requires high intelligence for context matching (Profile vs Text)
-      model: 'openai/gpt-4o',
+      preset: 'semantic-evaluator',
       responseFormat: SemanticVerifierOutputSchema,
       temperature: 0.2, // Low temperature for consistent scoring
     });

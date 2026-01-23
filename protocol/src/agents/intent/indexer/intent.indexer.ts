@@ -41,7 +41,7 @@ const IntentIndexerOutputSchema = z.object({
 export class IntentIndexer extends BaseLangChainAgent {
   constructor() {
     super({
-      model: 'openai/gpt-4o',
+      preset: 'intent-indexer',
       responseFormat: IntentIndexerOutputSchema,
       temperature: 0.1, // Deterministic evaluation
     });

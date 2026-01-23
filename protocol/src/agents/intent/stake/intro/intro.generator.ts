@@ -39,7 +39,7 @@ export const IntroGeneratorOutputSchema = z.object({
 export class IntroGenerator extends BaseLangChainAgent {
   constructor(options: Partial<Parameters<typeof createAgent>[0]> = {}) {
     super({
-      model: 'openai/gpt-4o',
+      preset: 'intro-generator',
       responseFormat: IntroGeneratorOutputSchema,
       temperature: 0.4, // Slightly higher for "warmth"
       ...options

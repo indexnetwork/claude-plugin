@@ -58,7 +58,7 @@ export class HydeGeneratorAgent extends BaseLangChainAgent {
 
   constructor(embedder?: Embedder) {
     super({
-      model: 'openai/gpt-4o',
+      preset: 'hyde-generator',
       temperature: 0.5,
       responseFormat: HydeDescriptionSchema
     });
