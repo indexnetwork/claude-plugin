@@ -4,7 +4,7 @@ import db from '../lib/db';
 import { users, userConnectionEvents, indexes, indexMembers } from '../lib/schema';
 import { authenticatePrivy, AuthRequest } from '../middleware/auth';
 import { eq, isNull, and, or, desc, inArray, sql } from 'drizzle-orm';
-import { checkIndexOwnership } from '../lib/index-access';
+import { checkIndexOwnership, checkIndexAdminAccess } from '../lib/index-access';
 import { sendConnectionRequestEmail } from '../lib/email/notification.sender'; // Use lower-level sender to bypass checks
 import { stakeService } from '../services/stake.service';
 import { opportunityService } from '../services/opportunity.service';
@@ -567,12 +567,14 @@ router.post('/:indexId/opportunities',
       const { prompt, memberIds: requestedMemberIds, limit } = req.body;
 
       // Verify user is index owner
-      const ownerCheck = await checkIndexOwnership(indexId, userId);
-      if (!ownerCheck.hasAccess) {
-        return res.status(ownerCheck.status || 403).json({ 
-          error: ownerCheck.error || 'Only index owners can discover opportunities' 
+      const adminCheck = await checkIndexAdminAccess(indexId, userId);
+      if (!adminCheck.hasAccess) {
+        return res.status(adminCheck.status || 403).json({ 
+          error: adminCheck.error || 'Only index admins can discover opportunities' 
         });
       }
+
+      
 
       // Get member IDs to process
       let memberIds: string[] = requestedMemberIds;

@@ -117,22 +117,24 @@ function ClientWrapperContent({
         }
       `}</style>
 
-      {/* Header stays persistent across page changes */}
-      <div className="max-w-7xl mx-auto px-2">
-        <Header
-          showHeaderButtons={showHeaderButtons}
-          forcePublicView={forcePublicView}
-          onToggleSidebar={showSidebar ? () => setMobileSidebarOpen((v) => !v) : undefined}
-          isSidebarOpen={showSidebar ? mobileSidebarOpen : undefined}
-        />
+      {/* Header stays fixed at top */}
+      <div className="sticky top-0 z-40 bg-white/95 backdrop-blur-sm">
+        <div className="max-w-7xl mx-auto px-2">
+          <Header
+            showHeaderButtons={showHeaderButtons}
+            forcePublicView={forcePublicView}
+            onToggleSidebar={showSidebar ? () => setMobileSidebarOpen((v) => !v) : undefined}
+            isSidebarOpen={showSidebar ? mobileSidebarOpen : undefined}
+          />
+        </div>
       </div>
 
       {/* Page content with sidebar */}
       <main>
         <div className={`max-w-7xl mx-auto px-2 mt-10 flex ${showSidebar ? 'flex-col lg:flex-row' : 'flex-col'}`}>
-          {/* Left Sidebar */}
+          {/* Left Sidebar - sticky */}
           {showSidebar && (
-            <aside id="app-sidebar" className={`w-full lg:w-72 lg:flex-shrink-0 lg:top-6 mb-8 lg:mb-0 ${mobileSidebarOpen ? 'block' : 'hidden'} lg:block`}>
+            <aside id="app-sidebar" className={`w-full lg:w-72 lg:flex-shrink-0 mb-8 lg:mb-0 ${mobileSidebarOpen ? 'block' : 'hidden'} lg:block lg:self-start lg:sticky lg:top-20`}>
               <Sidebar />
             </aside>
           )}
@@ -160,9 +162,9 @@ function ClientWrapperContent({
             )}
           </div>
 
-          {/* Right Chat Sidebar - can access InboxProvider from inbox page */}
+          {/* Right Chat Sidebar - sticky */}
           {showChatSidebar && (
-            <aside className="hidden lg:block lg:w-72 lg:flex-shrink-0">
+            <aside className="hidden lg:block lg:w-72 lg:flex-shrink-0 lg:self-start lg:sticky lg:top-20">
               <ChatSidebar />
             </aside>
           )}

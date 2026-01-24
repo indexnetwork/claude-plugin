@@ -2,19 +2,21 @@
 
 import { use, useState, useCallback } from 'react';
 import ClientLayout from '@/components/ClientLayout';
-import DiscoveryForm, { MentionUser } from '@/components/DiscoveryForm';
+import DiscoveryForm, { MentionUser, Suggestion } from '@/components/DiscoveryForm';
 import OpportunityCard from '@/components/OpportunityCard';
 import { useAdmin, useIndexes } from '@/contexts/APIContext';
 import { useNotifications } from '@/contexts/NotificationContext';
 import { DiscoveredOpportunity } from '@/services/admin';
 import { Loader2, Sparkles } from 'lucide-react';
 
-// Quick action suggestions
-const QUICK_ACTIONS = [
-  { label: 'Hot opportunities', prompt: 'Find the most promising opportunities right now' },
-  { label: 'Investors', prompt: 'Find investors and funding opportunities' },
-  { label: 'Advisors', prompt: 'Find advisors and mentors' },
-  { label: 'Collaborators', prompt: 'Find potential collaborators with similar interests' },
+// Suggestions for the discovery form
+const SUGGESTIONS: Suggestion[] = [
+  { label: 'Filter by member', type: 'memberFilter' },
+  { label: 'Hot opportunities', type: 'direct', followupText: 'Find the most promising opportunities right now' },
+  { label: 'Investors', type: 'direct', followupText: 'Find investors and funding opportunities' },
+  { label: 'Advisors', type: 'direct', followupText: 'Find advisors and mentors' },
+  { label: 'Collaborators', type: 'direct', followupText: 'Find potential collaborators with similar interests' },
+  { label: 'Custom search...', type: 'prompt', prefill: 'Find opportunities for ' },
 ];
 
 export default function OpportunitiesPage({ params }: { params: Promise<{ indexId: string }> }) {
@@ -32,9 +34,17 @@ export default function OpportunitiesPage({ params }: { params: Promise<{ indexI
 
   // Search members for @mention
   const handleMentionSearch = useCallback(async (query: string): Promise<MentionUser[]> => {
-    if (!query.trim()) return [];
-    
     try {
+      if (!query.trim()) {
+        // Empty query: return first members from the index
+        const result = await indexesService.getMembers(indexId, { limit: 10 });
+        return result.members.map(m => ({
+          id: m.id,
+          name: m.name,
+          avatar: m.avatar
+        }));
+      }
+      // Search with query
       const users = await indexesService.searchUsers(query, indexId);
       return users.map(u => ({
         id: u.id,
@@ -79,11 +89,6 @@ export default function OpportunitiesPage({ params }: { params: Promise<{ indexI
     }
   }, [adminService, indexId, showError]);
 
-  // Handle quick action click
-  const handleQuickAction = (prompt: string) => {
-    handlePromptSubmit(prompt, mentions);
-  };
-
   // Handle dismiss
   const handleDismiss = (opportunity: DiscoveredOpportunity) => {
     const id = `${opportunity.sourceUser.id}-${opportunity.targetUser.id}`;
@@ -119,7 +124,7 @@ export default function OpportunitiesPage({ params }: { params: Promise<{ indexI
         </div>
 
         {/* Discovery Form */}
-        <div className="mb-4">
+        <div className="mb-6">
           <DiscoveryForm
             enableMentions={true}
             onMentionSearch={handleMentionSearch}
@@ -127,21 +132,8 @@ export default function OpportunitiesPage({ params }: { params: Promise<{ indexI
             onMentionsChange={setMentions}
             onPromptSubmit={handlePromptSubmit}
             placeholder="Find investors for @member, or try 'hot opportunities'..."
+            suggestions={SUGGESTIONS}
           />
-        </div>
-
-        {/* Quick Actions */}
-        <div className="mb-6 flex flex-wrap gap-2">
-          {QUICK_ACTIONS.map((action) => (
-            <button
-              key={action.label}
-              onClick={() => handleQuickAction(action.prompt)}
-              disabled={isLoading}
-              className="px-3 py-1.5 bg-gray-100 border border-gray-300 rounded text-xs font-ibm-plex-mono text-gray-700 hover:bg-gray-200 hover:border-gray-400 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {action.label}
-            </button>
-          ))}
         </div>
 
         {/* Results */}
