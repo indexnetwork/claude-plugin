@@ -75,8 +75,8 @@ export default function ConnectionActions({
           <button
             onClick={() => handleAction('SKIP')}
             disabled={disabled || isLoading}
-            className="justify-center cursor-pointer rounded-[1px] font-medium font-hanken ring-offset-white transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 border border-gray-400 text-gray-700 hover:bg-gray-100 hover:text-black h-7 px-2.5 text-xs flex items-center gap-2"
-            style={{ borderRadius: '5px' }}
+            className="justify-center cursor-pointer rounded-[2px] font-medium font-hanken ring-offset-white transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 border border-gray-400 text-gray-700 hover:bg-gray-100 hover:text-black h-7 px-2.5 text-xs flex items-center gap-2"
+            style={{ borderRadius: '2px' }}
           >
             Skip
           </button>
@@ -87,8 +87,8 @@ export default function ConnectionActions({
           <button
             onClick={() => handleAction('CANCEL')}
             disabled={disabled || isLoading}
-            className="justify-center cursor-pointer rounded-[1px] font-medium font-hanken ring-offset-white transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 border border-gray-400 text-gray-700 hover:bg-gray-100 hover:text-black h-7 px-2.5 text-xs flex items-center gap-2"
-            style={{ borderRadius: '5px' }}
+            className="justify-center cursor-pointer rounded-[2px] font-medium font-hanken ring-offset-white transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 border border-gray-400 text-gray-700 hover:bg-gray-100 hover:text-black h-7 px-2.5 text-xs flex items-center gap-2"
+            style={{ borderRadius: '2px' }}
           >
             <RotateCcw className="h-4 w-4" />
             Cancel
@@ -101,8 +101,8 @@ export default function ConnectionActions({
             <button
               onClick={() => handleAction('ACCEPT')}
               disabled={disabled || isLoading}
-              className="justify-center cursor-pointer rounded-[1px] font-medium font-hanken ring-offset-white transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 bg-green-600 hover:bg-green-700 text-white h-7 px-2.5 text-xs flex items-center gap-2"
-              style={{ borderRadius: '5px' }}
+              className="justify-center cursor-pointer rounded-[2px] font-medium font-hanken ring-offset-white transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 bg-green-600 hover:bg-green-700 text-white h-7 px-2.5 text-xs flex items-center gap-2"
+              style={{ borderRadius: '2px' }}
             >
               <Check className="h-4 w-4" />
               Accept
@@ -110,16 +110,16 @@ export default function ConnectionActions({
             <button
               onClick={() => handleAction('SKIP')}
               disabled={disabled || isLoading}
-              className="justify-center cursor-pointer rounded-[1px] font-medium font-hanken ring-offset-white transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 border border-gray-400 text-gray-700 hover:bg-gray-100 hover:text-black h-8 px-3 text-xs flex items-center gap-2"
-              style={{ borderRadius: '5px' }}
+              className="justify-center cursor-pointer rounded-[2px] font-medium font-hanken ring-offset-white transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 border border-gray-400 text-gray-700 hover:bg-gray-100 hover:text-black h-8 px-3 text-xs flex items-center gap-2"
+              style={{ borderRadius: '2px' }}
             >
               Skip
             </button>
             <button
               onClick={() => handleAction('DECLINE')}
               disabled={disabled || isLoading}
-              className="justify-center cursor-pointer rounded-[1px] font-medium font-hanken ring-offset-white transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 border border-gray-400 text-gray-700 hover:bg-gray-100 hover:text-black h-7 px-2.5 text-xs flex items-center gap-2"
-              style={{ borderRadius: '5px' }}
+              className="justify-center cursor-pointer rounded-[2px] font-medium font-hanken ring-offset-white transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 border border-gray-400 text-gray-700 hover:bg-gray-100 hover:text-black h-7 px-2.5 text-xs flex items-center gap-2"
+              style={{ borderRadius: '2px' }}
             >
               <X className="h-4 w-4" />
               Decline
@@ -153,8 +153,8 @@ export default function ConnectionActions({
         <button
           onClick={handleMessage}
           disabled={disabled || connectionStatus === 'pending_sent'}
-          className="justify-center cursor-pointer rounded-[1px] font-medium font-hanken ring-offset-white transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 bg-black text-white hover:bg-gray-800 h-7 px-2.5 text-xs flex items-center gap-2"
-          style={{ borderRadius: '5px' }}
+          className="justify-center cursor-pointer rounded-[2px] font-medium font-hanken ring-offset-white transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 bg-black text-white hover:bg-gray-800 h-7 px-2.5 text-xs flex items-center gap-2"
+          style={{ borderRadius: '2px' }}
         >
           {getMessageButtonLabel()}
         </button>
