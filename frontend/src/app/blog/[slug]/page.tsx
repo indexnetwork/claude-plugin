@@ -1,9 +1,9 @@
 import { getPostBySlug, getAllPostSlugs } from '@/lib/blog';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
-import Image from 'next/image';
 import ReactMarkdown from 'react-markdown';
 import { Components } from 'react-markdown';
+import Footer from '@/components/Footer';
 
 export async function generateStaticParams() {
   const slugs = getAllPostSlugs();
@@ -88,7 +88,8 @@ export default async function BlogPostPage({ params }: { params: Promise<{ slug:
   }
 
   return (
-    <div className="max-w-3xl mx-auto px-4 py-8">
+    <div className="min-h-screen flex flex-col">
+    <div className="max-w-3xl w-full mx-auto px-4 py-8 flex-1">
       {/* Back link */}
       <Link 
         href="/blog" 
@@ -131,23 +132,8 @@ export default async function BlogPostPage({ params }: { params: Promise<{ slug:
         <ReactMarkdown components={markdownComponents}>{post.content}</ReactMarkdown>
       </article>
 
-      {/* Footer */}
-      <footer className="mt-16 pt-8 border-t border-gray-200">
-        <div className="flex items-center justify-between">
-          <Link href="/">
-            <Image
-              src="/logo-black.svg"
-              alt="Index Network"
-              width={80}
-              height={28}
-              className="object-contain opacity-60 hover:opacity-100 transition-opacity"
-            />
-          </Link>
-          <p className="text-sm text-gray-500 font-ibm-plex-mono">
-            © {new Date().getFullYear()} Index Network
-          </p>
-        </div>
-      </footer>
+    </div>
+    <Footer />
     </div>
   );
 }

@@ -4,6 +4,7 @@ import { BlogPost } from '@/lib/blog';
 import Link from 'next/link';
 import Image from 'next/image';
 import { useState, useEffect } from 'react';
+import Footer from '@/components/Footer';
 
 export default function BlogPage() {
   const [posts, setPosts] = useState<BlogPost[]>([]);
@@ -16,7 +17,8 @@ export default function BlogPage() {
   }, []);
 
   return (
-    <div className="max-w-3xl mx-auto px-4 py-8">
+    <div className="min-h-screen flex flex-col">
+    <div className="max-w-3xl w-full mx-auto px-4 py-8 flex-1">
       <div className="flex items-center justify-between mb-4">
         <h1 className="text-4xl md:text-5xl font-garamond font-medium text-black">
           Blog
@@ -99,23 +101,8 @@ export default function BlogPage() {
         </div>
       )}
 
-      {/* Footer */}
-      <footer className="mt-16 pt-8 border-t border-gray-200">
-        <div className="flex items-center justify-between">
-          <Link href="/">
-            <Image
-              src="/logo-black.svg"
-              alt="Index Network"
-              width={80}
-              height={28}
-              className="object-contain opacity-60 hover:opacity-100 transition-opacity"
-            />
-          </Link>
-          <p className="text-sm text-gray-500 font-hanken">
-            © {new Date().getFullYear()} Index Network
-          </p>
-        </div>
-      </footer>
+    </div>
+    <Footer />
     </div>
   );
 }
