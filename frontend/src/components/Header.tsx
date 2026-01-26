@@ -358,18 +358,19 @@ export default function Header({ onToggleSidebar, isSidebarOpen, showHeaderButto
             <div className="flex items-center gap-4">
               <Link 
                 href="/blog" 
-                className="font-ibm-plex-mono  text-sm text-black hover:text-gray-600 transition-colors"
+                className="font-hanken text-sm text-black hover:text-gray-600 transition-colors font-medium uppercase"
               >
-                BLOG
+                Blog
               </Link>
-              <Button
-                variant="outline"
-                className="flex items-center px-3 py-5"
+              <button
                 onClick={login}
+                className="bg-black text-white rounded-[2px] px-5 py-3 font-semibold text-sm inline-flex items-center gap-2 transition-all hover:bg-[#333] hover:-translate-y-[1px] uppercase tracking-wider cursor-pointer"
               >
-                <LogIn className="h-5 w-5" />
-                <span className="hidden sm:inline mx-2">Login</span>
-              </Button>
+                Login
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} className="w-4 h-4">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6" />
+                </svg>
+              </button>
             </div>
           ) : (
             <div className="flex items-center gap-4">
