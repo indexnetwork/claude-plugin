@@ -42,7 +42,7 @@ export default function LibraryModal({ open, onOpenChange, onChanged }: Props) {
   const { syncService, filesService, linksService, intentsService, integrationsService } = useAPI();
   const api = useAuthenticatedAPI(); // Keep for specialized endpoints
   const router = useRouter();
-  const { setDiscoveryIntents } = useDiscoveryFilter();
+  useDiscoveryFilter(); // Context hook kept for future use
   const [isUploading, setIsUploading] = useState(false);
   const [linkUrl, setLinkUrl] = useState("");
   const [isAddingLink, setIsAddingLink] = useState(false);
@@ -412,22 +412,12 @@ export default function LibraryModal({ open, onOpenChange, onChanged }: Props) {
   }, [intentsService, success, error, loadLibraryIntents]);
 
   const handleOpenIntentSource = useCallback((intent: LibrarySourceIntent) => {
-    // Set the discovery intent filter
-    setDiscoveryIntents([{
-      id: intent.id,
-      payload: intent.payload,
-      summary: intent.summary || undefined,
-      createdAt: intent.createdAt
-    }]);
-    
     // Close modal
     onOpenChange(false);
     
-    // Navigate to inbox if not already there
-    if (typeof window !== 'undefined' && !window.location.pathname.includes('/inbox')) {
-      router.push('/inbox');
-    }
-  }, [setDiscoveryIntents, onOpenChange, router]);
+    // Navigate to intent route
+    router.push(`/i/${intent.id}`);
+  }, [onOpenChange, router]);
 
 
   const handleDisconnectIntegration = useCallback(async (type: IntegrationName) => {

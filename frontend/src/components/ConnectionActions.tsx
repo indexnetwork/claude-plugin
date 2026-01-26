@@ -1,15 +1,16 @@
 "use client";
 
 import { useState } from "react";
-import { Button } from "@/components/ui/button";
-import { UserPlus, X, Check, RotateCcw } from "lucide-react";
+import { X, Check, RotateCcw } from "lucide-react";
 import { useNotifications } from "@/contexts/NotificationContext";
+import { useStreamChat } from "@/contexts/StreamChatContext";
 
 export type ConnectionAction = 'REQUEST' | 'SKIP' | 'CANCEL' | 'ACCEPT' | 'DECLINE';
 
 export interface ConnectionActionsProps {
   userId: string;
   userName: string;
+  userAvatar?: string;
   connectionStatus?: 'none' | 'pending_sent' | 'pending_received' | 'connected' | 'declined' | 'skipped';
   onAction: (action: ConnectionAction, userId: string) => Promise<void>;
   disabled?: boolean;
@@ -18,13 +19,21 @@ export interface ConnectionActionsProps {
 
 export default function ConnectionActions({
   userId,
+  userName,
+  userAvatar,
   connectionStatus = 'none',
   onAction,
   disabled = false,
-  size = 'sm',
 }: ConnectionActionsProps) {
   const [isLoading, setIsLoading] = useState(false);
   const { success, error } = useNotifications();
+  const { openChat, isReady: isChatReady } = useStreamChat();
+
+  // Handle message button click - always opens chat view
+  // The chat view will show appropriate notice for non-connected users
+  const handleMessage = () => {
+    openChat(userId, userName, userAvatar);
+  };
 
   const handleAction = async (action: ConnectionAction) => {
     if (disabled || isLoading) return;
@@ -34,20 +43,17 @@ export default function ConnectionActions({
       await onAction(action, userId);
 
       switch (action) {
-        case 'REQUEST':
-          success("Request Sent", "Your invitation is sent");
-          break;
         case 'CANCEL':
-          success("Request Withdrawn", "Connection request withdrawn.");
+          success("Request Withdrawn", "Message request withdrawn.");
           break;
         case 'ACCEPT':
-          success("Connection Accepted", "Your intro email is on the way. Stay tuned!");
+          success("Connection Accepted", "You can now chat freely!");
           break;
         case 'DECLINE':
-          success("Connection Declined", "The connection request has been declined.");
+          success("Request Declined", "The message request has been declined.");
           break;
         case 'SKIP':
-          success("Suggestion Skipped", "We'll show you fewer people like this.");
+          success("Skipped", "We'll show you fewer suggestions like this.");
           break;
       }
     } catch (err) {
@@ -64,84 +70,95 @@ export default function ConnectionActions({
       case 'none':
       case 'declined':
       case 'skipped':
+        // Skip button to dismiss this suggestion
         return (
-          <>
-            <Button
-              variant="default"
-              size={size}
-              onClick={() => handleAction('REQUEST')}
-              disabled={disabled || isLoading}
-              className="flex items-center gap-2"
-            >
-              <UserPlus className="h-4 w-4" />
-              Connect
-            </Button>
-            <Button
-              variant="outline"
-              size={size}
-              onClick={() => handleAction('SKIP')}
-              disabled={disabled || isLoading}
-              className="flex items-center gap-2"
-            >
-              Skip
-            </Button>
-          </>
+          <button
+            onClick={() => handleAction('SKIP')}
+            disabled={disabled || isLoading}
+            className="justify-center cursor-pointer rounded-[2px] font-medium font-hanken ring-offset-white transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 border border-gray-400 text-gray-700 hover:bg-gray-100 hover:text-black h-7 px-2.5 text-xs flex items-center gap-2"
+            style={{ borderRadius: '2px' }}
+          >
+            Skip
+          </button>
         );
 
       case 'pending_sent':
         return (
-          <Button
-            variant="outline"
-            size={size}
+          <button
             onClick={() => handleAction('CANCEL')}
             disabled={disabled || isLoading}
-            className="flex items-center gap-2 text-gray-600"
+            className="justify-center cursor-pointer rounded-[2px] font-medium font-hanken ring-offset-white transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 border border-gray-400 text-gray-700 hover:bg-gray-100 hover:text-black h-7 px-2.5 text-xs flex items-center gap-2"
+            style={{ borderRadius: '2px' }}
           >
             <RotateCcw className="h-4 w-4" />
-            Cancel Request
-          </Button>
+            Cancel
+          </button>
         );
 
       case 'pending_received':
         return (
           <>
-            <Button
-              variant="default"
-              size={size}
+            <button
               onClick={() => handleAction('ACCEPT')}
               disabled={disabled || isLoading}
-              className="flex items-center gap-2 bg-green-600 hover:bg-green-700"
+              className="justify-center cursor-pointer rounded-[2px] font-medium font-hanken ring-offset-white transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 bg-green-600 hover:bg-green-700 text-white h-7 px-2.5 text-xs flex items-center gap-2"
+              style={{ borderRadius: '2px' }}
             >
               <Check className="h-4 w-4" />
               Accept
-            </Button>
-            <Button
-              variant="outline"
-              size={size}
+            </button>
+            <button
+              onClick={() => handleAction('SKIP')}
+              disabled={disabled || isLoading}
+              className="justify-center cursor-pointer rounded-[2px] font-medium font-hanken ring-offset-white transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 border border-gray-400 text-gray-700 hover:bg-gray-100 hover:text-black h-8 px-3 text-xs flex items-center gap-2"
+              style={{ borderRadius: '2px' }}
+            >
+              Skip
+            </button>
+            <button
               onClick={() => handleAction('DECLINE')}
               disabled={disabled || isLoading}
-              className="flex items-center gap-2 text-red-600 hover:text-red-700"
+              className="justify-center cursor-pointer rounded-[2px] font-medium font-hanken ring-offset-white transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 border border-gray-400 text-gray-700 hover:bg-gray-100 hover:text-black h-7 px-2.5 text-xs flex items-center gap-2"
+              style={{ borderRadius: '2px' }}
             >
               <X className="h-4 w-4" />
               Decline
-            </Button>
+            </button>
           </>
         );
 
       case 'connected':
-        return (
-          <div className="flex items-center gap-2 px-3 py-2 text-sm text-gray-600">
-            Connected
-          </div>
-        );
+        return null; // Message button handles this case
 
       default:
         return null;
     }
   };
 
+  // Get message button label based on status
+  const getMessageButtonLabel = () => {
+    switch (connectionStatus) {
+      case 'pending_sent':
+        return 'Pending';
+      case 'connected':
+        return 'Start a conversation';
+      default:
+        return 'Start a conversation';
+    }
+  };
+
   return (
     <div className="flex items-center gap-2">
+      {isChatReady && (
+        <button
+          onClick={handleMessage}
+          disabled={disabled || connectionStatus === 'pending_sent'}
+          className="justify-center cursor-pointer rounded-[2px] font-medium font-hanken ring-offset-white transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 bg-black text-white hover:bg-gray-800 h-7 px-2.5 text-xs flex items-center gap-2"
+          style={{ borderRadius: '2px' }}
+        >
+          {getMessageButtonLabel()}
+        </button>
+      )}
       {renderActions()}
     </div>
   );

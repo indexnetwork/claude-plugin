@@ -11,20 +11,23 @@ console.log(process.env.DATABASE_URL);
 import { Command } from 'commander';
 import { eq } from 'drizzle-orm';
 import db, { closeDb } from '../lib/db';
-import { intents, intentIndexes, intentStakes, intentStakeItems, indexMembers, indexes, users } from '../lib/schema';
+import { indexMembers, indexes, users, userProfiles, agents } from '../lib/schema';
 import { privyClient } from '../lib/privy';
 import { setLevel } from '../lib/log';
-import { generateEmbedding } from '../lib/embeddings';
+
 
 type GlobalOpts = {
   silent?: boolean;
   confirm?: boolean;
+  type?: 'open' | 'restricted' | 'both';
 };
 
-const INDEX_ID = '5aff6cd6-d64e-4ef9-8bcf-6c89815f771c';
-const SEMANTIC_RELEVANCY_AGENT_ID = '028ef80e-9b1c-434b-9296-bb6130509482';
+const OPEN_INDEX_ID = '5aff6cd6-d64e-4ef9-8bcf-6c89815f771c';
+const RESTRICTED_INDEX_ID = '99999999-d64e-4ef9-8bcf-6c89815f771c'; // New mocked ID
+const OPPORTUNITY_AGENT_ID = '028ef80e-9b1c-434b-9296-bb6130509482'; // System Agent for Opportunities
 
-import { PRIVY_TEST_ACCOUNTS, INTENTS } from './test-data';
+
+import { TESTABLE_TEST_ACCOUNTS } from './test-data';
 
 async function ensurePrivyIdentity(email: string): Promise<string> {
   let privyUser = await privyClient.getUserByEmail(email);
@@ -36,15 +39,24 @@ async function ensurePrivyIdentity(email: string): Promise<string> {
   return privyUser.id;
 }
 
-async function createUser(account: typeof PRIVY_TEST_ACCOUNTS[0]): Promise<any> {
+async function createUser(account: typeof TESTABLE_TEST_ACCOUNTS[0]): Promise<any> {
   const privyId = await ensurePrivyIdentity(account.email);
 
   try {
+    // Extract socials
+    const socials = {
+      linkedin: (account as any).linkedin,
+      github: (account as any).github,
+      x: (account as any).x,
+      websites: (account as any).website ? [(account as any).website] : []
+    };
+
     const [user] = await db.insert(users).values({
       privyId,
       email: account.email,
       name: account.name,
       intro: `Test account for ${account.name}`,
+      socials,
       onboarding: {}
     }).returning();
     return user;
@@ -54,101 +66,91 @@ async function createUser(account: typeof PRIVY_TEST_ACCOUNTS[0]): Promise<any> 
   }
 }
 
-async function createIntent(user: any, payload: string): Promise<string> {
-  // Generate embedding for the intent
-  let embedding: number[] | undefined;
+async function seedDatabase(type: 'open' | 'restricted' | 'both'): Promise<{ ok: boolean; error?: string }> {
   try {
-    embedding = await generateEmbedding(payload);
-    console.log(`Generated embedding for intent: "${payload.slice(0, 50)}..."`);
-  } catch (error) {
-    console.error(`Failed to generate embedding for intent:`, error);
-  }
+    console.log(`Generating minimal mock data (type: ${type})...`);
 
-  const [intent] = await db.insert(intents).values({
-    payload,
-    summary: payload.slice(0, 100),
-    userId: user.id,
-    embedding,
-  }).returning();
-
-  await db.insert(intentIndexes).values({
-    intentId: intent.id,
-    indexId: INDEX_ID,
-  });
-
-  return intent.id;
-}
-
-async function seedDatabase(): Promise<{ ok: boolean; error?: string }> {
-  try {
-    console.log('Generating minimal mock data...');
-
-    // Create index
+    // Create indexes
     try {
-      await db.insert(indexes).values({
-        id: INDEX_ID,
-        title: 'Mock Demo Network',
-        prompt: 'Share collaboration opportunities',
-        permissions: {
-          joinPolicy: 'anyone',
-          invitationLink: null,
-          allowGuestVibeCheck: false,
-          requireApproval: false
-        },
-      });
+      // 1. Open Index (No Approval)
+      if (type === 'open' || type === 'both') {
+        await db.insert(indexes).values({
+          id: OPEN_INDEX_ID,
+          title: 'Open Mock Network',
+          prompt: 'Share collaboration opportunities',
+          permissions: {
+            joinPolicy: 'anyone',
+            invitationLink: null,
+            allowGuestVibeCheck: false,
+            requireApproval: false // Open
+          },
+        });
+      }
+
+      // 2. Restricted Index (Requires Approval)
+      if (type === 'restricted' || type === 'both') {
+        await db.insert(indexes).values({
+          id: RESTRICTED_INDEX_ID,
+          title: 'Restricted Mock Network',
+          prompt: 'Exclusive members only',
+          permissions: {
+            joinPolicy: 'invite_only',
+            invitationLink: null,
+            allowGuestVibeCheck: false,
+            requireApproval: true // Restricted
+          },
+        });
+      }
     } catch { }
 
-    // Create users and intents
-    const createdUsers = [];
-    const intentIds = [];
+    // Create System Agents
+    try {
+      await db.insert(agents).values({
+        id: OPPORTUNITY_AGENT_ID,
+        name: 'Opportunity Finder',
+        description: 'Matches users based on semantic profile analysis (HyDE)',
+        avatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=opportunity',
+      }).onConflictDoNothing();
+    } catch (e) { console.error('Failed to seed agents', e); }
 
-    for (const [i, account] of PRIVY_TEST_ACCOUNTS.entries()) {
+    // Create users
+    const createdUsers = [];
+
+    for (const [i, account] of TESTABLE_TEST_ACCOUNTS.entries()) {
       const user = await createUser(account);
       createdUsers.push(user);
 
-      // Add to index
-      try {
-        await db.insert(indexMembers).values({
-          indexId: INDEX_ID,
-          userId: user.id,
-          permissions: i === 0 ? ['owner'] : ['member'],
-          prompt: 'everything',
-          autoAssign: true,
-        });
-      } catch { }
-
-      // Create intent
-      const payload = INTENTS[i % INTENTS.length];
-      const intentId = await createIntent(user, payload);
-      intentIds.push(intentId);
-    }
-
-    // Connect all users to everyone (create stakes between all pairs of intents)
-    for (let i = 0; i < createdUsers.length; i++) {
-      for (let j = i + 1; j < createdUsers.length; j++) {
-        const intentPair = [intentIds[i], intentIds[j]].sort();
-
+      // Add to Open Index
+      if (type === 'open' || type === 'both') {
         try {
-          // Create stake
-          const [newStake] = await db.insert(intentStakes).values({
-            intents: intentPair,
-            stake: BigInt(100),
-            reasoning: `${createdUsers[i].name} and ${createdUsers[j].name} should connect`,
-            agentId: SEMANTIC_RELEVANCY_AGENT_ID,
-          }).returning({ id: intentStakes.id });
+          await db.insert(indexMembers).values({
+            indexId: OPEN_INDEX_ID,
+            userId: user.id,
+            permissions: i === 0 ? ['owner'] : ['member'],
+            prompt: 'everything',
+            autoAssign: true,
+          });
+        } catch { }
+      }
 
-          // Insert into join table with denormalized user_id
-          await db.insert(intentStakeItems).values([
-            { stakeId: newStake.id, intentId: intentIds[i], userId: createdUsers[i].id },
-            { stakeId: newStake.id, intentId: intentIds[j], userId: createdUsers[j].id }
-          ]);
+      // Add to Restricted Index
+      if (type === 'restricted' || type === 'both') {
+        try {
+          await db.insert(indexMembers).values({
+            indexId: RESTRICTED_INDEX_ID,
+            userId: user.id,
+            permissions: i === 0 ? ['owner'] : ['member'],
+            prompt: 'exclusive stuff',
+            autoAssign: true,
+          });
         } catch { }
       }
     }
 
-    console.log(`✅ Created ${createdUsers.length} users with connected intents`);
+    console.log(`✅ Created ${createdUsers.length} users with profiles`);
+
     console.log('\nLogin credentials:');
-    PRIVY_TEST_ACCOUNTS.forEach(acc =>
+    TESTABLE_TEST_ACCOUNTS.forEach(acc =>
       console.log(`${acc.name}: ${acc.email} | ${acc.phoneNumber} | OTP: ${acc.otpCode}`)
     );
 
@@ -166,6 +168,7 @@ async function main(): Promise<void> {
     .description('Seed database with mock data')
     .option('--silent', 'Suppress non-error output')
     .option('--confirm', 'Skip confirmation prompt')
+    .option('-t, --type <type>', 'Type of index to seed: open, restricted, or both', 'both')
     .action(async (opts: GlobalOpts) => {
       if (opts.silent) setLevel('error');
 
@@ -181,7 +184,14 @@ async function main(): Promise<void> {
         process.exit(1);
       }
 
-      const result = await seedDatabase();
+      // Validate type
+      if (opts.type && !['open', 'restricted', 'both'].includes(opts.type)) {
+        console.error('❌ Invalid type. Must be one of: open, restricted, both');
+        process.exit(1);
+      }
+
+      const seedType = opts.type || 'both';
+      const result = await seedDatabase(seedType);
 
       if (!result.ok) {
         console.error('❌ Seed failed:', result.error);

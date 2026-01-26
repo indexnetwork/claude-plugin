@@ -3,8 +3,10 @@ txt/
 protocol/temp-uploads/
 AGENTS.md
 postgres/
-.cursor
-package.json
+.cursor/rules
 .agent
 .vscode/
 !.vscode/index.code-workspace.default
+docker-compose.yml
+env.docker
+*.report.md

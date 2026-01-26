@@ -1,23 +1,42 @@
 "use client";
 
-import { useState, useRef, useEffect, forwardRef, useImperativeHandle, useMemo } from "react";
-import { Link, Paperclip, Radio } from "lucide-react";
-import { ReactTyped } from "react-typed";
+import { forwardRef, useImperativeHandle, useRef, useState, useCallback, useEffect } from "react";
 import { useAPI } from "@/contexts/APIContext";
+import { IntentAction } from "@/services/discover";
 import { usePrivy } from "@privy-io/react-auth";
 import { useNotifications } from "@/contexts/NotificationContext";
-import { validateFiles, getSupportedFileExtensions } from "../lib/file-validation";
+import { validateFiles, getSupportedFileExtensions, getFileCategoryBadge } from "@/lib/file-validation";
+import { ArrowUp, X, Loader2, Zap, Type, AtSign } from "lucide-react";
+import { Intent } from "@/types";
 
-interface DiscoveryFormProps {
-  onSubmit?: (intents: Array<{id: string; payload: string; summary?: string; createdAt: string}>) => void;
+export interface Suggestion {
+  label: string;
+  type: 'direct' | 'prompt' | 'memberFilter';
+  followupText?: string;  // For direct type
+  prefill?: string;       // For prompt type
 }
 
-interface AttachmentItem {
+export interface MentionUser {
   id: string;
-  type: 'file' | 'link';
   name: string;
-  file?: File; // Optional for links
-  url?: string; // Optional for files
+  avatar?: string | null;
+}
+
+interface DiscoveryFormProps {
+  onSubmit?: (intents: Array<{ id: string; payload: string; summary?: string; createdAt: string }>, actions?: IntentAction[]) => void;
+  onRefine?: (intent: Intent) => void;
+  intentId?: string; // When provided, form operates in refine mode
+  floating?: boolean; // If true, renders as fixed floating at bottom; if false, renders inline
+  // Mention support props
+  enableMentions?: boolean;
+  onMentionSearch?: (query: string) => Promise<MentionUser[]>;
+  mentions?: MentionUser[];
+  onMentionsChange?: (mentions: MentionUser[]) => void;
+  // Custom submit for admin mode
+  onPromptSubmit?: (prompt: string, mentions: MentionUser[]) => void;
+  placeholder?: string;
+  // Parent-provided suggestions
+  suggestions?: Suggestion[];
 }
 
 export interface DiscoveryFormRef {
@@ -25,542 +44,455 @@ export interface DiscoveryFormRef {
   focus: () => void;
 }
 
-const DiscoveryForm = forwardRef<DiscoveryFormRef, DiscoveryFormProps>(({ onSubmit }, ref) => {
-  const [inputFocused, setInputFocused] = useState(false);
-  const [attachments, setAttachments] = useState<AttachmentItem[]>([]);
-  const [isFileDialogOpen, setIsFileDialogOpen] = useState(false);
-  const [isProcessing, setIsProcessing] = useState(false);
+interface Attachment {
+  id: string;
+  file: File;
+  preview?: string;
+}
 
-  const [recentIntents, setRecentIntents] = useState<Array<{id: string; payload: string; summary: string | null; createdAt: Date}>>([]);
-  const [hasContent, setHasContent] = useState(false);
-  const [showTypedAnimation, setShowTypedAnimation] = useState(false);
-  const contentRef = useRef<HTMLDivElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const processingTimer = useRef<NodeJS.Timeout | null>(null);
-  const undoStack = useRef<Array<{html: string; attachments: AttachmentItem[]; cursorPos: {start: number; end: number} | null}>>([]);
-  const redoStack = useRef<Array<{html: string; attachments: AttachmentItem[]; cursorPos: {start: number; end: number} | null}>>([]);
-  const isUndoRedoing = useRef(false);
+const DiscoveryForm = forwardRef<DiscoveryFormRef, DiscoveryFormProps>(({ 
+  onSubmit, 
+  onRefine, 
+  intentId, 
+  floating = false,
+  enableMentions = false,
+  onMentionSearch,
+  mentions = [],
+  onMentionsChange,
+  onPromptSubmit,
+  placeholder,
+  suggestions: parentSuggestions
+}, ref) => {
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [inputValue, setInputValue] = useState("");
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [fetchedSuggestions, setFetchedSuggestions] = useState<Suggestion[]>([]);
+  const [isLoadingSuggestions, setIsLoadingSuggestions] = useState(false);
+  const [applyingSuggestionIndex, setApplyingSuggestionIndex] = useState<number | null>(null);
+  // Mention state
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null);
+  const [mentionResults, setMentionResults] = useState<MentionUser[]>([]);
+  const [isMentionLoading, setIsMentionLoading] = useState(false);
+  const [selectedMentionIndex, setSelectedMentionIndex] = useState(0);
+  const mentionDropdownRef = useRef<HTMLDivElement>(null);
+  
   const { discoverService, intentsService } = useAPI();
   const { getAccessToken } = usePrivy();
   const { error } = useNotifications();
+  const inputRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const previewUrlsRef = useRef<string[]>([]);
+  
+  // Track mention positions for atomic deletion
+  const mentionMapRef = useRef<Map<string, MentionUser>>(new Map());
+  
+  // Get plain text from contentEditable
+  const getPlainText = useCallback(() => {
+    if (!inputRef.current) return '';
+    return inputRef.current.innerText || '';
+  }, []);
+  
+  // Extract mentions from contentEditable
+  const extractMentions = useCallback((): MentionUser[] => {
+    if (!inputRef.current) return [];
+    const mentionSpans = inputRef.current.querySelectorAll('[data-mention-id]');
+    const extractedMentions: MentionUser[] = [];
+    mentionSpans.forEach(span => {
+      const id = span.getAttribute('data-mention-id');
+      const user = mentionMapRef.current.get(id || '');
+      if (user) {
+        extractedMentions.push(user);
+      }
+    });
+    return extractedMentions;
+  }, []);
+  
+  // Set cursor position in contentEditable
+  const setCursorToEnd = useCallback(() => {
+    if (!inputRef.current) return;
+    const range = document.createRange();
+    const sel = window.getSelection();
+    range.selectNodeContents(inputRef.current);
+    range.collapse(false);
+    sel?.removeAllRanges();
+    sel?.addRange(range);
+  }, []);
+  
+  // Insert mention span at current cursor position
+  const insertMentionSpan = useCallback((user: MentionUser, replaceLength: number) => {
+    if (!inputRef.current) return;
+    
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0) return;
+    
+    const range = sel.getRangeAt(0);
+    
+    // Delete the @query text
+    if (replaceLength > 0) {
+      range.setStart(range.startContainer, Math.max(0, range.startOffset - replaceLength));
+      range.deleteContents();
+    }
+    
+    // Create mention span
+    const mentionSpan = document.createElement('span');
+    mentionSpan.className = 'text-blue-600 font-medium';
+    mentionSpan.setAttribute('data-mention-id', user.id);
+    mentionSpan.setAttribute('contenteditable', 'false');
+    mentionSpan.textContent = `@${user.name}`;
+    
+    // Insert mention span
+    range.insertNode(mentionSpan);
+    
+    // Add a space after
+    const space = document.createTextNode(' ');
+    mentionSpan.parentNode?.insertBefore(space, mentionSpan.nextSibling);
+    
+    // Move cursor after the space
+    range.setStartAfter(space);
+    range.setEndAfter(space);
+    sel.removeAllRanges();
+    sel.addRange(range);
+    
+    // Store in map
+    mentionMapRef.current.set(user.id, user);
+  }, []);
+
+  // In refine mode (intentId provided), fetch suggestions
+  useEffect(() => {
+    if (!intentId) {
+      setFetchedSuggestions([]);
+      return;
+    }
+
+    const fetchSuggestions = async () => {
+      setIsLoadingSuggestions(true);
+      try {
+        const result = await intentsService.getIntentSuggestions(intentId);
+        setFetchedSuggestions(result);
+      } catch (err) {
+        console.error('Failed to fetch suggestions:', err);
+        setFetchedSuggestions([]);
+      } finally {
+        setIsLoadingSuggestions(false);
+      }
+    };
+
+    fetchSuggestions();
+  }, [intentId, intentsService]);
 
   // Expose methods to parent via ref
   useImperativeHandle(ref, () => ({
     handleFileDrop: (files: FileList) => {
-      if (files.length > 0) {
-        const file = files[0];
-        
-        // Validate combined file set
-        const nextFiles = [...attachments.filter(a => a.type === 'file').map(a => a.file!), file];
-        const validation = validateFiles(nextFiles, 'general');
-        if (!validation.isValid) {
-          error(validation.message || 'Invalid file');
-          return;
-        }
-        
-        const newAttachment: AttachmentItem = {
-          id: Date.now().toString(),
-          type: 'file',
-          name: file.name,
-          file: file,
-        };
-        setAttachments(prev => [...prev, newAttachment]);
-        setInputFocused(true);
-        
-        // Insert attachment at cursor position
-        setTimeout(() => {
-          contentRef.current?.focus();
-          insertAttachment(newAttachment);
-        }, 0);
-      }
+      handleFiles(Array.from(files));
     },
     focus: () => {
-      if (contentRef.current) {
-        contentRef.current.focus();
-        setInputFocused(true);
-        
-        // Move cursor to the end of content
-        const selection = window.getSelection();
-        if (selection) {
-          const range = document.createRange();
-          range.selectNodeContents(contentRef.current);
-          range.collapse(false);
-          selection.removeAllRanges();
-          selection.addRange(range);
-        }
-      }
+      inputRef.current?.focus();
     }
   }));
 
-  // URL regex - stops at spaces and invalid characters (including unicode spaces)
-  const URLInTextRegex = /https?:\/\/[a-zA-Z0-9.-]+(?::[0-9]+)?(?:\/[a-zA-Z0-9._~:/?#[\]@!$&'()*+,;=%-]*)?/g;
+  const handleFiles = useCallback((files: File[]) => {
+    // Validate combined file set
+    const nextFiles = [...attachments.map(a => a.file), ...files];
+    const validation = validateFiles(nextFiles, 'general');
+    if (!validation.isValid) {
+      error(validation.message || 'Invalid file');
+      return;
+    }
 
-  // Start typed animation after 3 seconds
+    const newAttachments: Attachment[] = files.map(file => {
+      const id = `${Date.now()}-${Math.random()}`;
+      const preview = file.type.startsWith('image/') ? URL.createObjectURL(file) : undefined;
+      if (preview) {
+        previewUrlsRef.current.push(preview);
+      }
+      return { id, file, preview };
+    });
+
+    setAttachments(prev => [...prev, ...newAttachments]);
+    inputRef.current?.focus();
+  }, [attachments, error]);
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (files && files.length > 0) {
+      handleFiles(Array.from(files));
+      e.target.value = '';
+    }
+  };
+
+  const removeAttachment = (id: string) => {
+    setAttachments(prev => {
+      const attachment = prev.find(a => a.id === id);
+      if (attachment?.preview) {
+        URL.revokeObjectURL(attachment.preview);
+        previewUrlsRef.current = previewUrlsRef.current.filter(url => url !== attachment.preview);
+      }
+      return prev.filter(a => a.id !== id);
+    });
+  };
+
+  // Cleanup blob URLs on unmount
   useEffect(() => {
-    const timer = setTimeout(() => {
-      setShowTypedAnimation(true);
-    }, 3000);
-
-    return () => clearTimeout(timer);
+    return () => {
+      previewUrlsRef.current.forEach(url => {
+        URL.revokeObjectURL(url);
+      });
+      previewUrlsRef.current = [];
+    };
   }, []);
 
-  // Save current state to undo stack
-  const saveToUndoStack = () => {
-    if (isUndoRedoing.current || !contentRef.current) return;
-    
-    const currentHtml = contentRef.current.innerHTML;
-    const currentCursorPos = saveSelection();
-    const currentAttachments = JSON.parse(JSON.stringify(attachments)); // Deep copy
-    
-    undoStack.current.push({
-      html: currentHtml,
-      attachments: currentAttachments,
-      cursorPos: currentCursorPos
-    });
-    
-    // Limit undo stack size to 50
-    if (undoStack.current.length > 50) {
-      undoStack.current.shift();
-    }
-    
-    // Clear redo stack when new action is performed
-    redoStack.current = [];
-  };
-
-  // Undo operation
-  const performUndo = () => {
-    if (undoStack.current.length === 0 || !contentRef.current) return;
-    
-    isUndoRedoing.current = true;
-    
-    // Save current state to redo stack
-    const currentHtml = contentRef.current.innerHTML;
-    const currentCursorPos = saveSelection();
-    const currentAttachments = JSON.parse(JSON.stringify(attachments));
-    
-    redoStack.current.push({
-      html: currentHtml,
-      attachments: currentAttachments,
-      cursorPos: currentCursorPos
-    });
-    
-    // Pop from undo stack and restore
-    const previousState = undoStack.current.pop();
-    if (previousState) {
-      contentRef.current.innerHTML = previousState.html;
-      setAttachments(previousState.attachments);
-      
-      // Focus and restore cursor position
-      contentRef.current.focus();
-      if (previousState.cursorPos) {
-        // Use requestAnimationFrame to ensure DOM is updated
-        requestAnimationFrame(() => {
-          restoreSelection(previousState.cursorPos!);
-        });
-      } else {
-        // If no cursor position saved, move to end
-        requestAnimationFrame(() => {
-          const selection = window.getSelection();
-          if (selection && contentRef.current) {
-            const range = document.createRange();
-            range.selectNodeContents(contentRef.current);
-            range.collapse(false);
-            selection.removeAllRanges();
-            selection.addRange(range);
-          }
-        });
+  // Mention search effect
+  useEffect(() => {
+    if (!enableMentions || !onMentionSearch || mentionQuery === null) {
+      // Only update if there are results to clear
+      if (mentionResults.length > 0) {
+        setMentionResults([]);
       }
+      return;
     }
-    
-    isUndoRedoing.current = false;
-  };
 
-  // Redo operation
-  const performRedo = () => {
-    if (redoStack.current.length === 0 || !contentRef.current) return;
-    
-    isUndoRedoing.current = true;
-    
-    // Save current state to undo stack
-    const currentHtml = contentRef.current.innerHTML;
-    const currentCursorPos = saveSelection();
-    const currentAttachments = JSON.parse(JSON.stringify(attachments));
-    
-    undoStack.current.push({
-      html: currentHtml,
-      attachments: currentAttachments,
-      cursorPos: currentCursorPos
-    });
-    
-    // Pop from redo stack and restore
-    const nextState = redoStack.current.pop();
-    if (nextState) {
-      contentRef.current.innerHTML = nextState.html;
-      setAttachments(nextState.attachments);
-      
-      // Focus and restore cursor position
-      contentRef.current.focus();
-      if (nextState.cursorPos) {
-        // Use requestAnimationFrame to ensure DOM is updated
-        requestAnimationFrame(() => {
-          restoreSelection(nextState.cursorPos!);
-        });
-      } else {
-        // If no cursor position saved, move to end
-        requestAnimationFrame(() => {
-          const selection = window.getSelection();
-          if (selection && contentRef.current) {
-            const range = document.createRange();
-            range.selectNodeContents(contentRef.current);
-            range.collapse(false);
-            selection.removeAllRanges();
-            selection.addRange(range);
-          }
-        });
+    const searchMentions = async () => {
+      setIsMentionLoading(true);
+      try {
+        // Search with the query (empty string returns initial/all members)
+        const results = await onMentionSearch(mentionQuery);
+        // Filter out already mentioned users
+        const filteredResults = results.filter(
+          r => !mentions.some(m => m.id === r.id)
+        );
+        setMentionResults(filteredResults);
+        setSelectedMentionIndex(0);
+      } catch (err) {
+        console.error('Mention search failed:', err);
+        setMentionResults([]);
+      } finally {
+        setIsMentionLoading(false);
       }
-    }
-    
-    isUndoRedoing.current = false;
-  };
-
-  // Handle file selection
-  const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (file) {
-      // Validate combined file set to enforce cumulative limits
-      const nextFiles = [...attachments.filter(a => a.type === 'file').map(a => a.file!), file];
-      const validation = validateFiles(nextFiles, 'general');
-      if (!validation.isValid) {
-        error(validation.message || 'Invalid file');
-        event.target.value = '';
-        setIsFileDialogOpen(false);
-        return;
-      }
-      
-      const newAttachment: AttachmentItem = {
-        id: Date.now().toString(),
-        type: 'file',
-        name: file.name,
-        file: file,
-      };
-      setAttachments(prev => [...prev, newAttachment]);
-      
-      // Insert attachment at cursor position
-      insertAttachment(newAttachment);
-      
-      event.target.value = '';
-    }
-    setIsFileDialogOpen(false);
-  };
-
-  // Get display name for file
-  const getDisplayName = (name: string) => {
-    const nameWithoutExt = name.replace(/\.[^/.]+$/, '');
-    const cleaned = nameWithoutExt.replace(/[_-]/g, ' ').trim();
-    return cleaned.length > 20 ? cleaned.substring(0, 20) + '...' : cleaned;
-  };
-
-  // Insert attachment at cursor position
-  const insertAttachment = (attachment: AttachmentItem) => {
-    if (!contentRef.current) return;
-
-    const selection = window.getSelection();
-    if (!selection || selection.rangeCount === 0) return;
-
-    const range = selection.getRangeAt(0);
-    
-    // Create attachment element with data attributes for reconstruction
-    const attachmentElement = document.createElement('span');
-    attachmentElement.className = 'attachment-tag inline-flex items-center gap-1 mx-1 px-2 py-1 bg-gray-100 text-gray-700 rounded-full text-sm cursor-pointer hover:bg-gray-200';
-    attachmentElement.contentEditable = 'false';
-    attachmentElement.dataset.attachmentId = attachment.id;
-    attachmentElement.dataset.attachmentName = attachment.name;
-    attachmentElement.dataset.attachmentType = attachment.type;
-    
-    // Create attachment content
-    attachmentElement.innerHTML = `
-      ${attachment.type === 'link' ? '🔗' : '📄'} ${getDisplayName(attachment.name)}
-      <svg class="w-3 h-3 text-red-500 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
-      </svg>
-    `;
-
-    // Insert at cursor position
-    range.deleteContents();
-    range.insertNode(attachmentElement);
-    
-    // Insert a zero-width space after attachment for cursor visibility
-    const zwsp = document.createTextNode('\u200B');
-    attachmentElement.parentNode?.insertBefore(zwsp, attachmentElement.nextSibling);
-    
-    // Move cursor after the zero-width space
-    range.setStart(zwsp, 1);
-    range.setEnd(zwsp, 1);
-    selection.removeAllRanges();
-    selection.addRange(range);
-  };
-
-  // Remove attachment
-  const removeAttachment = (attachmentId: string) => {
-    // Remove from state
-    setAttachments(prev => prev.filter(att => att.id !== attachmentId));
-    
-    // Remove from DOM
-    if (contentRef.current) {
-      const attachmentElement = contentRef.current.querySelector(`[data-attachment-id="${attachmentId}"]`);
-      if (attachmentElement) {
-        attachmentElement.remove();
-      }
-    }
-  };
-
-  // Save cursor position
-  const saveSelection = () => {
-    if (!contentRef.current || !window.getSelection) return null;
-
-    const selection = window.getSelection();
-    if (!selection || selection.rangeCount === 0) return null;
-
-    const range = selection.getRangeAt(0);
-    const preSelectionRange = range.cloneRange();
-    preSelectionRange.selectNodeContents(contentRef.current);
-    preSelectionRange.setEnd(range.startContainer, range.startOffset);
-    const start = preSelectionRange.toString().length;
-
-    return {
-      start: start,
-      end: start + range.toString().length
-    };
-  };
-
-  // Restore cursor position
-  const restoreSelection = (position: { start: number; end: number }) => {
-    if (!contentRef.current || !position || !document.createRange || !window.getSelection) return;
-
-    const range = document.createRange();
-    let charIndex = 0;
-    let foundStart = false;
-    let foundEnd = false;
-    
-    // Helper function to traverse all text nodes
-    const traverseNodes = (node: Node): boolean => {
-      if (foundEnd) return true;
-      
-      if (node.nodeType === Node.TEXT_NODE) {
-        const textNode = node as Text;
-        const textLength = textNode.textContent?.length || 0;
-        const nextCharIndex = charIndex + textLength;
-        
-        if (!foundStart && position.start >= charIndex && position.start <= nextCharIndex) {
-          range.setStart(textNode, Math.min(position.start - charIndex, textLength));
-          foundStart = true;
-        }
-        
-        if (foundStart && position.end >= charIndex && position.end <= nextCharIndex) {
-          range.setEnd(textNode, Math.min(position.end - charIndex, textLength));
-          foundEnd = true;
-          return true;
-        }
-        
-        charIndex = nextCharIndex;
-      } else if (node.nodeType === Node.ELEMENT_NODE) {
-        // Skip attachment tags when counting characters
-        if ((node as Element).classList?.contains('attachment-tag')) {
-          return false;
-        }
-        
-        for (let i = 0; i < node.childNodes.length; i++) {
-          if (traverseNodes(node.childNodes[i])) {
-            return true;
-          }
-        }
-      }
-      
-      return false;
     };
 
-    traverseNodes(contentRef.current);
+    const timeoutId = setTimeout(searchMentions, 200);
+    return () => clearTimeout(timeoutId);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mentionQuery, enableMentions, onMentionSearch, mentions]);
 
-    // If we found a valid range, apply it
-    if (foundStart) {
-      const selection = window.getSelection();
-      if (selection) {
-        selection.removeAllRanges();
-        selection.addRange(range);
-      }
+  // Handle contentEditable input with @ detection
+  const handleContentInput = useCallback(() => {
+    if (!inputRef.current || !enableMentions) return;
+    
+    const text = getPlainText();
+    setInputValue(text);
+    
+    // Detect @ mention at cursor
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0) return;
+    
+    const range = sel.getRangeAt(0);
+    const textNode = range.startContainer;
+    
+    // Only detect in text nodes (not inside mention spans)
+    if (textNode.nodeType !== Node.TEXT_NODE) {
+      setMentionQuery(null);
+      return;
+    }
+    
+    const textContent = textNode.textContent || '';
+    const cursorPos = range.startOffset;
+    const textBeforeCursor = textContent.slice(0, cursorPos);
+    const atMatch = textBeforeCursor.match(/@(\w*)$/);
+    
+    if (atMatch) {
+      setMentionQuery(atMatch[1]);
     } else {
-      // Fallback: place cursor at the end
-      const selection = window.getSelection();
-      if (selection) {
-        const range = document.createRange();
-        range.selectNodeContents(contentRef.current);
-        range.collapse(false);
-        selection.removeAllRanges();
-        selection.addRange(range);
+      setMentionQuery(null);
+    }
+  }, [enableMentions, getPlainText]);
+
+  // Handle selecting a mention
+  const handleSelectMention = useCallback((user: MentionUser) => {
+    if (!inputRef.current) return;
+    
+    // Get text before cursor to find @query length
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0) return;
+    
+    const range = sel.getRangeAt(0);
+    const textNode = range.startContainer;
+    
+    if (textNode.nodeType === Node.TEXT_NODE) {
+      const textContent = textNode.textContent || '';
+      const cursorPos = range.startOffset;
+      const textBeforeCursor = textContent.slice(0, cursorPos);
+      const atMatch = textBeforeCursor.match(/@(\w*)$/);
+      
+      if (atMatch) {
+        // Replace @query with mention span
+        insertMentionSpan(user, atMatch[0].length);
+      }
+    }
+    
+    // Add to mentions (sync with parent)
+    if (onMentionsChange) {
+      onMentionsChange([...mentions, user]);
+    }
+    
+    setMentionQuery(null);
+    setMentionResults([]);
+    setInputValue(getPlainText());
+    inputRef.current?.focus();
+  }, [insertMentionSpan, mentions, onMentionsChange, getPlainText]);
+
+  // Remove a mention (from both DOM and parent state)
+  const handleRemoveMention = useCallback((userId: string) => {
+    // Remove from DOM
+    if (inputRef.current) {
+      const mentionSpan = inputRef.current.querySelector(`[data-mention-id="${userId}"]`);
+      if (mentionSpan) {
+        mentionSpan.remove();
+      }
+    }
+    // Remove from map
+    mentionMapRef.current.delete(userId);
+    // Update parent
+    if (onMentionsChange) {
+      onMentionsChange(mentions.filter(m => m.id !== userId));
+    }
+    setInputValue(getPlainText());
+  }, [mentions, onMentionsChange, getPlainText]);
+
+  // Handle refining intent with followup text
+  const handleRefine = async (followupText: string) => {
+    if (!intentId || isProcessing) return;
+
+    setIsProcessing(true);
+    setInputValue("");
+
+    try {
+      const refinedIntent = await intentsService.refineIntent(intentId, followupText);
+
+      if (onRefine) {
+        onRefine(refinedIntent);
+      }
+
+      // Refresh suggestions after refining
+      try {
+        const newSuggestions = await intentsService.getIntentSuggestions(intentId);
+        setFetchedSuggestions(newSuggestions);
+      } catch {
+        // Ignore suggestion refresh errors
+      }
+    } catch (err) {
+      console.error('Refine intent failed:', err);
+      error(err instanceof Error ? err.message : 'Failed to refine intent');
+    } finally {
+      setIsProcessing(false);
+      setApplyingSuggestionIndex(null);
+    }
+  };
+
+  // Handle suggestion chip click
+  const handleSuggestionClick = async (suggestion: Suggestion, index: number) => {
+    if (isProcessing) return;
+
+    if (suggestion.type === 'prompt' && suggestion.prefill) {
+      // Prefill contentEditable and focus for user to complete
+      if (inputRef.current) {
+        inputRef.current.textContent = suggestion.prefill;
+        setInputValue(suggestion.prefill);
+        inputRef.current.focus();
+        setCursorToEnd();
+      }
+    } else if (suggestion.type === 'direct' && suggestion.followupText) {
+      // Apply directly - use onPromptSubmit if available (admin mode), otherwise refine
+      setApplyingSuggestionIndex(index);
+      if (onPromptSubmit) {
+        setIsProcessing(true);
+        try {
+          await onPromptSubmit(suggestion.followupText, mentions);
+        } finally {
+          setIsProcessing(false);
+          setApplyingSuggestionIndex(null);
+        }
+      } else {
+        await handleRefine(suggestion.followupText);
+      }
+    } else if (suggestion.type === 'memberFilter') {
+      // Trigger @ mention dropdown - insert @ and open dropdown
+      if (inputRef.current) {
+        inputRef.current.focus();
+        // Insert @ at cursor position
+        document.execCommand('insertText', false, '@');
+        setInputValue(getPlainText());
+        setMentionQuery('');
       }
     }
   };
 
+  const handleSubmit = async () => {
+    const text = getPlainText().trim();
+    if (isProcessing || (!text && attachments.length === 0)) return;
 
-  // Idle-based content processing to avoid constant DOM manipulation
-  const scheduleContentProcessing = () => {
-    if (processingTimer.current) {
-      clearTimeout(processingTimer.current);
+    // Extract mentions from contentEditable
+    const currentMentions = extractMentions();
+
+    // If in refine mode (intentId provided), use refine flow
+    if (intentId && text) {
+      await handleRefine(text);
+      return;
     }
-    
-    processingTimer.current = setTimeout(() => {
-      processContent();
-      processingTimer.current = null;
-    }, 50); // Process after 500ms of inactivity
-  };
 
-  // Process content - only process text nodes, preserve attachments
-  const processContent = () => {
-    if (!contentRef.current) return;
-
-    // Save cursor position
-    const position = saveSelection();
-    
-    
-    // Walk through text nodes only, skipping attachments
-    const walker = document.createTreeWalker(
-      contentRef.current,
-      NodeFilter.SHOW_TEXT,
-      {
-        acceptNode: (node) => {
-          // Skip text nodes inside attachment tags
-          const parent = node.parentElement;
-          if (parent?.classList.contains('attachment-tag')) {
-            return NodeFilter.FILTER_REJECT;
-          }
-          return NodeFilter.FILTER_ACCEPT;
+    // If using onPromptSubmit (admin mode), use that instead
+    if (onPromptSubmit) {
+      setIsProcessing(true);
+      try {
+        await onPromptSubmit(text, currentMentions);
+        // Clear contentEditable
+        if (inputRef.current) {
+          inputRef.current.innerHTML = '';
         }
+        setInputValue("");
+        mentionMapRef.current.clear();
+        if (onMentionsChange) {
+          onMentionsChange([]);
+        }
+      } finally {
+        setIsProcessing(false);
       }
-    );
-
-    const textNodes: Text[] = [];
-    let node;
-    while (node = walker.nextNode()) {
-      textNodes.push(node as Text);
+      return;
     }
 
-    // Process each text node for URLs
-    textNodes.forEach(textNode => {
-      const text = textNode.textContent || '';
-      const regex = new RegExp(`(${URLInTextRegex.source})\\s`, 'g');
-      const matches = Array.from(text.matchAll(regex));
+    const files = attachments.map(a => a.file);
 
-      if (matches.length > 0) {
-        const fragment = document.createDocumentFragment();
-        let lastIndex = 0;
-
-        matches.forEach(match => {
-          const url = match[1]; // The URL is in the first capturing group
-          const matchIndex = match.index ?? 0;
-
-          // Add text before the URL
-          if (matchIndex > lastIndex) {
-            fragment.appendChild(document.createTextNode(text.slice(lastIndex, matchIndex)));
-          }
-
-          // Create and add the attachment
-          const newAttachment: AttachmentItem = {
-            id: Date.now().toString() + Math.random(),
-            type: 'link',
-            name: url,
-            url: url,
-          };
-          setAttachments(prev => [...prev, newAttachment]);
-          
-          const attachmentElement = document.createElement('span');
-          attachmentElement.className = 'attachment-tag inline-flex items-center gap-1 mx-1 px-2 py-1 bg-gray-100 text-gray-700 rounded-full text-sm cursor-pointer hover:bg-gray-200';
-          attachmentElement.contentEditable = 'false';
-          attachmentElement.dataset.attachmentId = newAttachment.id;
-          attachmentElement.dataset.attachmentName = newAttachment.name;
-          attachmentElement.dataset.attachmentType = newAttachment.type;
-          attachmentElement.innerHTML = `🔗 ${getDisplayName(newAttachment.name)} <svg class="w-3 h-3 text-red-500 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>`;
-          fragment.appendChild(attachmentElement);
-
-          // Add the space that triggered the match
-          fragment.appendChild(document.createTextNode(' '));
-
-          lastIndex = matchIndex + match[0].length;
-        });
-
-        // Add any remaining text after the last URL
-        if (lastIndex < text.length) {
-          fragment.appendChild(document.createTextNode(text.slice(lastIndex)));
-        }
-
-        textNode.parentNode?.replaceChild(fragment, textNode);
+    // Clean up preview URLs
+    attachments.forEach(attachment => {
+      if (attachment.preview) {
+        URL.revokeObjectURL(attachment.preview);
       }
     });
+    previewUrlsRef.current = [];
 
-    // Restore cursor position
-    if (position) {
-      setTimeout(() => restoreSelection(position), 0);
+    // Clear contentEditable
+    if (inputRef.current) {
+      inputRef.current.innerHTML = '';
     }
-  };
-
-
-
-  // Trigger file input
-  const handleFileButtonClick = () => {
-    setIsFileDialogOpen(true);
-    fileInputRef.current?.click();
-  };
-
-  // Handle discovery submission
-  const handleDiscoverySubmit = async () => {
-    if (isProcessing) return;
-    
+    setInputValue("");
+    setAttachments([]);
+    mentionMapRef.current.clear();
+    if (onMentionsChange) {
+      onMentionsChange([]);
+    }
     setIsProcessing(true);
-    
+
     try {
-      // Get text content from contentEditable div, excluding attachment tags
-      let textContent = '';
-      if (contentRef.current) {
-        contentRef.current.childNodes.forEach(node => {
-          // Add text only from text nodes, ignoring attachment spans
-          if (node.nodeType === Node.TEXT_NODE) {
-            textContent += node.textContent;
-          }
-        });
-      }
-      
-      // Get files from attachments
-      const files = attachments.filter(att => att.type === 'file').map(att => att.file!);
-      const links = attachments.filter(att => att.type === 'link').map(att => att.url!);
-
-      // The backend's /discover/new endpoint now handles link creation and crawling within the same request.
-      // Calling linksService from the client here would be redundant and use the wrong workflow.
-      
-      // Validate that we have either files or text or links
-      if (files.length === 0 && !textContent.trim() && links.length === 0) {
-        error('Please add files, links, or enter text to start discovery');
-        setIsProcessing(false);
-        return;
-      }
-      
-      // Combine text and links for the payload
-      const payload = [textContent, ...links].join('\n').trim();
-
-      // Submit discovery request
-      const result = await discoverService.submitDiscoveryRequest(files, payload)(getAccessToken);
-      
-      // After processing, clear attachments and reset form state
-      setAttachments([]);
-      setRecentIntents([]);
-      setInputFocused(false);
-      contentRef.current?.blur();
+      // Submit discovery request with text and files
+      const result = await discoverService.submitDiscoveryRequest(files, text || undefined)(getAccessToken);
 
       if (onSubmit) {
-        // Pass both file-based intents and any newly created link-based intents
-        const allIntents = result.success ? result.intents : [];
-        onSubmit(allIntents);
+        // If we have explicit actions (from IntentManager), pass them
+        // Even if success is true, we might have 0 intents if the action was 'expire'
+        onSubmit(result.intents, result.actions);
       }
-      
-      if (!result.success && links.length === 0) {
+
+      if (!result.success) {
         error('Failed to generate intents. Please try again.');
       }
     } catch (err) {
@@ -571,465 +503,265 @@ const DiscoveryForm = forwardRef<DiscoveryFormRef, DiscoveryFormProps>(({ onSubm
     }
   };
 
-  // Auto-focus input on keypress
-  useEffect(() => {
-    const handleKeyPress = (e: KeyboardEvent) => {
-      // Check if any modal is open by looking for modal elements
-      const hasModalOpen = document.querySelector('[data-radix-dialog-content], [role="dialog"]') !== null;
-      
-      // Check if user is already typing in an input/textarea
-      const activeElement = document.activeElement;
-      const isTypingInInput = activeElement && (
-        activeElement.tagName === 'INPUT' || 
-        activeElement.tagName === 'TEXTAREA' || 
-        (activeElement as HTMLElement).isContentEditable
-      );
-      
-      if (contentRef.current && !inputFocused && !hasModalOpen && !isTypingInInput) {
-        // Focus on Enter or when typing regular characters
-        if (e.key === 'Enter' || (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey)) {
-          e.preventDefault();
-          contentRef.current.focus();
-          
-          // Move cursor to the end of content
-          const selection = window.getSelection();
-          if (selection) {
-            const range = document.createRange();
-            range.selectNodeContents(contentRef.current);
-            range.collapse(false); // Collapse to end
-            selection.removeAllRanges();
-            selection.addRange(range);
-            
-            if (e.key.length === 1) {
-              // Insert the character at the end
-              const textNode = document.createTextNode(e.key);
-              range.insertNode(textNode);
-              range.setStartAfter(textNode);
-              range.setEndAfter(textNode);
-              selection.removeAllRanges();
-              selection.addRange(range);
-              // Update hasContent immediately to hide placeholder
-              setHasContent(true);
-            }
-            setInputFocused(true);
-          }
-        }
-      }
-    };
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
 
-    document.addEventListener('keydown', handleKeyPress);
-    return () => {
-      document.removeEventListener('keydown', handleKeyPress);
-      // Clean up processing timer
-      if (processingTimer.current) {
-        clearTimeout(processingTimer.current);
-      }
-    };
-  }, [inputFocused]);
-
-  // Close input when any modal opens
-  useEffect(() => {
-    const checkForModals = () => {
-      const hasModalOpen = document.querySelector('[data-radix-dialog-content], [role="dialog"]') !== null;
-      
-      if (hasModalOpen && inputFocused) {
-        // Modal is open and input is focused, close it
-        setInputFocused(false);
-        contentRef.current?.blur();
-      }
-    };
-
-    // Check immediately
-    checkForModals();
-
-    // Use MutationObserver to detect when modals are added to the DOM
-    const observer = new MutationObserver(checkForModals);
-    observer.observe(document.body, {
-      childList: true,
-      subtree: true,
-    });
-
-    return () => {
-      observer.disconnect();
-    };
-  }, [inputFocused]);
-
-  // Fetch recent discovery intents when input is focused
-  useEffect(() => {
-    if (inputFocused) {
-      const fetchRecentIntents = async () => {
-        try {
-          const response = await intentsService.getIntents(1, 3, false, undefined, 'discovery_form');
-          if (response.data) {
-            setRecentIntents(response.data.map(intent => ({
-              id: intent.id,
-              payload: intent.payload,
-              summary: intent.summary ?? null,
-              createdAt: new Date(intent.createdAt)
-            })));
-          }
-        } catch (err) {
-          console.error('Failed to fetch recent discovery intents:', err);
-          setRecentIntents([]); // Clear on error
-        }
-      };
-      fetchRecentIntents();
-    } else {
-      setRecentIntents([]);
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const files = e.dataTransfer.files;
+    if (files.length > 0) {
+      handleFiles(Array.from(files));
     }
-  }, [inputFocused, intentsService]);
+  };
 
-  const attachmentCounts = useMemo(() => {
-    return attachments.reduce(
-      (counts, attachment) => {
-        if (attachment.file) {
-          counts.files++;
-        }
-        if (attachment.url) {
-          counts.urls++;
-        }
-        return counts;
-      },
-      { files: 0, urls: 0 }
-    );
-  }, [attachments]);
+  // Combine parent suggestions with fetched suggestions
+  const allSuggestions = [
+    ...(parentSuggestions || []),
+    ...(intentId ? fetchedSuggestions : [])
+  ];
 
-  return (
-    <div className="relative">
-      {/* Focus Overlay */}
-      {inputFocused && (
-        <div
-          className="fixed inset-0 z-[9998] transition-opacity backdrop-blur-xs"
-          style={{
-            minHeight: '100vh',
-            opacity: 0.9,
-            backgroundColor: 'rgba(0, 0, 0, 0.2)'
-          }}
-          onClick={() => {
-            setInputFocused(false);
-            contentRef.current?.blur();
-          }}
-        >
-          <div 
-            className="absolute inset-0 pointer-events-none"
-            style={{
-              backgroundImage: 'url(/noise.jpg)',
-              backgroundSize: 'cover',
-              opacity: 0.3
-            }}
-          />
+  const formContent = (
+    <>
+      {/* Suggestion chips */}
+      {(allSuggestions.length > 0 || isLoadingSuggestions) && (
+        <div className="px-3 pt-2 pb-1 flex gap-1.5 overflow-x-auto scrollbar-hide">
+          {isLoadingSuggestions ? (
+            <div className="flex items-center gap-1.5 text-gray-500">
+              <Loader2 className="w-3 h-3 animate-spin" />
+              <span className="font-ibm-plex-mono text-xs">Loading...</span>
+            </div>
+          ) : (
+            allSuggestions.map((suggestion, index) => (
+              <button
+                key={index}
+                onClick={() => handleSuggestionClick(suggestion, index)}
+                disabled={isProcessing}
+                className="inline-flex items-center gap-1.5 px-3 py-1 bg-white border border-gray-300 rounded-full text-xs font-ibm-plex-mono text-gray-700 hover:bg-gray-50 hover:border-gray-400 transition-colors disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap flex-shrink-0"
+              >
+                {applyingSuggestionIndex === index ? (
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                ) : suggestion.type === 'direct' ? (
+                  <Zap className="w-3 h-3" />
+                ) : suggestion.type === 'memberFilter' ? (
+                  <AtSign className="w-3 h-3" />
+                ) : (
+                  <Type className="w-3 h-3" />
+                )}
+                {suggestion.label}
+              </button>
+            ))
+          )}
         </div>
       )}
-      
-      <div className={`bg-white border border-b-2 border-gray-800 flex items-center px-4 py-2 min-h-[54px] relative ${inputFocused ? 'z-[9999]' : 'z-0'}`}>
-            <div className="flex-1 relative">
-              {/* ContentEditable div */}
-              <div
-                ref={contentRef}
-                contentEditable
-                suppressContentEditableWarning
-                onInput={(e) => {
-                  scheduleContentProcessing();
-                  
-                  // Clean up empty content to ensure placeholder shows
-                  const target = e.currentTarget;
-                  const text = target.innerText.trim();
-                  if (!text && attachments.length === 0) {
-                    target.innerHTML = '';
-                    setHasContent(false);
-                  } else {
-                    setHasContent(true);
-                  }
-                }}
-                onPaste={(e) => {
-                  e.preventDefault();
-                  saveToUndoStack();
-                  const text = e.clipboardData?.getData('text/plain') || '';
-                  const urlMatch = text.match(URLInTextRegex);
 
-                  if (urlMatch && urlMatch[0] === text.trim()) { // Only treat as link if it's the only thing pasted
-                    const newAttachment: AttachmentItem = {
-                      id: Date.now().toString(),
-                      type: 'link',
-                      name: urlMatch[0],
-                      url: urlMatch[0],
-                    };
-                    setAttachments(prev => [...prev, newAttachment]);
-                    insertAttachment(newAttachment);
-                    setHasContent(true);
-                  } else {
-                    const selection = window.getSelection();
-                    if (selection && selection.rangeCount > 0) {
-                      const range = selection.getRangeAt(0);
-                      range.deleteContents();
-                      const textNode = document.createTextNode(text);
-                      range.insertNode(textNode);
-                      range.setStartAfter(textNode);
-                      range.setEndAfter(textNode);
-                      selection.removeAllRanges();
-                      selection.addRange(range);
-                    }
-                    // Update hasContent based on pasted text
-                    if (text.trim() || attachments.length > 0) {
-                      setHasContent(true);
-                    }
-                  }
-                  setTimeout(() => {
-                    processContent();
-                  }, 0);
-                }}
-                onClick={(e) => {
-                  const target = e.target as HTMLElement;
-                  if (target.closest('.attachment-tag')) {
-                    const attachmentElement = target.closest('.attachment-tag') as HTMLElement;
-                    const attachmentId = attachmentElement.dataset.attachmentId;
-                    if (attachmentId) {
+      {/* Attachment chips */}
+      {attachments.length > 0 && (
+        <div className="px-3 pt-2 pb-1 flex flex-wrap gap-1.5">
+          {attachments.map((attachment) => (
+            <div
+              key={attachment.id}
+              className="group inline-flex items-center gap-1.5 bg-white border border-gray-300 rounded-full px-3 py-1 hover:border-gray-400 transition-colors"
+            >
+              {attachment.preview ? (
+                /* eslint-disable-next-line @next/next/no-img-element */
+                <img
+                  src={attachment.preview}
+                  alt={attachment.file.name}
+                  className="w-4 h-4 object-cover rounded"
+                />
+              ) : (
+                <div className="px-2 py-0.5 bg-gray-300 rounded flex items-center justify-center">
+                  <span className="text-[8px] font-ibm-plex-mono text-gray-600 font-bold">
+                    {getFileCategoryBadge(attachment.file.name)}
+                  </span>
+                </div>
+              )}
+              <span className="text-xs font-ibm-plex-mono text-gray-900">
+                {attachment.file.name}
+              </span>
+              <button
+                onClick={() => removeAttachment(attachment.id)}
+                className="opacity-0 group-hover:opacity-100 transition-opacity text-gray-600 hover:text-black"
+                aria-label="Remove attachment"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Input row */}
+      <div className="relative flex items-center px-3 py-2 min-h-[48px]">
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          className="hidden"
+          accept={getSupportedFileExtensions('general')}
+          onChange={handleFileSelect}
+        />
+        <div
+          ref={inputRef}
+          contentEditable={!isProcessing}
+          onInput={handleContentInput}
+          onKeyDown={(e) => {
+            // Handle mention navigation
+            if (mentionQuery !== null && mentionResults.length > 0) {
+              if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                setSelectedMentionIndex(i => Math.min(i + 1, mentionResults.length - 1));
+                return;
+              }
+              if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                setSelectedMentionIndex(i => Math.max(i - 1, 0));
+                return;
+              }
+              if (e.key === 'Enter' || e.key === 'Tab') {
+                e.preventDefault();
+                handleSelectMention(mentionResults[selectedMentionIndex]);
+                return;
+              }
+              if (e.key === 'Escape') {
+                e.preventDefault();
+                setMentionQuery(null);
+                return;
+              }
+            }
+            
+            // Atomic backspace deletion for mentions
+            if (e.key === 'Backspace') {
+              const sel = window.getSelection();
+              if (sel && sel.rangeCount > 0) {
+                const range = sel.getRangeAt(0);
+                if (range.collapsed) {
+                  // Check if cursor is right after a mention span
+                  const container = range.startContainer;
+                  const offset = range.startOffset;
+                  
+                  // If at start of a text node that follows a mention
+                  if (container.nodeType === Node.TEXT_NODE && offset === 0) {
+                    const prevSibling = container.previousSibling;
+                    if (prevSibling && prevSibling instanceof HTMLElement && prevSibling.hasAttribute('data-mention-id')) {
                       e.preventDefault();
-                      e.stopPropagation();
-                      removeAttachment(attachmentId);
-                    }
-                  }
-                }}
-                onFocus={() => setInputFocused(true)}
-                onBlur={() => {
-                  if (!isFileDialogOpen) {
-                    setTimeout(() => setInputFocused(false), 100);
-                  }
-                }}
-                onKeyDown={async (e) => {
-                  // Handle undo (Cmd+Z or Ctrl+Z)
-                  if ((e.metaKey || e.ctrlKey) && e.key === 'z' && !e.shiftKey) {
-                    e.preventDefault();
-                    performUndo();
-                    return;
-                  }
-                  
-                  // Handle redo (Cmd+Shift+Z or Ctrl+Shift+Z)
-                  if ((e.metaKey || e.ctrlKey) && e.key === 'z' && e.shiftKey) {
-                    e.preventDefault();
-                    performRedo();
-                    return;
-                  }
-                  
-                  // Save state before any modification
-                  if (!e.metaKey && !e.ctrlKey && e.key.length === 1) {
-                    saveToUndoStack();
-                  }
-                  
-                  if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault();
-                    await handleDiscoverySubmit();
-                  } else if (e.key === 'Enter' && e.shiftKey) {
-                    e.preventDefault();
-                    setInputFocused(true);
-                  } else if (e.key === 'Escape') {
-                    setInputFocused(false);
-                    contentRef.current?.blur();
-                  } else if (e.key === 'Backspace' || e.key === 'Delete') {
-                    // Save state before deletion
-                    saveToUndoStack();
-                    
-                    // Handle attachment deletion
-                    const selection = window.getSelection();
-                    if (selection && selection.rangeCount > 0 && selection.isCollapsed) {
-                      const range = selection.getRangeAt(0);
-                      const container = range.startContainer;
-                      const offset = range.startOffset;
-                      
-                      if (e.key === 'Backspace') {
-                        // Check if we're at the start of a text node right after an attachment
-                        if (offset === 0 && container.nodeType === 3) {
-                          const prevNode = container.previousSibling;
-                          if (prevNode && (prevNode as Element).classList?.contains('attachment-tag')) {
-                            e.preventDefault();
-                            const attachmentId = (prevNode as Element).getAttribute('data-attachment-id');
-                            if (attachmentId) {
-                              removeAttachment(attachmentId);
-                            }
-                            return;
-                          }
-                        }
-                        
-                        // Check if we're deleting a zero-width space before an attachment
-                        if (container.nodeType === 3 && offset > 0) {
-                          const charBefore = (container as Text).textContent?.[offset - 1];
-                          if (charBefore === '\u200B') {
-                            // Check if there's an attachment before this zero-width space
-                            const prevNode = container.previousSibling;
-                            if (prevNode && (prevNode as Element).classList?.contains('attachment-tag')) {
-                              e.preventDefault();
-                              const attachmentId = (prevNode as Element).getAttribute('data-attachment-id');
-                              if (attachmentId) {
-                                removeAttachment(attachmentId);
-                              }
-                              return;
-                            }
-                          }
-                        }
-                      } else if (e.key === 'Delete') {
-                        // Check if we're at the end of a text node right before an attachment
-                        if (container.nodeType === 3) {
-                          const textLength = (container as Text).textContent?.length || 0;
-                          if (offset === textLength) {
-                            const nextNode = container.nextSibling;
-                            if (nextNode && (nextNode as Element).classList?.contains('attachment-tag')) {
-                              e.preventDefault();
-                              const attachmentId = (nextNode as Element).getAttribute('data-attachment-id');
-                              if (attachmentId) {
-                                removeAttachment(attachmentId);
-                              }
-                              return;
-                            }
-                          }
-                        }
+                      const mentionId = prevSibling.getAttribute('data-mention-id');
+                      if (mentionId) {
+                        handleRemoveMention(mentionId);
                       }
+                      return;
                     }
                   }
-                }}
-                className="text-lg font-ibm-plex-mono text-black min-h-[24px] py-1 focus:outline-none"
-                style={{ 
-                  lineHeight: '1.5',
-                  wordBreak: 'break-word'
-                }}
-                data-placeholder="What do you want to discover?"
-              />
-              
-              {/* Placeholder */}
-              {!hasContent && attachments.length === 0 && (
-                <div
-                  className="absolute top-0 left-0 text-lg font-ibm-plex-mono text-gray-500 py-1 pointer-events-none"
-                  style={{ lineHeight: '1.5' }}
-                >
-                  {inputFocused ? (
-                    // Static placeholder when focused
-                    <span>What do you want to discover?</span>
-                  ) : !showTypedAnimation ? (
-                    // Static text for first 3 seconds
-                    <span>What do you want to discover?</span>
-                  ) : (
-                    // Then start animation
-                    <ReactTyped
-                      strings={[
-                        "Meet founders building next-gen robotics platforms",
-                        "Connect with researchers working on materials science",
-                        "Collaborate with engineers building autonomous agents",
-                      ]}
-                      typeSpeed={20}
-                      backSpeed={0}
-                      backDelay={4000}
-                      startDelay={0}
-                      loopCount={3}
-                      showCursor={true}
-                    />
-                  )}
-                </div>
-              )}
-            </div>
-            
-            <div className="flex items-center gap-2 ml-2">
-              {attachmentCounts.files > 0 && (
-                <div className="flex items-center gap-1 text-gray-600">
-                  <Paperclip className="w-4 h-4" />
-                  <span className="text-sm font-ibm-plex-mono">{attachmentCounts.files}</span>
-                </div>
-              )}
-              {attachmentCounts.urls > 0 && (
-                <div className="flex items-center gap-1 text-gray-600">
-                  <Link className="w-4 h-4" />
-                  <span className="text-sm font-ibm-plex-mono">{attachmentCounts.urls}</span>
-                </div>
-              )}
-            </div>
-            
-            {/* Dropdown when focused */}
-            {inputFocused && (
-               <div className="absolute top-full left-0 right-0 bg-white border-l border-r border-b border-gray-800 z-[9999] shadow-lg" style={{
-                 marginLeft: '-1px',
-                 marginRight: '-1px',
-               }}>
-                <div className="px-4 pb-4 pt-2 space-y-4">
-                  {/* Upload section */}
-                  <div className="flex items-center gap-3">
-                    <button 
-                      className="flex items-center gap-2 px-3 py-2 border border-gray-300 hover:border-black text-sm font-ibm-plex-mono text-black"
-                      onClick={handleFileButtonClick}
-                      onMouseDown={(e) => e.preventDefault()}
-                    >
-                      <Paperclip className="w-4 h-4" />
-                      <span className="hidden sm:inline">Add from a file</span>
-                    </button>
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      onChange={handleFileSelect}
-                      className="hidden"
-                      accept={getSupportedFileExtensions('general')}
-                    />
-                    <p className="text-xs text-gray-500 font-ibm-plex-mono">
-                      upload your pitch deck, one-pager, or paste a link.
-                    </p>
-                  </div>
                   
-                  {/* Recent discovery intents */}
-                  {recentIntents.length > 0 && (
-                    <>
-                      {/* Horizontal border */}
-                      <div className="border-t border-gray-200"></div>
-                      
-                      <ul className="space-y-1">
-                        {recentIntents.map((intent) => (
-                          <li key={intent.id}>
-                            <button 
-                              onClick={() => {
-                                // Set the intent as a filter
-                                if (onSubmit) {
-                                  onSubmit([{
-                                    id: intent.id,
-                                    payload: intent.payload,
-                                    summary: intent.summary || undefined,
-                                    createdAt: intent.createdAt.toISOString()
-                                  }]);
-                                }
-                                setInputFocused(false);
-                                contentRef.current?.blur();
-                              }}
-                              onMouseDown={(e) => e.preventDefault()}
-                              className="w-full text-left text-sm text-gray-600 hover:text-black hover:bg-gray-50 font-ibm-plex-mono flex items-center gap-2 px-2 py-1 rounded"
-                            >
-                              {intent.summary || intent.payload}
-                            </button>
-                          </li>
-                        ))}
-                      </ul>
-                    </>
-                  )}
-                  
-                  {/* Turn on Discovery - right aligned */}
-                  <div className="flex justify-end">
-                    <button 
-                      className="flex items-center gap-2 px-3 py-2 bg-black border border-black hover:bg-gray-800 text-sm font-ibm-plex-mono text-white disabled:opacity-50 disabled:cursor-not-allowed"
-                      onMouseDown={(e) => e.preventDefault()}
-                      onClick={handleDiscoverySubmit}
-                      disabled={isProcessing}
-                    >
-                      {isProcessing ? (
-                        <>
-                          <span className="h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin inline-block" />
-                          Signal processing
-                        </>
-                      ) : (
-                        <>
-                          <Radio className="w-4 h-4" /> Turn on Discovery
-                        </>
-                      )}
-                    </button>
-                  </div>
-                </div>
+                  // If cursor is at the boundary right after mention span
+                  if (container === inputRef.current && offset > 0) {
+                    const child = inputRef.current.childNodes[offset - 1];
+                    if (child instanceof HTMLElement && child.hasAttribute('data-mention-id')) {
+                      e.preventDefault();
+                      const mentionId = child.getAttribute('data-mention-id');
+                      if (mentionId) {
+                        handleRemoveMention(mentionId);
+                      }
+                      return;
+                    }
+                  }
+                }
+              }
+            }
+            
+            if (e.key === 'Enter' && !e.shiftKey) {
+              e.preventDefault();
+              handleSubmit();
+            }
+          }}
+          onPaste={(e) => {
+            // Paste as plain text only
+            e.preventDefault();
+            const text = e.clipboardData.getData('text/plain');
+            document.execCommand('insertText', false, text);
+          }}
+          data-placeholder={isProcessing ? "Thinking..." : (placeholder || (intentId ? "Ask a follow-up question..." : (floating ? "Ask a follow-up question..." : "What's your most important work?")))}
+          className={`flex-1 font-ibm-plex-mono text-black ${floating ? 'text-md' : 'text-lg'} focus:outline-none bg-transparent min-h-[24px] empty:before:content-[attr(data-placeholder)] empty:before:text-gray-400 ${isProcessing ? 'opacity-50 cursor-not-allowed' : ''}`}
+          suppressContentEditableWarning
+        />
+        
+        {/* Mention dropdown */}
+        {enableMentions && mentionQuery !== null && (mentionResults.length > 0 || isMentionLoading) && (
+          <div 
+            ref={mentionDropdownRef}
+            className="absolute left-3 right-3 bottom-full mb-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-48 overflow-y-auto z-50"
+          >
+            {isMentionLoading ? (
+              <div className="px-3 py-2 text-xs text-gray-500 font-ibm-plex-mono flex items-center gap-2">
+                <Loader2 className="w-3 h-3 animate-spin" />
+                Searching...
               </div>
+            ) : (
+              mentionResults.map((user, index) => (
+                <button
+                  key={user.id}
+                  onClick={() => handleSelectMention(user)}
+                  className={`w-full px-3 py-2 text-left text-sm font-ibm-plex-mono flex items-center gap-2 transition-colors ${
+                    index === selectedMentionIndex ? 'bg-gray-100' : 'hover:bg-gray-50'
+                  }`}
+                >
+                  {user.avatar && (
+                    <img src={user.avatar} alt="" className="w-5 h-5 rounded-full" />
+                  )}
+                  <span className="text-gray-900">{user.name}</span>
+                </button>
+              ))
             )}
+          </div>
+        )}
+        {isProcessing ? (
+          <button
+            onClick={() => setIsProcessing(false)}
+            className="h-9 w-9 rounded-full bg-black text-white flex items-center justify-center hover:bg-gray-800 transition-colors cursor-pointer ml-2"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        ) : (
+          <button
+            onClick={handleSubmit}
+            disabled={intentId ? !inputValue.trim() : (!inputValue.trim() && attachments.length === 0)}
+            className="h-9 w-9 rounded-full bg-black text-white flex items-center justify-center hover:bg-gray-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer ml-2"
+          >
+            <ArrowUp className="w-4 h-4" />
+          </button>
+        )}
+      </div>
+    </>
+  );
+
+  const formClasses = floating
+    ? "bg-white border border-gray-800 rounded-sm shadow-lg flex flex-col"
+    : "w-full bg-white border border-gray-800 rounded-sm shadow-lg flex flex-col";
+
+  const formElement = (
+    <div className={`space-y-4 rounded-lg ${floating ? 'mb-0' : 'mb-4'}`}>
+      <div
+        className={formClasses}
+        onDragOver={handleDragOver}
+        onDrop={handleDrop}
+      >
+        {formContent}
       </div>
     </div>
   );
+
+  if (floating) {
+    return (
+      <div className="sticky bottom-0 z-30 pb-4 pt-2 bg-gradient-to-t from-white via-white to-transparent">
+        {formElement}
+      </div>
+    );
+  }
+
+  return formElement;
 });
 
 DiscoveryForm.displayName = 'DiscoveryForm';

@@ -9,6 +9,7 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@assistant-ui/react": "^0.11.53",
     "@heroicons/react": "^2.2.0",
     "@lobehub/icons": "^2.45.0",
     "@privy-io/react-auth": "^3.8.1",
@@ -25,6 +26,7 @@
     "dotenv": "^16.5.0",
     "express": "^5.2.1",
     "filesize": "^11.0.13",
+    "gray-matter": "^4.0.3",
     "lucide-react": "^0.487.0",
     "next": "15.5.9",
     "react": "^19.0.0",
@@ -34,6 +36,7 @@
     "react-markdown": "^10.1.0",
     "react-syntax-highlighter": "^16.1.0",
     "react-typed": "^2.0.12",
+    "stream-chat": "^9.27.2",
     "tailwind-merge": "^3.2.0"
   },
   "devDependencies": {
@@ -50,12 +53,14 @@
     "tailwindcss": "^4.1.18",
     "typescript": "^5"
   },
-  "packageManager": "yarn@1.22.21+sha1.1959a18351b811cdeedbd484a8f86c3cc3bbaf72",
+  "packageManager": "bun@1.2.0",
   "resolutions": {
     "sha.js": "^2.4.12",
     "brace-expansion": "^2.0.2",
     "js-yaml": "^4.1.1",
     "mdast-util-to-hast": "^13.2.1",
-    "mermaid": "^11.10.0"
+    "mermaid": "^11.10.0",
+    "@noble/curves": "1.9.1",
+    "@noble/hashes": "1.8.0"
   }
 }

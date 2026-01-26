@@ -2,10 +2,8 @@ import { Router, Response } from 'express';
 import { body, param, validationResult } from 'express-validator';
 import { authenticatePrivy, AuthRequest } from '../middleware/auth';
 import { discoverUsers } from '../lib/discover';
-import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
-import { v4 as uuidv4 } from 'uuid';
 import db from '../lib/db';
 import { files, indexLinks } from '../lib/schema';
 import { eq } from 'drizzle-orm';
@@ -13,8 +11,11 @@ import { getUploadsPath } from '../lib/paths';
 import { processUploadedFiles } from '../lib/uploads';
 import { crawlLinksForIndex } from '../lib/crawl/web_crawler';
 import { analyzeObjects } from '../agents/core/intent_inferrer';
-import { CreatedIntent, IntentService } from '../lib/intent-service';
+import { CreatedIntent, intentService } from '../services/intent.service';
 import { createUploadClient } from '../lib/uploads';
+
+import { profileService } from '../services/profile.service';
+import { json2md } from '../lib/json2md/json2md';
 
 const router = Router();
 
@@ -79,7 +80,6 @@ router.post('/new',
       }
 
       // Files are already validated by multer fileFilter and limits
-
       const savedFileIds: string[] = [];
       const savedLinkIds: string[] = [];
       let combinedContent = '';
@@ -179,29 +179,51 @@ router.post('/new',
 
       // 4. Generate intents from combined content
       let generatedIntents: any[] = [];
+      let actions: any[] = [];
 
       // If payload is short, no files, and no URLs, create intent directly
       const hasFiles = uploadedFiles && uploadedFiles.length > 0;
       const hasUrls = savedLinkIds.length > 0;
       const isShortPayload = payload && payload.length < 100;
 
-      if (isShortPayload && !hasFiles && !hasUrls) {
-        console.log(`📝 Creating intent directly (short payload, no attachments/URLs)`);
-        try {
-          const createdIntent: CreatedIntent = await IntentService.createIntent({
-            payload: payload.trim(),
-            userId: userId,
-            sourceId: undefined,
-            sourceType: 'discovery_form',
-            isIncognito: false,
-            confidence: 1.0,
-            inferenceType: 'explicit',
-          });
 
-          generatedIntents.push(createdIntent);
-          console.log(`✅ Intent created directly: ${createdIntent.id}`);
-        } catch (error) {
-          console.error(`❌ Failed to create intent directly:`, error);
+      if (isShortPayload && !hasFiles && !hasUrls) {
+        console.log(`📝 Process short payload with Agents (Inferrer -> Verifier)`);
+
+        try {
+          // 1. Prepare Profile Context
+          let profileContext = '';
+          const userProfile = await profileService.getProfile(userId);
+          if (userProfile) {
+            profileContext = json2md.keyValue({
+              bio: userProfile.identity?.bio || '',
+              skills: userProfile.attributes?.skills || [],
+              interests: userProfile.attributes?.interests || []
+            });
+          }
+
+          // 2. Process via IntentService (replaces direct Inferrer + Creator)
+          // This uses IntentManager internally for Deduplication/Actions
+          // 2. Process via IntentService (replaces direct Inferrer + Creator)
+          // This uses IntentManager internally for Deduplication/Actions
+          const result = await intentService.processExplicitInteraction(
+            userId,
+            payload,
+            profileContext
+          );
+          const createdIntents = result.generatedIntents;
+          actions = result.actions;
+
+          generatedIntents.push(...createdIntents);
+
+          if (generatedIntents.length === 0 && actions.length === 0) {
+            console.warn(`[Discover] ⚠️ No intents created (Manager might have ignored or filtered them).`);
+          } else {
+            console.log(`[Discover] ✅ Processed explicit interaction. Result: ${actions.length} actions, ${createdIntents.length} generated.`);
+          }
+
+        } catch (err) {
+          console.error(`[Discover] Error processing short payload:`, err);
         }
       } else if (combinedContent.trim()) {
         console.log(`🤖 Generating intents from ${combinedContent.length} characters`);
@@ -228,7 +250,7 @@ router.post('/new',
             const sourceId = savedFileIds[0] || savedLinkIds[0] || undefined;
 
             try {
-              const createdIntent = await IntentService.createIntent({
+              const createdIntent = await intentService.createIntent({
                 payload: generatedIntent.payload,
                 userId: userId,
                 sourceId: sourceId,
@@ -254,6 +276,7 @@ router.post('/new',
       return res.json({
         success: true,
         intents: generatedIntents,
+        actions: actions || [],
         filesProcessed: savedFileIds.length,
         linksProcessed: savedLinkIds.length,
         intentsGenerated: generatedIntents.length,

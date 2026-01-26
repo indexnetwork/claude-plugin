@@ -23,7 +23,7 @@ export default function SynthesisMarkdown({ content, className = '', onArchive, 
   const popoverRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
   const intentsService = useIntents();
-  const { setDiscoveryIntents } = useDiscoveryFilter();
+  useDiscoveryFilter(); // Context hook kept for future use
   const { success, error } = useNotifications();
 
   const closePopover = () => setPopoverOpen(false);
@@ -109,22 +109,10 @@ export default function SynthesisMarkdown({ content, className = '', onArchive, 
   const handleFocus = async () => {
     if (currentLink?.intentId) {
       try {
-        // Fetch the intent details
-        const intent = await intentsService.getIntent(currentLink.intentId);
-        if (intent) {
-          // Set the intent as a discovery filter, converting null to undefined for summary
-          setDiscoveryIntents([{
-            id: intent.id,
-            payload: intent.payload,
-            summary: intent.summary || undefined,
-            createdAt: intent.createdAt
-          }]);
-          // Navigate to inbox page
-          router.push('/inbox');
-          success('Filtering by this intent');
-        }
+        // Navigate directly to intent route
+        router.push(`/i/${currentLink.intentId}`);
       } catch (err) {
-        console.error('Failed to fetch intent:', err);
+        console.error('Failed to navigate to intent:', err);
         error('Failed to load intent');
       }
     }
@@ -181,14 +169,14 @@ export default function SynthesisMarkdown({ content, className = '', onArchive, 
           <button
             onClick={handleFocus}
             title="Focus on this intent"
-            className="flex items-center justify-center w-9 h-9 border border-b-2 rounded-xs border-black hover:bg-gray-100 transition-colors cursor-pointer"
+            className="flex items-center justify-center w-9 h-9 border border-b-2 rounded-[2px] border-black hover:bg-gray-100 transition-colors cursor-pointer"
           >
             <Focus strokeWidth={1.5} className="w-6 h-6 text-gray-900" />
           </button>
           <button
             onClick={handleArchive}
             title="Archive this intent"
-            className="flex items-center justify-center w-9 h-9 border border-b-2 rounded-xs border-black hover:bg-gray-100 transition-colors cursor-pointer"
+            className="flex items-center justify-center w-9 h-9 border border-b-2 rounded-[2px] border-black hover:bg-gray-100 transition-colors cursor-pointer"
           >
             <Archive strokeWidth={1.5} className="w-6 h-6 text-red-500" />
           </button>

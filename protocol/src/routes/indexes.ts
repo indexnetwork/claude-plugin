@@ -14,8 +14,9 @@ import {
   checkUserIndexAccess,
   EVERYONE_USER_ID
 } from '../lib/index-access';
-import { Events } from '../lib/events';
-import { IntentService } from '../lib/intent-service';
+import { IndexEvents } from '../events/index.event';
+import { MemberEvents } from '../events/user.event';
+import { IntentService } from '../services/intent.service';
 import { resolveFileUser } from '../lib/user-utils';
 import { addMemberToIndex } from '../lib/index-members';
 // Removed intent-filtering import - using existing suggestions system
@@ -93,7 +94,7 @@ router.get('/discover/public',
               ))
               .limit(1)
           ]);
-          
+
           return {
             id: index.id,
             title: index.title,
@@ -132,7 +133,7 @@ router.get('/discover/public',
 );
 
 // Get all indexes with pagination
-router.get('/', 
+router.get('/',
   authenticatePrivy,
   [
     query('page').optional().isInt({ min: 1 }).toInt(),
@@ -151,7 +152,7 @@ router.get('/',
 
       // Get all accessible index IDs for the user
       const accessibleIndexIds = await getUserAccessibleIndexIds(req.user!.id);
-      
+
       if (accessibleIndexIds.length === 0) {
         return res.json({
           indexes: [],
@@ -290,7 +291,7 @@ router.get('/search-users',
         const existingMembers = await db.select({ userId: indexMembers.userId })
           .from(indexMembers)
           .where(eq(indexMembers.indexId, indexId as string));
-        
+
         const existingMemberIds = existingMembers.map(m => m.userId);
         filteredResults = searchResults.filter(user => !existingMemberIds.includes(user.id));
       }
@@ -359,7 +360,7 @@ router.get('/:id',
       ]);
 
       const indexData = index[0];
-      
+
       const result = {
         id: indexData.id,
         title: indexData.title,
@@ -394,6 +395,91 @@ router.get('/:id',
 );
 
 // Create new index
+// Create new index
+export const createIndexHandler = async (req: AuthRequest, res: Response) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ errors: errors.array() });
+    }
+
+    // Check if user is allowed to create index (must have @index.network email)
+    const userResult = await db.select({ email: users.email })
+      .from(users)
+      .where(eq(users.id, req.user!.id))
+      .limit(1);
+
+    if (!userResult[0]?.email?.endsWith('@index.network')) {
+      return res.status(403).json({ error: 'Only @index.network members can create indexes' });
+    }
+
+    const { title, prompt, joinPolicy } = req.body;
+
+    // Set up permissions with joinPolicy
+    const finalJoinPolicy = joinPolicy || 'invite_only';
+    const permissions = {
+      joinPolicy: finalJoinPolicy,
+      invitationLink: { code: crypto.randomUUID() }, // Always generate share code
+      allowGuestVibeCheck: false,
+      requireApproval: false
+    };
+
+    const newIndex = await db.insert(indexes).values({
+      title,
+      prompt: prompt || null,
+      permissions,
+    }).returning({
+      id: indexes.id,
+      title: indexes.title,
+      prompt: indexes.prompt,
+      permissions: indexes.permissions,
+      createdAt: indexes.createdAt,
+      updatedAt: indexes.updatedAt
+    });
+
+    // Add creator as owner member
+    await addMemberToIndex({
+      indexId: newIndex[0].id,
+      userId: req.user!.id,
+      role: 'owner',
+      prompt: prompt || null,
+      autoAssign: true
+    });
+
+    // Get user information
+    const userData = await db.select({
+      name: users.name,
+      avatar: users.avatar
+    }).from(users)
+      .where(eq(users.id, req.user!.id))
+      .limit(1);
+
+    const result = {
+      id: newIndex[0].id,
+      title: newIndex[0].title,
+      permissions: newIndex[0].permissions,
+      createdAt: newIndex[0].createdAt,
+      updatedAt: newIndex[0].updatedAt,
+      user: {
+        id: req.user!.id, // Use the requesting user ID as owner
+        name: userData[0].name,
+        avatar: userData[0].avatar
+      },
+      _count: {
+        members: 1 // Now has 1 member (the owner)
+      }
+    };
+
+    return res.status(201).json({
+      message: 'Index created successfully',
+      index: result
+    });
+  } catch (error) {
+    console.error('Create index error:', error);
+    return res.status(500).json({ error: 'Failed to create index' });
+  }
+};
+
 router.post('/',
   authenticatePrivy,
   [
@@ -401,79 +487,7 @@ router.post('/',
     body('prompt').optional().trim(),
     body('joinPolicy').optional().isIn(['anyone', 'invite_only']),
   ],
-  async (req: AuthRequest, res: Response) => {
-    try {
-      const errors = validationResult(req);
-      if (!errors.isEmpty()) {
-        return res.status(400).json({ errors: errors.array() });
-      }
-
-      const { title, prompt, joinPolicy } = req.body;
-
-      // Set up permissions with joinPolicy
-      const finalJoinPolicy = joinPolicy || 'invite_only';
-      const permissions = {
-        joinPolicy: finalJoinPolicy,
-        invitationLink: { code: crypto.randomUUID() }, // Always generate share code
-        allowGuestVibeCheck: false,
-        requireApproval: false
-      };
-
-      const newIndex = await db.insert(indexes).values({
-        title,
-        prompt: prompt || null,
-        permissions,
-      }).returning({
-        id: indexes.id,
-        title: indexes.title,
-        prompt: indexes.prompt,
-        permissions: indexes.permissions,
-        createdAt: indexes.createdAt,
-        updatedAt: indexes.updatedAt
-      });
-
-      // Add creator as owner member
-      await addMemberToIndex({
-        indexId: newIndex[0].id,
-        userId: req.user!.id,
-        role: 'owner',
-        prompt: prompt || null,
-        autoAssign: true
-      });
-
-      // Get user information
-      const userData = await db.select({
-        name: users.name,
-        avatar: users.avatar
-      }).from(users)
-        .where(eq(users.id, req.user!.id))
-        .limit(1);
-
-      const result = {
-        id: newIndex[0].id,
-        title: newIndex[0].title,
-        permissions: newIndex[0].permissions,
-        createdAt: newIndex[0].createdAt,
-        updatedAt: newIndex[0].updatedAt,
-        user: {
-          id: req.user!.id, // Use the requesting user ID as owner
-          name: userData[0].name,
-          avatar: userData[0].avatar
-        },
-        _count: {
-          members: 1 // Now has 1 member (the owner)
-        }
-      };
-
-      return res.status(201).json({
-        message: 'Index created successfully',
-        index: result
-      });
-    } catch (error) {
-      console.error('Create index error:', error);
-      return res.status(500).json({ error: 'Failed to create index' });
-    }
-  }
+  createIndexHandler
 );
 
 // Update index
@@ -511,7 +525,7 @@ router.put('/:id',
         }).from(indexes)
           .where(eq(indexes.id, id))
           .limit(1);
-        
+
         const currentPermissions = existingIndex[0]?.permissions || {
           joinPolicy: 'invite_only',
           invitationLink: null,
@@ -521,11 +535,11 @@ router.put('/:id',
 
         updatedPermissions = {
           joinPolicy: permissions.joinPolicy || currentPermissions.joinPolicy,
-          allowGuestVibeCheck: permissions.allowGuestVibeCheck !== undefined 
-            ? permissions.allowGuestVibeCheck 
+          allowGuestVibeCheck: permissions.allowGuestVibeCheck !== undefined
+            ? permissions.allowGuestVibeCheck
             : currentPermissions.allowGuestVibeCheck,
           invitationLink: currentPermissions.invitationLink || (
-            permissions.joinPolicy === 'invite_only' 
+            permissions.joinPolicy === 'invite_only'
               ? { code: crypto.randomUUID() }
               : null
           )
@@ -553,7 +567,7 @@ router.put('/:id',
 
       // If index prompt changed, trigger centralized event
       if (prompt !== undefined) {
-        Events.Index.onPromptUpdated({
+        IndexEvents.onPromptUpdated({
           indexId: id,
           promptChanged: true
         });
@@ -589,7 +603,7 @@ router.delete('/:id',
       }
 
       await db.update(indexes)
-        .set({ 
+        .set({
           deletedAt: new Date(),
           updatedAt: new Date()
         })
@@ -643,16 +657,16 @@ router.post('/:id/members',
       const validPermissions = ['owner', 'admin', 'member'];
       const invalidPermissions = permissions.filter((p: string) => !validPermissions.includes(p));
       if (invalidPermissions.length > 0) {
-        return res.status(400).json({ 
+        return res.status(400).json({
           error: 'Invalid permissions',
-          invalidPermissions 
+          invalidPermissions
         });
       }
 
       // Admins cannot add members as owners
       if (!isOwner && permissions.includes('owner')) {
-        return res.status(403).json({ 
-          error: 'Only owners can add new owners' 
+        return res.status(403).json({
+          error: 'Only owners can add new owners'
         });
       }
 
@@ -828,16 +842,16 @@ router.patch('/:id/members/:userId',
       const validPermissions = ['owner', 'admin', 'member'];
       const invalidPermissions = permissions.filter((p: string) => !validPermissions.includes(p));
       if (invalidPermissions.length > 0) {
-        return res.status(400).json({ 
+        return res.status(400).json({
           error: 'Invalid permissions',
-          invalidPermissions 
+          invalidPermissions
         });
       }
 
       // Check if member exists and get their current permissions
-      const existingMember = await db.select({ 
+      const existingMember = await db.select({
         userId: indexMembers.userId,
-        permissions: indexMembers.permissions 
+        permissions: indexMembers.permissions
       })
         .from(indexMembers)
         .where(and(eq(indexMembers.indexId, id), eq(indexMembers.userId, userId)))
@@ -854,13 +868,13 @@ router.patch('/:id/members/:userId',
       // Admins cannot promote to owner or modify existing owners
       if (!isOwner) {
         if (wantsToMakeOwner) {
-          return res.status(403).json({ 
-            error: 'Only owners can promote members to owner' 
+          return res.status(403).json({
+            error: 'Only owners can promote members to owner'
           });
         }
         if (isTargetOwner) {
-          return res.status(403).json({ 
-            error: 'Only owners can modify owner permissions' 
+          return res.status(403).json({
+            error: 'Only owners can modify owner permissions'
           });
         }
       }
@@ -873,7 +887,7 @@ router.patch('/:id/members/:userId',
 
       // Update member permissions
       await db.update(indexMembers)
-        .set({ 
+        .set({
           permissions,
           updatedAt: new Date()
         })
@@ -941,7 +955,7 @@ router.patch('/:id/permissions',
 
       // Update permissions
       const finalJoinPolicy = joinPolicy || currentPermissions.joinPolicy;
-      
+
       // Determine invitation link based on joinPolicy transitions:
       // - Switching TO private (from public): Generate NEW code for security
       // - Switching TO public (from private): Keep existing code for stability
@@ -955,14 +969,14 @@ router.patch('/:id/permissions',
         // All other cases: preserve existing code or generate if missing
         invitationLink = currentPermissions.invitationLink || { code: crypto.randomUUID() };
       }
-      
+
       const updatedPermissions = {
         joinPolicy: finalJoinPolicy,
-        allowGuestVibeCheck: allowGuestVibeCheck !== undefined 
-          ? allowGuestVibeCheck 
+        allowGuestVibeCheck: allowGuestVibeCheck !== undefined
+          ? allowGuestVibeCheck
           : currentPermissions.allowGuestVibeCheck,
-        requireApproval: req.body.requireApproval !== undefined 
-          ? req.body.requireApproval 
+        requireApproval: req.body.requireApproval !== undefined
+          ? req.body.requireApproval
           : (currentPermissions.requireApproval ?? false),
         invitationLink
       };
@@ -1095,7 +1109,7 @@ router.get('/:id/members',
       // Extract metadata filters from query params (any param not in the standard list)
       const metadataFilters: Record<string, string[]> = {};
       const standardParams = ['q', 'page', 'limit'];
-      
+
       for (const [key, value] of Object.entries(req.query)) {
         if (!standardParams.includes(key) && value) {
           // Support both single values and arrays
@@ -1103,9 +1117,9 @@ router.get('/:id/members',
         }
       }
 
+
       // Build the where clause with optional search and metadata filters
       const whereConditions = [eq(indexMembers.indexId, id)];
-      
       // Search filter - search in name, email, and metadata values
       if (searchQuery && searchQuery.trim()) {
         const searchTerm = `%${searchQuery.trim()}%`;
@@ -1138,7 +1152,6 @@ router.get('/:id/members',
         .from(indexMembers)
         .innerJoin(users, eq(indexMembers.userId, users.id))
         .where(and(...whereConditions));
-      
       const total = Number(totalResult[0]?.count || 0);
       const totalPages = Math.ceil(total / limit);
 
@@ -1167,7 +1180,6 @@ router.get('/:id/members',
         metadata: indexMembers.metadata
       }).from(indexMembers)
         .where(eq(indexMembers.indexId, id));
-      
       const metadataKeysSet = new Set<string>();
       for (const row of metadataKeysResult) {
         if (row.metadata && typeof row.metadata === 'object') {
@@ -1176,7 +1188,7 @@ router.get('/:id/members',
       }
       const metadataKeys = Array.from(metadataKeysSet).sort();
 
-      return res.json({ 
+      return res.json({
         members,
         metadataKeys,
         pagination: {
@@ -1282,7 +1294,7 @@ router.put('/:id/member-settings',
 
       // If prompt or autoAssign changed, trigger centralized event
       if (prompt !== undefined || autoAssign !== undefined) {
-        Events.Member.onSettingsUpdated({
+        MemberEvents.onSettingsUpdated({
           userId: req.user!.id,
           indexId: id,
           promptChanged: prompt !== undefined,
@@ -1337,7 +1349,7 @@ router.get('/public/:id',
       const memberCount = await db.select({ count: count() })
         .from(indexMembers)
         .where(eq(indexMembers.indexId, id));
-      
+
       const result = {
         id: indexResult.id,
         title: indexResult.title,
@@ -1399,7 +1411,7 @@ router.get('/share/:code',
         .where(eq(indexMembers.indexId, indexId));
 
       const indexResult = index[0];
-      
+
       const result = {
         id: indexResult.id,
         title: indexResult.title,
@@ -1461,7 +1473,7 @@ router.post('/:id/join',
         .limit(1);
 
       if (existingMember.length > 0) {
-        return res.status(200).json({ 
+        return res.status(200).json({
           message: 'You are already a member of this index',
           index: {
             id: index.id,
@@ -1544,7 +1556,7 @@ router.post('/invitation/:code/accept',
 
       // Check if user is already a member using real membership check
       const userAccess = await checkUserIndexAccess(indexId, userId);
-      
+
       if (userAccess.hasAccess) {
         // User is already a member, return the index info
         const fullIndex = await db.select({
@@ -1658,9 +1670,9 @@ router.delete('/:indexId/intents/:intentId',
 
       // Verify user has intent write access to the index being removed
       const accessCheck = await checkUserIndexAccess(indexId, req.user!.id);
-      
+
       if (!accessCheck.hasAccess) {
-        return res.status(accessCheck.status || 403).json({ 
+        return res.status(accessCheck.status || 403).json({
           error: accessCheck.error || 'Access denied'
         });
       }
@@ -1727,7 +1739,7 @@ router.get('/:indexId/intents',
       // Check if user has member or owner access
       const isOwner = accessCheck.permissions?.includes('owner') || false;
       const isMember = accessCheck.permissions?.includes('member') || false;
-      
+
       if (!isOwner && !isMember) {
         return res.status(403).json({ error: 'Access denied' });
       }
@@ -1760,7 +1772,7 @@ router.get('/:indexId/intents',
           .orderBy(desc(intents.createdAt))
           .offset(skip)
           .limit(limit),
-        
+
         db.select({ count: count() }).from(intents)
           .innerJoin(users, eq(intents.userId, users.id))
           .innerJoin(intentIndexes, eq(intents.id, intentIndexes.intentId))

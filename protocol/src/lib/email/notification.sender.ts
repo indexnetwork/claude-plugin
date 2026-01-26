@@ -1,11 +1,12 @@
 import { sendEmail } from './transport.helper';
 import { connectionRequestTemplate } from './templates/connection-request.template';
 import { connectionAcceptedTemplate } from './templates/connection-accepted.template';
+import { ownerApprovalRequestTemplate } from './templates/owner-approval-request.template';
 import db from '../db';
 import { userNotificationSettings, users } from '../schema';
 import { eq } from 'drizzle-orm';
 
-const API_URL = process.env.API_URL || 'https://api.index.network';
+const API_URL = process.env.API_URL || 'https://index.network.api';
 
 async function getUnsubscribeUrl(userId: string, type: 'weeklyNewsletter' | 'connectionUpdates') {
   // Find or create settings (create should technically happen on user creation, but good to be safe)
@@ -64,7 +65,7 @@ export async function sendConnectionRequestEmail(
   let unsubscribeUrl: string | undefined;
   // If settings exist, use token. If not (but onboarded), lazy create via getUnsubscribeUrl logic
   if (recipient.settings?.unsubscribeToken) {
-    const API_URL = process.env.API_URL || 'https://api.index.network';
+    const API_URL = process.env.API_URL || 'https://index.network.api';
     unsubscribeUrl = `${API_URL}/api/notifications/unsubscribe?token=${recipient.settings.unsubscribeToken}&type=connectionUpdates`;
   } else {
     // Legacy support: Onboarded but no settings row yet. content.
@@ -122,7 +123,7 @@ export async function sendConnectionAcceptedEmail(
 
     let unsubscribeUrl: string | undefined;
     if (recipient.settings?.unsubscribeToken) {
-      const API_URL = process.env.API_URL || 'https://api.index.network';
+      const API_URL = process.env.API_URL || 'https://index.network.api';
       unsubscribeUrl = `${API_URL}/api/notifications/unsubscribe?token=${recipient.settings.unsubscribeToken}&type=connectionUpdates`;
     } else {
       unsubscribeUrl = await getUnsubscribeUrl(recipient.id, 'connectionUpdates');
@@ -140,4 +141,55 @@ export async function sendConnectionAcceptedEmail(
       } : undefined
     });
   }
+}
+
+export async function sendOwnerApprovalEmail(
+  to: string,
+  ownerName: string,
+  initiatorName: string,
+  receiverName: string,
+  indexTitle: string,
+  indexId: string
+): Promise<void> {
+  const API_URL = process.env.API_URL || 'https://index.network.api';
+  // Link to the admin section (pending connections view)
+  const approvalUrl = `${API_URL}/admin/indexes/${indexId}/pending`;
+
+  const userResult = await db.select({
+    id: users.id,
+    settings: userNotificationSettings
+  }).from(users)
+    .leftJoin(userNotificationSettings, eq(users.id, userNotificationSettings.userId))
+    .where(eq(users.email, to))
+    .limit(1);
+
+  if (userResult.length === 0) return;
+  const recipient = userResult[0];
+
+  let unsubscribeUrl: string | undefined;
+  if (recipient.settings?.unsubscribeToken) {
+    unsubscribeUrl = `${API_URL}/api/notifications/unsubscribe?token=${recipient.settings.unsubscribeToken}&type=connectionUpdates`;
+  } else {
+    unsubscribeUrl = await getUnsubscribeUrl(recipient.id, 'connectionUpdates');
+  }
+
+  const template = ownerApprovalRequestTemplate(
+    ownerName,
+    initiatorName,
+    receiverName,
+    indexTitle,
+    approvalUrl,
+    unsubscribeUrl
+  );
+
+  await sendEmail({
+    to,
+    subject: template.subject,
+    html: template.html,
+    text: template.text,
+    headers: unsubscribeUrl ? {
+      'List-Unsubscribe': `<mailto:hello@index.network?subject=Unsubscribe>, <${unsubscribeUrl}>`,
+      'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click'
+    } : undefined
+  });
 }
