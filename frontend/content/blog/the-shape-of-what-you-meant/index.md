@@ -4,11 +4,6 @@ date: "2026-01-23"
 image: "homer.jpg"
 ---
 
-### The Shape of What You Meant
-
-Play for background reading music
-[audio](ornette.mp3)
-
 ![my personal brand](homer.jpg)
 
 You’ve probably been there, looking for someone, not just anyone, but someone who gets it. Maybe you’re building something new and don’t want to do it alone. Maybe your idea doesn’t even have a name yet, but you know it needs others to take shape.
