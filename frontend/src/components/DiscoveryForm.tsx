@@ -755,12 +755,8 @@ const DiscoveryForm = forwardRef<DiscoveryFormRef, DiscoveryFormProps>(({
 
   if (floating) {
     return (
-      <div className="fixed left-0 right-0 bottom-0 z-30">
-        <div className="max-w-7xl mx-auto px-2">
-          <div className="pb-4 pt-2 lg:px-4 mx-4 lg:pl-72 lg:pr-72">
-            {formElement}
-          </div>
-        </div>
+      <div className="sticky bottom-0 z-30 pb-4 pt-2 bg-gradient-to-t from-white via-white to-transparent">
+        {formElement}
       </div>
     );
   }
