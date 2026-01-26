@@ -1,6 +1,6 @@
 'use client';
 
-import { PropsWithChildren, useMemo, useState } from 'react';
+import { PropsWithChildren, useEffect, useMemo, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import Header from "@/components/Header";
 import Sidebar from "@/components/Sidebar";
@@ -103,6 +103,16 @@ function ClientWrapperContent({
   setMobileSidebarOpen: (value: boolean | ((prev: boolean) => boolean)) => void;
 }>) {
   const { activeChatId, openChats, clearActiveChat, closeChat } = useStreamChat();
+  const [isScrolled, setIsScrolled] = useState(false);
+  
+  // Track scroll position for sticky header background
+  useEffect(() => {
+    const handleScroll = () => {
+      setIsScrolled(window.scrollY > 0);
+    };
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
   
   // Find the active chat details
   const activeChat = activeChatId ? openChats.find((c) => c.userId === activeChatId) : null;
@@ -125,7 +135,7 @@ function ClientWrapperContent({
       `}</style>
 
       {/* Header stays fixed at top (except on landing/blog pages) */}
-      <div className={isLandingOrBlog ? 'z-40' : 'sticky top-0 z-40 '}>
+      <div className={isLandingOrBlog ? 'z-40' : `sticky top-0 z-40 transition-colors ${isScrolled ? 'bg-white/50 backdrop-blur-3xl' : ''}`}>
         <div className="max-w-7xl mx-auto px-2">
           <Header
             showHeaderButtons={showHeaderButtons}

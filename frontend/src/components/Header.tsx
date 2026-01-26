@@ -94,6 +94,12 @@ export default function Header({ onToggleSidebar, isSidebarOpen, showHeaderButto
         router.push('/onboarding');
         return;
       }
+      
+      // Redirect to app from blog pages after login
+      if (pathname === '/blog' || pathname?.startsWith('/blog/')) {
+        router.push('/');
+        return;
+      }
     }
   }, [user?.id, user?.onboarding?.completedAt, user?.intro, authenticated, pathname, router]);
 
