@@ -19,6 +19,7 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
 
   return {
     title: `${post.title} | Index Network Blog`,
+    description: post.description,
   };
 }
 
@@ -68,14 +69,25 @@ const markdownComponents: Components = {
       </a>
     );
   },
-  img: ({ src, alt }) => (
-    <img
-      src={src}
-      alt={alt || ''}
-      className="w-full rounded-lg my-6"
-      loading="lazy"
-    />
-  ),
+  img: ({ src, alt }) => {
+    // Support size hints in alt text: ![alt|small](image.jpg)
+    const [altText, size] = (alt || '').split('|').map(s => s.trim());
+    const sizeClasses: Record<string, string> = {
+      small: 'w-1/4',
+      medium: 'w-1/2',
+      large: 'w-3/4',
+    };
+    const widthClass = sizeClasses[size] || 'w-full';
+    
+    return (
+      <img
+        src={src}
+        alt={altText}
+        className={`${widthClass} rounded-lg my-6`}
+        loading="lazy"
+      />
+    );
+  },
 };
 
 export default async function BlogPostPage({ params }: { params: Promise<{ slug: string }> }) {

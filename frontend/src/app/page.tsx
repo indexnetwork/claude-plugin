@@ -267,7 +267,7 @@ function LandingPage() {
 
         .landing-page p.text-lg {
           font-family: 'Hanken Grotesk', -apple-system, BlinkMacSystemFont, sans-serif;
-          font-size: 14px;
+          font-size: 15px;
         }
 
         /* Floating Ideas in Background */
@@ -736,10 +736,10 @@ function LandingPage() {
               </h1>
 
               <p
-                className="text-[16px] leading-relaxed text-black/80 mb-8 lg:mb-10 max-w-[480px] mx-auto lg:mx-0 font-normal"
+                className="text-[17px] leading-relaxed text-black/80 mb-8 lg:mb-10 max-w-[480px] mx-auto lg:mx-0 font-normal"
                 style={{ fontFamily: "'Hanken Grotesk', -apple-system, BlinkMacSystemFont, sans-serif" }}
               >
-                You know that moment when you meet the right person and your next move clicks into place? That sense of magic? It&apos;s time to find your others without having to try so hard.
+                You know that moment when you meet the right person and your next move clicks into place? That sense of magic? You shouldn&apos;t have to wait for luck. Index helps your others find you.
               </p>
 
               <div
@@ -758,13 +758,13 @@ function LandingPage() {
 
             {/* Illustration */}
             <div className="hero-illustration relative z-10 flex items-center justify-center w-full h-full min-h-[300px] lg:min-h-[700px] order-2">
-              <Image
-                src="/collab.png"
-                alt="Collaboration illustration"
-                width={600}
-                height={600}
-                className="w-full max-w-[320px] lg:max-w-full h-auto object-contain lg:scale-105"
-              />
+                <Image
+                  src="/collab.png"
+                  alt="Collaboration illustration"
+                  width={600}
+                  height={600}
+                  className="w-full max-w-[360px] lg:max-w-full h-auto object-contain lg:scale-115"
+                />
             </div>
           </div>
         </section>
@@ -778,7 +778,7 @@ function LandingPage() {
               Ambient discovery that works for you
             </h2>
             <p
-              className="text-center text-black/80 mb-6 text-[16px] leading-relaxed font-normal max-w-[560px] mx-auto"
+              className="text-center text-black/80 mb-6 text-[17px] leading-relaxed font-normal max-w-[560px] mx-auto"
               style={{ fontFamily: "'Hanken Grotesk', -apple-system, BlinkMacSystemFont, sans-serif" }}
             >
               Share your intent privately, sit back, fiddle with it, and let people surface when their wavelength aligns with yours. No searching or filtering needed.
@@ -934,21 +934,21 @@ function LandingPage() {
               </h2>
               <div className="mb-8">
                 <p
-                  className="text-[16px] leading-relaxed text-black/80 mb-6 font-normal"
+                  className="text-[17px] leading-relaxed text-black/80 mb-6 font-normal"
                   style={{ fontFamily: "'Hanken Grotesk', -apple-system, BlinkMacSystemFont, sans-serif" }}
                 >
                   You&apos;ve been here before. Something new is brewing inside you—maybe it&apos;s just an inkling, maybe it&apos;s a full-fledged idea. Either way, you need others to help it take shape. Others who can be your teammates and patrons, whetstones and cheerleaders.
                 </p>
 
                 <p
-                  className="text-[16px] leading-relaxed text-black/80 mb-6 font-normal"
+                  className="text-[17px] leading-relaxed text-black/80 mb-6 font-normal"
                   style={{ fontFamily: "'Hanken Grotesk', -apple-system, BlinkMacSystemFont, sans-serif" }}
                 >
                   You&apos;ve got platforms to post, share, search, and shout. But despite the flood of tools, you&apos;re still stuck trying to meet someone who shares your flavor of weird. How is it still this hard to find your others?
                 </p>
 
                 <p
-                  className="text-[16px] leading-relaxed text-black/80 font-normal"
+                  className="text-[17px] leading-relaxed text-black/80 font-normal"
                   style={{ fontFamily: "'Hanken Grotesk', -apple-system, BlinkMacSystemFont, sans-serif" }}
                 >
                   Meet Index. Instead of shouting into the void, now you can just say the word, and LLM-enabled agents will run ambient discovery based on the shape of what you meant. It&apos;s not that the people you&apos;re looking for don&apos;t exist. They do, and they&apos;re closer than you think.
@@ -977,7 +977,7 @@ function LandingPage() {
                 </h2>
 
                 <p
-                  className="text-[16px] leading-relaxed text-black/80 mb-8 font-normal"
+                  className="text-[17px] leading-relaxed text-black/80 mb-8 font-normal"
                   style={{ fontFamily: "'Hanken Grotesk', -apple-system, BlinkMacSystemFont, sans-serif" }}
                 >
                   Are you a community or ecosystem leader? We&apos;re opening early access to leaders looking to engineer serendipity.
@@ -1029,7 +1029,7 @@ function LandingPage() {
               We&apos;re building in the open
             </h2>
             <p
-              className="text-[16px] leading-relaxed text-black/80 mb-8 font-normal max-w-[700px] mx-auto"
+              className="text-[17px] leading-relaxed text-black/80 mb-8 font-normal max-w-[700px] mx-auto"
               style={{ fontFamily: "'Hanken Grotesk', -apple-system, BlinkMacSystemFont, sans-serif" }}
             >
               Index is an open-source social protocol. No permission required.
