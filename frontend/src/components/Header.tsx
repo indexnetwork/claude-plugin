@@ -144,7 +144,7 @@ export default function Header({ onToggleSidebar, isSidebarOpen, showHeaderButto
   // Show loading state while Privy is initializing
   if (!ready) {
     return (
-      <header className="w-full py-4 px-4 flex justify-between items-center">
+      <header className="w-full py-2 px-4 flex justify-between items-center">
         <div className="flex items-center">
           <Link href="/">
             <div className="relative mr-2 cursor-pointer">
@@ -165,7 +165,7 @@ export default function Header({ onToggleSidebar, isSidebarOpen, showHeaderButto
 
   return (
     <div>
-      <header className="w-full pt-4 pb-4 px-4 flex justify-between items-center">
+      <header className="w-full pt-2 pb-2 px-0 flex justify-between items-center">
         <div className="flex items-center gap-2">
           {/* Mobile-only sidebar toggle */}
           {onToggleSidebar && (
@@ -390,7 +390,8 @@ export default function Header({ onToggleSidebar, isSidebarOpen, showHeaderButto
                 onClick={() => window.open("https://forms.gle/nTNBKYC2gZZMnujh9", "_blank")}
                 className="bg-black text-white rounded-[2px] px-5 py-3 font-semibold text-sm inline-flex items-center gap-2 transition-all hover:bg-[#333] hover:-translate-y-[1px] uppercase tracking-wider cursor-pointer"
               >
-                Join the waitlist
+                <span className="lg:hidden">Join</span>
+                <span className="hidden lg:inline">Join the waitlist</span>
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} className="w-4 h-4">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6" />
                 </svg>
