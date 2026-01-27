@@ -83,7 +83,7 @@ const markdownComponents: Components = {
       <img
         src={src}
         alt={altText}
-        className={`${widthClass} rounded-lg my-6`}
+        className={`${widthClass} rounded-lg my-6 mx-auto block`}
         loading="lazy"
       />
     );
