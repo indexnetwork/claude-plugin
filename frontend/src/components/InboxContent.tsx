@@ -629,7 +629,7 @@ export default function InboxContent() {
                     alt="Loading..."
                     width={300}
                     height={200}
-                    style={{ imageRendering: 'auto' }}
+                    style={{ imageRendering: 'auto', mixBlendMode: 'multiply', backgroundColor: 'transparent' }}
                   />
                   <h3 className="text-gray-900 font-semibold font-ibm-plex-mono text-lg px-8 mt-4 text-center">
                     Finding your people...
