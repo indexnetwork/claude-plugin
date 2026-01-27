@@ -1,6 +1,5 @@
 import { getPostBySlug, getAllPostSlugs } from '@/lib/blog';
 import { notFound } from 'next/navigation';
-import Link from 'next/link';
 import ReactMarkdown from 'react-markdown';
 import { Components } from 'react-markdown';
 import Footer from '@/components/Footer';
@@ -89,33 +88,10 @@ export default async function BlogPostPage({ params }: { params: Promise<{ slug:
 
   return (
     <div className="min-h-screen flex flex-col">
-    <div className="max-w-3xl w-full mx-auto px-4 py-8 flex-1">
-      {/* Back link */}
-      <Link 
-        href="/blog" 
-        className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-black transition-colors mb-6"
-      >
-        <svg 
-          width="16" 
-          height="16" 
-          viewBox="0 0 16 16" 
-          fill="none" 
-          xmlns="http://www.w3.org/2000/svg"
-          className="stroke-current"
-        >
-          <path 
-            d="M10 12L6 8L10 4" 
-            strokeWidth="1.5" 
-            strokeLinecap="round" 
-            strokeLinejoin="round"
-          />
-        </svg>
-        Back to Blog
-      </Link>
-
+    <div className="max-w-2xl w-full mx-auto px-4 py-8 flex-1">
       {/* Post header */}
       <header className="mb-10 text-center">
-        <time className="text-sm text-black font-ibm-plex-mono">
+        <time className="text-base text-black font-['Times_New_Roman',_serif]">
           {new Date(post.date).toLocaleDateString('en-US', {
             year: 'numeric',
             month: 'long',
@@ -128,7 +104,7 @@ export default async function BlogPostPage({ params }: { params: Promise<{ slug:
       </header>
 
       {/* Post content */}
-      <article className="text-black text-lg leading-relaxed [&_h2]:text-2xl [&_h2]:font-garamond [&_h2]:font-medium [&_h2]:mt-10 [&_h2]:mb-4 [&_h3]:text-xl [&_h3]:font-garamond [&_h3]:font-medium [&_h3]:mt-8 [&_h3]:mb-3 [&_p]:mb-6 [&_ul]:list-disc [&_ul]:pl-6 [&_ul]:mb-6 [&_ol]:list-decimal [&_ol]:pl-6 [&_ol]:mb-6 [&_li]:mb-2 [&_strong]:font-semibold [&_em]:italic [&_code]:bg-gray-100 [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:rounded [&_code]:text-sm [&_code]:font-mono [&_blockquote]:border-l-4 [&_blockquote]:border-gray-300 [&_blockquote]:pl-4 [&_blockquote]:italic [&_blockquote]:text-gray-600 [&_blockquote]:my-6">
+      <article className="text-black text-lg leading-[25px] font-['Times_New_Roman',_serif] [&_h2]:text-2xl [&_h2]:font-['Times_New_Roman',_serif] [&_h2]:font-medium [&_h2]:mt-10 [&_h2]:mb-4 [&_h3]:text-xl [&_h3]:font-['Times_New_Roman',_serif] [&_h3]:font-medium [&_h3]:mt-8 [&_h3]:mb-3 [&_p]:mb-6 [&_ul]:list-disc [&_ul]:pl-6 [&_ul]:mb-6 [&_ol]:list-decimal [&_ol]:pl-6 [&_ol]:mb-6 [&_li]:mb-2 [&_strong]:font-semibold [&_em]:italic [&_code]:bg-gray-100 [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:rounded [&_code]:text-sm [&_code]:font-mono [&_blockquote]:border-l-4 [&_blockquote]:border-gray-300 [&_blockquote]:pl-4 [&_blockquote]:italic [&_blockquote]:text-gray-600 [&_blockquote]:my-6">
         <ReactMarkdown components={markdownComponents}>{post.content}</ReactMarkdown>
       </article>
 

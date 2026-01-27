@@ -800,7 +800,7 @@ function LandingPage() {
                     <div className="flex items-center gap-3 mb-3">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
-                        src="https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=100&h=100&fit=crop&crop=face"
+                        src="/you.png"
                         alt="You"
                         className="w-10 h-10 rounded-full object-cover"
                       />
@@ -809,7 +809,7 @@ function LandingPage() {
                       </div>
                     </div>
                     <p className="text-[15px] leading-relaxed text-[#333] font-sans">
-                      ready to build something again. spent the last 4 years scaling ops from 5 to 50, learned a lot about what actually works. looking for founders who needs an ops leader who&apos;s been in the trenches.
+                      Ready to build again but not start from scratch. Honestly just tired of the red tape, things shifted after we tripled in size. Looking for founders who need an ops leader who&apos;s been in the trenches.
                     </p>
                     <div className="flex items-center gap-2 bg-[#F4F7F6] border border-[#E5E5E5] rounded mt-1 p-1 w-fit">
                       <svg className="w-4 h-4 text-[#666]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -845,7 +845,7 @@ function LandingPage() {
                     <span className="font-medium text-black">Someone in the network</span> shared an intent
                   </div>
                   <div className="text-[15px] text-[#888] italic font-sans">
-                    &quot;need someone who&apos;s scaled ops for series A-C before. i&apos;m not looking for pedigree, just tried and true expertise. also not a consultant or advisor, but someone who wants to get in the weeds again FT. so many things breaking as we grow.&quot;
+                    &quot;Need someone who&apos;s scaled ops for ~Series A-C. Tried and true expertise is more important than pedigree. Also not a consultant or advisor, but someone who wants to get in the weeds again FT. So many things breaking as we grow.&quot;
                   </div>
                 </div>
               </div>
@@ -894,7 +894,7 @@ function LandingPage() {
                       </div>
                     </div>
                     <p className="text-[15px] leading-relaxed text-[#333] font-sans">
-                      You want out of big company politics and back to building. Nicole just closed series A for a warehouse robotics company and is hitting the growing pains you know too well. She wants someone who&apos;s already scaled a hardware ops team from 5 to 50. Your last four years were exactly that.
+                      You want out of big company politics and back to building. Nicole just closed their series A for a warehouse robotics company and is hitting the growing pains you know too well. She wants someone who&apos;s already scaled a hardware ops team from 5 to 50. Your last four years were just that.
                     </p>
                   </div>
                 </div>
@@ -999,7 +999,7 @@ function LandingPage() {
               <div className="flex gap-5 items-start lg:border-l lg:border-[#E5E5E5] lg:pl-12">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
-                  src="vivek.jpg"
+                  src="/vivek.png"
                   alt="Vivek Singh"
                   className="w-[70px] h-[85px] md:w-[90px] md:h-[110px] object-cover flex-shrink-0"
                 />
