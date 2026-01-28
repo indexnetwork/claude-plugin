@@ -111,7 +111,9 @@ export const userProfiles = pgTable('user_profiles', {
 }, (table) => ({
   // Enforce uniqueness on userId is already done by the column definition
   embeddingIndex: index('user_profiles_embedding_idx').using('hnsw', table.embedding.op('vector_cosine_ops')),
+  hydeEmbeddingIndex: index('user_profiles_hyde_embedding_idx').using('hnsw', table.hydeEmbedding.op('vector_cosine_ops')),
 }));
+
 export const userNotificationSettings = pgTable('user_notification_settings', {
   id: uuid('id').primaryKey().defaultRandom(),
   userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
@@ -123,6 +125,20 @@ export const userNotificationSettings = pgTable('user_notification_settings', {
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
+
+export const opportunities = pgTable('opportunities', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  // References
+  sourceId: uuid('source_id').notNull().references(() => users.id),
+  candidateId: uuid('candidate_id').notNull().references(() => users.id),
+  // Data
+  score: integer('score').notNull(),
+  sourceDescription: text('source_description').notNull(),
+  candidateDescription: text('candidate_description').notNull(),
+  // Timestamps
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+})
 
 export const intents = pgTable('intents', {
   id: uuid('id').primaryKey().defaultRandom(),
