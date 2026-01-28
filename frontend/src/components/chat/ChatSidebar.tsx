@@ -252,7 +252,7 @@ export default function ChatSidebar() {
       )}
 
       {/* Conversations header */}
-      <div className="flex items-center gap-2 px-3 py-3">
+      <div className="flex items-center gap-2 mb-3">
         <MessageSquare className="w-5 h-5 text-gray-600" />
         <h2 className="font-bold text-sm text-black font-ibm-plex-mono">Conversations</h2>
         {totalUnreadCount > 0 && (
@@ -290,7 +290,7 @@ export default function ChatSidebar() {
                 <button
                   key={channel.id}
                   onClick={() => handleChannelClick(channel)}
-                  className={`w-full px-3 py-3 transition-colors text-left ${
+                  className={`w-full py-3 transition-colors text-left ${
                     isActive
                       ? 'bg-gray-100 border-l-2 border-black'
                       : hasUnread
