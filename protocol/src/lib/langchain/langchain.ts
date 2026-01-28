@@ -124,7 +124,7 @@ function createBaseOpenRouterModel(preset: string | undefined, options: AgentMod
     streaming: false,
     apiKey: process.env.OPENROUTER_API_KEY!,
     configuration: {
-      baseURL: 'https://openrouter.ai/api/v1',
+      baseURL: process.env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1',
     },
     temperature,
     maxTokens,
