@@ -4,6 +4,7 @@ import { config } from "dotenv";
 config({ path: '.env.development', override: true });
 
 import { ProfileController } from "./profile.controller";
+import type { AuthenticatedUser } from "../guards/auth.guard";
 import db, { closeDb } from '../lib/db';
 import * as schema from '../lib/schema';
 import { eq } from 'drizzle-orm';
@@ -56,13 +57,20 @@ describe("ProfileController Integration", () => {
   test("sync should generate a profile for a new user", async () => {
     // 1. Run sync
     // This will trigger the graph: Check DB -> (Missing) -> Scrape -> Generate -> Embed -> Save -> HyDE -> Embed -> Save
-    // Note: This relies on parallel scraper working or failing gracefully? 
+    // Note: This relies on parallel scraper working or failing gracefully?
     // If we want to test "real" flows we need real external inputs OR we accept that scraper might return empty if URL inactive.
     // However, the user provided socials so the "objective" will be constructed.
     // The scraper interface is scraping "objective" text (implemented locally via Parallel adapter).
 
     console.log("Starting sync...");
-    const result = await controller.sync(testUserId);
+    const mockRequest = {} as Request;
+    const mockUser: AuthenticatedUser = {
+      id: testUserId,
+      privyId: `privy:${Date.now()}`,
+      email: "test-profile-controller@example.com",
+      name: "Test Profile User"
+    };
+    const result = await controller.sync(mockRequest, mockUser);
     console.log("Sync result:", result);
 
     // 2. Verify DB state - Profile should be created
@@ -78,8 +86,15 @@ describe("ProfileController Integration", () => {
 
   test("sync should be idempotent (second run should just verify)", async () => {
     console.log("Starting idempotent sync...");
+    const mockRequest = {} as Request;
+    const mockUser: AuthenticatedUser = {
+      id: testUserId,
+      privyId: `privy:${Date.now()}`,
+      email: "test-profile-controller@example.com",
+      name: "Test Profile User"
+    };
     const start = Date.now();
-    await controller.sync(testUserId);
+    await controller.sync(mockRequest, mockUser);
     const duration = Date.now() - start;
 
     // Second run should be much faster as it skips generation (if logic holds)

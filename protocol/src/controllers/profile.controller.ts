@@ -3,7 +3,7 @@ import * as schema from '../lib/schema';
 import db from '../lib/db';
 import { IndexEmbedder } from '../lib/embedder';
 import { ProfileGraphFactory } from '../lib/protocol/graphs/profile/profile.graph';
-import { Database } from '../lib/protocol/interfaces/database.interface';
+import { ProfileGraphDatabase } from '../lib/protocol/interfaces/database.interface';
 import { Scraper } from '../lib/protocol/interfaces/scraper.interface';
 import { Embedder } from '../lib/protocol/interfaces/embedder.interface';
 import { ProfileDocument } from '../lib/protocol/agents/profile/profile.generator';
@@ -13,7 +13,7 @@ import { User } from '../lib/schema';
 
 import { searchUser } from '../lib/parallel/parallel';
 
-export class DrizzleDatabaseAdapter implements Database {
+export class DrizzleDatabaseAdapter implements ProfileGraphDatabase {
 
   async getProfile(userId: string): Promise<ProfileDocument | null> {
     const result = await db.select()
@@ -94,7 +94,7 @@ import type { AuthenticatedUser } from '../guards/auth.guard';
 
 @Controller('/profiles')
 export class ProfileController {
-  private db: Database;
+  private db: ProfileGraphDatabase;
   private embedder: Embedder;
   private scraper: Scraper;
   private factory: ProfileGraphFactory;

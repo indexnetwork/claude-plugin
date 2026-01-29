@@ -2,7 +2,7 @@ import { StateGraph, START, END } from "@langchain/langgraph";
 import { ProfileGraphState } from "./profile.graph.state";
 import { ProfileGenerator, ProfileDocument } from "../../agents/profile/profile.generator";
 import { HydeGenerator } from "../../agents/profile/hyde/hyde.generator";
-import { Database } from "../../interfaces/database.interface";
+import { ProfileGraphDatabase } from "../../interfaces/database.interface";
 import { Embedder } from "../../interfaces/embedder.interface";
 import { Scraper } from "../../interfaces/scraper.interface";
 import { log } from "../../../log";
@@ -12,7 +12,7 @@ import { log } from "../../../log";
  */
 export class ProfileGraphFactory {
   constructor(
-    private database: Database,
+    private database: ProfileGraphDatabase,
     private embedder: Embedder,
     private scraper: Scraper
   ) { }
