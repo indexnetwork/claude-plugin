@@ -20,8 +20,10 @@ describe('Opportunity Graph Tests', () => {
   beforeAll(() => {
     // Mock Database
     mockDb = {
-      get: () => Promise.resolve(null),
-      insert: () => Promise.resolve(null),
+      getProfile: () => Promise.resolve(null),
+      saveProfile: () => Promise.resolve(),
+      saveHydeProfile: () => Promise.resolve(),
+      getUser: () => Promise.resolve(null),
     } as unknown as Database;
 
     // Mock Embedder
@@ -101,7 +103,7 @@ describe('Opportunity Graph Tests', () => {
 
   test('Flow: Resolve Source Profile (Missing Context) -> Search -> Evaluate', async () => {
     // 1. Setup Mock DB response for user profile
-    spyOn(mockDb, 'get').mockResolvedValue({
+    spyOn(mockDb, 'getProfile').mockResolvedValue({
       identity: { name: 'Resolved User', bio: 'AI Engineer' },
       attributes: { skills: ['Python', 'LangChain'] }
     });

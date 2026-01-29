@@ -17,24 +17,32 @@ import { HydeGenerator } from "../../agents/profile/hyde/hyde.generator";
 let profileStateInDB: any = null;
 
 // Mock Database
+// Mock Database
 const mockDatabase = {
-  exists: mock(async () => !!profileStateInDB),
-  update: mock(async (table, args) => { profileStateInDB = { ...profileStateInDB, ...args.data }; }),
-  create: mock(async (table, args) => { profileStateInDB = args.data; }),
-  find: mock(async () => []),
-  get: mock(async (table: string, query: any) => {
-    if (table === 'users') {
-      return {
-        id: query.filter.id,
-        name: "Seref Yarar",
-        email: "seref@index.network",
-        socials: {
-          linkedin: "https://www.linkedin.com/in/serefyarar/",
-          twitter: "https://x.com/hyperseref"
-        }
-      };
+  getProfile: mock(async (userId: string) => {
+    // Return state if userId matches, or if we just assume single user test context
+    if (profileStateInDB && profileStateInDB.userId === userId) return profileStateInDB;
+    return profileStateInDB; // Fallback for simple tests
+  }),
+  saveProfile: mock(async (userId: string, profile: any) => {
+    profileStateInDB = { ...profileStateInDB, ...profile, userId };
+  }),
+  saveHydeProfile: mock(async (userId: string, description: string, embedding: number[]) => {
+    if (profileStateInDB) {
+      profileStateInDB.hydeDescription = description;
+      profileStateInDB.hydeEmbedding = embedding;
     }
-    return profileStateInDB;
+  }),
+  getUser: mock(async (userId: string) => {
+    return {
+      id: userId,
+      name: "Seref Yarar",
+      email: "seref@index.network",
+      socials: {
+        linkedin: "https://www.linkedin.com/in/serefyarar/",
+        twitter: "https://x.com/hyperseref"
+      }
+    };
   })
 } as unknown as Database;
 

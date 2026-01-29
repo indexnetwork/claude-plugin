@@ -6,27 +6,13 @@ config({ path: 'protocol/.env.development', override: true });
 
 import { describe, expect, it, beforeAll } from "bun:test";
 import { IntentGraphFactory } from "./intent.graph";
-import { Database } from "../../interfaces/database.interface"; // Mock
-import { Embedder } from "../../interfaces/embedder.interface"; // Mock
 import { IntentGraphState } from "./intent.graph.state";
-
-// Mock Database and Embedder
-const mockDatabase = {
-  exists: async () => false,
-  update: async () => { },
-  create: async () => { },
-  find: async () => []
-} as unknown as Database;
-
-const mockEmbedder = {
-  generate: async () => []
-} as unknown as Embedder;
 
 describe('IntentGraph', () => {
   let graphRunner: any;
 
   beforeAll(() => {
-    const factory = new IntentGraphFactory(mockDatabase, mockEmbedder);
+    const factory = new IntentGraphFactory();
     graphRunner = factory.createGraph();
   });
 

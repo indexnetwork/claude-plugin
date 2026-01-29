@@ -1,19 +1,22 @@
 import { ChatOpenAI } from "@langchain/openai";
-import { createAgent } from "../../../../langchain/langchain";
+import { createAgent } from "langchain";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { tool } from "@langchain/core/tools";
-import { Runnable } from "@langchain/core/runnables";
 import { z } from "zod";
 import { log } from "../../../../log";
-import { Database } from "../../../interfaces/database.interface";
-import { Embedder } from "../../../interfaces/embedder.interface";
 
 /**
  * Config
  */
 import { config } from "dotenv";
+import { ReactAgent } from "langchain";
 config({ path: '.env.development', override: true });
 
+
+const model = new ChatOpenAI({
+  model: 'google/gemini-3-flash-preview',
+  configuration: { baseURL: process.env.OPENROUTER_BASE_URL, apiKey: process.env.OPENROUTER_API_KEY }
+});
 // ──────────────────────────────────────────────────────────────
 // 1. SYSTEM PROMPT
 // ──────────────────────────────────────────────────────────────
@@ -68,17 +71,14 @@ export type InferredIntent = z.infer<typeof InferredIntentSchema>;
 // ──────────────────────────────────────────────────────────────
 
 export class ExplicitIntentInferrer {
-  private agent: Runnable;
-  private database: Database;
-  private embedder: Embedder;
+  private agent: ReactAgent;
 
-  constructor(database: Database, embedder: Embedder) {
+  constructor() {
     this.agent = createAgent({
-      model: 'openai/gpt-4o',
-      responseFormat
+      model,
+      responseFormat,
+      systemPrompt,
     });
-    this.database = database;
-    this.embedder = embedder;
   }
 
   /**
@@ -98,7 +98,6 @@ export class ExplicitIntentInferrer {
     `;
 
     const messages = [
-      new SystemMessage(systemPrompt),
       new HumanMessage(prompt)
     ];
 
@@ -131,10 +130,10 @@ export class ExplicitIntentInferrer {
    * Factory method to expose the agent as a LangChain tool.
    * Useful for composing agents into larger graphs.
    */
-  public static asTool(database: Database, embedder: Embedder) {
+  public static asTool() {
     return tool(
       async (args: { content: string | null; profileContext: string }) => {
-        const agent = new ExplicitIntentInferrer(database, embedder);
+        const agent = new ExplicitIntentInferrer();
         return await agent.invoke(args.content, args.profileContext);
       },
       {

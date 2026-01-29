@@ -65,9 +65,7 @@ export class OpportunityGraph {
     if (!sourceProfileContext && sourceUserId) {
       log.info(`[OpportunityGraph] Resolving source profile for userId: ${sourceUserId}`);
       try {
-        const profile = await this.database.get<any>('user_profiles', {
-          filter: { userId: sourceUserId }
-        });
+        const profile = await this.database.getProfile(sourceUserId);
 
         if (profile) {
           const identity = profile.identity || {};

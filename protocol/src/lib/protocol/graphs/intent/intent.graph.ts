@@ -4,24 +4,18 @@ import { ExplicitIntentInferrer } from "../../agents/intent/inferrer/explicit.in
 import { SemanticVerifierAgent } from "../../agents/intent/verifier/semantic.verifier";
 import { IntentReconcilerAgent } from "../../agents/intent/reconciler/intent.reconciler";
 import { log } from "../../../log";
-import { Database } from "../../interfaces/database.interface";
-import { Embedder } from "../../interfaces/embedder.interface";
 
 /**
  * Factory class to build and compile the Intent Processing Graph.
- * We use a factory to inject dependencies (DB, Embedder) into the nodes.
  */
 export class IntentGraphFactory {
-  constructor(
-    private database: Database,
-    private embedder: Embedder
-  ) { }
+  constructor() { }
 
   public createGraph() {
     // Instantiate Agents (Nodes)
-    const inferrer = new ExplicitIntentInferrer(this.database, this.embedder);
-    const verifier = new SemanticVerifierAgent(this.database, this.embedder);
-    const reconciler = new IntentReconcilerAgent(this.database, this.embedder);
+    const inferrer = new ExplicitIntentInferrer();
+    const verifier = new SemanticVerifierAgent();
+    const reconciler = new IntentReconcilerAgent();
 
     // --- NODE DEFINITIONS ---
 

@@ -3,15 +3,9 @@ config({ path: 'protocol/.env.development', override: true });
 
 import { describe, expect, it } from "bun:test";
 import { ExplicitIntentInferrer } from "./explicit.inferrer";
-import { Database } from "../../../interfaces/database.interface";
-import { Embedder } from "../../../interfaces/embedder.interface";
-
-// Mock dependencies
-const mockDatabase = {} as Database;
-const mockEmbedder = {} as Embedder;
 
 describe('ExplicitIntentInferrer', () => {
-  const inferrer = new ExplicitIntentInferrer(mockDatabase, mockEmbedder);
+  const inferrer = new ExplicitIntentInferrer();
 
   // We assume the user profile context string
   const profileContext = "User is an experienced software engineer interested in AI and crypto.";

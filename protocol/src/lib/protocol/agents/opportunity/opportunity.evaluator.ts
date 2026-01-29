@@ -187,7 +187,6 @@ export class OpportunityEvaluator {
             `;
 
       const messages = [
-        new SystemMessage(systemPrompt),
         new HumanMessage(`${sourceContext}\n${existingContextPart}\nCANDIDATE PROFILE:\n${candidateContext}`)
       ];
 

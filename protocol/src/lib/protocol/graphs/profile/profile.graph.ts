@@ -28,14 +28,20 @@ export class ProfileGraphFactory {
      * Checks if profile exists and decides next steps.
      * Loads existing profile into state if found.
      */
+    /**
+     * Node: Check DB State
+     * Checks if profile exists and decides next steps.
+     * Loads existing profile into state if found.
+     */
     const checkStateNode = async (state: typeof ProfileGraphState.State) => {
       if (!state.userId) {
         throw new Error("userId is required");
       }
 
-      const profile = await this.database.get<ProfileDocument>('user_profiles', { filter: { userId: state.userId } });
+      const profile = await this.database.getProfile(state.userId);
 
       // If profile exists, load it into state
+      // Type assertion or runtime check might be needed if profile structure differs slightly
       return {
         profile: profile || undefined
       };
@@ -50,7 +56,7 @@ export class ProfileGraphFactory {
 
       // Fetch user details to construct objective
       log.info(`[Graph:Profile] Fetching user details for objective construction...`, { userId: state.userId });
-      const user = await this.database.get<any>('users', { filter: { id: state.userId } });
+      const user = await this.database.getUser(state.userId);
 
       if (!user) {
         throw new Error(`User not found: ${state.userId}`);
@@ -120,16 +126,9 @@ export class ProfileGraphFactory {
       profile.embedding = embedding;
 
       log.info("[Graph:Profile] Saving profile to DB...", { userId: state.userId });
-      const exists = await this.database.exists('user_profiles', { filter: { userId: state.userId } });
 
-      if (exists) {
-        await this.database.update('user_profiles', {
-          filter: { userId: state.userId },
-          data: { ...profile }
-        });
-      } else {
-        await this.database.create('user_profiles', { data: { ...profile } });
-      }
+      // Use specific save method (handles upsert)
+      await this.database.saveProfile(state.userId, profile);
 
       return { profile };
     };
@@ -157,21 +156,12 @@ export class ProfileGraphFactory {
       log.info("[Graph:HyDE] Generating HyDE embedding...");
       const hydeEmbedding = await this.embedder.generate(state.hydeDescription);
 
+      // Normalize embedding if needed (Adapters usually handle this, but to be sure)
+      const flatHydeEmbedding = Array.isArray(hydeEmbedding[0]) ? (hydeEmbedding as number[][])[0] : (hydeEmbedding as number[]);
+
       log.info("[Graph:HyDE] Saving HyDE to DB...", { userId: state.userId });
 
-      const currentProfile = await this.database.get<any>('user_profiles', { filter: { userId: state.userId } });
-      if (currentProfile) {
-        await this.database.update('user_profiles', {
-          filter: { userId: state.userId },
-          data: {
-            ...currentProfile,
-            hydeDescription: state.hydeDescription,
-            hydeEmbedding
-          }
-        });
-      } else {
-        throw new Error("Profile not found during HyDE save");
-      }
+      await this.database.saveHydeProfile(state.userId, state.hydeDescription, flatHydeEmbedding);
 
       return {};
     };
