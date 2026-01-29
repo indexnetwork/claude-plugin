@@ -9,7 +9,10 @@ import { ProfileDocument } from "../profile.generator";
 import { config } from "dotenv";
 config({ path: '.env.development', override: true });
 
-const model = new ChatOpenAI({ model: 'google/gemini-3-flash-preview', configuration: { baseURL: process.env.OPENROUTER_BASE_URL, apiKey: process.env.OPENROUTER_API_KEY } });
+const model = new ChatOpenAI({
+  model: 'google/gemini-3-flash-preview',
+  configuration: { baseURL: process.env.OPENROUTER_BASE_URL, apiKey: process.env.OPENROUTER_API_KEY }
+});
 
 const systemPrompt = `
     You are a Profile Profiler.

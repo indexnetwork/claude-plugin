@@ -8,7 +8,10 @@ import { log } from "../../../log";
 import { config } from "dotenv";
 config({ path: '.env.development', override: true });
 
-const model = new ChatOpenAI({ model: 'google/gemini-3-flash-preview', configuration: { baseURL: process.env.OPENROUTER_BASE_URL, apiKey: process.env.OPENROUTER_API_KEY } });
+const model = new ChatOpenAI({
+  model: 'google/gemini-3-flash-preview',
+  configuration: { baseURL: process.env.OPENROUTER_BASE_URL, apiKey: process.env.OPENROUTER_API_KEY }
+});
 
 const systemPrompt = `
     You are an expert profiler. Your task is to synthesize a structured User Profile from raw data scraped from the web (via Parallel.ai).
