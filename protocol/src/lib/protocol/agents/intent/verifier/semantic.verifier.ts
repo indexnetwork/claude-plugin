@@ -22,7 +22,7 @@ const systemPrompt = `
 You are the Semantic Verification Engine (Illocutionary Layer).
 
 TASK:
-Analyze a User's Utterance against their User Profile to verify Searle's "Felicity Conditions".
+Analyze a User's Utterance against their User Profile to verify Searle's "Felicity Conditions" and apply Semantic Governance Metrics.
 You are the judge of whether a user's statement is a valid, credible intent or just noise.
 
 INPUTS:
@@ -48,9 +48,22 @@ EVALUATION FRAMEWORK (0-100 Score):
    - 100: "I have started the task and pushed the branch."
    - 40: "I could probably try to look into it." (Hedging)
 
+4. **Constraint Density (S)** -> Output as 'semantic_entropy'
+   - Measure: The density of specific constraints (Time, Location, Tech Stack, Quantifiers).
+   - High Constraint Density = Low Entropy (0.0).
+   - Low Constraint Density = High Entropy (1.0).
+   - Example 0.0: "Meet 50 senior react devs in SF by Friday."
+   - Example 1.0: "Network."
+
+5. **Referential Anchoring** -> Output as 'referential_anchor'
+   - Measure: Does the intent refer to a specific, unique entity?
+   - If YES, output the Entity Name. If NO (Attributive), output NULL.
+   - Example: "I want to join Google" -> Anchor: "Google"
+   - Example: "I want to join a startup" -> Anchor: NULL
+
 OUTPUT RULES:
 - Return a strict JSON object.
-- If 'Authority' or 'Sincerity' is < 50, add a specific FLAG (e.g., "SKILL_MISMATCH", "WEAK_COMMITMENT").
+- If 'Authority' or 'Sincerity' is < 70, add a specific FLAG (e.g., "SKILL_MISMATCH", "WEAK_COMMITMENT").
 - 'Classification' must be one of Searle's 5 categories:
   1. COMMISSIVE: Speaker commits to a future action (e.g., "I will learn Rust", "I promise to fix this"). -> VALID GOAL
   2. DIRECTIVE: Speaker gets listener to do something (e.g., "Find me a co-founder", "Help me build this"). -> VALID GOAL
@@ -78,6 +91,10 @@ const responseFormat = z.object({
     authority: z.number().min(0).max(100).describe("Preparatory Condition Score"),
     sincerity: z.number().min(0).max(100).describe("Sincerity Condition Score"),
   }),
+
+  // Semantic Governance Fields
+  semantic_entropy: z.number().min(0).max(1).describe("Constraint Density Score (0=Specific, 1=Vague)"),
+  referential_anchor: z.string().nullable().describe("The specific entity being referred to (Donnellan's Distinction), or null if attributive"),
 
   flags: z.array(z.string()).describe("List of semantic violation tags"),
   reasoning: z.string().describe("Brief analysis of the felicity conditions"),
@@ -122,7 +139,7 @@ export class SemanticVerifierAgent {
       # User Utterance (Content)
       "${content}"
       
-      Verify the Felicity Conditions for this utterance.
+      Verify the Felicity Conditions and Semantic Metrics for this utterance.
     `;
 
     const messages = [
@@ -134,7 +151,7 @@ export class SemanticVerifierAgent {
       const result = await this.agent.invoke({ messages });
       const output = responseFormat.parse(result.structuredResponse);
 
-      log.info(`[SemanticVerifier.invoke] Verdict: ${output.classification}`);
+      log.info(`[SemanticVerifier.invoke] Verdict: ${output.classification} Entropy: ${output.semantic_entropy}`);
       return output;
     } catch (error) {
       log.error("[SemanticVerifier] Error during invocation", { error });

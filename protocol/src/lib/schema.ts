@@ -1,4 +1,4 @@
-import { pgTable, pgEnum, text, uuid, timestamp, bigint, boolean, json, varchar, integer, uniqueIndex, index } from 'drizzle-orm/pg-core';
+import { pgTable, pgEnum, text, uuid, timestamp, bigint, boolean, json, varchar, integer, uniqueIndex, index, doublePrecision } from 'drizzle-orm/pg-core';
 import { vector } from 'drizzle-orm/pg-core';
 import { relations } from 'drizzle-orm';
 
@@ -8,6 +8,13 @@ export const connectionAction = pgEnum('connection_action', [
 ]);
 // Polymorphic source type for intents
 export const sourceType = pgEnum('source_type', ['file', 'integration', 'link', 'discovery_form', 'enrichment']);
+
+// Semantic Governance Enums
+export const intentModeEnum = pgEnum('intent_mode', ['REFERENTIAL', 'ATTRIBUTIVE']);
+export const speechActTypeEnum = pgEnum('speech_act_type', ['COMMISSIVE', 'DIRECTIVE']);
+export const intentStatusEnum = pgEnum('intent_status', ['ACTIVE', 'PAUSED', 'FULFILLED', 'EXPIRED']);
+export const opportunityStatusEnum = pgEnum('opportunity_status', ['PENDING', 'ACCEPTED', 'REJECTED']);
+export const elaborationRequestStatusEnum = pgEnum('elaboration_request_status', ['OPEN', 'RESOLVED', 'ABANDONED']);
 
 // Onboarding state type
 export interface OnboardingState {
@@ -108,6 +115,8 @@ export const userProfiles = pgTable('user_profiles', {
   embedding: vector('embedding', { dimensions: 2000 }),
   hydeDescription: text('hyde_description'),
   hydeEmbedding: vector('hyde_embedding', { dimensions: 2000 }),
+  // 3. Implicit Goals (inferred purely from profile)
+  implicitIntents: json('implicit_intents'),
 }, (table) => ({
   // Enforce uniqueness on userId is already done by the column definition
   embeddingIndex: index('user_profiles_embedding_idx').using('hnsw', table.embedding.op('vector_cosine_ops')),
@@ -133,11 +142,15 @@ export const opportunities = pgTable('opportunities', {
   candidateId: uuid('candidate_id').notNull().references(() => users.id),
   // Data
   score: integer('score').notNull(),
-  sourceDescription: text('source_description').notNull(),
-  candidateDescription: text('candidate_description').notNull(),
+  sourceDescription: text('source_description').notNull(), // Description shown to the SOURCE user
+  candidateDescription: text('candidate_description').notNull(), // Description shown to the CANDIDATE user
   // Timestamps
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  // Semantic Governance
+  valencyRole: text('valency_role'), // e.g., "Agent", "Patient"
+  status: opportunityStatusEnum('status').default('PENDING'),
+  rejectionReason: text('rejection_reason'),
 })
 
 export const intents = pgTable('intents', {
@@ -155,6 +168,15 @@ export const intents = pgTable('intents', {
   sourceType: sourceType('source_type'),
   // Vector embedding for semantic search (2000 dimensions for text-embedding-3-large)
   embedding: vector('embedding', { dimensions: 2000 }),
+  // Semantic Governance Fields
+  semanticEntropy: doublePrecision('semantic_entropy').default(1.0),
+  referentialAnchor: text('referential_anchor'),
+  intentMode: intentModeEnum('intent_mode').default('ATTRIBUTIVE'),
+  speechActType: speechActTypeEnum('speech_act_type'),
+  // Felicity Conditions
+  felicityAuthority: integer('felicity_authority'),
+  felicitySincerity: integer('felicity_sincerity'),
+  status: intentStatusEnum('status').default('ACTIVE'),
 }, (table) => [
   index('embeddingIndex').using('hnsw', table.embedding.op('vector_cosine_ops')),
 ]);
@@ -242,6 +264,19 @@ export const userIntegrations = pgTable('integrations', {
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
   deletedAt: timestamp('deleted_at')
+});
+
+// 5. Elaboration Cycle (Interactive Intent Refinement)
+// When an intent is too VAGUE (High Entropy), the system creates a request to ask the user for clarification.
+export const elaborationRequests = pgTable('elaboration_requests', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  originalUtterance: text('original_utterance').notNull(),
+  missingDimensions: text('missing_dimensions').array(),
+  systemPrompt: text('system_prompt').notNull(),
+  status: elaborationRequestStatusEnum('status').default('OPEN'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
 
 // Relations
@@ -436,3 +471,5 @@ export type UserIntegration = typeof userIntegrations.$inferSelect;
 export type NewUserIntegration = typeof userIntegrations.$inferInsert;
 export type UserNotificationSettings = typeof userNotificationSettings.$inferSelect;
 export type NewUserNotificationSettings = typeof userNotificationSettings.$inferInsert;
+export type ElaborationRequest = typeof elaborationRequests.$inferSelect;
+export type NewElaborationRequest = typeof elaborationRequests.$inferInsert;

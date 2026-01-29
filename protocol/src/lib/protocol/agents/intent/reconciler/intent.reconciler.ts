@@ -18,6 +18,7 @@ config({ path: '.env.development', override: true });
 // 1. SYSTEM PROMPT
 // ──────────────────────────────────────────────────────────────
 
+
 const systemPrompt = `
 You are an expert Intent Manager. Your goal is to reconcile NEWLY INFERRED intents with the user's ACTIVE intents.
 
@@ -32,13 +33,20 @@ MATCHING LOGIC:
 - You must determine if an Inferred Intent refers to the same underlying goal as an Active Intent.
 - You must detect if an Inferred Intent CONTRADICTS an Active Intent (Change of Mind).
 
-RULES:
+SEMANTIC GOVERNANCE RULES (Donnellan's Distinction):
+- **REFERENTIAL Intents** (Anchor != NULL): These point to specific entities (e.g., "Google").
+  - Matching logic: Match if the Anchor is the SAME. 
+  - If Anchor is different (e.g. "Join Google" vs "Join Meta"), they are DIFFERENT intents.
+- **ATTRIBUTIVE Intents** (Anchor == NULL): These describe a class of things.
+  - Matching logic: Match if the description is semantically similar content.
+  - E.g. "Join a startup" and "Work for a small tech company" are the SAME.
+
+ACTIONS:
 - CREATE: If an Inferred Goal does NOT match any Active Intent, CREATE it.
 - UPDATE: If an Inferred Goal matches an Active Intent but offers a better/different description, UPDATE it.
 - EXPIRE: If an Inferred Tombstone matches an Active Intent (semantically), EXPIRE it.
-- CONFLICT RESOLUTION: If a NEW Goal contradicts an Active Intent (e.g., Active="Avoid people", New="Go to party"), this indicates a CHANGE OF MIND. Action: EXPIRE the old conflicting intent (reason: "Contradicted by new goal") and CREATE the new one.
-- DEDUPLICATION: If multiple Active Intents describe the same goal (or will do so after an update), you must DEDUPLICATE. Action: UPDATE one to the best description, and EXPIRE the others (reason: "Duplicate of [ID]").
-- IGNORE: If an Inferred Goal is effectively the same as an Active Intent, do nothing (e.g. Active="Learn Rust", Inferred="I want to learn Rust" -> Ignore).
+- CONFLICT RESOLUTION: If a NEW Goal contradicts an Active Intent, EXPIRE the old and CREATE the new.
+- DEDUPLICATION: Use Donnellan's Distinction above to merge duplicates.
 
 Output a list of specific actions to apply.
 IMPORTANT: The type field MUST be exactly one of: "create", "update", "expire" (lowercase).
@@ -52,7 +60,11 @@ const CreateIntentActionSchema = z.object({
   type: z.literal("create"),
   payload: z.string().describe("The new intent description"),
   score: z.number().nullable().describe("The felicity score (0-100)"),
-  reasoning: z.string().nullable().describe("Reasoning for the creation (including felicity)")
+  reasoning: z.string().nullable().describe("Reasoning for the creation (including felicity)"),
+  // Semantic Governance Fields
+  intentMode: z.enum(['REFERENTIAL', 'ATTRIBUTIVE']).nullable().describe("Donnellan's Distinction"),
+  referentialAnchor: z.string().nullable().describe("Entity anchored to"),
+  semanticEntropy: z.number().nullable().describe("Constraint Density Score (0-1)"),
 });
 
 const UpdateIntentActionSchema = z.object({
@@ -60,7 +72,8 @@ const UpdateIntentActionSchema = z.object({
   id: z.string().describe("The ID of the intent to update"),
   payload: z.string().describe("The updated intent description"),
   score: z.number().nullable().describe("The felicity score (0-100)"),
-  reasoning: z.string().nullable().describe("Reasoning for the update")
+  reasoning: z.string().nullable().describe("Reasoning for the update"),
+  intentMode: z.enum(['REFERENTIAL', 'ATTRIBUTIVE']).nullable(),
 });
 
 const ExpireIntentActionSchema = z.object({
@@ -121,9 +134,8 @@ export class IntentReconcilerAgent {
       Based on the Inferred Intents, determine the actions to modify the Active Intents state.
       IMPORTANT:
       - If you CREATE or UPDATE an intent, you MUST popuate the 'score' and 'reasoning' fields.
-      - Extract the 'score' from the Inferred Intent's data (it is the felicity score).
+      - Extract the 'score', 'semanticEntropy', 'referentialAnchor' from the Inferred Intent's data.
       - Include the verification details in the 'reasoning'.
-      - For EXPIRE actions, 'score' and 'reasoning' are not required (leave null).
     `;
 
     const messages = [
