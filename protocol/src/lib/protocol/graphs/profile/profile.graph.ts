@@ -33,7 +33,7 @@ export class ProfileGraphFactory {
         throw new Error("userId is required");
       }
 
-      const profile = await this.database.get<ProfileDocument>('user_profiles', { filter: { id: state.userId } });
+      const profile = await this.database.get<ProfileDocument>('user_profiles', { filter: { userId: state.userId } });
 
       // If profile exists, load it into state
       return {
@@ -120,7 +120,7 @@ export class ProfileGraphFactory {
       profile.embedding = embedding;
 
       log.info("[Graph:Profile] Saving profile to DB...", { userId: state.userId });
-      const exists = await this.database.exists('user_profiles', { filter: { id: state.userId } });
+      const exists = await this.database.exists('user_profiles', { filter: { userId: state.userId } });
 
       if (exists) {
         await this.database.update('user_profiles', {
@@ -159,7 +159,7 @@ export class ProfileGraphFactory {
 
       log.info("[Graph:HyDE] Saving HyDE to DB...", { userId: state.userId });
 
-      const currentProfile = await this.database.get<any>('user_profiles', { filter: { id: state.userId } });
+      const currentProfile = await this.database.get<any>('user_profiles', { filter: { userId: state.userId } });
       if (currentProfile) {
         await this.database.update('user_profiles', {
           filter: { userId: state.userId },
