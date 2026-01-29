@@ -1,16 +1,16 @@
 import { StateGraph, END, START } from "@langchain/langgraph";
 import { OpportunityGraphState, createInitialState } from "./opportunity.state";
 import { OpportunityEvaluator, CandidateProfile } from "../../agents/opportunity/opportunity.evaluator";
-import { Database } from "../../interfaces/database.interface";
+import { OpportunityGraphDatabase } from "../../interfaces/database.interface";
 import { Embedder } from "../../interfaces/embedder.interface";
 import { log } from "../../../log";
 
 export class OpportunityGraph {
-  private database: Database;
+  private database: OpportunityGraphDatabase;
   private embedder: Embedder;
   private evaluatorAgent: OpportunityEvaluator;
 
-  constructor(database: Database, embedder: Embedder) {
+  constructor(database: OpportunityGraphDatabase, embedder: Embedder) {
     this.database = database;
     this.embedder = embedder;
     this.evaluatorAgent = new OpportunityEvaluator();
