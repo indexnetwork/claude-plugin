@@ -1,4 +1,6 @@
-
+import { ChatController } from './controllers/chat.controller';
+import { IntentController } from './controllers/intent.controller';
+import { OpportunityController } from './controllers/opportunity.controller';
 import { ProfileController } from './controllers/profile.controller';
 import { RouteRegistry } from './lib/router/router.decorators';
 
@@ -12,6 +14,9 @@ console.log('Initializing V2 Server...');
 // However, to invoke methods, we need instances.
 const controllerInstances = new Map();
 controllerInstances.set(ProfileController, new ProfileController());
+controllerInstances.set(ChatController, new ChatController());
+controllerInstances.set(IntentController, new IntentController());
+controllerInstances.set(OpportunityController, new OpportunityController());
 
 console.log(`Routes registered with prefix ${GLOBAL_PREFIX}`);
 
