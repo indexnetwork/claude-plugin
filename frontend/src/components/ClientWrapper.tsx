@@ -134,11 +134,11 @@ function ClientWrapperContent({
       <main className={isLandingOrBlog ? "flex flex-col" : ""}>
         {isLandingOrBlog ? (
           // Full-width layout for landing and blog pages
-          <div className="flex flex-col min-h-[calc(100vh-80px)]">
+          <div className="flex flex-col min-h-[calc(100vh-76px)]">
             {children}
           </div>
         ) : (
-          <div className={`max-w-7xl mx-auto px-2 flex min-h-[calc(100vh-80px)] ${showSidebar ? 'flex-col lg:flex-row' : 'flex-col'}`}>
+          <div className={`max-w-7xl mx-auto px-2 flex min-h-[calc(100vh-76px)] ${showSidebar ? 'flex-col lg:flex-row' : 'flex-col'}`}>
             {/* Left Sidebar - sticky */}
             {showSidebar && (
               <aside id="app-sidebar" className={`w-full lg:w-72 lg:flex-shrink-0 mb-8 lg:mb-0 ${mobileSidebarOpen ? 'block' : 'hidden'} lg:block lg:self-stretch lg:border-r lg:border-gray-300 lg:pr-4`}>

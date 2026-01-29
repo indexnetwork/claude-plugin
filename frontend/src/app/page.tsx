@@ -606,7 +606,7 @@ function LandingPage() {
 
       `}</style>
 
-      <div className="landing-page flex flex-col min-h-[calc(100vh-80px)]">
+      <div className="landing-page flex flex-col min-h-[calc(100vh-76px)]">
         {/* Waitlist Modal */}
         {isWaitlistOpen && (
           <div 
