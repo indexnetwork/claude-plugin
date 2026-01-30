@@ -4,7 +4,6 @@ import { PropsWithChildren, useMemo, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import Header from "@/components/Header";
 import Sidebar from "@/components/Sidebar";
-import ChatSidebar from "@/components/chat/ChatSidebar";
 import { IndexFilterProvider } from "@/contexts/IndexFilterContext";
 import { IndexesProvider } from "@/contexts/IndexesContext";
 import { StreamChatProvider } from "@/contexts/StreamChatContext";
@@ -59,16 +58,12 @@ export default function ClientWrapper({ children }: PropsWithChildren) {
     );
   }
 
-  // Show right chat sidebar when authenticated and sidebar is visible (hide on LLM chat page)
-  const showChatSidebar = isAuthenticated && showSidebar && pathname !== '/chat';
-
   return (
     <IndexesProvider>
       <IndexFilterProvider>
         <StreamChatProvider>
           <ClientWrapperContent
             showSidebar={showSidebar}
-            showChatSidebar={showChatSidebar}
             showHeaderButtons={showHeaderButtons}
             forcePublicView={forcePublicView}
             isLandingOrBlog={isLandingOrBlog}
@@ -86,7 +81,6 @@ export default function ClientWrapper({ children }: PropsWithChildren) {
 function ClientWrapperContent({
   children,
   showSidebar,
-  showChatSidebar,
   showHeaderButtons,
   forcePublicView,
   isLandingOrBlog,
@@ -94,7 +88,6 @@ function ClientWrapperContent({
   setMobileSidebarOpen,
 }: PropsWithChildren<{
   showSidebar: boolean;
-  showChatSidebar: boolean;
   showHeaderButtons: boolean;
   forcePublicView: boolean;
   isLandingOrBlog: boolean;
@@ -152,15 +145,6 @@ function ClientWrapperContent({
             <div className={`w-full min-w-0 flex flex-col pt-6 lg:pt-8 flex-1 min-h-0 ${showSidebar ? 'lg:flex-1' : ''}`}>
               {children}
             </div>
-
-            {/* Right Chat Sidebar - sticky */}
-            {showChatSidebar && (
-              <aside className="hidden lg:block lg:w-72 lg:flex-shrink-0 lg:self-stretch lg:border-l lg:border-gray-300">
-                <div className="lg:sticky lg:top-20 pt-6 lg:pt-8">
-                  <ChatSidebar />
-                </div>
-              </aside>
-            )}
           </div>
         )}
       </main>
