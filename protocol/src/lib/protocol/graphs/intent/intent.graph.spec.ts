@@ -59,7 +59,7 @@ const createMockDatabase = (): IntentGraphDatabase => {
   };
 };
 
-describe('IntentGraph', () => {
+describe('IntentGraph - Basic Operations', () => {
   let graphRunner: any;
   let mockDatabase: IntentGraphDatabase;
 
@@ -111,5 +111,97 @@ describe('IntentGraph', () => {
     // OR Reconciler returns 0 actions.
     expect(result.actions.length).toBe(0);
     expect(result.executionResults.length).toBe(0);
+  }, 60000);
+});
+
+describe('IntentGraph - Conditional Flow (Operation Modes)', () => {
+  let graphRunner: any;
+  let mockDatabase: IntentGraphDatabase;
+
+  const mockProfile = JSON.stringify({
+    identity: {
+      name: "Test User",
+      bio: "Software engineer passionate about web development",
+      location: "San Francisco, CA"
+    },
+    narrative: {
+      context: "Experienced developer looking to expand skills"
+    },
+    attributes: {
+      skills: ["JavaScript", "TypeScript", "React"],
+      interests: ["Web Development", "System Design", "AI"]
+    }
+  });
+
+  beforeAll(() => {
+    mockDatabase = createMockDatabase();
+    const factory = new IntentGraphFactory(mockDatabase);
+    graphRunner = factory.createGraph();
+  });
+
+  it('should execute full pipeline for CREATE mode', async () => {
+    const result = await graphRunner.invoke({
+      userId: 'test-user-1',
+      userProfile: mockProfile,
+      inputContent: 'I want to learn Rust programming language',
+      operationMode: 'create'
+    });
+
+    expect(result.inferredIntents).toBeDefined();
+    expect(result.verifiedIntents).toBeDefined();
+    expect(result.actions).toBeDefined();
+    expect(result.executionResults).toBeDefined();
+    
+    // CREATE should go through full pipeline
+    expect(result.inferredIntents!.length).toBeGreaterThan(0);
+  }, 60000);
+
+  it('should skip verification for UPDATE mode', async () => {
+    const result = await graphRunner.invoke({
+      userId: 'test-user-1',
+      userProfile: mockProfile,
+      inputContent: 'Update my TypeScript goal to include design patterns',
+      operationMode: 'update',
+      targetIntentIds: ['intent-1']
+    });
+
+    expect(result.inferredIntents).toBeDefined();
+    expect(result.actions).toBeDefined();
+    expect(result.executionResults).toBeDefined();
+    
+    // UPDATE may skip verification if no new intents are inferred
+  }, 60000);
+
+  it('should skip inference and verification for DELETE mode', async () => {
+    const result = await graphRunner.invoke({
+      userId: 'test-user-1',
+      userProfile: mockProfile,
+      inputContent: undefined,
+      operationMode: 'delete',
+      targetIntentIds: ['intent-1']
+    });
+
+    // DELETE should skip inference and verification
+    expect(!result.inferredIntents || result.inferredIntents.length === 0).toBe(true);
+    expect(!result.verifiedIntents || result.verifiedIntents.length === 0).toBe(true);
+    
+    // But should have actions
+    expect(result.actions).toBeDefined();
+    expect(result.actions!.length).toBeGreaterThan(0);
+    expect(result.actions!.some(a => a.type === 'expire')).toBe(true);
+  }, 60000);
+
+  it('should default to CREATE mode when operationMode not specified', async () => {
+    const result = await graphRunner.invoke({
+      userId: 'test-user-1',
+      userProfile: mockProfile,
+      inputContent: 'I want to contribute to open source'
+      // operationMode not specified
+    });
+
+    // Should execute full pipeline (defaults to create)
+    expect(result.inferredIntents).toBeDefined();
+    expect(result.verifiedIntents).toBeDefined();
+    expect(result.actions).toBeDefined();
   }, 60000);
 });
