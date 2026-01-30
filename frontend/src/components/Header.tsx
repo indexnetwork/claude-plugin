@@ -82,25 +82,32 @@ export default function Header({ onToggleSidebar, isSidebarOpen, showHeaderButto
     }
   }, [alphaParam, pathname]);
 
-  // Handle onboarding check when user data is available
-  useEffect(() => {
-    if (user?.id && authenticated && pathname !== '/onboarding') {
-      // Check if user has completed onboarding using database field
-      const hasCompletedOnboarding = user.onboarding?.completedAt;
+  // DISABLED: Onboarding check
+  // useEffect(() => {
+  //   if (user?.id && authenticated && pathname !== '/onboarding') {
+  //     // Check if user has completed onboarding using database field
+  //     const hasCompletedOnboarding = user.onboarding?.completedAt;
 
-      // Only redirect if user hasn't completed onboarding AND hasn't filled their intro
-      if (!hasCompletedOnboarding) {
-        router.push('/onboarding');
-        return;
-      }
+  //     // Only redirect if user hasn't completed onboarding AND hasn't filled their intro
+  //     if (!hasCompletedOnboarding) {
+  //       router.push('/onboarding');
+  //       return;
+  //     }
       
-      // Redirect to app from blog pages after login
-      if (pathname === '/blog' || pathname?.startsWith('/blog/')) {
-        router.push('/');
-        return;
-      }
+  //     // Redirect to app from blog pages after login
+  //     if (pathname === '/blog' || pathname?.startsWith('/blog/')) {
+  //       router.push('/');
+  //       return;
+  //     }
+  //   }
+  // }, [user?.id, user?.onboarding?.completedAt, user?.intro, authenticated, pathname, router]);
+
+  // Redirect to app from blog pages after login (onboarding disabled)
+  useEffect(() => {
+    if (user?.id && authenticated && (pathname === '/blog' || pathname?.startsWith('/blog/'))) {
+      router.push('/');
     }
-  }, [user?.id, user?.onboarding?.completedAt, user?.intro, authenticated, pathname, router]);
+  }, [user?.id, authenticated, pathname, router]);
 
   const handleCreateIndex = useCallback(async (indexData: { name: string; prompt?: string; joinPolicy?: 'anyone' | 'invite_only' }) => {
     try {

@@ -102,22 +102,23 @@ export default function InvitationPage({ params }: InvitationPageProps) {
               return;
             }
 
+            // DISABLED: Onboarding flow
             // Store invitation code in onboarding state for reference
-            await authService.updateOnboardingState({ 
-              flow: 3,
-              invitationCode: resolvedParams.code
-            });
+            // await authService.updateOnboardingState({ 
+            //   flow: 3,
+            //   invitationCode: resolvedParams.code
+            // });
 
-            // Check if user needs onboarding
-            const hasCompletedOnboarding = response.user.onboarding?.completedAt;
-            if (!hasCompletedOnboarding) {
-              // Refetch user to ensure onboarding state is updated before redirecting
-              await refetchUser();
-              router.push('/onboarding');
-              return;
-            }
+            // DISABLED: Onboarding check
+            // const hasCompletedOnboarding = response.user.onboarding?.completedAt;
+            // if (!hasCompletedOnboarding) {
+            //   // Refetch user to ensure onboarding state is updated before redirecting
+            //   await refetchUser();
+            //   router.push('/onboarding');
+            //   return;
+            // }
             
-            // User is authenticated, member, and onboarded - go to root
+            // User is authenticated and member - go to root
             router.push('/');
           }
         } catch (err) {
