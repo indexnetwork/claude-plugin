@@ -1,5 +1,5 @@
 import { ChatOpenAI } from "@langchain/openai";
-import { HumanMessage, SystemMessage } from "@langchain/core/messages";
+import { HumanMessage, SystemMessage, BaseMessage } from "@langchain/core/messages";
 import { tool } from "@langchain/core/tools";
 import { z } from "zod";
 import { log } from "../../../../log";
@@ -15,6 +15,38 @@ const model = new ChatOpenAI({
   model: 'google/gemini-2.5-flash',
   configuration: { baseURL: process.env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1', apiKey: process.env.OPENROUTER_API_KEY }
 });
+
+// ──────────────────────────────────────────────────────────────
+// 0. INFERRER OPTIONS
+// ──────────────────────────────────────────────────────────────
+
+/**
+ * Options to control inferrer behavior.
+ * Used to implement safety controls for read/write separation.
+ */
+export interface InferrerOptions {
+  /**
+   * Whether to fallback to profile inference when content is empty.
+   * Should be TRUE for create operations without explicit content.
+   * Should be FALSE for query operations.
+   * Default: true (for backward compatibility).
+   */
+  allowProfileFallback?: boolean;
+  
+  /**
+   * The operation mode for context.
+   * Helps inferrer understand the user's intent.
+   */
+  operationMode?: 'create' | 'update' | 'delete';
+  
+  /**
+   * Conversation history for anaphoric resolution.
+   * Used to resolve references like "that intent", "this goal", etc.
+   * Optional - if not provided, inference uses only current content.
+   */
+  conversationContext?: BaseMessage[];
+}
+
 // ──────────────────────────────────────────────────────────────
 // 1. SYSTEM PROMPT
 // ──────────────────────────────────────────────────────────────
@@ -25,21 +57,40 @@ const systemPrompt = `
   You have access to:
   1. User Memory Profile (Identity, Narrative, Attributes) - The long-term context.
   2. New Content - What they just said/did.
+  3. Conversation History (when available) - Recent messages for resolving references.
+  4. Operation Context - What type of operation is being performed.
 
   YOUR TASK:
-  Analyze the "New Content" in the context of the "Profile".
+  Analyze the "New Content" in the context of the "Profile", "Conversation History", and "Operation Context".
   Extract a list of **Inferred Intents**.
 
   INTENT TYPES:
   - 'goal': The user wants to start, continue, or achieve something. (e.g., "I want to learn Rust", "Looking for a co-founder")
   - 'tombstone': The user explicitly states they have COMPLETED, stopped, or abandoned a goal. (e.g., "I finished the course", "I'm done with crypto", "Delete my running goal")
 
-  RULES:
-  - Be precise.
-  - Descriptions should be self-contained (e.g., "Learn Rust programming" instead of "Learn it").
-  - Do NOT try to manage existing IDs or check for duplicates. Just extract what is valid NOW.
-  - If "New Content" is empty or invalid, look at the Profile (Narrative/Goals) and extract implied ongoing goals.
-  - IGNORE purely phatic communication (e.g., "Hello", "Hi", "Good morning") or empty statements. Do NOT fallback to Profile for these; return empty intents.
+  CRITICAL RULES:
+  - Only analyze the "New Content" section if it exists.
+  - If New Content says "Return empty intents list", you MUST return an empty intents array.
+  - If New Content says "No content to analyze", return an empty intents array.
+  - Be precise and self-contained in descriptions (e.g., "Learn Rust programming" instead of "Learn it").
+  - Do NOT try to manage existing IDs or check for duplicates.
+  - IGNORE purely phatic communication (e.g., "Hello", "Hi", "Good morning") - return empty intents.
+  - For CREATE operations: Extract what the user wants to ADD.
+  - For UPDATE operations: Extract what the user wants to CHANGE.
+  - For queries/questions: You should not see these - return empty intents.
+  
+  ANAPHORIC RESOLUTION (UPDATE operations):
+  - When conversation history is provided, use it to resolve references like "that intent", "this goal", "the project", etc.
+  - Look for previously mentioned intents in the conversation history.
+  - If the user says "make that intent X", find what "that intent" refers to in the history and include ALL its details.
+  - PRESERVE all existing details from the referenced intent and only MODIFY the specified parts.
+  - Example: If history mentions "text-based RPG game" and user says "make that intent have LLM narration",
+    the output should be "Create a text-based RPG game with LLM-enhanced narration" (preserving "text-based").
+  
+  WHEN TO FALLBACK TO PROFILE:
+  - Only when explicitly instructed: "(No content provided. Please infer intents from Profile Narrative and Aspirations)"
+  - This should ONLY happen for CREATE operations with no explicit user input
+  - Never infer from profile for query operations
 `;
 
 // ──────────────────────────────────────────────────────────────
@@ -81,17 +132,73 @@ export class ExplicitIntentInferrer {
    * Main entry point. Invokes the agent with input and returns structured output.
    * @param content - The raw string content to analyze.
    * @param profileContext - The formatted profile context string.
+   * @param options - Options controlling inference behavior (fallback, operation mode, conversation context).
    */
-  public async invoke(content: string | null, profileContext: string) {
-    log.info('[ExplicitIntentInferrer.invoke] Received input', { contentPreview: content?.substring(0, 50) });
+  public async invoke(
+    content: string | null,
+    profileContext: string,
+    options: InferrerOptions = {}
+  ) {
+    const {
+      allowProfileFallback = true,  // Default TRUE for backward compatibility
+      operationMode = 'create',
+      conversationContext = undefined
+    } = options;
+    
+    log.info('[ExplicitIntentInferrer.invoke] Received input', {
+      contentPreview: content?.substring(0, 50),
+      allowProfileFallback,
+      operationMode,
+      hasConversationContext: !!conversationContext,
+      conversationMessageCount: conversationContext?.length || 0
+    });
+
+    // CRITICAL: Don't fallback to profile when explicitly disabled
+    // This prevents auto-generation of intents from profile during query operations
+    if (!content && !allowProfileFallback) {
+      log.info('[ExplicitIntentInferrer.invoke] No content and fallback disabled, returning empty');
+      return { intents: [] };
+    }
+
+    // Build conversation history section for anaphoric resolution
+    const formattedHistory = conversationContext && conversationContext.length > 0
+      ? this.formatConversationHistory(conversationContext)
+      : '';
+      
+    const conversationSection = formattedHistory
+      ? `# Conversation History (for reference resolution)\n${formattedHistory}\n`
+      : '';
+
+    // Build content section based on fallback setting
+    const contentSection = content
+      ? `## New Content\n\n${content}`
+      : allowProfileFallback
+        ? '(No content provided. Please infer intents from Profile Narrative and Aspirations)'
+        : '(No content to analyze. Return empty intents list.)';
 
     const prompt = `
       Context:
       # User Memory Profile
       ${profileContext}
 
-      ${content ? `## New Content\n\n${content}` : '(No content provided. Please infer intents from Profile Narrative and Aspirations)'}
+      ${conversationSection}${contentSection}
+      
+      # Operation Context
+      This analysis is for a ${operationMode} operation.
+      ${operationMode === 'create' ? 'Extract NEW intents the user wants to add.' : ''}
+      ${operationMode === 'update' ? 'Extract MODIFICATIONS to existing intents. Use conversation history to resolve references like "that intent".' : ''}
+      ${operationMode === 'delete' ? 'This should not execute - delete operations skip inference.' : ''}
     `;
+    
+    // Log the actual prompt being sent to the LLM for debugging
+    log.info('[ExplicitIntentInferrer.invoke] Prompt details', {
+      hasConversationHistory: !!conversationSection,
+      conversationHistoryLength: formattedHistory.length,
+      conversationHistoryPreview: formattedHistory.substring(0, 300),
+      content,
+      promptLength: prompt.length,
+      promptPreview: prompt.substring(0, 500)
+    });
 
     const messages = [
       new SystemMessage(systemPrompt),
@@ -102,7 +209,11 @@ export class ExplicitIntentInferrer {
       const result = await this.model.invoke(messages);
       const output = responseFormat.parse(result);
 
-      log.info(`[ExplicitIntentInferrer.invoke] Found ${output.intents.length} intents.`);
+      log.info(`[ExplicitIntentInferrer.invoke] Found ${output.intents.length} intents.`, {
+        operationMode,
+        allowedFallback: allowProfileFallback,
+        usedFallback: !content && allowProfileFallback
+      });
       return output;
     } catch (error: any) {
       log.error("[ExplicitIntentInferrer] Error during invocation", {
@@ -111,6 +222,32 @@ export class ExplicitIntentInferrer {
       });
       return { intents: [] };
     }
+  }
+
+  /**
+   * Formats conversation history for inclusion in the prompt.
+   * Converts BaseMessage[] to readable string format.
+   */
+  private formatConversationHistory(messages: BaseMessage[]): string {
+    const formatted = messages.map((msg, index) => {
+      const role = msg._getType() === 'human' ? 'User' : 'Assistant';
+      const content = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content);
+      // Truncate long messages for token efficiency
+      const truncated = content.length > 200 ? content.substring(0, 200) + '...' : content;
+      return `[${index + 1}] ${role}: ${truncated}`;
+    }).join('\n');
+    
+    // Log full conversation history for debugging anaphoric resolution issues
+    log.info('[ExplicitIntentInferrer.formatConversationHistory] Full conversation history', {
+      messageCount: messages.length,
+      fullHistory: messages.map((msg, index) => {
+        const role = msg._getType() === 'human' ? 'User' : 'Assistant';
+        const content = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content);
+        return `[${index + 1}] ${role}: ${content}`;
+      }).join('\n')
+    });
+    
+    return formatted;
   }
 
   /**
