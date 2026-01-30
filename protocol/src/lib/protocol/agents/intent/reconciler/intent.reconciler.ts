@@ -36,7 +36,7 @@ MATCHING LOGIC:
 
 SEMANTIC GOVERNANCE RULES (Donnellan's Distinction):
 - **REFERENTIAL Intents** (Anchor != NULL): These point to specific entities (e.g., "Google").
-  - Matching logic: Match if the Anchor is the SAME. 
+  - Matching logic: Match if the Anchor is the SAME.
   - If Anchor is different (e.g. "Join Google" vs "Join Meta"), they are DIFFERENT intents.
 - **ATTRIBUTIVE Intents** (Anchor == NULL): These describe a class of things.
   - Matching logic: Match if the description is semantically similar content.
@@ -45,6 +45,18 @@ SEMANTIC GOVERNANCE RULES (Donnellan's Distinction):
 ACTIONS:
 - CREATE: If an Inferred Goal does NOT match any Active Intent, CREATE it.
 - UPDATE: If an Inferred Goal matches an Active Intent but offers a better/different description, UPDATE it.
+  CRITICAL UPDATE MERGE RULES:
+  * When UPDATING an intent, you MUST PRESERVE all existing details from the Active Intent.
+  * Only MODIFY or ADD the specific aspects mentioned in the Inferred Intent.
+  * NEVER remove existing details unless explicitly contradicted.
+  * Examples:
+    - Active: "Create a text-based RPG game"
+    - Inferred: "Create an RPG game with LLM-enhanced narration"
+    - CORRECT UPDATE: "Create a text-based RPG game with LLM-enhanced narration" (preserved "text-based")
+    - WRONG UPDATE: "Create an RPG game with LLM-enhanced narration" (lost "text-based")
+  * Think of updates as REFINEMENTS or ADDITIONS, not REPLACEMENTS.
+  * If the Inferred Intent is a complete restatement, it's fine to use it directly.
+  * If the Inferred Intent adds/modifies specific aspects, merge it with existing details.
 - EXPIRE: If an Inferred Tombstone matches an Active Intent (semantically), EXPIRE it.
 - CONFLICT RESOLUTION: If a NEW Goal contradicts an Active Intent, EXPIRE the old and CREATE the new.
 - DEDUPLICATION: Use Donnellan's Distinction above to merge duplicates.
