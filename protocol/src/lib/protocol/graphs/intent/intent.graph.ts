@@ -25,7 +25,12 @@ export class IntentGraphFactory {
      * Fetches active intents from database for reconciliation context.
      */
     const prepNode = async (state: typeof IntentGraphState.State) => {
-      log.info("[Graph:Prep] Fetching active intents for reconciliation context...");
+      log.info("[Graph:Prep] Starting preparation phase", {
+        operationMode: state.operationMode,
+        hasContent: !!state.inputContent,
+        targetIntentIds: state.targetIntentIds
+      });
+      
       const activeIntents = await this.database.getActiveIntents(state.userId);
       
       // Format for reconciler agent
@@ -33,27 +38,66 @@ export class IntentGraphFactory {
         .map(i => `ID: ${i.id}, Description: ${i.payload}, Summary: ${i.summary || 'N/A'}`)
         .join('\n') || "No active intents.";
       
+      log.info("[Graph:Prep] Fetched active intents", {
+        count: activeIntents.length,
+        operationMode: state.operationMode
+      });
+      
       return { activeIntents: formattedActiveIntents };
     };
 
     /**
      * Node 1: Inference
      * Extracts intents from raw content.
+     * Phase 4: Uses operation mode to control behavior and determine if node should execute.
+     * Phase 5: Passes conversation context for anaphoric resolution.
      */
     const inferenceNode = async (state: typeof IntentGraphState.State) => {
-      log.info("[Graph:Inference] Starting inference...");
-      // If we extracted 'inferredIntents' from explicit content
-      const result = await inferrer.invoke(state.inputContent || null, state.userProfile);
+      log.info("[Graph:Inference] Starting inference", {
+        operationMode: state.operationMode,
+        hasContent: !!state.inputContent,
+        contentPreview: state.inputContent?.substring(0, 50),
+        hasConversationContext: !!state.conversationContext,
+        conversationMessagesCount: state.conversationContext?.length || 0
+      });
+      
+      // Phase 4: Control profile fallback based on operation mode
+      // Only allow for create operations without explicit content
+      const allowProfileFallback = state.operationMode === 'create' && !state.inputContent;
+      
+      const result = await inferrer.invoke(
+        state.inputContent || null,
+        state.userProfile,
+        {
+          allowProfileFallback,
+          operationMode: state.operationMode,
+          conversationContext: state.conversationContext  // Phase 5: Pass conversation history
+        }
+      );
+      
+      log.info("[Graph:Inference] Inference complete", {
+        inferredCount: result.intents.length,
+        operationMode: state.operationMode
+      });
+      
       return { inferredIntents: result.intents };
     };
 
     /**
      * Node 2: Verification (Map-Reduce / Parallel)
      * Verifies each inferred intent in parallel.
+     * Phase 4: Can be skipped for delete operations and updates with no new intents.
      */
     const verificationNode = async (state: typeof IntentGraphState.State) => {
       const intents = state.inferredIntents;
+      
+      log.info("[Graph:Verification] Starting verification", {
+        operationMode: state.operationMode,
+        intentCount: intents.length
+      });
+      
       if (intents.length === 0) {
+        log.info("[Graph:Verification] No intents to verify");
         return { verifiedIntents: [] };
       }
 
@@ -94,7 +138,11 @@ export class IntentGraphFactory {
 
       // Filter out nulls
       const verified = verificationResults.filter((i): i is VerifiedIntent => i !== null);
-      log.info(`[Graph:Verification] ${verified.length}/${intents.length} passed verification.`);
+      log.info(`[Graph:Verification] Verification complete`, {
+        passed: verified.length,
+        total: intents.length,
+        operationMode: state.operationMode
+      });
 
       return { verifiedIntents: verified };
     };
@@ -102,22 +150,61 @@ export class IntentGraphFactory {
     /**
      * Node 3: Reconciliation
      * Decides on final actions (Create, Update, Expire).
+     * Phase 4: Handles delete operations directly without LLM reconciliation.
      */
     const reconciliationNode = async (state: typeof IntentGraphState.State) => {
+      log.info("[Graph:Reconciliation] Starting reconciliation", {
+        operationMode: state.operationMode,
+        verifiedIntentCount: state.verifiedIntents.length,
+        targetIntentIds: state.targetIntentIds
+      });
+      
+      // Phase 4: Handle delete operations directly
+      if (state.operationMode === 'delete') {
+        if (!state.targetIntentIds || state.targetIntentIds.length === 0) {
+          log.warn("[Graph:Reconciliation] Delete mode with no target IDs");
+          return { actions: [] };
+        }
+        
+        log.info("[Graph:Reconciliation] Delete mode - generating expire actions", {
+          targetIds: state.targetIntentIds
+        });
+        
+        const actions = state.targetIntentIds.map(id => ({
+          type: 'expire' as const,
+          id,
+          reasoning: 'User requested deletion'
+        }));
+        
+        return { actions };
+      }
+      
+      // Standard reconciliation for create/update operations
       const candidates = state.verifiedIntents;
       if (candidates.length === 0) {
+        log.info("[Graph:Reconciliation] No verified intents to reconcile");
         return { actions: [] };
       }
 
       // Format candidates for the Reconciler Prompt
-      // We assume the Reconciler expects a specific markdown format
       const formattedCandidates = candidates.map(c =>
         `- [${c.type.toUpperCase()}] "${c.description}" (Confidence: ${c.confidence}, Score: ${c.score})\n` +
         `  Reasoning: ${c.reasoning}\n` +
         `  Verification: ${c.verification?.classification} (Flags: ${c.verification?.flags.join(', ') || 'None'})`
       ).join('\n');
 
+      log.info("[Graph:Reconciliation] Invoking reconciler agent", {
+        candidateCount: candidates.length,
+        operationMode: state.operationMode
+      });
+
       const result = await reconciler.invoke(formattedCandidates, state.activeIntents);
+      
+      log.info("[Graph:Reconciliation] Reconciliation complete", {
+        actionCount: result.actions.length,
+        operationMode: state.operationMode
+      });
+      
       return { actions: result.actions };
     };
 
@@ -183,7 +270,52 @@ export class IntentGraphFactory {
       return { executionResults: results };
     };
 
-    // --- GRAPH ASSEMBLY ---
+    // --- CONDITIONAL ROUTING FUNCTIONS ---
+    
+    /**
+     * Determines if inference should run based on operation mode.
+     * Delete operations skip inference entirely and go straight to reconciliation.
+     */
+    const shouldRunInference = (state: typeof IntentGraphState.State): string => {
+      if (state.operationMode === 'delete') {
+        log.info('[Graph:Conditional] Delete mode - skipping inference, routing to reconciliation');
+        return 'reconciler';
+      }
+      
+      log.info('[Graph:Conditional] Running inference', {
+        operationMode: state.operationMode
+      });
+      return 'inference';
+    };
+    
+    /**
+     * Determines if verification should run based on operation mode and inferred intents.
+     * Skips verification for:
+     * - Operations with no inferred intents
+     * - Can be extended to skip for update operations with no new intents
+     */
+    const shouldRunVerification = (state: typeof IntentGraphState.State): string => {
+      if (state.inferredIntents.length === 0) {
+        log.info('[Graph:Conditional] No intents to verify - skipping verification, routing to reconciliation');
+        return 'reconciler';
+      }
+      
+      if (state.operationMode === 'update') {
+        log.info('[Graph:Conditional] Update mode with new intents - running verification');
+        return 'verification';
+      }
+      
+      if (state.operationMode === 'create') {
+        log.info('[Graph:Conditional] Create mode - running verification');
+        return 'verification';
+      }
+      
+      // Default to verification for safety
+      log.info('[Graph:Conditional] Default routing to verification');
+      return 'verification';
+    };
+
+    // --- GRAPH ASSEMBLY WITH CONDITIONAL EDGES (PHASE 4) ---
 
     const workflow = new StateGraph(IntentGraphState)
       .addNode("prep", prepNode)
@@ -192,12 +324,32 @@ export class IntentGraphFactory {
       .addNode("reconciler", reconciliationNode)
       .addNode("executor", executorNode)
 
-      // Define Flow
+      // Phase 4: Conditional flow based on operation mode
+      // Flow paths:
+      // - CREATE:  prep → inference → verification → reconciler → executor → END
+      // - UPDATE:  prep → inference → reconciliation → executor → END (skips verification if no new intents)
+      // - DELETE:  prep → reconciliation → executor → END (skips inference and verification)
       .addEdge(START, "prep")
-      .addEdge("prep", "inference")
-      .addEdge("inference", "verification")
+      
+      // After prep: decide if we need inference (skip for delete)
+      .addConditionalEdges("prep", shouldRunInference, {
+        inference: "inference",
+        reconciler: "reconciler"
+      })
+      
+      // After inference: decide if we need verification (skip if no intents)
+      .addConditionalEdges("inference", shouldRunVerification, {
+        verification: "verification",
+        reconciler: "reconciler"
+      })
+      
+      // Verification always goes to reconciliation
       .addEdge("verification", "reconciler")
+      
+      // Reconciliation always goes to executor
       .addEdge("reconciler", "executor")
+      
+      // Executor is always the end
       .addEdge("executor", END);
 
     return workflow.compile();

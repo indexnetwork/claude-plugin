@@ -1,4 +1,5 @@
 import { Annotation, MessagesAnnotation } from "@langchain/langgraph";
+import { BaseMessage } from "@langchain/core/messages";
 import { InferredIntent } from "../../agents/intent/inferrer/explicit.inferrer";
 import { SemanticVerifierOutput } from "../../agents/intent/verifier/semantic.verifier";
 import { IntentReconcilerOutput } from "../../agents/intent/reconciler/intent.reconciler";
@@ -50,6 +51,39 @@ export const IntentGraphState = Annotation.Root({
    * Optional - graph might run on implicit only.
    */
   inputContent: Annotation<string | undefined>,
+
+  /**
+   * Conversation history for context-aware intent inference.
+   * Used to resolve anaphoric references ("that intent", "this goal").
+   * Limited to recent messages (typically last 10) for token efficiency.
+   * Optional - if not provided, intent inference uses only inputContent.
+   */
+  conversationContext: Annotation<BaseMessage[] | undefined>({
+    reducer: (curr, next) => next ?? curr,
+    default: () => undefined,
+  }),
+
+  /**
+   * Operation mode controls graph flow and determines which nodes execute.
+   * - 'create': Full pipeline (prep → inference → verification → reconciliation → execution)
+   * - 'update': Skip verification if no new intents (prep → inference → reconciliation → execution)
+   * - 'delete': Skip inference and verification (prep → reconciliation → execution)
+   *
+   * Defaults to 'create' for backward compatibility.
+   */
+  operationMode: Annotation<'create' | 'update' | 'delete'>({
+    reducer: (curr, next) => next ?? curr,
+    default: () => 'create' as const,
+  }),
+
+  /**
+   * For update/delete operations, specifies which intent IDs to target.
+   * Optional - used when modifying or removing specific intents.
+   */
+  targetIntentIds: Annotation<string[] | undefined>({
+    reducer: (curr, next) => next ?? curr,
+    default: () => undefined,
+  }),
 
   // --- Populated by Graph (Prep Node) ---
 
