@@ -5,7 +5,6 @@ import { usePathname } from 'next/navigation';
 import Header from "@/components/Header";
 import Sidebar from "@/components/Sidebar";
 import ChatSidebar from "@/components/chat/ChatSidebar";
-import { AIChatWindow } from "@/components/ai-chat";
 import { IndexFilterProvider } from "@/contexts/IndexFilterContext";
 import { IndexesProvider } from "@/contexts/IndexesContext";
 import { StreamChatProvider } from "@/contexts/StreamChatContext";
@@ -166,8 +165,6 @@ function ClientWrapperContent({
         )}
       </main>
 
-      {/* AI Chat Window - Global floating chat */}
-      <AIChatWindow />
     </div>
   );
 }
