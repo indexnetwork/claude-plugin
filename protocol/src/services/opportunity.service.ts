@@ -1320,9 +1320,9 @@ export class OpportunityService {
               avatar: null
             },
             opportunity: {
-              type: op.type,
-              title: op.title,
-              description: op.description,
+              type: 'collaboration',
+              title: `Match with ${targetProfile.identity?.name || 'Unknown'}`,
+              description: op.sourceDescription,
               score: op.score
             }
           });
