@@ -2,6 +2,7 @@
 
 import React, { createContext, useContext, useState, useCallback, useRef } from 'react';
 import { usePrivy } from '@privy-io/react-auth';
+import { useAIChatSessions } from '@/contexts/AIChatSessionsContext';
 
 interface ChatMessage {
   id: string;
@@ -16,9 +17,11 @@ interface AIChatContextType {
   setIsOpen: (open: boolean) => void;
   messages: ChatMessage[];
   sessionId: string | null;
+  setSessionId: (id: string | null) => void;
   isLoading: boolean;
   sendMessage: (message: string) => Promise<void>;
   clearChat: () => void;
+  loadSession: (sessionId: string) => Promise<void>;
 }
 
 const AIChatContext = createContext<AIChatContextType | null>(null);
@@ -29,6 +32,7 @@ export function AIChatProvider({ children }: { children: React.ReactNode }) {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const { getAccessToken } = usePrivy();
+  const { refetchSessions } = useAIChatSessions();
   const abortControllerRef = useRef<AbortController | null>(null);
 
   const sendMessage = useCallback(async (message: string) => {
@@ -71,10 +75,11 @@ export function AIChatProvider({ children }: { children: React.ReactNode }) {
         signal: abortControllerRef.current.signal,
       });
 
-      // Get session ID from header
+      // Get session ID from header (new session created)
       const newSessionId = response.headers.get('X-Session-Id');
       if (newSessionId && !sessionId) {
         setSessionId(newSessionId);
+        refetchSessions();
       }
 
       const reader = response.body?.getReader();
@@ -139,7 +144,7 @@ export function AIChatProvider({ children }: { children: React.ReactNode }) {
     } finally {
       setIsLoading(false);
     }
-  }, [getAccessToken, sessionId]);
+  }, [getAccessToken, sessionId, refetchSessions]);
 
   const clearChat = useCallback(() => {
     setMessages([]);
@@ -149,15 +154,51 @@ export function AIChatProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  const loadSession = useCallback(async (id: string) => {
+    const token = await getAccessToken();
+    if (!token) return;
+
+    try {
+      const base = process.env.NEXT_PUBLIC_API_URL_V2 || '';
+      const res = await fetch(`${base}/v2/chat/session`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ sessionId: id }),
+      });
+      if (!res.ok) throw new Error('Failed to load session');
+      const data = (await res.json()) as {
+        session: { id: string };
+        messages: Array<{ id: string; role: string; content: string; createdAt: string }>;
+      };
+      setSessionId(data.session.id);
+      setMessages(
+        data.messages.map((m) => ({
+          id: m.id,
+          role: m.role as 'user' | 'assistant',
+          content: m.content,
+          timestamp: new Date(m.createdAt),
+          isStreaming: false,
+        }))
+      );
+    } catch (err) {
+      console.error('Load session error:', err);
+    }
+  }, [getAccessToken]);
+
   return (
     <AIChatContext.Provider value={{
       isOpen,
       setIsOpen,
       messages,
       sessionId,
+      setSessionId,
       isLoading,
       sendMessage,
       clearChat,
+      loadSession,
     }}>
       {children}
     </AIChatContext.Provider>
