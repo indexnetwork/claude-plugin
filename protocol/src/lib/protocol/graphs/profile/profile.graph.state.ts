@@ -11,6 +11,27 @@ export const ProfileGraphState = Annotation.Root({
    */
   userId: Annotation<string>,
 
+  // --- Control Fields (Operation Mode) ---
+
+  /**
+   * Operation mode controls graph flow:
+   * - 'query': Fast path - only retrieve existing profile (no generation)
+   * - 'write': Full pipeline - generate/update profile and hyde as needed
+   */
+  operationMode: Annotation<'query' | 'write'>({
+    reducer: (curr, next) => next ?? curr,
+    default: () => 'write',
+  }),
+
+  /**
+   * Flag to force profile regeneration even if profile exists.
+   * When true with new input, the graph will re-generate and update the profile.
+   */
+  forceUpdate: Annotation<boolean>({
+    reducer: (curr, next) => next ?? curr,
+    default: () => false,
+  }),
+
   // --- Intermediate State ---
 
   /**
@@ -30,11 +51,53 @@ export const ProfileGraphState = Annotation.Root({
   }),
 
   /**
-   * The generated profile document.
+   * The generated or loaded profile document.
+   * Includes embedding, hydeDescription, and hydeEmbedding from DB.
    */
   profile: Annotation<ProfileDocument | undefined>({
     reducer: (curr, next) => next,
     default: () => undefined,
+  }),
+
+  /**
+   * Flags to track what needs to be generated.
+   */
+  needsProfileGeneration: Annotation<boolean>({
+    reducer: (curr, next) => next ?? curr,
+    default: () => false,
+  }),
+
+  needsProfileEmbedding: Annotation<boolean>({
+    reducer: (curr, next) => next ?? curr,
+    default: () => false,
+  }),
+
+  needsHydeGeneration: Annotation<boolean>({
+    reducer: (curr, next) => next ?? curr,
+    default: () => false,
+  }),
+
+  needsHydeEmbedding: Annotation<boolean>({
+    reducer: (curr, next) => next ?? curr,
+    default: () => false,
+  }),
+
+  /**
+   * Flag indicating that user information is insufficient for accurate profile generation.
+   * When true, the graph should request additional information from the user.
+   */
+  needsUserInfo: Annotation<boolean>({
+    reducer: (curr, next) => next ?? curr,
+    default: () => false,
+  }),
+
+  /**
+   * List of missing user information fields.
+   * Used to construct a helpful clarification message.
+   */
+  missingUserInfo: Annotation<string[]>({
+    reducer: (curr, next) => next ?? curr,
+    default: () => [],
   }),
 
   // --- Output ---
@@ -48,11 +111,10 @@ export const ProfileGraphState = Annotation.Root({
   }),
 
   /**
-   * Flag to force profile regeneration even if profile exists.
-   * When true with new input, the graph will re-generate and update the profile.
+   * Error message if any step fails (non-fatal).
    */
-  forceUpdate: Annotation<boolean>({
+  error: Annotation<string | undefined>({
     reducer: (curr, next) => next,
-    default: () => false,
+    default: () => undefined,
   }),
 });

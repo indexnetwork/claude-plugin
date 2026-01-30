@@ -9,6 +9,21 @@ import { log } from "../../../log";
 
 /**
  * Factory class to build and compile the Profile Generation Graph.
+ * 
+ * Flow:
+ * 1. check_state - Detect what's missing (profile, embeddings, hyde)
+ * 2. Conditional routing based on operation mode and missing components:
+ *    - Query mode: Return immediately (fast path)
+ *    - Write mode: Generate only what's needed
+ * 3. Profile generation (if needed)
+ * 4. Profile embedding (if needed)
+ * 5. HyDE generation (if needed or profile updated)
+ * 6. HyDE embedding (if needed)
+ * 
+ * Key Features:
+ * - Read/Write separation (query vs write)
+ * - Conditional generation (skip expensive operations if data exists)
+ * - Automatic hyde regeneration when profile is updated
  */
 export class ProfileGraphFactory {
   constructor(
@@ -21,200 +36,491 @@ export class ProfileGraphFactory {
     const profileGenerator = new ProfileGenerator();
     const hydeGenerator = new HydeGenerator();
 
-    // --- NODE DEFINITIONS ---
-
-    /**
-     * Node: Check DB State
-     * Checks if profile exists and decides next steps.
-     * Loads existing profile into state if found.
-     */
-    /**
-     * Node: Check DB State
-     * Checks if profile exists and decides next steps.
-     * Loads existing profile into state if found.
-     */
+    // ─────────────────────────────────────────────────────────
+    // NODE: Check State
+    // Loads existing profile from DB and detects what needs generation:
+    // - Profile missing
+    // - Profile embedding missing
+    // - HyDE description missing
+    // - HyDE embedding missing
+    // - User information insufficient for scraping
+    // ─────────────────────────────────────────────────────────
     const checkStateNode = async (state: typeof ProfileGraphState.State) => {
       if (!state.userId) {
-        throw new Error("userId is required");
+        log.error("[Graph:Profile:CheckState] Missing userId");
+        return {
+          error: "userId is required"
+        };
       }
 
-      const profile = await this.database.getProfile(state.userId);
-
-      // If profile exists, load it into state
-      // Type assertion or runtime check might be needed if profile structure differs slightly
-      return {
-        profile: profile || undefined
-      };
-    };
-
-    /**
-     * Node: Scrape
-     * Scrapes data from objective if input is not provided.
-     */
-    const scrapeNode = async (state: typeof ProfileGraphState.State) => {
-      if (state.input) return {};
-
-      // Fetch user details to construct objective
-      log.info(`[Graph:Profile] Fetching user details for objective construction...`, { userId: state.userId });
-      const user = await this.database.getUser(state.userId);
-
-      if (!user) {
-        throw new Error(`User not found: ${state.userId}`);
-      }
-
-      const socialLinks = user.socials ? Object.values(user.socials).join('\n') : '';
-
-      const objective = `
-        Find information about the person named ${user.name || 'Unknown'}.
-        ${user.email ? `This is their email address: ${user.email}` : ''}
-        ${socialLinks ? `Here are some of their social profiles:\n${socialLinks}` : ''}
-      `.trim();
-
-      log.info(`[Graph:Profile] Constructed objective:`, { objective });
-      const scrapedData = await this.scraper.scrape(objective);
-
-      return {
-        objective,
-        input: scrapedData
-      };
-    };
-
-    /**
-     * Node: Generate Profile
-     * Generates profile from input.
-     * If an existing profile is present, includes it in the input for intelligent merging.
-     */
-    const generateProfileNode = async (state: typeof ProfileGraphState.State) => {
-      // If we came from scrapeNode, input is merged into state.
-      // If we came directly (input provided), it's there.
-      // LangGraph reducer logic handles merge.
-      if (!state.input) throw new Error("Input required for profile generation");
-
-      log.info("[Graph:Profile] Generating profile...", {
-        hasExistingProfile: !!state.profile
+      log.info("[Graph:Profile:CheckState] Checking profile state...", { 
+        userId: state.userId,
+        operationMode: state.operationMode,
+        forceUpdate: state.forceUpdate
       });
 
-      // If updating existing profile, include it in the input for context
-      let inputWithContext = state.input;
-      if (state.profile && state.forceUpdate) {
-        inputWithContext = `EXISTING PROFILE:\n${JSON.stringify(state.profile, null, 2)}\n\nNEW INFORMATION:\n${state.input}\n\nPlease merge the new information with the existing profile, preserving all relevant existing data and updating/adding new details as appropriate.`;
-      }
+      try {
+        const profile = await this.database.getProfile(state.userId) as any;
 
-      const result = await profileGenerator.invoke(inputWithContext);
-
-      return {
-        profile: {
-          ...result.output,
-          userId: state.userId,
-          embedding: [] as number[] | number[][]
+        // Query mode: Just return the profile (fast path)
+        if (state.operationMode === 'query') {
+          log.info("[Graph:Profile:CheckState] 🚀 Query mode - returning existing profile (fast path)", {
+            hasProfile: !!profile
+          });
+          return {
+            profile: profile || undefined
+          };
         }
-      };
+
+        // Write mode: Detect what needs generation
+        const needsProfileGeneration = !profile || (state.forceUpdate && state.input);
+        const needsProfileEmbedding = profile && (!profile.embedding || profile.embedding.length === 0);
+        const needsHydeGeneration = !profile?.hydeDescription || (state.forceUpdate && state.input);
+        const needsHydeEmbedding = profile?.hydeDescription && (!profile.hydeEmbedding || profile.hydeEmbedding.length === 0);
+
+        // Check if we need to scrape (profile generation needed but no input provided)
+        const willNeedScraping = needsProfileGeneration && !state.input;
+        
+        // If we need to scrape, check if we have sufficient user information
+        let needsUserInfo = false;
+        let missingUserInfo: string[] = [];
+
+        if (willNeedScraping) {
+          log.info("[Graph:Profile:CheckState] Will need scraping - checking user information...");
+          
+          const user = await this.database.getUser(state.userId);
+          
+          if (!user) {
+            log.error("[Graph:Profile:CheckState] User not found", { userId: state.userId });
+            return {
+              error: `User not found: ${state.userId}`
+            };
+          }
+
+          // Check for critical information needed for accurate scraping
+          const hasSocials = user.socials && (
+            user.socials.x || 
+            user.socials.linkedin || 
+            user.socials.github || 
+            (user.socials.websites && user.socials.websites.length > 0)
+          );
+          
+          const hasMeaningfulName = user.name && 
+            user.name.trim() !== '' && 
+            !user.name.includes('@') && // Not just email
+            user.name.split(' ').length >= 2; // Has first and last name
+          
+          const hasLocation = user.location && user.location.trim() !== '';
+
+          // We need at least one of: socials, meaningful name + location
+          if (!hasSocials && !hasMeaningfulName) {
+            needsUserInfo = true;
+            
+            if (!hasSocials) {
+              missingUserInfo.push('social_urls');
+            }
+            if (!hasMeaningfulName) {
+              missingUserInfo.push('full_name');
+            }
+            if (!hasLocation) {
+              missingUserInfo.push('location');
+            }
+
+            log.info("[Graph:Profile:CheckState] ⚠️ Insufficient user information for scraping", {
+              hasSocials,
+              hasMeaningfulName,
+              hasLocation,
+              missingUserInfo
+            });
+          } else {
+            log.info("[Graph:Profile:CheckState] ✅ Sufficient user information for scraping", {
+              hasSocials,
+              hasMeaningfulName,
+              hasLocation
+            });
+          }
+        }
+
+        log.info("[Graph:Profile:CheckState] 📊 State detection complete", {
+          hasProfile: !!profile,
+          needsProfileGeneration,
+          needsProfileEmbedding,
+          needsHydeGeneration,
+          needsHydeEmbedding,
+          needsUserInfo,
+          missingUserInfo,
+          forceUpdate: state.forceUpdate,
+          hasInput: !!state.input,
+          hasHydeDescription: !!profile?.hydeDescription
+        });
+
+        return {
+          profile: profile || undefined,
+          hydeDescription: profile?.hydeDescription || undefined,
+          needsProfileGeneration,
+          needsProfileEmbedding,
+          needsHydeGeneration,
+          needsHydeEmbedding,
+          needsUserInfo,
+          missingUserInfo
+        };
+      } catch (error) {
+        log.error("[Graph:Profile:CheckState] Failed to load profile", {
+          error: error instanceof Error ? error.message : String(error)
+        });
+        return {
+          profile: undefined,
+          error: "Failed to load profile from database"
+        };
+      }
     };
 
-    /**
-     * Node: Embed & Save Profile
-     * Embeds the profile and upserts to DB.
-     */
+    // ─────────────────────────────────────────────────────────
+    // NODE: Scrape
+    // Scrapes data from web if input is not provided
+    // ─────────────────────────────────────────────────────────
+    const scrapeNode = async (state: typeof ProfileGraphState.State) => {
+      if (state.input) {
+        log.info("[Graph:Profile:Scrape] Input already provided - skipping scrape");
+        return {};
+      }
+
+      log.info("[Graph:Profile:Scrape] Starting web scrape...", { 
+        userId: state.userId 
+      });
+
+      try {
+        // Fetch user details to construct objective
+        const user = await this.database.getUser(state.userId);
+
+        if (!user) {
+          log.error("[Graph:Profile:Scrape] User not found", { userId: state.userId });
+          return {
+            error: `User not found: ${state.userId}`
+          };
+        }
+
+        const socialLinks = user.socials ? Object.values(user.socials).join('\n') : '';
+
+        const objective = `
+          Find information about the person named ${user.name || 'Unknown'}.
+          ${user.email ? `This is their email address: ${user.email}` : ''}
+          ${socialLinks ? `Here are some of their social profiles:\n${socialLinks}` : ''}
+        `.trim();
+
+        log.info("[Graph:Profile:Scrape] Constructed objective", { 
+          objective: objective.substring(0, 100) 
+        });
+        
+        const scrapedData = await this.scraper.scrape(objective);
+
+        log.info("[Graph:Profile:Scrape] ✅ Scrape complete", {
+          dataLength: scrapedData?.length || 0
+        });
+
+        return {
+          objective,
+          input: scrapedData
+        };
+      } catch (error) {
+        log.error("[Graph:Profile:Scrape] Scrape failed", {
+          error: error instanceof Error ? error.message : String(error)
+        });
+        return {
+          error: "Web scrape failed"
+        };
+      }
+    };
+
+    // ─────────────────────────────────────────────────────────
+    // NODE: Generate Profile
+    // Generates profile from input using ProfileGenerator agent.
+    // If updating existing profile, merges new information intelligently.
+    // ─────────────────────────────────────────────────────────
+    const generateProfileNode = async (state: typeof ProfileGraphState.State) => {
+      if (!state.input) {
+        log.error("[Graph:Profile:Generate] No input provided for profile generation");
+        return {
+          error: "Input required for profile generation"
+        };
+      }
+
+      log.info("[Graph:Profile:Generate] Starting profile generation...", {
+        hasExistingProfile: !!state.profile,
+        isUpdate: state.forceUpdate,
+        inputLength: state.input.length
+      });
+
+      try {
+        // If updating existing profile, include it in the input for context
+        let inputWithContext = state.input;
+        if (state.profile && state.forceUpdate) {
+          inputWithContext = `EXISTING PROFILE:\n${JSON.stringify(state.profile, null, 2)}\n\nNEW INFORMATION:\n${state.input}\n\nPlease merge the new information with the existing profile, preserving all relevant existing data and updating/adding new details as appropriate.`;
+          log.info("[Graph:Profile:Generate] Merging with existing profile");
+        }
+
+        const result = await profileGenerator.invoke(inputWithContext);
+
+        log.info("[Graph:Profile:Generate] ✅ Profile generated successfully", {
+          name: result.output.identity.name,
+          skillsCount: result.output.attributes.skills.length,
+          interestsCount: result.output.attributes.interests.length
+        });
+
+        return {
+          profile: {
+            ...result.output,
+            userId: state.userId,
+            embedding: [] as number[] | number[][]
+          },
+          // Mark that hyde needs regeneration since profile was updated
+          needsHydeGeneration: true
+        };
+      } catch (error) {
+        log.error("[Graph:Profile:Generate] Profile generation failed", {
+          error: error instanceof Error ? error.message : String(error)
+        });
+        return {
+          error: "Profile generation failed"
+        };
+      }
+    };
+
+    // ─────────────────────────────────────────────────────────
+    // NODE: Embed & Save Profile
+    // Generates embedding for profile and saves to DB
+    // ─────────────────────────────────────────────────────────
     const embedSaveProfileNode = async (state: typeof ProfileGraphState.State) => {
-      if (!state.profile) throw new Error("Profile missing in embed step");
-
-      const profile = { ...state.profile };
-      const textToEmbed = [
-        '# Identity',
-        '## Name', profile.identity.name,
-        '## Bio', profile.identity.bio,
-        '## Location', profile.identity.location,
-        '# Narrative',
-        '## Context', profile.narrative.context,
-        '# Attributes',
-        '## Interests', profile.attributes.interests.join(', '),
-        '## Skills', profile.attributes.skills.join(', ')
-      ].join('\n');
-
-      log.info("[Graph:Profile] Generating embedding...");
-      const embedding = await this.embedder.generate(textToEmbed);
-      profile.embedding = embedding;
-
-      log.info("[Graph:Profile] Saving profile to DB...", { userId: state.userId });
-
-      // Use specific save method (handles upsert)
-      await this.database.saveProfile(state.userId, profile);
-
-      return { profile };
-    };
-
-
-    /**
-     * Node: Generate HyDE
-     */
-    const generateHydeNode = async (state: typeof ProfileGraphState.State) => {
-      if (!state.profile) throw new Error("Profile missing for HyDE generation");
-
-      log.info("[Graph:HyDE] Generating HyDE...");
-      const profileString = JSON.stringify(state.profile, null, 2);
-      const result = await hydeGenerator.invoke(profileString);
-
-      return { hydeDescription: result.textToEmbed };
-    };
-
-    /**
-     * Node: Embed & Save HyDE
-     */
-    const embedSaveHydeNode = async (state: typeof ProfileGraphState.State) => {
-      if (!state.hydeDescription) throw new Error("HyDE description missing");
-
-      log.info("[Graph:HyDE] Generating HyDE embedding...");
-      const hydeEmbedding = await this.embedder.generate(state.hydeDescription);
-
-      // Normalize embedding if needed (Adapters usually handle this, but to be sure)
-      const flatHydeEmbedding = Array.isArray(hydeEmbedding[0]) ? (hydeEmbedding as number[][])[0] : (hydeEmbedding as number[]);
-
-      log.info("[Graph:HyDE] Saving HyDE to DB...", { userId: state.userId });
-
-      await this.database.saveHydeProfile(state.userId, state.hydeDescription, flatHydeEmbedding);
-
-      return {};
-    };
-
-    // --- CONDITIONS ---
-
-    const checkStateCondition = (state: typeof ProfileGraphState.State) => {
-      // If forceUpdate is set with new input, re-generate profile
-      if (state.forceUpdate && state.input) {
-        return "generate_profile";
-      }
-
       if (!state.profile) {
-        return "scrape"; // Need to generate profile
+        log.error("[Graph:Profile:EmbedSave] Profile missing in embed step");
+        return {
+          error: "Profile missing in embed step"
+        };
       }
-      // Profile exists, check embedding
-      if (!state.profile.embedding || state.profile.embedding.length === 0) {
+
+      log.info("[Graph:Profile:EmbedSave] Starting profile embedding...", {
+        userId: state.userId
+      });
+
+      try {
+        const profile = { ...state.profile };
+        const textToEmbed = [
+          '# Identity',
+          '## Name', profile.identity.name,
+          '## Bio', profile.identity.bio,
+          '## Location', profile.identity.location,
+          '# Narrative',
+          '## Context', profile.narrative.context,
+          '# Attributes',
+          '## Interests', profile.attributes.interests.join(', '),
+          '## Skills', profile.attributes.skills.join(', ')
+        ].join('\n');
+
+        log.info("[Graph:Profile:EmbedSave] Generating embedding...", {
+          textLength: textToEmbed.length
+        });
+        
+        const embedding = await this.embedder.generate(textToEmbed);
+        profile.embedding = embedding;
+
+        log.info("[Graph:Profile:EmbedSave] Saving profile to DB...", { 
+          userId: state.userId,
+          embeddingDimensions: Array.isArray(embedding[0]) ? embedding[0].length : embedding.length
+        });
+
+        await this.database.saveProfile(state.userId, profile);
+
+        log.info("[Graph:Profile:EmbedSave] ✅ Profile saved successfully");
+
+        return { profile };
+      } catch (error) {
+        log.error("[Graph:Profile:EmbedSave] Failed to embed/save profile", {
+          error: error instanceof Error ? error.message : String(error)
+        });
+        return {
+          error: "Failed to embed/save profile"
+        };
+      }
+    };
+
+
+    // ─────────────────────────────────────────────────────────
+    // NODE: Generate HyDE
+    // Generates Hypothetical Document Embedding description for profile matching
+    // ─────────────────────────────────────────────────────────
+    const generateHydeNode = async (state: typeof ProfileGraphState.State) => {
+      if (!state.profile) {
+        log.error("[Graph:Profile:HyDE] Profile missing for HyDE generation");
+        return {
+          error: "Profile missing for HyDE generation"
+        };
+      }
+
+      log.info("[Graph:Profile:HyDE] Starting HyDE generation...", {
+        userId: state.userId,
+        profileName: state.profile.identity.name
+      });
+
+      try {
+        const profileString = JSON.stringify(state.profile, null, 2);
+        const result = await hydeGenerator.invoke(profileString);
+
+        log.info("[Graph:Profile:HyDE] ✅ HyDE generated successfully", {
+          descriptionLength: result.textToEmbed.length
+        });
+
+        return { hydeDescription: result.textToEmbed };
+      } catch (error) {
+        log.error("[Graph:Profile:HyDE] HyDE generation failed", {
+          error: error instanceof Error ? error.message : String(error)
+        });
+        return {
+          error: "HyDE generation failed"
+        };
+      }
+    };
+
+    // ─────────────────────────────────────────────────────────
+    // NODE: Embed & Save HyDE
+    // Generates embedding for HyDE description and saves to DB
+    // ─────────────────────────────────────────────────────────
+    const embedSaveHydeNode = async (state: typeof ProfileGraphState.State) => {
+      if (!state.hydeDescription) {
+        log.error("[Graph:Profile:HyDEEmbed] HyDE description missing");
+        return {
+          error: "HyDE description missing"
+        };
+      }
+
+      log.info("[Graph:Profile:HyDEEmbed] Starting HyDE embedding...", {
+        userId: state.userId,
+        descriptionLength: state.hydeDescription.length
+      });
+
+      try {
+        const hydeEmbedding = await this.embedder.generate(state.hydeDescription);
+
+        // Normalize embedding if needed (Adapters usually handle this, but to be sure)
+        const flatHydeEmbedding = Array.isArray(hydeEmbedding[0]) 
+          ? (hydeEmbedding as number[][])[0] 
+          : (hydeEmbedding as number[]);
+
+        log.info("[Graph:Profile:HyDEEmbed] Saving HyDE to DB...", { 
+          userId: state.userId,
+          embeddingDimensions: flatHydeEmbedding.length
+        });
+
+        await this.database.saveHydeProfile(state.userId, state.hydeDescription, flatHydeEmbedding);
+
+        log.info("[Graph:Profile:HyDEEmbed] ✅ HyDE saved successfully");
+
+        return {};
+      } catch (error) {
+        log.error("[Graph:Profile:HyDEEmbed] Failed to embed/save HyDE", {
+          error: error instanceof Error ? error.message : String(error)
+        });
+        return {
+          error: "Failed to embed/save HyDE"
+        };
+      }
+    };
+
+    // ─────────────────────────────────────────────────────────
+    // ROUTING CONDITIONS
+    // Smart conditional routing based on operation mode and missing components
+    // ─────────────────────────────────────────────────────────
+
+    /**
+     * Route from check_state to next step based on operation mode and detected needs.
+     */
+    const checkStateCondition = (state: typeof ProfileGraphState.State): string => {
+      // Query mode: Return immediately (fast path)
+      if (state.operationMode === 'query') {
+        log.info("[Graph:Profile:RouteCondition] Query mode - ending (fast path)");
+        return END;
+      }
+
+      // Check if user information is insufficient for scraping
+      // Return early so chat graph can request the missing information
+      if (state.needsUserInfo) {
+        log.info("[Graph:Profile:RouteCondition] ⚠️ Insufficient user info - requesting from user", {
+          missingInfo: state.missingUserInfo
+        });
+        return END;
+      }
+
+      // Write mode: Check what needs generation
+      if (state.needsProfileGeneration) {
+        // Profile missing or force update with new input
+        if (state.input) {
+          log.info("[Graph:Profile:RouteCondition] Profile generation needed with input provided");
+          return "generate_profile";
+        } else {
+          log.info("[Graph:Profile:RouteCondition] Profile generation needed - scraping first");
+          return "scrape";
+        }
+      }
+
+      // Profile exists but missing embedding
+      if (state.needsProfileEmbedding) {
+        log.info("[Graph:Profile:RouteCondition] Profile embedding needed");
         return "embed_save_profile";
       }
 
-      // Profile and embedding good, check HyDE logic next.
-      // We can jump straight to check logic or just return key to generate_hyde IF needed.
-      // Let's reuse checkHydeCondition logic here or duplicate slightly.
-      const p = state.profile as any;
-      if (!state.hydeDescription && (!p.hydeDescription || !p.hydeEmbedding)) {
+      // Profile and embedding exist, check hyde
+      if (state.needsHydeGeneration) {
+        log.info("[Graph:Profile:RouteCondition] HyDE generation needed");
         return "generate_hyde";
       }
 
+      // Hyde exists but missing embedding
+      if (state.needsHydeEmbedding) {
+        log.info("[Graph:Profile:RouteCondition] HyDE embedding needed");
+        return "embed_save_hyde";
+      }
+
+      // Everything exists and is up to date
+      log.info("[Graph:Profile:RouteCondition] All components exist - ending");
       return END;
     };
 
-    const checkHydeCondition = (state: typeof ProfileGraphState.State) => {
-      const p = state.profile as any;
-      if (!state.hydeDescription && (!p.hydeDescription || !p.hydeEmbedding)) {
+    /**
+     * Route after profile embedding to check if hyde needs generation.
+     */
+    const afterProfileEmbeddingCondition = (state: typeof ProfileGraphState.State): string => {
+      // If profile was just generated/updated, regenerate hyde
+      if (state.needsHydeGeneration || state.forceUpdate) {
+        log.info("[Graph:Profile:RouteCondition] Profile updated - regenerating HyDE");
         return "generate_hyde";
       }
+
+      // Check if hyde embedding is missing
+      if (state.needsHydeEmbedding) {
+        log.info("[Graph:Profile:RouteCondition] HyDE embedding needed");
+        return "embed_save_hyde";
+      }
+
+      log.info("[Graph:Profile:RouteCondition] Profile complete - ending");
       return END;
     };
 
+    /**
+     * Route after hyde generation to embedding step.
+     * Always embed after generating hyde.
+     */
+    const afterHydeGenerationCondition = (state: typeof ProfileGraphState.State): string => {
+      log.info("[Graph:Profile:RouteCondition] HyDE generated - proceeding to embedding");
+      return "embed_save_hyde";
+    };
 
-    // --- GRAPH ASSEMBLY ---
+
+    // ─────────────────────────────────────────────────────────
+    // GRAPH ASSEMBLY
+    // Conditional flow based on operation mode and detected needs
+    // ─────────────────────────────────────────────────────────
 
     const workflow = new StateGraph(ProfileGraphState)
+      // Add all nodes
       .addNode("check_state", checkStateNode)
       .addNode("scrape", scrapeNode)
       .addNode("generate_profile", generateProfileNode)
@@ -222,35 +528,53 @@ export class ProfileGraphFactory {
       .addNode("generate_hyde", generateHydeNode)
       .addNode("embed_save_hyde", embedSaveHydeNode)
 
+      // Start with state check
       .addEdge(START, "check_state")
 
+      // Conditional routing from check_state
       .addConditionalEdges(
         "check_state",
         checkStateCondition,
         {
-          generate_profile: "generate_profile",
-          scrape: "scrape",
-          embed_save_profile: "embed_save_profile",
-          generate_hyde: "generate_hyde",
-          [END]: END
+          scrape: "scrape",                     // Need profile, no input -> scrape first
+          generate_profile: "generate_profile", // Need profile, have input -> generate
+          embed_save_profile: "embed_save_profile", // Have profile, need embedding
+          generate_hyde: "generate_hyde",       // Have profile+embedding, need hyde
+          embed_save_hyde: "embed_save_hyde",   // Have hyde, need embedding
+          [END]: END                            // Query mode or everything exists
         }
       )
 
+      // Scrape -> Generate profile (linear)
       .addEdge("scrape", "generate_profile")
+      
+      // Generate profile -> Embed profile (linear)
       .addEdge("generate_profile", "embed_save_profile")
 
+      // After profile embedding, check if hyde needs generation
       .addConditionalEdges(
         "embed_save_profile",
-        checkHydeCondition,
+        afterProfileEmbeddingCondition,
         {
-          generate_hyde: "generate_hyde",
-          [END]: END
+          generate_hyde: "generate_hyde",     // Profile updated -> regenerate hyde
+          embed_save_hyde: "embed_save_hyde", // Only hyde embedding missing
+          [END]: END                          // Everything complete
         }
       )
 
-      .addEdge("generate_hyde", "embed_save_hyde")
+      // After hyde generation, always embed it
+      .addConditionalEdges(
+        "generate_hyde",
+        afterHydeGenerationCondition,
+        {
+          embed_save_hyde: "embed_save_hyde"
+        }
+      )
+
+      // Hyde embedding -> END (linear)
       .addEdge("embed_save_hyde", END);
 
+    log.info("[ProfileGraphFactory] Graph built successfully");
     return workflow.compile();
   }
 }
