@@ -46,4 +46,13 @@ export const ProfileGraphState = Annotation.Root({
     reducer: (curr, next) => next,
     default: () => undefined,
   }),
+
+  /**
+   * Flag to force profile regeneration even if profile exists.
+   * When true with new input, the graph will re-generate and update the profile.
+   */
+  forceUpdate: Annotation<boolean>({
+    reducer: (curr, next) => next,
+    default: () => false,
+  }),
 });

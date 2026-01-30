@@ -92,7 +92,8 @@ describe('ProfileGraph Conditional Flow', () => {
       objective: undefined, // objective is intermediate, verify undefined input works
       input: undefined,
       profile: undefined,
-      hydeDescription: undefined
+      hydeDescription: undefined,
+      forceUpdate: false
     };
 
     const result = await graphRunner.invoke(inputState);
@@ -128,7 +129,8 @@ describe('ProfileGraph Conditional Flow', () => {
       objective: undefined,
       input: undefined,
       profile: undefined,
-      hydeDescription: undefined
+      hydeDescription: undefined,
+      forceUpdate: false
     };
 
     const result = await graphRunner.invoke(inputState);
@@ -160,7 +162,8 @@ describe('ProfileGraph Conditional Flow', () => {
       objective: undefined,
       input: undefined,
       profile: undefined,
-      hydeDescription: undefined
+      hydeDescription: undefined,
+      forceUpdate: false
     };
 
     const result = await graphRunner.invoke(inputState);

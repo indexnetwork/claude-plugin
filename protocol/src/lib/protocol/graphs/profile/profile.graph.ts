@@ -82,15 +82,25 @@ export class ProfileGraphFactory {
     /**
      * Node: Generate Profile
      * Generates profile from input.
+     * If an existing profile is present, includes it in the input for intelligent merging.
      */
     const generateProfileNode = async (state: typeof ProfileGraphState.State) => {
-      // If we came from scrapeNode, input is merged into state. 
+      // If we came from scrapeNode, input is merged into state.
       // If we came directly (input provided), it's there.
       // LangGraph reducer logic handles merge.
       if (!state.input) throw new Error("Input required for profile generation");
 
-      log.info("[Graph:Profile] Generating profile...");
-      const result = await profileGenerator.invoke(state.input);
+      log.info("[Graph:Profile] Generating profile...", {
+        hasExistingProfile: !!state.profile
+      });
+
+      // If updating existing profile, include it in the input for context
+      let inputWithContext = state.input;
+      if (state.profile && state.forceUpdate) {
+        inputWithContext = `EXISTING PROFILE:\n${JSON.stringify(state.profile, null, 2)}\n\nNEW INFORMATION:\n${state.input}\n\nPlease merge the new information with the existing profile, preserving all relevant existing data and updating/adding new details as appropriate.`;
+      }
+
+      const result = await profileGenerator.invoke(inputWithContext);
 
       return {
         profile: {
@@ -169,6 +179,11 @@ export class ProfileGraphFactory {
     // --- CONDITIONS ---
 
     const checkStateCondition = (state: typeof ProfileGraphState.State) => {
+      // If forceUpdate is set with new input, re-generate profile
+      if (state.forceUpdate && state.input) {
+        return "generate_profile";
+      }
+
       if (!state.profile) {
         return "scrape"; // Need to generate profile
       }
@@ -177,7 +192,7 @@ export class ProfileGraphFactory {
         return "embed_save_profile";
       }
 
-      // Profile and embedding good, check HyDE logic next. 
+      // Profile and embedding good, check HyDE logic next.
       // We can jump straight to check logic or just return key to generate_hyde IF needed.
       // Let's reuse checkHydeCondition logic here or duplicate slightly.
       const p = state.profile as any;
@@ -213,6 +228,7 @@ export class ProfileGraphFactory {
         "check_state",
         checkStateCondition,
         {
+          generate_profile: "generate_profile",
           scrape: "scrape",
           embed_save_profile: "embed_save_profile",
           generate_hyde: "generate_hyde",
