@@ -144,7 +144,7 @@ export default function Sidebar() {
   };
 
   return (
-    <div className="space-y-6 font-mono">
+    <div className="space-y-6 font-mono px-4">
       {/* Admin Mode Sidebar */}
       {isAdminMode && adminIndex ? (
         <div className="">
