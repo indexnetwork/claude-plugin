@@ -9,12 +9,11 @@ import { log } from "../../../log";
  * Config
  */
 import { config } from "dotenv";
-import { createAgent, ReactAgent } from "langchain";
 config({ path: '.env.development', override: true });
 
 const model = new ChatOpenAI({
-  model: 'google/gemini-3-flash-preview',
-  configuration: { baseURL: process.env.OPENROUTER_BASE_URL, apiKey: process.env.OPENROUTER_API_KEY }
+  model: 'google/gemini-2.5-flash',
+  configuration: { baseURL: process.env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1', apiKey: process.env.OPENROUTER_API_KEY }
 });
 
 // ──────────────────────────────────────────────────────────────
@@ -107,12 +106,12 @@ export interface OpportunityEvaluatorOptions {
 // ──────────────────────────────────────────────────────────────
 
 export class OpportunityEvaluator {
-  private agent: ReactAgent;
+  private model: any;
 
   constructor() {
-    this.agent = createAgent({
-      model, responseFormat, systemPrompt
-    })
+    this.model = model.withStructuredOutput(responseFormat, {
+      name: "opportunity_evaluator"
+    });
   }
 
   /**
@@ -187,11 +186,12 @@ export class OpportunityEvaluator {
             `;
 
       const messages = [
+        new SystemMessage(systemPrompt),
         new HumanMessage(`${sourceContext}\n${existingContextPart}\nCANDIDATE PROFILE:\n${candidateContext}`)
       ];
 
-      const result = await this.agent.invoke({ messages });
-      const output = responseFormat.parse(result.structuredResponse);
+      const result = await this.model.invoke(messages);
+      const output = responseFormat.parse(result);
 
       const mappedOpportunities = output.opportunities.map((op: any) => ({
         ...op,

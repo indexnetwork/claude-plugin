@@ -1,5 +1,6 @@
 import { ChatOpenAI } from "@langchain/openai";
-import { createAgent, HumanMessage, ReactAgent, tool } from "langchain";
+import { HumanMessage, SystemMessage } from "@langchain/core/messages";
+import { tool } from "@langchain/core/tools";
 import { z } from "zod/v4";
 import { log } from "../../../log";
 /**
@@ -9,8 +10,8 @@ import { config } from "dotenv";
 config({ path: '.env.development', override: true });
 
 const model = new ChatOpenAI({
-  model: 'google/gemini-3-flash-preview',
-  configuration: { baseURL: process.env.OPENROUTER_BASE_URL, apiKey: process.env.OPENROUTER_API_KEY }
+  model: 'google/gemini-2.5-flash',
+  configuration: { baseURL: process.env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1', apiKey: process.env.OPENROUTER_API_KEY }
 });
 
 const systemPrompt = `
@@ -43,9 +44,11 @@ type Profile = z.infer<typeof responseFormat>;
 export type ProfileDocument = Profile & { userId: string, embedding: number[] | number[][] };
 
 export class ProfileGenerator {
-  private agent: ReactAgent;
+  private model: any;
   constructor() {
-    this.agent = createAgent({ model, responseFormat, systemPrompt });
+    this.model = model.withStructuredOutput(responseFormat, {
+      name: "profile_generator"
+    });
   }
 
   private toString(profile: Profile): string {
@@ -66,9 +69,12 @@ export class ProfileGenerator {
 
   public async invoke(input: string) {
     log.info('[ProfileGenerator.invoke] Received input', { input });
-    const messages = [new HumanMessage(`Here is the raw data:\n${input}`)];
-    const result = await this.agent.invoke({ messages });
-    const output = responseFormat.parse(result.structuredResponse);
+    const messages = [
+      new SystemMessage(systemPrompt),
+      new HumanMessage(`Here is the raw data:\n${input}`)
+    ];
+    const result = await this.model.invoke(messages);
+    const output = responseFormat.parse(result);
     const textToEmbed = this.toString(output);
     log.info(`[ProfileGenerator.invoke] Successfully generated profile`, { output, textToEmbed });
     return { output, textToEmbed };
