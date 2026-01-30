@@ -5,6 +5,7 @@ import { AuthProvider } from "@/contexts/AuthContext";
 import { APIProvider } from "@/contexts/APIContext";
 import { NotificationProvider } from "@/contexts/NotificationContext";
 import { DiscoveryFilterProvider } from "@/contexts/DiscoveryFilterContext";
+import { AIChatProvider } from "@/contexts/AIChatContext";
 import ClientWrapper from "@/components/ClientWrapper";
 
 export const metadata: Metadata = {
@@ -51,9 +52,11 @@ export default function RootLayout({
           <APIProvider>
             <NotificationProvider>
               <DiscoveryFilterProvider>
-                <ClientWrapper>
-                  {children}
-                </ClientWrapper>
+                <AIChatProvider>
+                  <ClientWrapper>
+                    {children}
+                  </ClientWrapper>
+                </AIChatProvider>
               </DiscoveryFilterProvider>
             </NotificationProvider>
           </APIProvider>

@@ -3,6 +3,7 @@ import { usePathname, useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
 import { UserPlus, LogIn, Settings, Library, User as UserIcon, ChevronDown, Crown, Users, Plus } from "lucide-react";
+import { AIChatButton } from "@/components/ai-chat";
 import { usePrivy } from '@privy-io/react-auth';
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { getAvatarUrl } from '@/lib/file-utils';
@@ -279,6 +280,8 @@ export default function Header({ onToggleSidebar, isSidebarOpen, showHeaderButto
                   Library
                 </span>
               </button>
+
+              <AIChatButton />
 
               <div className="relative" ref={dropdownRef}>
                 <div

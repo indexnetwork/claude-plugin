@@ -6,6 +6,7 @@ import Header from "@/components/Header";
 import Sidebar from "@/components/Sidebar";
 import ChatSidebar from "@/components/chat/ChatSidebar";
 import ChatView from "@/components/chat/ChatView";
+import { AIChatWindow } from "@/components/ai-chat";
 import { IndexFilterProvider } from "@/contexts/IndexFilterContext";
 import { IndexesProvider } from "@/contexts/IndexesContext";
 import { StreamChatProvider, useStreamChat } from "@/contexts/StreamChatContext";
@@ -168,6 +169,9 @@ function ClientWrapperContent({
           )}
         </div>
       </main>
+
+      {/* AI Chat Window - Global floating chat */}
+      <AIChatWindow />
     </div>
   );
-} 
+}
