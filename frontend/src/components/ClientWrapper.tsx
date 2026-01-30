@@ -17,7 +17,7 @@ export default function ClientWrapper({ children }: PropsWithChildren) {
   const { isAuthenticated } = useAuthContext();
 
   // Define known routes to detect 404 pages
-  const knownRoutes = useMemo(() => ['/', '/simulation', '/onboarding', '/l', '/i', '/u', '/index', '/admin', '/blog'], []);
+  const knownRoutes = useMemo(() => ['/', '/simulation', '/onboarding', '/l', '/i', '/u', '/index', '/admin', '/blog', '/chat'], []);
   const isKnownRoute = knownRoutes.some(route =>
     pathname === route ||
     pathname?.startsWith(route + '/')
@@ -60,8 +60,8 @@ export default function ClientWrapper({ children }: PropsWithChildren) {
     );
   }
 
-  // Show right chat sidebar when authenticated and sidebar is visible
-  const showChatSidebar = isAuthenticated && showSidebar;
+  // Show right chat sidebar when authenticated and sidebar is visible (hide on LLM chat page)
+  const showChatSidebar = isAuthenticated && showSidebar && pathname !== '/chat';
 
   return (
     <IndexesProvider>
