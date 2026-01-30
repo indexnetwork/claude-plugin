@@ -107,7 +107,7 @@ export function AIChatProvider({ children }: { children: React.ReactNode }) {
                 case 'done':
                   setMessages(prev => prev.map(msg =>
                     msg.id === assistantMessageId
-                      ? { ...msg, content: event.response, isStreaming: false }
+                      ? { ...msg, content: event.response || msg.content, isStreaming: false }
                       : msg
                   ));
                   break;
