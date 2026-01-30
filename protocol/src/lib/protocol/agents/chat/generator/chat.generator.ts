@@ -19,6 +19,15 @@ export const RESPONSE_GENERATOR_SYSTEM_PROMPT = `
 You are a Response Generator for a professional networking platform.
 Your task is to synthesize a helpful, natural response based on system outputs.
 
+## Your Capabilities
+
+You have access to the following capabilities through the system:
+
+1. **Web Scraping** - You CAN read URLs (GitHub, LinkedIn, articles, etc.)
+2. **Profile Management** - Update user profiles, skills, interests
+3. **Intent Management** - Track goals and what users are looking for
+4. **Opportunity Discovery** - Find relevant connections
+
 ## CRITICAL: Verify Before Claiming Success
 
 **NEVER claim that data was created, updated, or deleted unless you have explicit evidence in the Processing Results.**
@@ -46,9 +55,13 @@ Examples of correct behavior:
 2. **Be Specific** - Reference actual results, not generic responses
 3. **Be Actionable** - Suggest next steps when appropriate
 4. **Be Concise** - Respect user's time, avoid unnecessary verbosity
+5. **Use Context** - Don't ask for information that's already obvious from conversation history
+   - If a URL was just attempted and failed, don't ask "what URL?" when user says "try again"
+   - If skills were just discussed, don't ask "what skills?" when user confirms
 
 ## Context Handling
 
+- If web content was scraped: Analyze the scraped content and provide insights or answer the user's question about it
 - If intents were created/updated: Acknowledge the change and summarize what was captured
 - If profile was updated: Confirm what was changed and offer to do more
 - If opportunities found: Present them clearly with key highlights, focusing on why each match is relevant
@@ -67,8 +80,10 @@ Avoid corporate jargon. Be genuine and human.
 - Use inline code blocks for technical terms or IDs when appropriate
 - Use headers (##, ###) to organize longer responses
 - Use markdown links when referencing external resources
+- Use markdown tables when user requests tabular format (| Column | Column | with rows)
 
 Your response will be rendered as markdown in the UI, so proper markdown formatting is essential.
+When user asks for "table format", create a proper markdown table with pipes and dashes.
 `;
 
 // ──────────────────────────────────────────────────────────────
@@ -161,10 +176,26 @@ export interface SubgraphResults {
     needsUserInfo?: boolean;
     missingUserInfo?: string[];
     clarificationMessage?: string;
+    operationsPerformed?: {
+      addedSkills?: string[];
+      directUpdate?: boolean;
+      scraped?: boolean;
+      generatedProfile?: boolean;
+      embeddedProfile?: boolean;
+      generatedHyde?: boolean;
+      embeddedHyde?: boolean;
+    };
+    error?: string;
   };
   opportunity?: {
     opportunities: OpportunityResult[];
     searchQuery?: string;
+  };
+  scrape?: {
+    url: string | null;
+    content: string | null;
+    contentLength?: number;
+    error?: string;
   };
 }
 
@@ -293,7 +324,10 @@ export class ResponseGeneratorAgent {
           sections.push(`Skills: ${p.attributes.skills.join(', ')}`);
           sections.push(`Interests: ${p.attributes.interests.join(', ')}`);
           sections.push('');
-          sections.push('Task: Present this profile information in a conversational way.');
+          sections.push('Task: Present this profile information in the format the user requested.');
+          sections.push('- If user asked for a table, use markdown table format');
+          sections.push('- If user asked for a list, use bullet points');
+          sections.push('- Otherwise, present conversationally with proper markdown formatting');
         } else {
           sections.push('No profile found for this user.');
         }
@@ -302,12 +336,55 @@ export class ResponseGeneratorAgent {
       else {
         sections.push('## Profile Results');
         sections.push(`Updated: ${results.profile.updated ? 'Yes' : 'No'}`);
+        
+        // Check if skills were directly added
+        if ((results.profile as any).operationsPerformed?.addedSkills) {
+          const addedSkills = (results.profile as any).operationsPerformed.addedSkills as string[];
+          sections.push('');
+          sections.push('✅ **Skills Successfully Added:**');
+          addedSkills.forEach(skill => {
+            sections.push(`- ${skill}`);
+          });
+          sections.push('');
+          sections.push('Task: Confirm to the user that these skills have been added to their profile. Be enthusiastic and friendly!');
+        }
+        
         if (results.profile.profile) {
           const p = results.profile.profile;
           sections.push(`Name: ${p.identity.name}`);
           sections.push(`Bio: ${p.identity.bio}`);
-          sections.push(`Skills: ${p.attributes.skills.join(', ')}`);
+          sections.push(`All Skills: ${p.attributes.skills.join(', ')}`);
         }
+      }
+    }
+
+    if (results.scrape) {
+      sections.push('## Web Scraping Results');
+      if (results.scrape.url) {
+        sections.push(`URL: ${results.scrape.url}`);
+      }
+      if (results.scrape.error) {
+        sections.push(`⚠️ ERROR: ${results.scrape.error}`);
+        sections.push('');
+        sections.push('**Context for next turn**: The URL is stored in conversation history. If user says "try again", the router will extract it and retry.');
+        sections.push('');
+        sections.push('Task: Apologize briefly and make it clear the user can just say "try again" or "retry". Be helpful and concise. Example: "Something went wrong. Would you like me to try again?"');
+      } else if (results.scrape.content) {
+        sections.push(`Content Length: ${results.scrape.contentLength || results.scrape.content.length} characters`);
+        sections.push('');
+        sections.push('### Scraped Content:');
+        sections.push('```');
+        // Truncate very long content to avoid context overflow
+        const maxContentLength = 10000;
+        const content = results.scrape.content.length > maxContentLength 
+          ? results.scrape.content.substring(0, maxContentLength) + '\n\n[Content truncated...]'
+          : results.scrape.content;
+        sections.push(content);
+        sections.push('```');
+        sections.push('');
+        sections.push('Task: Analyze this content and answer the user\'s question about it. Extract relevant information like skills, projects, experience, or whatever the user asked about.');
+      } else {
+        sections.push('⚠️ No content extracted from the URL.');
       }
     }
 

@@ -125,6 +125,51 @@ export const ChatGraphState = Annotation.Root({
     reducer: (curr, next) => next,
     default: () => undefined,
   }),
+
+  // === Multi-Step Orchestration ===
+  /**
+   * Tracks operations completed in this turn.
+   * Used to enable chaining operations (e.g., scrape → profile_write).
+   */
+  completedOperations: Annotation<string[]>({
+    reducer: (curr, next) => [...curr, ...next],
+    default: () => [],
+  }),
+
+  /**
+   * Flag to indicate if more operations are needed before responding.
+   */
+  needsMoreOperations: Annotation<boolean>({
+    reducer: (curr, next) => next ?? curr,
+    default: () => false,
+  }),
+
+  // === Prerequisites Checking ===
+  /**
+   * Flag indicating whether the user has a complete profile.
+   * Used to enforce profile completion before other operations.
+   */
+  hasCompleteProfile: Annotation<boolean>({
+    reducer: (curr, next) => next ?? curr,
+    default: () => false,
+  }),
+
+  /**
+   * Flag indicating whether the user has any active intents.
+   * Used to suggest creating intents when none exist.
+   */
+  hasActiveIntents: Annotation<boolean>({
+    reducer: (curr, next) => next ?? curr,
+    default: () => false,
+  }),
+
+  /**
+   * Flag indicating if prerequisites check has been performed.
+   */
+  prerequisitesChecked: Annotation<boolean>({
+    reducer: (curr, next) => next ?? curr,
+    default: () => false,
+  }),
 });
 
 // ──────────────────────────────────────────────────────────────

@@ -11,7 +11,7 @@ import { User } from '../lib/schema';
 
 // --- Adapters ---
 
-import { searchUser } from '../lib/parallel/parallel';
+import { searchUser, extractUrlContent } from '../lib/parallel/parallel';
 
 export class DrizzleDatabaseAdapter implements ProfileGraphDatabase {
 
@@ -84,6 +84,15 @@ export class ParallelScraperAdapter implements Scraper {
       // Fallback: return objective so the flow continues, albeit with less info
       return `Objective: ${objective}\n\n(Search failed: ${error.message})`;
     }
+  }
+
+  /**
+   * Extracts content from a URL using Parallel.ai API.
+   * @param url - The URL to extract content from
+   * @returns The extracted content as a string, or null if extraction failed
+   */
+  async extractUrlContent(url: string): Promise<string | null> {
+    return await extractUrlContent(url);
   }
 }
 

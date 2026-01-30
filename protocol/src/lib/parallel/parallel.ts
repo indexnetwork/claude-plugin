@@ -1,5 +1,13 @@
+import Parallel from 'parallel-web';
+import { log } from '../log';
 
 const PARALLEL_API_URL = 'https://api.parallel.ai/v1beta/search';
+const PARALLELS_API_KEY = process.env.PARALLELS_API_KEY || '';
+
+// Initialize Parallel client
+const parallelClient = new Parallel({
+  apiKey: PARALLELS_API_KEY,
+});
 
 export interface ParallelSearchResponse {
   search_id: string;
@@ -70,3 +78,54 @@ export async function searchUser(request: ParallelSearchRequest): Promise<Parall
 
   return await response.json() as ParallelSearchResponse;
 }
+
+/**
+ * Extracts content from a URL using Parallel.ai API.
+ * @param url The URL to extract content from
+ * @returns The extracted content as a string, or null if extraction failed
+ */
+export async function extractUrlContent(url: string): Promise<string | null> {
+  if (!PARALLELS_API_KEY) {
+    throw new Error('PARALLELS_API_KEY not configured');
+  }
+
+  try {
+    log.info('Extracting URL content', { url });
+    
+    const extract = await parallelClient.beta.extract({
+      urls: [url],
+      excerpts: true,
+      full_content: true,
+      objective: 'all',
+      fetch_policy: {
+        disable_cache_fallback: false,
+        max_age_seconds: 5184000, // 60 days
+        timeout_seconds: 30,
+      },
+    });
+    
+    log.info('Parallel extract response received', { url, resultsCount: extract.results?.length || 0 });
+    
+    if (extract.results && extract.results.length > 0) {
+      const result = extract.results[0];
+      // Access content from result - check common property names
+      const content = (result as any).content || (result as any).excerpts?.[0] || (result as any).excerpt || (result as any).markdown || null;
+      log.info('Extracted content', { url, contentLength: content?.length || 0, resultKeys: Object.keys(result) });
+      return content;
+    }
+
+    log.warn('No results in extract response', { url, extract });
+    return null;
+  } catch (error) {
+    const errorDetails = error instanceof Error ? {
+      message: error.message,
+      name: error.name,
+      stack: error.stack,
+    } : { error };
+    log.error('Failed to extract URL content', { url, error: errorDetails });
+    return null;
+  }
+}
+
+// Export the parallel client for direct access if needed
+export { parallelClient };

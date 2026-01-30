@@ -7,6 +7,32 @@ import { Embedder } from "../../interfaces/embedder.interface";
 import { Scraper } from "../../interfaces/scraper.interface";
 import { log } from "../../../log";
 
+/** Minimum length for input to be considered meaningful (e.g. not just "Yes") */
+const MIN_MEANINGFUL_INPUT_LENGTH = 20;
+
+/** Phrases that are confirmations only and must not be used as profile content */
+const CONFIRMATION_PHRASES = new Set([
+  "yes", "yeah", "yep", "sure", "ok", "okay", "go ahead", "do it", "please",
+  "correct", "right", "exactly", "absolutely", "of course", "sounds good",
+  "create one", "create it", "set one up", "set it up", "create my profile",
+  "create profile", "set up profile", "create a profile"
+]);
+
+/**
+ * Returns true only if the input contains real profile information.
+ * Confirmation-only replies (e.g. "Yes" to "Would you like to create a profile?")
+ * must not be treated as input so we ask for user info / use scraper instead of inventing a profile.
+ */
+function isMeaningfulProfileInput(input: string | undefined): boolean {
+  if (!input || typeof input !== "string") return false;
+  const trimmed = input.trim();
+  if (trimmed.length < MIN_MEANINGFUL_INPUT_LENGTH) return false;
+  const lower = trimmed.toLowerCase();
+  if (CONFIRMATION_PHRASES.has(lower)) return false;
+  if (CONFIRMATION_PHRASES.has(lower.replace(/[.!?]+$/, ""))) return false;
+  return true;
+}
+
 /**
  * Factory class to build and compile the Profile Generation Graph.
  * 
@@ -73,13 +99,15 @@ export class ProfileGraphFactory {
         }
 
         // Write mode: Detect what needs generation
-        const needsProfileGeneration = !profile || (state.forceUpdate && state.input);
+        // Treat confirmation-only input (e.g. "Yes") as no input so we ask for info / use scraper
+        const hasMeaningfulInput = !!state.input && isMeaningfulProfileInput(state.input);
+        const needsProfileGeneration = !profile || (state.forceUpdate && hasMeaningfulInput);
         const needsProfileEmbedding = profile && (!profile.embedding || profile.embedding.length === 0);
-        const needsHydeGeneration = !profile?.hydeDescription || (state.forceUpdate && state.input);
+        const needsHydeGeneration = !profile?.hydeDescription || (state.forceUpdate && hasMeaningfulInput);
         const needsHydeEmbedding = profile?.hydeDescription && (!profile.hydeEmbedding || profile.hydeEmbedding.length === 0);
 
-        // Check if we need to scrape (profile generation needed but no input provided)
-        const willNeedScraping = needsProfileGeneration && !state.input;
+        // Check if we need to scrape (profile generation needed but no meaningful input provided)
+        const willNeedScraping = needsProfileGeneration && !hasMeaningfulInput;
         
         // If we need to scrape, check if we have sufficient user information
         let needsUserInfo = false;
@@ -97,25 +125,37 @@ export class ProfileGraphFactory {
             };
           }
 
-          // Check for critical information needed for accurate scraping
-          const hasSocials = user.socials && (
+          // Check what information we have from the user table (schema: users)
+          // Required fields: email, name (always present)
+          // Optional fields: intro, avatar, location, socials
+          
+          const hasSocials = !!(user.socials && (
             user.socials.x || 
             user.socials.linkedin || 
             user.socials.github || 
             (user.socials.websites && user.socials.websites.length > 0)
-          );
+          ));
           
+          // Check if name is a full name (not just email username)
+          // For scraping to work well, we need first + last name
           const hasMeaningfulName = user.name && 
             user.name.trim() !== '' && 
-            !user.name.includes('@') && // Not just email
-            user.name.split(' ').length >= 2; // Has first and last name
+            !user.name.includes('@') && 
+            user.name.split(/\s+/).filter(Boolean).length >= 2;
           
-          const hasLocation = user.location && user.location.trim() !== '';
+          const hasLocation = !!(user.location && user.location.trim() !== '');
 
-          // We need at least one of: socials, meaningful name + location
-          if (!hasSocials && !hasMeaningfulName) {
+          // Minimum requirement for accurate scraping:
+          // - At least ONE social link (preferred - most reliable for finding the right person)
+          // - OR a full name (first + last) - less reliable but workable
+          // Location helps disambiguate but is not required
+          
+          const hasMinimumInfo = hasSocials || hasMeaningfulName;
+
+          if (!hasMinimumInfo) {
             needsUserInfo = true;
             
+            // Build precise list of what's missing and would help
             if (!hasSocials) {
               missingUserInfo.push('social_urls');
             }
@@ -123,20 +163,22 @@ export class ProfileGraphFactory {
               missingUserInfo.push('full_name');
             }
             if (!hasLocation) {
-              missingUserInfo.push('location');
+              missingUserInfo.push('location'); // Nice to have
             }
 
             log.info("[Graph:Profile:CheckState] ⚠️ Insufficient user information for scraping", {
               hasSocials,
               hasMeaningfulName,
               hasLocation,
+              currentName: user.name,
               missingUserInfo
             });
           } else {
             log.info("[Graph:Profile:CheckState] ✅ Sufficient user information for scraping", {
               hasSocials,
               hasMeaningfulName,
-              hasLocation
+              hasLocation,
+              willProceedWith: hasSocials ? 'social links' : 'full name'
             });
           }
         }
@@ -151,6 +193,7 @@ export class ProfileGraphFactory {
           missingUserInfo,
           forceUpdate: state.forceUpdate,
           hasInput: !!state.input,
+          hasMeaningfulInput,
           hasHydeDescription: !!profile?.hydeDescription
         });
 
@@ -180,8 +223,8 @@ export class ProfileGraphFactory {
     // Scrapes data from web if input is not provided
     // ─────────────────────────────────────────────────────────
     const scrapeNode = async (state: typeof ProfileGraphState.State) => {
-      if (state.input) {
-        log.info("[Graph:Profile:Scrape] Input already provided - skipping scrape");
+      if (state.input && isMeaningfulProfileInput(state.input)) {
+        log.info("[Graph:Profile:Scrape] Meaningful input already provided - skipping scrape");
         return {};
       }
 
@@ -190,7 +233,7 @@ export class ProfileGraphFactory {
       });
 
       try {
-        // Fetch user details to construct objective
+        // Fetch user details to construct objective for web scraping
         const user = await this.database.getUser(state.userId);
 
         if (!user) {
@@ -200,16 +243,41 @@ export class ProfileGraphFactory {
           };
         }
 
-        const socialLinks = user.socials ? Object.values(user.socials).join('\n') : '';
+        // Build scraping objective from available user information
+        // Priority: social links (most reliable) > name + location > email
+        const socialParts: string[] = [];
+        if (user.socials) {
+          if (user.socials.x) socialParts.push(`X/Twitter: ${user.socials.x}`);
+          if (user.socials.linkedin) socialParts.push(`LinkedIn: ${user.socials.linkedin}`);
+          if (user.socials.github) socialParts.push(`GitHub: ${user.socials.github}`);
+          if (user.socials.websites && user.socials.websites.length > 0) {
+            user.socials.websites.forEach((url: string) => socialParts.push(`Website: ${url}`));
+          }
+        }
 
-        const objective = `
-          Find information about the person named ${user.name || 'Unknown'}.
-          ${user.email ? `This is their email address: ${user.email}` : ''}
-          ${socialLinks ? `Here are some of their social profiles:\n${socialLinks}` : ''}
-        `.trim();
+        // Construct objective based on what we have
+        let objective = `Find information about ${user.name || 'this person'}`;
+        
+        if (user.location) {
+          objective += ` located in ${user.location}`;
+        }
+        
+        objective += '.\n\n';
+        
+        if (socialParts.length > 0) {
+          objective += `Their social profiles:\n${socialParts.join('\n')}\n\n`;
+          objective += 'Use these links to find accurate information about their professional background, skills, and interests.';
+        } else if (user.email) {
+          objective += `Their email: ${user.email}\n\n`;
+          objective += 'Search for professional information, skills, and background about this person.';
+        } else {
+          objective += 'Search for professional information and background about this person.';
+        }
 
-        log.info("[Graph:Profile:Scrape] Constructed objective", { 
-          objective: objective.substring(0, 100) 
+        log.info("[Graph:Profile:Scrape] Constructed scraping objective", { 
+          hasSocials: socialParts.length > 0,
+          hasLocation: !!user.location,
+          objectivePreview: objective.substring(0, 100) 
         });
         
         const scrapedData = await this.scraper.scrape(objective);
@@ -220,7 +288,8 @@ export class ProfileGraphFactory {
 
         return {
           objective,
-          input: scrapedData
+          input: scrapedData,
+          operationsPerformed: { scraped: true }
         };
       } catch (error) {
         log.error("[Graph:Profile:Scrape] Scrape failed", {
@@ -274,7 +343,8 @@ export class ProfileGraphFactory {
             embedding: [] as number[] | number[][]
           },
           // Mark that hyde needs regeneration since profile was updated
-          needsHydeGeneration: true
+          needsHydeGeneration: true,
+          operationsPerformed: { generatedProfile: true }
         };
       } catch (error) {
         log.error("[Graph:Profile:Generate] Profile generation failed", {
@@ -332,7 +402,10 @@ export class ProfileGraphFactory {
 
         log.info("[Graph:Profile:EmbedSave] ✅ Profile saved successfully");
 
-        return { profile };
+        return { 
+          profile,
+          operationsPerformed: { embeddedProfile: true }
+        };
       } catch (error) {
         log.error("[Graph:Profile:EmbedSave] Failed to embed/save profile", {
           error: error instanceof Error ? error.message : String(error)
@@ -369,7 +442,10 @@ export class ProfileGraphFactory {
           descriptionLength: result.textToEmbed.length
         });
 
-        return { hydeDescription: result.textToEmbed };
+        return { 
+          hydeDescription: result.textToEmbed,
+          operationsPerformed: { generatedHyde: true }
+        };
       } catch (error) {
         log.error("[Graph:Profile:HyDE] HyDE generation failed", {
           error: error instanceof Error ? error.message : String(error)
@@ -414,7 +490,9 @@ export class ProfileGraphFactory {
 
         log.info("[Graph:Profile:HyDEEmbed] ✅ HyDE saved successfully");
 
-        return {};
+        return {
+          operationsPerformed: { embeddedHyde: true }
+        };
       } catch (error) {
         log.error("[Graph:Profile:HyDEEmbed] Failed to embed/save HyDE", {
           error: error instanceof Error ? error.message : String(error)
@@ -451,12 +529,12 @@ export class ProfileGraphFactory {
 
       // Write mode: Check what needs generation
       if (state.needsProfileGeneration) {
-        // Profile missing or force update with new input
-        if (state.input) {
-          log.info("[Graph:Profile:RouteCondition] Profile generation needed with input provided");
+        // Only use provided input if it's meaningful (not just "Yes" / confirmation)
+        if (state.input && isMeaningfulProfileInput(state.input)) {
+          log.info("[Graph:Profile:RouteCondition] Profile generation needed with meaningful input provided");
           return "generate_profile";
         } else {
-          log.info("[Graph:Profile:RouteCondition] Profile generation needed - scraping first");
+          log.info("[Graph:Profile:RouteCondition] Profile generation needed - scraping first (no meaningful input)");
           return "scrape";
         }
       }

@@ -32,10 +32,17 @@ import { truncateToTokenLimit, MAX_CONTEXT_TOKENS } from "./chat.utils";
  * The Chat Graph serves as the primary orchestration layer for user conversations.
  * It coordinates subgraphs for Intent, Profile, and Opportunity processing.
  * 
- * Flow:
- * 1. loadContext - Fetch user profile and active intents
- * 2. router - Analyze message and determine routing
- * 3. [subgraph] - Process based on routing decision
+ * Flow (Reactive with Smart Prerequisites):
+ * 1. router - Analyze message first (without full context)
+ * 2. check_prerequisites - Smart gate that:
+ *    - Respects explicit user requests (profile_query, intent_query)
+ *    - Only enforces onboarding when actually needed
+ *    - Suggests intents ONLY for general conversation (not explicit requests)
+ * 3. Conditional routing based on prerequisites + router decision:
+ *    - Missing profile (non-query) → profile_write (onboarding)
+ *    - Explicit request → load_context → execute action (honor request)
+ *    - Missing intents (no explicit request) → suggest_intents
+ *    - Has both → load_context → execute action
  * 4. generateResponse - Synthesize final response
  */
 export class ChatGraphFactory {
@@ -241,13 +248,17 @@ export class ChatGraphFactory {
           
           // Emit thinking event for node start
           const nodeDescriptions: Record<string, string> = {
-            'load_context': 'Loading user profile and active intents...',
             'router': 'Analyzing your message to determine the best way to help...',
+            'check_prerequisites': 'Checking your profile and intent status...',
+            'load_context': 'Loading your profile and active intents...',
+            'suggest_intents': 'Generating intent suggestions based on your profile...',
+            'orchestrator': 'Checking if more operations are needed...',
             'intent_query': 'Fetching your active intents...',
             'intent_write': 'Processing intent changes...',
             'profile_query': 'Retrieving your profile...',
             'profile_write': 'Updating your profile...',
             'opportunity_subgraph': 'Searching for relevant opportunities...',
+            'scrape_web': 'Extracting content from the web...',
             'respond_direct': 'Preparing response...',
             'clarify': 'Determining what additional information is needed...',
             'generate_response': 'Crafting response...'
@@ -285,6 +296,7 @@ export class ChatGraphFactory {
               'profile_query': 'showing your profile',
               'profile_write': 'updating your profile',
               'opportunity_subgraph': 'finding relevant opportunities',
+              'scrape_web': 'extracting content from a URL',
               'respond': 'providing a direct response',
               'clarify': 'asking for clarification'
             };
@@ -316,7 +328,22 @@ export class ChatGraphFactory {
                 }
               } else if ('profile' in results && results.profile) {
                 const profileResult = results.profile as any;
-                if (profileResult.updated) {
+                const ops = profileResult.operationsPerformed || {};
+                
+                // Build detailed summary of what operations were performed
+                const operations: string[] = [];
+                if (ops.scraped) operations.push('Scraped information from the web');
+                if (ops.generatedProfile) operations.push('Generated profile using ProfileGenerator agent');
+                if (ops.embeddedProfile) operations.push('Created profile vector embedding');
+                if (ops.generatedHyde) operations.push('Generated HyDE description for matching');
+                if (ops.embeddedHyde) operations.push('Created HyDE vector embedding');
+                
+                if (operations.length > 0) {
+                  resultSummary += '\n\nOperations performed:';
+                  operations.forEach(op => {
+                    resultSummary += `\n✓ ${op}`;
+                  });
+                } else if (profileResult.updated) {
                   resultSummary += '\n- Profile updated successfully';
                 }
               } else if ('opportunity' in results && results.opportunity) {
@@ -382,29 +409,83 @@ export class ChatGraphFactory {
     ).compile();
 
     // ─────────────────────────────────────────────────────────
-    // NODE: Load Context
-    // Fetches user profile and active intents from the database
+    // NODE: Check Prerequisites
+    // Checks if user has a complete profile and active intents.
+    // This is the reactive gate that determines if we need onboarding.
     // ─────────────────────────────────────────────────────────
-    const loadContextNode = async (state: typeof ChatGraphState.State) => {
-      log.info("[ChatGraph:LoadContext] Loading user context...", { 
+    const checkPrerequisitesNode = async (state: typeof ChatGraphState.State) => {
+      log.info("[ChatGraph:CheckPrerequisites] Checking user prerequisites...", { 
         userId: state.userId 
       });
 
       try {
+        // Load profile to check completeness
         const profile = await this.database.getProfile(state.userId);
         
-        // TODO: Load active intents from database/intent service
-        // This would typically call: await this.database.getActiveIntentsFormatted(state.userId)
-        const activeIntents = "No active intents."; 
+        // Check if profile is complete (has name, and ideally location/socials)
+        const hasCompleteProfile = !!(
+          profile && 
+          profile.identity?.name &&
+          profile.identity.name.trim() !== ''
+        );
+
+        // Load active intents to check if user has any
+        const activeIntents = await this.database.getActiveIntents(state.userId);
+        const hasActiveIntents = activeIntents.length > 0;
+
+        log.info("[ChatGraph:CheckPrerequisites] Prerequisites checked", { 
+          hasCompleteProfile,
+          hasActiveIntents,
+          profileName: profile?.identity?.name,
+          intentCount: activeIntents.length
+        });
+
+        return {
+          hasCompleteProfile,
+          hasActiveIntents,
+          prerequisitesChecked: true,
+          userProfile: profile ?? undefined
+        };
+      } catch (error) {
+        log.error("[ChatGraph:CheckPrerequisites] Failed to check prerequisites", { 
+          error: error instanceof Error ? error.message : String(error) 
+        });
+        return {
+          hasCompleteProfile: false,
+          hasActiveIntents: false,
+          prerequisitesChecked: true,
+          error: "Failed to check prerequisites"
+        };
+      }
+    };
+
+    // ─────────────────────────────────────────────────────────
+    // NODE: Load Context
+    // Fetches user profile and active intents from the database
+    // NOW CALLED AFTER prerequisites check and message analysis
+    // ─────────────────────────────────────────────────────────
+    const loadContextNode = async (state: typeof ChatGraphState.State) => {
+      log.info("[ChatGraph:LoadContext] Loading full user context...", { 
+        userId: state.userId 
+      });
+
+      try {
+        const profile = state.userProfile || await this.database.getProfile(state.userId);
+        
+        // Load and format active intents
+        const activeIntents = await this.database.getActiveIntents(state.userId);
+        const formattedIntents = activeIntents.length > 0
+          ? activeIntents.map(intent => `- ${intent.payload} (${intent.summary || 'no summary'})`).join('\n')
+          : "No active intents.";
 
         log.info("[ChatGraph:LoadContext] Context loaded", { 
           hasProfile: !!profile,
-          activeIntents: activeIntents.substring(0, 50)
+          intentCount: activeIntents.length
         });
 
         return {
           userProfile: profile ?? undefined,
-          activeIntents
+          activeIntents: formattedIntents
         };
       } catch (error) {
         log.error("[ChatGraph:LoadContext] Failed to load context", { 
@@ -421,16 +502,18 @@ export class ChatGraphFactory {
     // ─────────────────────────────────────────────────────────
     // NODE: Router
     // Analyzes message and determines routing target
+    // NOW CALLED FIRST - works with minimal context
     // ─────────────────────────────────────────────────────────
     const routerNode = async (state: typeof ChatGraphState.State) => {
       const lastMessage = state.messages[state.messages.length - 1];
       const userMessage = lastMessage?.content?.toString() || "";
 
       log.info("[ChatGraph:Router] Analyzing message...", { 
-        messagePreview: userMessage.substring(0, 50) 
+        messagePreview: userMessage.substring(0, 50),
+        hasProfile: !!state.userProfile
       });
 
-      // Build profile context string for the router
+      // Build profile context string for the router (may be minimal if prerequisites not checked yet)
       const profileContext = state.userProfile 
         ? `Name: ${state.userProfile.identity.name}\n` +
           `Bio: ${state.userProfile.identity.bio}\n` +
@@ -448,7 +531,7 @@ export class ChatGraphFactory {
         const decision = await routerAgent.invoke(
           userMessage,
           profileContext,
-          state.activeIntents,
+          state.activeIntents || "",
           conversationHistory
         );
 
@@ -469,7 +552,9 @@ export class ChatGraphFactory {
           routingDecision: {
             target: "respond" as RouteTarget,
             confidence: 0.5,
-            reasoning: "Defaulting to response due to routing error"
+            reasoning: "Defaulting to response due to routing error",
+            extractedContext: null,
+            operationType: null
           },
           error: "Routing failed"
         };
@@ -679,10 +764,98 @@ export class ChatGraphFactory {
       });
       
       try {
-        // Extract and convert null to undefined for the input property
+        // Extract and convert null to undefined for the input property.
+        // Do not pass confirmation-only text (e.g. "Yes") as profile input — profile graph
+        // should ask for user info / use scraper instead of inventing a profile.
         const extractedContext = state.routingDecision?.extractedContext;
-        const inputValue = extractedContext === null ? undefined : extractedContext;
+        const rawInput = extractedContext === null ? undefined : extractedContext;
         
+        // Check if this is a confirmation-only message for CREATE operations
+        const isCreateWithConfirmationOnly =
+          operationType === 'create' &&
+          rawInput &&
+          rawInput.trim().length < 50 &&
+          /^(yes|yeah|yep|sure|ok(ay)?|go ahead|do it|please|correct|right|exactly|create one|create it|set one up|set it up|create my profile|create profile|set up profile|create a profile)$/i.test(rawInput.trim().replace(/[.!?]+$/, ""));
+        
+        // Check if extractedContext contains a skill addition command
+        // Format: "Add skills: JavaScript, PostgreSQL, Node.js"
+        const skillAdditionPattern = /^add skills?:\s*(.+)$/i;
+        const skillMatch = rawInput?.match(skillAdditionPattern);
+        
+        // HANDLE DIRECT SKILL ADDITION
+        // If this is a skill addition request and we have an existing profile,
+        // directly add the skills without regenerating the entire profile
+        if (skillMatch && operationType === 'update' && state.userProfile) {
+          const skillsToAdd = skillMatch[1].split(',').map(s => s.trim()).filter(Boolean);
+          
+          log.info("[ChatGraph:ProfileSubgraph] Direct skill addition detected", {
+            skillsToAdd,
+            currentSkills: state.userProfile.attributes.skills
+          });
+          
+          // Merge new skills with existing skills (avoid duplicates)
+          const existingSkills = state.userProfile.attributes.skills || [];
+          const updatedSkills = [...new Set([...existingSkills, ...skillsToAdd])];
+          
+          // Create updated profile
+          const updatedProfile = {
+            ...state.userProfile,
+            attributes: {
+              ...state.userProfile.attributes,
+              skills: updatedSkills
+            }
+          };
+          
+          // Save updated profile directly
+          try {
+            await this.database.saveProfile(state.userId, updatedProfile);
+            
+            log.info("[ChatGraph:ProfileSubgraph] ✅ Skills added successfully", {
+              addedSkills: skillsToAdd,
+              totalSkills: updatedSkills.length
+            });
+            
+            const subgraphResults: SubgraphResults = {
+              profile: {
+                mode: 'write',
+                updated: true,
+                profile: updatedProfile,
+                operationsPerformed: {
+                  addedSkills: skillsToAdd,
+                  directUpdate: true
+                }
+              } as any
+            };
+            
+            return {
+              userProfile: updatedProfile,
+              subgraphResults,
+              completedOperations: ['profile_write']
+            };
+          } catch (error) {
+            log.error("[ChatGraph:ProfileSubgraph] Failed to add skills", {
+              error: error instanceof Error ? error.message : String(error)
+            });
+            return {
+              subgraphResults: {
+                profile: {
+                  mode: 'write',
+                  updated: false,
+                  error: "Failed to add skills"
+                }
+              },
+              error: "Skill addition failed"
+            };
+          }
+        }
+        
+        // Otherwise, proceed with normal profile generation flow
+        let inputValue = rawInput;
+        
+        if (isCreateWithConfirmationOnly) {
+          inputValue = undefined;
+        }
+
         // Map ChatGraphState to ProfileGraphState input
         // NEW: Pass operationMode='write' to enable full conditional pipeline
         const profileInput = {
@@ -710,23 +883,37 @@ export class ChatGraphFactory {
             missingInfo: result.missingUserInfo
           });
 
-          // Construct a helpful clarification message
+          // Construct a helpful, precise clarification message
           const missingFields = result.missingUserInfo as string[];
-          const fieldDescriptions = {
-            social_urls: 'social media profiles (X/Twitter, LinkedIn, GitHub, or personal website)',
-            full_name: 'full name (first and last)',
-            location: 'location (city and country)'
-          };
+          
+          // Categorize what's missing
+          const missingSocials = missingFields.includes('social_urls');
+          const missingFullName = missingFields.includes('full_name');
+          const missingLocation = missingFields.includes('location');
 
-          const missingDescriptions = missingFields
-            .map(field => fieldDescriptions[field as keyof typeof fieldDescriptions])
-            .filter(Boolean);
+          let clarificationMessage = "To create your profile, I need to gather accurate information about you from the web.\n\n";
 
-          const clarificationMessage = missingDescriptions.length > 0
-            ? `To generate an accurate profile, I need some additional information about you:\n\n` +
-              `${missingDescriptions.map((desc, i) => `${i + 1}. Your ${desc}`).join('\n')}\n\n` +
-              `This helps me find the right information about you online and create a more accurate profile. Could you please share these details?`
-            : `To generate an accurate profile, I need more information about you. Could you share your social media profiles or personal website?`;
+          // Explain minimum requirement
+          if (missingSocials && missingFullName) {
+            clarificationMessage += "I need at least one of the following:\n\n";
+            clarificationMessage += "• **Social media profile** (X/Twitter, LinkedIn, GitHub, or personal website) - this helps me find the right person\n";
+            clarificationMessage += "• **Your full name** (first and last name)\n\n";
+            
+            if (missingLocation) {
+              clarificationMessage += "Optionally, your **location** (city and country) would help ensure I find the correct information.\n\n";
+            }
+            
+            clarificationMessage += "Could you please share at least one social profile link or your full name?";
+          } else if (missingSocials) {
+            clarificationMessage += "I have your name, but a social media profile link would help me find more accurate information about you.\n\n";
+            clarificationMessage += "Could you share a link to your X/Twitter, LinkedIn, GitHub, or personal website?";
+          } else if (missingFullName) {
+            clarificationMessage += "I need your full name (first and last) to search for information about you.\n\n";
+            clarificationMessage += "What's your full name?";
+          } else {
+            // Just location missing (shouldn't happen since location is optional)
+            clarificationMessage = "To create an accurate profile, could you share your location (city and country)?";
+          }
 
           const subgraphResults: SubgraphResults = {
             profile: {
@@ -744,19 +931,22 @@ export class ChatGraphFactory {
 
         log.info("[ChatGraph:ProfileSubgraph] ✅ Processing complete", {
           hasProfile: !!result.profile,
-          hasError: !!result.error
+          hasError: !!result.error,
+          operationsPerformed: result.operationsPerformed
         });
 
         const subgraphResults: SubgraphResults = {
           profile: {
             updated: !!result.profile,
-            profile: result.profile
-          }
+            profile: result.profile,
+            operationsPerformed: result.operationsPerformed || {}
+          } as any
         };
 
         return {
           userProfile: result.profile,
-          subgraphResults
+          subgraphResults,
+          completedOperations: ['profile_write']
         };
       } catch (error) {
         log.error("[ChatGraph:ProfileSubgraph] Processing failed", {
@@ -826,6 +1016,57 @@ export class ChatGraphFactory {
     };
 
     // ─────────────────────────────────────────────────────────
+    // NODE: Suggest Intents
+    // Suggests creating intents when user has profile but no active intents
+    // ─────────────────────────────────────────────────────────
+    const suggestIntentsNode = async (state: typeof ChatGraphState.State) => {
+      log.info("[ChatGraph:SuggestIntents] User has profile but no intents, suggesting intent creation...");
+      
+      // Build a helpful message suggesting the user create intents
+      const profile = state.userProfile;
+      
+      if (!profile) {
+        log.warn("[ChatGraph:SuggestIntents] No profile available for intent suggestions");
+        return {};
+      }
+
+      // Generate suggestions based on profile
+      const skills = profile.attributes?.skills || [];
+      const interests = profile.attributes?.interests || [];
+      
+      let suggestionText = "I see you have a profile set up, but you haven't created any intents yet. ";
+      suggestionText += "Intents are the core of this platform - they represent what you're looking for or want to achieve.\n\n";
+      suggestionText += "Based on your profile, here are some intent ideas:\n\n";
+      
+      if (skills.length > 0) {
+        suggestionText += `- Share your expertise in ${skills.slice(0, 2).join(' or ')}\n`;
+        suggestionText += `- Find projects that use ${skills.slice(0, 2).join(' and ')}\n`;
+      }
+      
+      if (interests.length > 0) {
+        suggestionText += `- Connect with others interested in ${interests.slice(0, 2).join(' or ')}\n`;
+        suggestionText += `- Learn more about ${interests[0]}\n`;
+      }
+      
+      suggestionText += "\nWhat would you like to accomplish or find on this platform?";
+
+      log.info("[ChatGraph:SuggestIntents] Generated intent suggestions", {
+        hasSkills: skills.length > 0,
+        hasInterests: interests.length > 0
+      });
+
+      return {
+        subgraphResults: {
+          intentSuggestion: {
+            message: suggestionText,
+            skills,
+            interests
+          }
+        } as any
+      };
+    };
+
+    // ─────────────────────────────────────────────────────────
     // NODE: Direct Response
     // Handles direct responses without subgraph processing
     // ─────────────────────────────────────────────────────────
@@ -848,6 +1089,127 @@ export class ChatGraphFactory {
       // The response generator will craft an appropriate clarification question
       return {
         subgraphResults: {} as SubgraphResults
+      };
+    };
+
+    // ─────────────────────────────────────────────────────────
+    // NODE: Scrape Web
+    // Extracts content from a URL using Parallel.ai
+    // ─────────────────────────────────────────────────────────
+    const scrapeWebNode = async (state: typeof ChatGraphState.State) => {
+      log.info("[ChatGraph:ScrapeWeb] Extracting content from URL...");
+      
+      // Extract URL from routing decision context
+      const url = state.routingDecision?.extractedContext;
+      
+      if (!url) {
+        log.error("[ChatGraph:ScrapeWeb] No URL provided in routing context");
+        return {
+          subgraphResults: {
+            scrape: {
+              url: null,
+              content: null,
+              error: "No URL provided"
+            }
+          },
+          error: "No URL to scrape"
+        };
+      }
+
+      try {
+        log.info("[ChatGraph:ScrapeWeb] Scraping URL", { url });
+        const content = await this.scraper.extractUrlContent(url);
+        
+        if (!content) {
+          log.warn("[ChatGraph:ScrapeWeb] No content extracted", { url });
+          return {
+            subgraphResults: {
+              scrape: {
+                url,
+                content: null,
+                error: "Failed to extract content from URL"
+              }
+            }
+          };
+        }
+
+        log.info("[ChatGraph:ScrapeWeb] Content extracted successfully", {
+          url,
+          contentLength: content.length
+        });
+
+        return {
+          subgraphResults: {
+            scrape: {
+              url,
+              content,
+              contentLength: content.length
+            }
+          },
+          completedOperations: ['scrape_web']
+        };
+      } catch (error) {
+        log.error("[ChatGraph:ScrapeWeb] Scraping failed", {
+          url,
+          error: error instanceof Error ? error.message : String(error)
+        });
+        return {
+          subgraphResults: {
+            scrape: {
+              url,
+              content: null,
+              error: error instanceof Error ? error.message : "Unknown error"
+            }
+          },
+          error: "Web scraping failed"
+        };
+      }
+    };
+
+    // ─────────────────────────────────────────────────────────
+    // NODE: Orchestrator
+    // Checks if more operations are needed before responding
+    // Enables chaining operations (e.g., scrape → profile_write)
+    // ─────────────────────────────────────────────────────────
+    const orchestratorNode = async (state: typeof ChatGraphState.State) => {
+      const lastMessage = state.messages[state.messages.length - 1];
+      const userMessage = lastMessage?.content?.toString() || "";
+      const completedOps = state.completedOperations || [];
+      
+      log.info("[ChatGraph:Orchestrator] Checking if more operations needed", {
+        userMessage: userMessage.substring(0, 50),
+        completedOps,
+        hasScrapedContent: !!state.subgraphResults?.scrape?.content
+      });
+
+      // Check if we just scraped content and should now process it
+      const justScraped = completedOps.includes('scrape_web');
+      const hasScrapedContent = !!state.subgraphResults?.scrape?.content;
+      const scrapeFailed = !!state.subgraphResults?.scrape?.error;
+      
+      // Patterns that indicate user wants to use scraped content
+      const wantsProfileUpdate = /update.*(profile|skills|bio)|add.*(to|skills|profile)/i.test(userMessage);
+      
+      // If we just scraped successfully and user wants profile update, do it
+      if (justScraped && hasScrapedContent && wantsProfileUpdate && !completedOps.includes('profile_write')) {
+        log.info("[ChatGraph:Orchestrator] Scraped content available and profile update requested, routing to profile_write");
+        
+        return {
+          needsMoreOperations: true,
+          routingDecision: {
+            target: 'profile_write' as const,
+            confidence: 0.9,
+            reasoning: '[ORCHESTRATOR] Chaining scrape → profile_write based on user intent',
+            extractedContext: state.subgraphResults?.scrape?.content || null,
+            operationType: 'update' as const
+          }
+        };
+      }
+      
+      // No more operations needed, proceed to response
+      log.info("[ChatGraph:Orchestrator] No more operations needed, proceeding to response");
+      return {
+        needsMoreOperations: false
       };
     };
 
@@ -970,10 +1332,60 @@ export class ChatGraphFactory {
     };
 
     // ─────────────────────────────────────────────────────────
-    // ROUTING CONDITION
+    // GRAPH ASSEMBLY
+    // ─────────────────────────────────────────────────────────
+    
+    // ─────────────────────────────────────────────────────────
+    // ROUTING CONDITION: Prerequisites Check
+    // Determines if we need profile/intent onboarding before proceeding
+    // RESPECTS explicit user requests - only intercepts for true onboarding needs
+    // ─────────────────────────────────────────────────────────
+    const prerequisitesCondition = (state: typeof ChatGraphState.State): string => {
+      const routingTarget = state.routingDecision?.target;
+      
+      // Check if user made an explicit request for data (query routes)
+      const hasExplicitRequest = routingTarget && (
+        routingTarget === 'profile_query' ||
+        routingTarget === 'intent_query' ||
+        routingTarget === 'opportunity_subgraph'
+      );
+      
+      // If profile is incomplete, prioritize profile completion
+      // UNLESS user explicitly asked to see their profile (let them see what they have)
+      if (!state.hasCompleteProfile && routingTarget !== 'profile_query') {
+        log.info("[ChatGraph:PrerequisitesCondition] Profile incomplete, routing to profile_write", {
+          routingTarget
+        });
+        return "profile_write";
+      }
+      
+      // If user made an explicit request, honor it - don't intercept
+      if (hasExplicitRequest) {
+        log.info("[ChatGraph:PrerequisitesCondition] Explicit request detected, proceeding to load_context", {
+          routingTarget,
+          hasProfile: state.hasCompleteProfile,
+          hasIntents: state.hasActiveIntents
+        });
+        return "load_context";
+      }
+      
+      // If profile exists but no intents AND no explicit request, suggest creating intents
+      // This only triggers for general conversation like "hi" or "what can I do"
+      if (!state.hasActiveIntents) {
+        log.info("[ChatGraph:PrerequisitesCondition] No active intents and no explicit request, suggesting intents", {
+          routingTarget
+        });
+        return "suggest_intents";
+      }
+      
+      // Both profile and intents exist, proceed with normal flow
+      log.info("[ChatGraph:PrerequisitesCondition] Prerequisites satisfied, loading context");
+      return "load_context";
+    };
+
+    // ─────────────────────────────────────────────────────────
+    // ROUTING CONDITION: Main Router
     // Determines which subgraph/node to route to based on router decision
-    // Supports both new targets (intent_query, intent_write, etc.) and
-    // legacy targets (intent_subgraph, profile_subgraph) for backward compatibility
     // ─────────────────────────────────────────────────────────
     const routeCondition = (state: typeof ChatGraphState.State): string => {
       let target: string = state.routingDecision?.target || "respond";
@@ -1000,6 +1412,7 @@ export class ChatGraphFactory {
         "profile_query",
         "profile_write",
         "opportunity_subgraph",
+        "scrape_web",
         "respond",
         "clarify"
       ];
@@ -1025,51 +1438,89 @@ export class ChatGraphFactory {
       
       return target;
     };
+    
+    // ─────────────────────────────────────────────────────────
+    // ROUTING CONDITION: Orchestrator
+    // Determines if we should chain another operation or proceed to response
+    // ─────────────────────────────────────────────────────────
+    const orchestratorCondition = (state: typeof ChatGraphState.State): string => {
+      if (state.needsMoreOperations && state.routingDecision?.target) {
+        const target = state.routingDecision.target;
+        log.info("[ChatGraph:OrchestratorCondition] Chaining to next operation", {
+          target
+        });
+        return target;
+      }
+      
+      log.info("[ChatGraph:OrchestratorCondition] Proceeding to response generation");
+      return "generate_response";
+    };
 
-    // ─────────────────────────────────────────────────────────
-    // GRAPH ASSEMBLY
-    // ─────────────────────────────────────────────────────────
     const workflow = new StateGraph(ChatGraphState)
       // Add Nodes
-      .addNode("load_context", loadContextNode)
-      .addNode("router", routerNode)
-      .addNode("intent_query", intentQueryNode)           // NEW: Fast path for intent queries
-      .addNode("intent_write", intentSubgraphNode)        // RENAMED: Was intent_subgraph
-      .addNode("profile_query", profileQueryNode)         // NEW: Fast path for profile queries
-      .addNode("profile_write", profileSubgraphNode)      // RENAMED: Was profile_subgraph
+      .addNode("router", routerNode)                      // MOVED: First node now
+      .addNode("check_prerequisites", checkPrerequisitesNode)  // NEW: Prerequisites gate
+      .addNode("load_context", loadContextNode)           // MOVED: After prerequisites
+      .addNode("suggest_intents", suggestIntentsNode)     // NEW: Suggest intents when none exist
+      .addNode("orchestrator", orchestratorNode)
+      .addNode("intent_query", intentQueryNode)
+      .addNode("intent_write", intentSubgraphNode)
+      .addNode("profile_query", profileQueryNode)
+      .addNode("profile_write", profileSubgraphNode)
       .addNode("opportunity_subgraph", opportunitySubgraphNode)
+      .addNode("scrape_web", scrapeWebNode)
       .addNode("respond_direct", respondDirectNode)
       .addNode("clarify", clarifyNode)
       .addNode("generate_response", generateResponseNode)
 
-      // Define Flow: START -> load_context -> router
-      .addEdge(START, "load_context")
-      .addEdge("load_context", "router")
+      // Define Flow: START -> router (analyze message first)
+      .addEdge(START, "router")
+      .addEdge("router", "check_prerequisites")
 
-      // Conditional Routing from router node
-      .addConditionalEdges("router", routeCondition, {
-        intent_query: "intent_query",                 // NEW: Route queries to fast path
-        intent_write: "intent_write",                 // NEW: Route writes to full pipeline
-        profile_query: "profile_query",               // NEW: Route profile queries to fast path
-        profile_write: "profile_write",               // NEW: Route profile writes to full pipeline
+      // Conditional routing based on prerequisites
+      .addConditionalEdges("check_prerequisites", prerequisitesCondition, {
+        profile_write: "profile_write",      // Missing profile → onboarding
+        suggest_intents: "suggest_intents",  // Has profile but no intents → suggest
+        load_context: "load_context"         // Has both → normal flow
+      })
+
+      // After loading context, route to appropriate action
+      .addConditionalEdges("load_context", routeCondition, {
+        intent_query: "intent_query",
+        intent_write: "intent_write",
+        profile_query: "profile_query",
+        profile_write: "profile_write",
         opportunity_subgraph: "opportunity_subgraph",
+        scrape_web: "scrape_web",
         respond: "respond_direct",
         clarify: "clarify"
       })
 
-      // All paths lead to response generation
-      .addEdge("intent_query", "generate_response")       // NEW: Fast path to response
-      .addEdge("intent_write", "generate_response")       // RENAMED: From intent_subgraph
-      .addEdge("profile_query", "generate_response")      // NEW: Fast path to response
-      .addEdge("profile_write", "generate_response")      // RENAMED: From profile_subgraph
-      .addEdge("opportunity_subgraph", "generate_response")
-      .addEdge("respond_direct", "generate_response")
-      .addEdge("clarify", "generate_response")
+      // Prerequisite-driven flows go directly to response
+      .addEdge("suggest_intents", "generate_response")
+
+      // Operations that can be chained go through orchestrator
+      // Operations that are terminal go directly to response
+      .addEdge("scrape_web", "orchestrator")              // Can chain to profile_write
+      .addEdge("intent_query", "generate_response")       // Terminal: Fast path to response
+      .addEdge("intent_write", "generate_response")       // Terminal
+      .addEdge("profile_query", "generate_response")      // Terminal: Fast path to response
+      .addEdge("profile_write", "generate_response")      // Terminal
+      .addEdge("opportunity_subgraph", "generate_response")  // Terminal
+      .addEdge("respond_direct", "generate_response")     // Terminal
+      .addEdge("clarify", "generate_response")            // Terminal
+
+      // Orchestrator can route to another operation or proceed to response
+      .addConditionalEdges("orchestrator", orchestratorCondition, {
+        profile_write: "profile_write",
+        intent_write: "intent_write",
+        generate_response: "generate_response"
+      })
 
       // Generate response -> END
       .addEdge("generate_response", END);
 
-    log.info("[ChatGraphFactory] Graph built successfully");
+    log.info("[ChatGraphFactory] Graph built successfully (reactive flow)");
     return workflow;
   }
 }

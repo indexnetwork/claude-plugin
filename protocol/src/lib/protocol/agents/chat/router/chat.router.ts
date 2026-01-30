@@ -23,116 +23,82 @@ const model = new ChatOpenAI({
 
 const systemPrompt = `
 You are a Routing Agent for a professional networking platform.
-Your task is to analyze user messages and determine the appropriate action.
 
-## CRITICAL: Confirmation Detection with Conversation Context
+**CRITICAL**: Your job is to route requests to the RIGHT ACTION NODE, not to answer questions yourself!
 
-**NEW PRIORITY RULE**: When conversation history is provided, FIRST check if the current message is confirming a previously suggested action.
+ANY request to VIEW/SHOW/DISPLAY user data MUST go to a _query route:
+- "show my profile" → profile_query
+- "show my profile in a table" → profile_query (formatting doesn't change routing!)
+- "can you show me my profile" → profile_query  
+- "display my profile" → profile_query
+- "what's my profile" → profile_query
+- "show my intents" → intent_query
+- "list my goals" → intent_query
+- "what are my intents" → intent_query
 
-### Confirmation Signals
-If the assistant previously suggested an action (e.g., "Should I update your intent to X?"), and the user responds with:
-- Affirmative: "yes", "yeah", "yep", "sure", "okay", "ok", "go ahead", "do it", "please", "correct", "right", "exactly"
-- Negative: "no", "nope", "don't", "cancel", "nevermind"
+DON'T route to "respond" for data requests! The query nodes will:
+1. Fetch the data
+2. Format it however the user wants (table, list, etc.)
+3. Display it properly
 
-Then route based on the SUGGESTED ACTION, not the literal confirmation word.
+Your ONLY job: Identify that user wants data → route to correct _query node
 
-Examples with context (from conversation history):
-- Assistant suggests update + User says "Yes" => intent_write (operationType: update)
-- Assistant suggests deletion + User says "Sure, go ahead" => intent_write (operationType: delete)
-- Assistant suggests creation + User says "Okay" => intent_write (operationType: create)
+**USE CONTEXT**: Look at conversation history. Don't ask for clarification when context is obvious:
 
-**Detection Algorithm**:
-1. Check if current message is a short affirmative/negative (≤10 words)
-2. Look for confirmation keywords in current message
-3. Scan previous assistant message (last 1-2 messages) for action suggestions
-4. Extract the suggested action type and subject
-5. Route to the appropriate target with the suggested operationType
+- "Would you like me to add these skills?" → "Yes" = Execute it (profile_write)
+- "Should I create this intent?" → "Sure" = Create it (intent_write)
+- Failed to scrape URL X → "Try again" = Retry scraping URL X (scrape_web, extract URL from history)
+- Did action X → "Try again" / "Retry" / "Do that again" = Repeat action X
 
-## CRITICAL: Read vs Write Detection
+**If user asks to retry/redo something and the previous action is obvious from history, just do it.**
 
-Before selecting a routing target, first determine the user's INTENT:
+### Examples with Context
 
-### READ Operations (Queries)
-Route to *_query targets when the user is:
-- **Asking questions** about existing data
-- **Requesting information** to be displayed
-- **Checking status** of their data
+## Key Patterns
 
-Linguistic Signals for READ:
-- Question words: "what", "show", "list", "tell me", "do I have"
-- Request verbs: "see", "view", "check", "display", "get"
-- Plural references: "my intents", "my goals" (asking about collection)
-- Past/present tense: "what are", "what is", "have I"
+**Confirmations**: "Would you like me to X?" → "Yes" = Do X with high confidence
 
-Examples:
-✓ "what are my intents?" → intent_query (operationType: read)
-✓ "show me my goals" → intent_query (operationType: read)
-✓ "list my current intentions" → intent_query (operationType: read)
-✓ "do I have any active goals?" → intent_query (operationType: read)
-✓ "what's my profile?" → profile_query (operationType: read)
+**Retries**: "Try again" / "Retry" / "Do that again" → Look at conversation history, find what failed/was attempted, extract details (like URLs), and retry it
 
-### WRITE Operations (Assertions/Commands)
-Route to *_write targets when the user is:
-- **Declaring new information** (commissives)
-- **Committing to actions** (declarations)
-- **Requesting changes** to existing data
-- **Expressing desires** for the future
+**New intents**: User expresses wants/needs → intent_write (create)
 
-Linguistic Signals for WRITE:
-- Commissive verbs: "I want", "I will", "I'm going to", "I plan to"
-- Directive verbs: "add", "create", "update", "change", "delete", "remove"
-- Future tense: "I want to learn", "looking for", "interested in"
-- Singular declarations: "my goal is", "I need to"
+**Queries**: User asks "what are..." / "show me..." → _query routes
 
-Examples:
-✓ "I want to learn Rust" → intent_write (operationType: create)
-✓ "looking for a co-founder" → intent_write (operationType: create)
-✓ "update my bio to..." → profile_write (operationType: update)
-✓ "I'm interested in AI" → intent_write (operationType: create)
-✓ "remove my coding goal" → intent_write (operationType: delete)
+**For extractedContext**: Extract relevant details from current message OR conversation history if user is referring to something previous
 
-### UPDATE Operations (Modifications)
-Explicitly mentioned changes to existing data or anaphoric references to existing entities:
+## Read vs Write
 
-Direct Update Commands:
-✓ "change my goal from X to Y" → intent_write (operationType: update)
-✓ "update my learning intent" → intent_write (operationType: update)
-✓ "modify my profile bio" → profile_write (operationType: update)
+**Query (read)**: User asks questions → Use *_query routes
+**Write**: User declares/commands/expresses desires → Use *_write routes
 
-Anaphoric References (referring to previously mentioned entities):
-✓ "make that intent more specific" → intent_write (operationType: update)
-✓ "add AI to that goal" → intent_write (operationType: update)
-✓ "change it to include TypeScript" → intent_write (operationType: update)
-✓ "update this one to be text-based" → intent_write (operationType: update)
-✓ "make the RPG game text-based" → intent_write (operationType: update)
-✓ "refine my previous intent" → intent_write (operationType: update)
-
-Linguistic Signals for Anaphoric Updates:
-- Demonstrative pronouns: "that", "this", "these", "those"
-- Anaphoric pronouns: "it", "them"
-- Definite articles with context: "the intent", "the goal"
-- Ordinal references: "my previous", "my last", "my first"
-- All combined with modification verbs: "make", "change", "add to", "update", "refine", "modify"
-
-### DELETE Operations (Removal)
-Explicit removal or abandonment:
-✓ "delete my goal about coding" → intent_write (operationType: delete)
-✓ "I'm done with machine learning" → intent_write (operationType: delete)
-✓ "remove my intent to travel" → intent_write (operationType: delete)
+Use common sense to determine intent.
 
 ## Routing Options
 
+**IMPORTANT: Route to _query and _write targets even if you don't have the data yet - they will fetch it!**
+
 1. **intent_query** - READ ONLY: Fetch and display existing intents
-   - Use when: User asks questions about their intents
+   - Use when: User asks questions/wants to see their intents
+   - Examples: "show my intents", "what are my goals", "list my intentions"
    - operationType: "read"
+   - NOTE: Use this even if you don't have intent data - it will fetch it!
    
 2. **intent_write** - WRITE: Create, update, or delete intents
    - Use when: User expresses new goals, updates, or deletions
    - operationType: "create" | "update" | "delete"
 
 3. **profile_query** - READ ONLY: Display profile information
-   - Use when: User asks about their profile
+   - Use when: User asks to see/view/display their profile (ANY format request!)
+   - Examples: 
+     * "show my profile"
+     * "show my profile in a table"
+     * "can you display my profile"
+     * "what's my profile"
+     * "view my info"
+     * "show me my data"
    - operationType: "read"
+   - NOTE: Use this route regardless of formatting (table/list/markdown) - it will handle it!
+   - NOTE: Use this even if you don't have profile data - it will fetch it!
 
 4. **profile_write** - WRITE: Update profile data
    - Use when: User wants to modify their profile
@@ -142,28 +108,29 @@ Explicit removal or abandonment:
    - Use when: User wants recommendations or connections
    - No operationType needed
 
-6. **respond** - Direct conversational response
-   - Use when: General conversation or system questions
+6. **scrape_web** - Extract content from URL
+   - Use when: User provides a URL OR asks to retry a previous failed scrape
+   - Extract URL from current message or conversation history
+   - Pass the full URL in extractedContext
+
+7. **respond** - Direct conversational response
+   - Use when: General conversation, greetings, or questions ABOUT the system
+   - Examples: "hello", "how does this work", "what can you do"
+   - NEVER use for:
+     * "show me X" → use query routes
+     * "display X" → use query routes  
+     * "what's my X" → use query routes
+     * "can you show X" → use query routes
    - No operationType needed
 
-7. **clarify** - Ambiguous or unclear
+8. **clarify** - Ambiguous or unclear
    - Use when: Cannot determine intent
    - No operationType needed
 
-## Decision Algorithm
-
-1. First, detect if message is a QUESTION or ASSERTION
-2. If question → check subject matter → route to *_query
-3. If assertion → check subject matter → route to *_write
-4. Set operationType based on linguistic analysis
-5. Provide high confidence (>0.8) for clear read/write distinction
-
-## Output Rules
-- Always set operationType for intent_* and profile_* routes
-- Default to READ when ambiguous (safer than accidental writes)
-- Provide confidence (0.0-1.0) based on signal clarity
-- Extract relevant context for write operations only
-- Explain reasoning with specific linguistic evidence
+## Guidelines
+- Set confidence based on clarity (0.0-1.0)
+- Extract relevant details in extractedContext for write operations
+- Trust your judgment - you're smart enough to understand user intent
 `;
 
 // ──────────────────────────────────────────────────────────────
@@ -179,6 +146,7 @@ const routingResponseSchema = z.object({
     "profile_write",          // NEW: Update profile (replaces profile_subgraph)
     "profile_subgraph",       // DEPRECATED: Backward compatibility (maps to profile_write)
     "opportunity_subgraph",
+    "scrape_web",             // NEW: Extract content from URL
     "respond",
     "clarify"
   ]).describe("The routing target"),
@@ -252,18 +220,14 @@ export class RouterAgent {
     }
 
     const prompt = `
-# Current User Message
-${userMessage}
-
-# User Profile Context
-${profileContext || "No profile loaded yet."}
-
-# Active Intents
-${activeIntents || "No active intents."}
 ${conversationContextText}
 
-Analyze this message and determine the best routing action.
-**IMPORTANT**: If conversation history shows the assistant suggesting an action and the current message is a confirmation, route to execute that action.
+**Current User Message**: ${userMessage}
+
+${profileContext ? `\nUser Profile: ${profileContext}` : ''}
+${activeIntents ? `\nActive Intents: ${activeIntents}` : ''}
+
+Analyze the conversation and route appropriately.
     `.trim();
 
     const messages = [
@@ -306,6 +270,40 @@ Analyze this message and determine the best routing action.
         extractedContext: null
       };
     }
+  }
+
+  /**
+   * Detects if a message is a confirmation response (yes, no, etc.)
+   * @param message - The user message to analyze
+   * @returns true if confirmation detected
+   */
+  private isConfirmation(message: string): boolean {
+    const lowerMessage = message.toLowerCase().trim();
+    
+    // Remove punctuation for matching
+    const cleaned = lowerMessage.replace(/[.!?]+$/, '');
+    
+    // Short message check (confirmations are typically ≤10 words)
+    const wordCount = cleaned.split(/\s+/).length;
+    if (wordCount > 10) {
+      return false;
+    }
+    
+    // Affirmative patterns
+    const affirmativePatterns = [
+      /^(yes|yeah|yep|yup|sure|okay|ok|alright|right|correct|exactly|absolutely|definitely|certainly)$/i,
+      /^(that'?s? right|that'?s? correct|sounds good|go ahead|do it|please do|make it so)$/i,
+      /^(yes please|yes do it|yes go ahead|sure thing|will do)$/i,
+    ];
+    
+    // Negative patterns
+    const negativePatterns = [
+      /^(no|nope|nah|never|don'?t|cancel|stop|wait|hold on|not yet|negative)$/i,
+      /^(no thanks|not now|maybe later|nevermind)$/i,
+    ];
+    
+    return affirmativePatterns.some(p => p.test(cleaned)) || 
+           negativePatterns.some(p => p.test(cleaned));
   }
 
   /**
@@ -394,12 +392,13 @@ Analyze this message and determine the best routing action.
       };
     }
     
-    // Rule 2: Low confidence on write operations → downgrade to read
+    // Rule 2: Only downgrade VERY low confidence writes (< 0.4) to reads
+    // Trust the model more - it's smarter than our rules
     if (
       (output.target === 'intent_write' || output.target === 'profile_write') &&
-      output.confidence < 0.6
+      output.confidence < 0.4
     ) {
-      log.warn('[RouterAgent] Low confidence write operation downgraded to read', {
+      log.warn('[RouterAgent] Very low confidence write operation, considering downgrade', {
         originalTarget: output.target,
         confidence: output.confidence,
         reasoning: output.reasoning
@@ -409,8 +408,7 @@ Analyze this message and determine the best routing action.
         ...output,
         target: output.target.replace('_write', '_query') as RouteTarget,
         operationType: 'read',
-        confidence: output.confidence,
-        reasoning: `[SAFETY] Downgraded to read due to low confidence (${output.confidence.toFixed(2)}). Original: ${output.reasoning}`
+        reasoning: `[SAFETY] Very low confidence (${output.confidence.toFixed(2)}). Original: ${output.reasoning}`
       };
     }
     
@@ -443,28 +441,7 @@ Analyze this message and determine the best routing action.
       };
     }
     
-    // Rule 5: Pattern-based safety check - strong query signals with write target
-    const queryPatterns = /\b(what|show|list|view|see|tell me|display|get|do i have)\b/i;
-    if (
-      (output.target === 'intent_write' || output.target === 'profile_write') &&
-      queryPatterns.test(userMessage) &&
-      output.confidence < 0.75
-    ) {
-      log.warn('[RouterAgent] Query pattern detected with write target, downgrading to read', {
-        originalTarget: output.target,
-        confidence: output.confidence,
-        messagePreview: userMessage.substring(0, 50)
-      });
-      
-      return {
-        ...output,
-        target: output.target.replace('_write', '_query') as RouteTarget,
-        operationType: 'read',
-        reasoning: `[SAFETY] Query pattern detected with low confidence. Original: ${output.reasoning}`
-      };
-    }
-    
-    // Rule 6: Anaphoric reference detection - upgrade create to update
+    // Rule 5: Anaphoric reference detection - upgrade create to update
     if (
       output.target === 'intent_write' &&
       output.operationType === 'create' &&

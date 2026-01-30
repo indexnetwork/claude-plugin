@@ -117,4 +117,21 @@ export const ProfileGraphState = Annotation.Root({
     reducer: (curr, next) => next,
     default: () => undefined,
   }),
+
+  // --- Operation Tracking (for transparency) ---
+
+  /**
+   * Tracks which operations were actually performed during this graph execution.
+   * Used to provide explicit feedback to the user about what happened.
+   */
+  operationsPerformed: Annotation<{
+    scraped?: boolean;
+    generatedProfile?: boolean;
+    embeddedProfile?: boolean;
+    generatedHyde?: boolean;
+    embeddedHyde?: boolean;
+  }>({
+    reducer: (curr, next) => ({ ...curr, ...next }),
+    default: () => ({}),
+  }),
 });
