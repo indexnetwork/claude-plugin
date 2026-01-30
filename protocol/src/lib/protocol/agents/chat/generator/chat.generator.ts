@@ -152,6 +152,9 @@ export interface SubgraphResults {
       narrative: { context: string };
       attributes: { interests: string[]; skills: string[] };
     };
+    needsUserInfo?: boolean;
+    missingUserInfo?: string[];
+    clarificationMessage?: string;
   };
   opportunity?: {
     opportunities: OpportunityResult[];
@@ -262,8 +265,19 @@ export class ResponseGeneratorAgent {
     }
 
     if (results.profile) {
+      // Handle case where user information is needed
+      if ((results.profile as any).needsUserInfo) {
+        sections.push('## User Information Needed');
+        sections.push('');
+        sections.push('**CRITICAL INSTRUCTION:**');
+        sections.push((results.profile as any).clarificationMessage || 
+          'I need more information to create an accurate profile. Please share your social media profiles or personal details.');
+        sections.push('');
+        sections.push('Task: Present this request in a friendly, conversational way. Explain why this information helps create a better profile.');
+        sections.push('DO NOT proceed with profile generation. Wait for the user to provide the requested information.');
+      }
       // Handle query mode (read operations)
-      if (results.profile.mode === 'query') {
+      else if (results.profile.mode === 'query') {
         sections.push('## Profile Query Results');
         if (results.profile.profile) {
           const p = results.profile.profile;

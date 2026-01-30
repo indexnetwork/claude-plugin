@@ -467,34 +467,30 @@ export class ChatGraphFactory {
 
     // ─────────────────────────────────────────────────────────
     // NODE: Profile Query (Read-Only Fast Path)
-    // Loads user profile from state (already loaded in LoadContext).
-    // Read-only operation for "show me my profile" queries.
+    // Uses profile graph in query mode to return existing profile without generation.
+    // Fast path for "show me my profile" queries.
     // ─────────────────────────────────────────────────────────
     const profileQueryNode = async (state: typeof ChatGraphState.State) => {
-      log.info("[ChatGraph:ProfileQuery] 🚀 Fast path: Loading profile (read-only)...");
+      log.info("[ChatGraph:ProfileQuery] 🚀 Fast path: Querying profile (read-only)...");
       
       try {
-        if (!state.userProfile) {
-          log.warn("[ChatGraph:ProfileQuery] No profile found in state");
-          return {
-            subgraphResults: {
-              profile: {
-                mode: 'query',
-                profile: undefined
-              }
-            }
-          };
-        }
+        // Invoke profile graph in query mode (no generation, just retrieval)
+        const profileInput = {
+          userId: state.userId,
+          operationMode: 'query' as const,  // Fast path - no generation
+        };
 
-        log.info("[ChatGraph:ProfileQuery] ✅ Profile loaded via fast path", {
-          hasProfile: true,
+        const result = await profileGraph.invoke(profileInput);
+
+        log.info("[ChatGraph:ProfileQuery] ✅ Profile retrieved via fast path", {
+          hasProfile: !!result.profile,
           costSavings: "Profile generation pipeline avoided"
         });
 
         const subgraphResults: SubgraphResults = {
           profile: {
             mode: 'query',
-            profile: state.userProfile
+            profile: result.profile
           }
         };
 
@@ -606,13 +602,19 @@ export class ChatGraphFactory {
     };
 
     // ─────────────────────────────────────────────────────────
-    // NODE: Profile Subgraph Wrapper
-    // Maps ChatGraphState to ProfileGraphState and invokes
+    // NODE: Profile Subgraph Wrapper (Write Path)
+    // Maps ChatGraphState to ProfileGraphState and invokes full pipeline
+    // Automatically detects missing profile, embeddings, and hyde components
+    // Also detects insufficient user information and requests it
     // ─────────────────────────────────────────────────────────
     const profileSubgraphNode = async (state: typeof ChatGraphState.State) => {
-      log.info("[ChatGraph:ProfileSubgraph] Processing profile...");
-      
+      const operationType = state.routingDecision?.operationType;
       const hasUpdateContext = !!state.routingDecision?.extractedContext;
+      
+      log.info("[ChatGraph:ProfileSubgraph] Processing profile...", {
+        operationType,
+        hasUpdateContext
+      });
       
       try {
         // Extract and convert null to undefined for the input property
@@ -620,19 +622,67 @@ export class ChatGraphFactory {
         const inputValue = extractedContext === null ? undefined : extractedContext;
         
         // Map ChatGraphState to ProfileGraphState input
+        // NEW: Pass operationMode='write' to enable full conditional pipeline
         const profileInput = {
           userId: state.userId,
+          operationMode: 'write' as const,  // Full pipeline with conditional generation
           input: inputValue,
           objective: undefined,
           profile: state.userProfile,  // Keep passing existing profile for updates
           hydeDescription: undefined,
-          forceUpdate: hasUpdateContext,  // NEW: Set forceUpdate when there's new context
+          forceUpdate: hasUpdateContext,  // Set forceUpdate when there's new context
         };
 
-        const result = await profileGraph.invoke(profileInput);
+        log.info("[ChatGraph:ProfileSubgraph] Invoking profile graph", {
+          operationMode: profileInput.operationMode,
+          forceUpdate: profileInput.forceUpdate,
+          hasInput: !!profileInput.input,
+          hasExistingProfile: !!profileInput.profile
+        });
 
-        log.info("[ChatGraph:ProfileSubgraph] Processing complete", {
-          hasProfile: !!result.profile
+        const result = await profileGraph.invoke(profileInput) as any;
+
+        // Check if profile graph is requesting user information
+        if (result.needsUserInfo && result.missingUserInfo?.length > 0) {
+          log.info("[ChatGraph:ProfileSubgraph] ⚠️ User information needed", {
+            missingInfo: result.missingUserInfo
+          });
+
+          // Construct a helpful clarification message
+          const missingFields = result.missingUserInfo as string[];
+          const fieldDescriptions = {
+            social_urls: 'social media profiles (X/Twitter, LinkedIn, GitHub, or personal website)',
+            full_name: 'full name (first and last)',
+            location: 'location (city and country)'
+          };
+
+          const missingDescriptions = missingFields
+            .map(field => fieldDescriptions[field as keyof typeof fieldDescriptions])
+            .filter(Boolean);
+
+          const clarificationMessage = missingDescriptions.length > 0
+            ? `To generate an accurate profile, I need some additional information about you:\n\n` +
+              `${missingDescriptions.map((desc, i) => `${i + 1}. Your ${desc}`).join('\n')}\n\n` +
+              `This helps me find the right information about you online and create a more accurate profile. Could you please share these details?`
+            : `To generate an accurate profile, I need more information about you. Could you share your social media profiles or personal website?`;
+
+          const subgraphResults: SubgraphResults = {
+            profile: {
+              updated: false,
+              needsUserInfo: true,
+              missingUserInfo: result.missingUserInfo,
+              clarificationMessage
+            }
+          };
+
+          return {
+            subgraphResults
+          };
+        }
+
+        log.info("[ChatGraph:ProfileSubgraph] ✅ Processing complete", {
+          hasProfile: !!result.profile,
+          hasError: !!result.error
         });
 
         const subgraphResults: SubgraphResults = {
