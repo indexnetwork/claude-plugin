@@ -1,11 +1,13 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useRouter, usePathname } from 'next/navigation';
+import { useRouter, usePathname, useSearchParams } from 'next/navigation';
+import { usePrivy } from '@privy-io/react-auth';
 import { useIndexesState } from '@/contexts/IndexesContext';
 import LibraryModal from '@/components/modals/LibraryModal';
-import { Shield, ArrowLeft, Inbox, Users, Settings, Sparkles } from 'lucide-react';
+import { Shield, ArrowLeft, Inbox, Users, Settings, Sparkles, MessageSquarePlus, Trash2 } from 'lucide-react';
 import { useAdmin, useIntents } from '@/contexts/APIContext';
+import { useAIChatSessions } from '@/contexts/AIChatSessionsContext';
 
 interface LatestIntent {
   id: string;
@@ -14,9 +16,18 @@ interface LatestIntent {
   createdAt: string;
 }
 
+interface LLMChatSession {
+  id: string;
+  title: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export default function Sidebar() {
   const router = useRouter();
   const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const { getAccessToken } = usePrivy();
   const { indexes: rawIndexes } = useIndexesState();
   const adminService = useAdmin();
   const intentsService = useIntents();
@@ -24,7 +35,11 @@ export default function Sidebar() {
   const [latestIntents, setLatestIntents] = useState<LatestIntent[]>([]);
   const [loadingIntents, setLoadingIntents] = useState(false);
   const [libraryModalOpen, setLibraryModalOpen] = useState(false);
-  
+  const [llmSessions, setLlmSessions] = useState<LLMChatSession[]>([]);
+  const [loadingSessions, setLoadingSessions] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const { sessionsVersion, refetchSessions } = useAIChatSessions();
+
   // Check if we're in admin mode
   const isAdminMode = pathname?.startsWith('/admin/');
   const adminIndexId = isAdminMode ? pathname?.split('/admin/')[1]?.split('/')[0] : null;
@@ -67,6 +82,66 @@ export default function Sidebar() {
 
     fetchLatestIntents();
   }, [isAdminMode, intentsService]);
+
+  // Fetch LLM chat sessions when on /chat page
+  const isChatPage = pathname === '/chat';
+  useEffect(() => {
+    if (!isChatPage) return;
+
+    const fetchSessions = async () => {
+      try {
+        setLoadingSessions(true);
+        const token = await getAccessToken();
+        if (!token) {
+          setLoadingSessions(false);
+          return;
+        }
+        const base = process.env.NEXT_PUBLIC_API_URL_V2 || '';
+        const res = await fetch(`${base}/v2/chat/sessions`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok) throw new Error('Failed to fetch sessions');
+        const data = (await res.json()) as { sessions?: LLMChatSession[] };
+        setLlmSessions(data.sessions?.slice(0, 20) || []);
+      } catch (err) {
+        console.error('Failed to fetch LLM sessions:', err);
+        setLlmSessions([]);
+      } finally {
+        setLoadingSessions(false);
+      }
+    };
+
+    fetchSessions();
+  }, [isChatPage, getAccessToken, sessionsVersion]);
+
+  const handleDeleteSession = async (e: React.MouseEvent, sessionId: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (deletingId) return;
+    try {
+      setDeletingId(sessionId);
+      const token = await getAccessToken();
+      if (!token) return;
+      const base = process.env.NEXT_PUBLIC_API_URL_V2 || '';
+      const res = await fetch(`${base}/v2/chat/session/delete`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ sessionId }),
+      });
+      if (!res.ok) throw new Error('Failed to delete');
+      if (searchParams?.get('sessionId') === sessionId) {
+        router.push('/chat');
+      }
+      refetchSessions();
+    } catch (err) {
+      console.error('Failed to delete session:', err);
+    } finally {
+      setDeletingId(null);
+    }
+  };
 
   return (
     <div className="space-y-6 font-mono">
@@ -149,8 +224,75 @@ export default function Sidebar() {
         </div>
       ) : null}
 
-      {/* Latest Intents Section - only show when not in admin mode */}
-      {!isAdminMode && (
+      {/* LLM Conversations Section - only on /chat page */}
+      {!isAdminMode && isChatPage && (
+        <div className="">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-bold text-black font-ibm-plex-mono">Conversations</h3>
+            <button
+              onClick={() => router.push('/chat')}
+              className="text-xs text-gray-600 hover:text-black font-ibm-plex-mono transition-colors flex items-center gap-1"
+              title="New chat"
+            >
+              <MessageSquarePlus className="w-3.5 h-3.5" />
+              New
+            </button>
+          </div>
+          {loadingSessions ? (
+            <div className="text-center text-gray-500 py-4 text-sm">
+              Loading...
+            </div>
+          ) : llmSessions.length === 0 ? (
+            <div className="text-center text-gray-500 py-4 text-sm">
+              No conversations yet
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {llmSessions.map((session) => {
+                const displayTitle = session.title?.trim()
+                  || (session.updatedAt
+                    ? new Date(session.updatedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ' chat'
+                    : 'Untitled');
+                const isActive = searchParams?.get('sessionId') === session.id;
+                const isDeleting = deletingId === session.id;
+                return (
+                  <div
+                    key={session.id}
+                    className={`flex items-center gap-1 rounded transition-colors group font-ibm-plex-mono text-sm ${isActive ? 'bg-gray-200' : 'hover:bg-gray-50'}`}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => router.push(`/chat?sessionId=${encodeURIComponent(session.id)}`)}
+                      className="flex-1 min-w-0 text-left py-2 px-2"
+                    >
+                      <div className="line-clamp-2 text-black group-hover:text-gray-700">
+                        {displayTitle}
+                      </div>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => handleDeleteSession(e, session.id)}
+                      disabled={isDeleting}
+                      className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded flex-shrink-0 disabled:opacity-50"
+                      title="Delete conversation"
+                      aria-label="Delete conversation"
+                    >
+                      {isDeleting ? (
+                        <span className="text-xs">…</span>
+                      ) : (
+                        <Trash2 className="w-4 h-4" />
+                      )}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Latest Intents Section - only when not in admin mode and not on chat page */}
+      {!isAdminMode && !isChatPage && (
         <div className="">
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-bold text-black font-ibm-plex-mono">Latest</h3>
