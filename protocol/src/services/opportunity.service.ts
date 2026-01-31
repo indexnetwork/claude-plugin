@@ -1,6 +1,6 @@
 import { eq, and, isNull, sql, ne, isNotNull } from 'drizzle-orm';
-import db from '../lib/db';
-import { intents, intentIndexes, intentStakes, intentStakeItems, userProfiles } from '../lib/schema';
+import db from '../lib/drizzle/drizzle';
+import { intents, intentIndexes, intentStakes, intentStakeItems, userProfiles } from '../schemas/database.schema';
 import { log } from '../lib/log';
 import { getUserAccessibleIndexIds } from '../lib/index-access';
 import { summarizeIntent } from '../agents/core/intent_summarizer';

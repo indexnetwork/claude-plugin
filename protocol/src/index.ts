@@ -18,8 +18,8 @@ import './queues/profile.queue';
  */
 import { getAvailableAgents, runAgent } from './agents/playground/server/registry';
 import { TEST_USERS } from './agents/playground/server/data/users';
-import { users } from './lib/schema';
-import db from './lib/db';
+import { users } from './schemas/database.schema';
+import db from './lib/drizzle/drizzle';
 import { desc } from 'drizzle-orm';
 import { IndexEmbedder } from './lib/embedder';
 // Initialize shared embedder

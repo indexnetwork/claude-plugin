@@ -471,7 +471,7 @@ export class IntentController {
 ```typescript
 // Example adapter implementing IntentGraphDatabase
 
-import db from '../lib/db';
+import db from '../lib/drizzle/drizzle';
 import { intents, intentIndexes } from '../lib/schema';
 import { IntentGraphDatabase, ActiveIntent, CreateIntentData, CreatedIntent, UpdateIntentData, ArchiveResult } from '../lib/protocol/interfaces/database.interface';
 

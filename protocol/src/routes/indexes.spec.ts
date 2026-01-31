@@ -19,7 +19,7 @@ const mockDb: any = {
   offset: () => mockDb,
 };
 
-mock.module('../lib/db', () => ({
+mock.module('../lib/drizzle/drizzle', () => ({
   default: mockDb,
   users: { id: 'users.id', email: 'users.email', name: 'users.name', avatar: 'users.avatar' },
   indexes: { id: 'indexes.id', title: 'indexes.title', prompt: 'indexes.prompt', permissions: 'indexes.permissions' },

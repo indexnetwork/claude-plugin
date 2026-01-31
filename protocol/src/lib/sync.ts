@@ -1,6 +1,6 @@
 import crypto from 'crypto';
-import db from './db';
-import { userIntegrations, indexLinks } from './schema';
+import db from './drizzle/drizzle';
+import { userIntegrations, indexLinks } from '../schemas/database.schema';
 import { eq, and, isNull } from 'drizzle-orm';
 import { log } from './log';
 import { processFiles } from './integrations/files/processor';

@@ -1,7 +1,7 @@
 import { log } from '../log';
 import { syncTwitterUser, syncTwitterUsersBulk } from './providers/twitter';
 import { enrichUserProfile } from './providers/profile-enrich';
-import db from '../db';
+import db from '../drizzle/drizzle';
 import { users, userIntegrations } from '../schema';
 import { isNotNull, isNull, and, eq } from 'drizzle-orm';
 import crypto from 'crypto';

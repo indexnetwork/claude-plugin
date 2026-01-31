@@ -281,7 +281,7 @@ Controllers should implement adapters that satisfy only the narrowed interface t
 ```typescript
 import { eq } from 'drizzle-orm';
 import * as schema from '../lib/schema';
-import db from '../lib/db';
+import db from '../lib/drizzle/drizzle';
 import { ProfileGraphDatabase } from '../lib/protocol/interfaces/database.interface';
 import { ProfileDocument } from '../lib/protocol/agents/profile/profile.generator';
 import { User } from '../lib/schema';

@@ -1,5 +1,7 @@
 import { Job } from 'bullmq';
 import { QueueFactory } from '../lib/bullmq/bullmq';
+import type { JobsOptions } from 'bullmq';
+import { createNewsletterQueueAdapter } from '../adapters/queue.adapter';
 import { weeklyNewsletterTemplate, Match } from '../lib/email/templates/weekly-newsletter.template';
 import { sendEmail } from '../lib/email/transport.helper';
 import { toZonedTime, format } from 'date-fns-tz';
@@ -368,3 +370,24 @@ export async function addJob(
 
   return newsletterQueue.add(name, data, options);
 }
+
+function newsletterAddJobOptions(
+  name: string,
+  _data: NewsletterJobData | WeeklyCycleJobData,
+  _priority?: number
+): JobsOptions | undefined {
+  if (name === 'process_newsletter') {
+    const d = _data as NewsletterJobData;
+    const now = new Date();
+    const dateStr = now.toISOString().split('T')[0].replace(/-/g, '');
+    return { jobId: `newsletter-${d.recipientId}-${dateStr}` };
+  }
+  if (name === 'start_weekly_cycle') return { removeOnComplete: true };
+  return undefined;
+}
+
+/** Adapter implementing NewsletterQueue; use for DI or when depending on the adapter contract. */
+export const newsletterQueueAdapter = createNewsletterQueueAdapter(
+  newsletterQueue,
+  newsletterAddJobOptions
+);

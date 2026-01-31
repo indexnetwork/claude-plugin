@@ -1,5 +1,5 @@
-import db from '../lib/db';
-import { users, indexes, indexMembers, userConnectionEvents, intents, intentIndexes } from '../lib/schema';
+import db from '../lib/drizzle/drizzle';
+import { users, indexes, indexMembers, userConnectionEvents, intents, intentIndexes } from '../schemas/database.schema';
 import { getConnectionsByUser } from '../routes/connections';
 import { approveConnection } from '../routes/admin';
 import { eq, and } from 'drizzle-orm';

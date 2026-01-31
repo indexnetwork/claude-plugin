@@ -87,8 +87,8 @@ Controller files follow the pattern: `{feature}.controller.ts`
 ```typescript
 // 1. External imports (drizzle, libraries)
 import { eq } from 'drizzle-orm';
-import * as schema from '../lib/schema';
-import db from '../lib/db';
+import * as schema from '../schemas/database.schema';
+import db from '../lib/drizzle/drizzle';
 
 // 2. Protocol imports (interfaces, factories, types)
 import { Database } from '../lib/protocol/interfaces/database.interface';
@@ -418,8 +418,8 @@ config({ path: '.env.development', override: true });
 
 import { SomeController } from "./some.controller";
 import type { AuthenticatedUser } from "../guards/auth.guard";
-import db, { closeDb } from '../lib/db';
-import * as schema from '../lib/schema';
+import db, { closeDb } from '../lib/drizzle/drizzle';
+import * as schema from '../schemas/database.schema';
 import { eq } from 'drizzle-orm';
 
 describe("SomeController Integration", () => {
@@ -652,8 +652,8 @@ return Response.json(result);
 
 ```typescript
 import { eq } from 'drizzle-orm';
-import * as schema from '../lib/schema';
-import db from '../lib/db';
+import * as schema from '../schemas/database.schema';
+import db from '../lib/drizzle/drizzle';
 import { Database } from '../lib/protocol/interfaces/database.interface';
 import { SomeGraphFactory } from '../lib/protocol/graphs/some/some.graph';
 

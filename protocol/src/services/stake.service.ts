@@ -1,5 +1,5 @@
-import db from '../lib/db';
-import { intents, intentStakes, intentStakeItems, indexMembers, userProfiles } from '../lib/schema';
+import db from '../lib/drizzle/drizzle';
+import { intents, intentStakes, intentStakeItems, indexMembers, userProfiles } from '../schemas/database.schema';
 import { eq, and, sql, isNull, inArray, gt, or, cosineDistance, desc, ne, SQL } from 'drizzle-orm';
 import { IndexEmbedder } from '../lib/embedder';
 import { VectorSearchResult, VectorStoreOption } from '../agents/common/types';

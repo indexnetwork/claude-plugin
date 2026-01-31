@@ -1,12 +1,12 @@
 import { log } from '../log';
 import { syncTwitterUser, syncTwitterUsersBulk } from './providers/twitter';
 import { enrichUserProfile } from './providers/profile-enrich';
-import db from '../db';
-import { users, userIntegrations, userProfiles } from '../schema';
+import db from '../drizzle/drizzle';
+import { users, userIntegrations, userProfiles } from '../../schemas/database.schema';
 import { isNotNull, isNull, and, eq } from 'drizzle-orm';
 import crypto from 'crypto';
 import { extractTwitterUsername } from '../snowflake';
-import { IntegrationConfigType } from '../schema';
+import { IntegrationConfigType } from '../../schemas/database.schema';
 
 export interface SocialSyncResult {
   twitter: {

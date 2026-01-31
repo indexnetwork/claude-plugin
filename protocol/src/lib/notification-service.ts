@@ -1,8 +1,8 @@
 /**
  * @deprecated This module is deprecated.
  */
-import db from './db';
-import { users, intents, intentStakes, intentStakeItems, userNotificationSettings, indexMembers, indexes } from './schema';
+import db from './drizzle/drizzle';
+import { users, intents, intentStakes, intentStakeItems, userNotificationSettings, indexMembers, indexes } from '../schemas/database.schema';
 import { eq, sql, and, inArray } from 'drizzle-orm';
 import {
     sendConnectionRequestEmail,

@@ -17,8 +17,8 @@ import { and, count, desc, eq, isNull } from 'drizzle-orm';
 import { Controller, Get, Post, UseGuards } from '../lib/router/router.decorators';
 import { AuthGuard } from '../guards/auth.guard';
 import type { AuthenticatedUser } from '../guards/auth.guard';
-import db from '../lib/db';
-import { files } from '../lib/schema';
+import db from '../lib/drizzle/drizzle';
+import { files } from '../schemas/database.schema';
 import { getUploadsPath } from '../lib/paths';
 import { log } from '../lib/log';
 

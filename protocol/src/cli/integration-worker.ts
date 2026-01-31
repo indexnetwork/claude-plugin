@@ -10,8 +10,8 @@ import { Command } from 'commander';
 import { syncIntegration } from '../lib/sync';
 import { log, setLevel } from '../lib/log';
 import { INTEGRATIONS, type IntegrationName } from '../lib/integrations/config';
-import db from '../lib/db';
-import { userIntegrations } from '../lib/schema';
+import db from '../lib/drizzle/drizzle';
+import { userIntegrations } from '../schemas/database.schema';
 import { eq, and, isNull } from 'drizzle-orm';
 import { getSlackLogger, resetSlackLogger } from '../lib/integrations/providers/slack-logger';
 

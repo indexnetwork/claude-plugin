@@ -1,5 +1,5 @@
-import db from '../lib/db';
-import { indexes, indexMembers, intents } from '../lib/schema';
+import db from '../lib/drizzle/drizzle';
+import { indexes, indexMembers, intents } from '../schemas/database.schema';
 import { eq, and, isNull } from 'drizzle-orm';
 import { log } from '../lib/log';
 

@@ -1,5 +1,5 @@
-import db from '../lib/db';
-import { userNotificationSettings, OnboardingState } from '../lib/schema';
+import db from '../lib/drizzle/drizzle';
+import { userNotificationSettings, OnboardingState } from '../schemas/database.schema';
 import { privyClient } from '../lib/privy';
 import { log } from '../lib/log';
 /**

@@ -1,5 +1,5 @@
-import db from '../lib/db';
-import { chatSessions, chatMessages } from '../lib/schema';
+import db from '../lib/drizzle/drizzle';
+import { chatSessions, chatMessages } from '../schemas/database.schema';
 import { eq, desc } from 'drizzle-orm';
 import { log } from '../lib/log';
 

@@ -5,8 +5,8 @@ config({ path: '.env.development', override: true });
 
 import { ProfileController } from "./profile.controller";
 import type { AuthenticatedUser } from "../guards/auth.guard";
-import db, { closeDb } from '../lib/db';
-import * as schema from '../lib/schema';
+import db, { closeDb } from '../lib/drizzle/drizzle';
+import * as schema from '../schemas/database.schema';
 import { eq } from 'drizzle-orm';
 
 // Integration test suite for ProfileController using actual DB

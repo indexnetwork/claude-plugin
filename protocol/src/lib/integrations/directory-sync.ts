@@ -1,8 +1,8 @@
 import { log } from '../log';
 import { getIntegrationById } from './integration-utils';
 import { resolveFileUser } from '../user-utils';
-import { DirectorySyncConfig, userIntegrations, indexMembers, indexes } from '../schema';
-import db from '../db';
+import { DirectorySyncConfig, userIntegrations, indexMembers, indexes } from '../../schemas/database.schema';
+import db from '../drizzle/drizzle';
 import { eq, and } from 'drizzle-orm';
 import { addMemberToIndex } from '../index-members';
 

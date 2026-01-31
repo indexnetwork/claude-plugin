@@ -3,10 +3,11 @@ import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import { config } from "dotenv";
 config({ path: '.env.development', override: true });
 
-import { OpportunityController, OpportunityDatabaseAdapter } from "./opportunity.controller";
+import { OpportunityController } from "./opportunity.controller";
+import { OpportunityDatabaseAdapter } from "../adapters/database.adapter";
 import type { AuthenticatedUser } from "../guards/auth.guard";
-import db, { closeDb } from '../lib/db';
-import * as schema from '../lib/schema';
+import db, { closeDb } from '../lib/drizzle/drizzle';
+import * as schema from '../schemas/database.schema';
 import { eq } from 'drizzle-orm';
 
 // ═══════════════════════════════════════════════════════════════════════════════

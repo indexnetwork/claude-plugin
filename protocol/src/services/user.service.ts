@@ -1,5 +1,5 @@
-import db from '../lib/db';
-import { users, userNotificationSettings, userProfiles, User, userConnectionEvents } from '../lib/schema';
+import db from '../lib/drizzle/drizzle';
+import { users, userNotificationSettings, userProfiles, User, userConnectionEvents } from '../schemas/database.schema';
 import { eq, inArray, or, and } from 'drizzle-orm';
 import { log } from '../lib/log';
 

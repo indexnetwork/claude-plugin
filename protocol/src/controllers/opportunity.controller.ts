@@ -1,41 +1,17 @@
 import { eq, and, isNotNull, ne, sql } from 'drizzle-orm';
-import * as schema from '../lib/schema';
-import db from '../lib/db';
-import { OpportunityGraphDatabase } from '../lib/protocol/interfaces/database.interface';
-import { Embedder } from '../lib/protocol/interfaces/embedder.interface';
+import * as schema from '../schemas/database.schema';
+import db from '../lib/drizzle/drizzle';
+import type { OpportunityGraphDatabase } from '../lib/protocol/interfaces/database.interface';
+import type { Embedder } from '../lib/protocol/interfaces/embedder.interface';
 import { OpportunityGraph } from '../lib/protocol/graphs/opportunity/opportunity.graph';
-import { ProfileDocument } from '../lib/protocol/agents/profile/profile.generator';
 import { IndexEmbedder } from '../lib/embedder';
-import { VectorSearchResult, VectorStoreOption } from '../lib/embedder/embedder.types';
-import { CandidateProfile } from '../lib/protocol/agents/opportunity/opportunity.evaluator';
-
-// --- Adapters ---
-
-/**
- * Database adapter implementing OpportunityGraphDatabase interface.
- * Provides profile lookup for opportunity graph operations.
- */
-export class OpportunityDatabaseAdapter implements OpportunityGraphDatabase {
-  /**
-   * Retrieves a user profile by userId.
-   * @param userId - The unique identifier of the user
-   * @returns The user's profile as ProfileDocument or null if not found
-   */
-  async getProfile(userId: string): Promise<ProfileDocument | null> {
-    const result = await db.select()
-      .from(schema.userProfiles)
-      .where(eq(schema.userProfiles.userId, userId))
-      .limit(1);
-
-    // Cast to ProfileDocument - the schema structure matches the agent output structure
-    return (result[0] as unknown as ProfileDocument) || null;
-  }
-}
+import type { VectorSearchResult, VectorStoreOption } from '../lib/embedder/embedder.types';
+import { OpportunityDatabaseAdapter } from '../adapters/database.adapter';
 
 /**
  * Vector search function for profiles collection.
  * Injected into IndexEmbedder to enable semantic search during opportunity discovery.
- * 
+ *
  * @param vector - Query vector for similarity search
  * @param collection - Must be 'profiles' for this adapter
  * @param options - Search options (limit, filter)

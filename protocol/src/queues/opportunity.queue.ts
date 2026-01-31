@@ -1,5 +1,6 @@
 import { Job } from 'bullmq';
 import { QueueFactory } from '../lib/bullmq/bullmq';
+import { createOpportunityQueueAdapter } from '../adapters/queue.adapter';
 import { log } from '../lib/log';
 import { opportunityService } from '../services/opportunity.service';
 
@@ -57,3 +58,6 @@ export async function addJob(
     priority: priority > 0 ? priority : undefined,
   });
 }
+
+/** Adapter implementing OpportunityQueue; use for DI or when depending on the adapter contract. */
+export const opportunityQueueAdapter = createOpportunityQueueAdapter(opportunityQueue);

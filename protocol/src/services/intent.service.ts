@@ -1,5 +1,5 @@
-import db from '../lib/db';
-import { intents, intentIndexes, intentStakes, intentStakeItems, indexes, indexMembers, users, files, indexLinks, userIntegrations } from '../lib/schema';
+import db from '../lib/drizzle/drizzle';
+import { intents, intentIndexes, intentStakes, intentStakeItems, indexes, indexMembers, users, files, indexLinks, userIntegrations } from '../schemas/database.schema';
 import { summarizeIntent } from '../agents/core/intent_summarizer';
 import { IndexEmbedder } from '../lib/embedder';
 import { VectorStoreOption, VectorSearchResult } from '../agents/common/types';

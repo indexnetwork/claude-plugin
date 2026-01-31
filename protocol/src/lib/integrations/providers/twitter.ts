@@ -1,8 +1,8 @@
 import { log } from '../../log';
 import { fetchTwitterProfile, fetchTwitterTweets, fetchTwitterProfilesBulk, fetchTwitterTweetsBulk, extractTwitterUsername } from '../../snowflake';
 import { addGenerateIntentsJob } from '../../queue/llm-queue';
-import db from '../../db';
-import { users, userIntegrations } from '../../schema';
+import db from '../../drizzle/drizzle';
+import { users, userIntegrations } from '../../../schemas/database.schema';
 import { eq, isNull, and, inArray } from 'drizzle-orm';
 
 export interface TwitterSyncResult {

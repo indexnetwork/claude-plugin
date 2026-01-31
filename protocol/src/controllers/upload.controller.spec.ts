@@ -9,8 +9,8 @@ config({ path: '.env.development', override: true });
 
 import { UploadController } from "./upload.controller";
 import type { AuthenticatedUser } from "../guards/auth.guard";
-import db, { closeDb } from '../lib/db';
-import * as schema from '../lib/schema';
+import db, { closeDb } from '../lib/drizzle/drizzle';
+import * as schema from '../schemas/database.schema';
 import { eq } from 'drizzle-orm';
 import { getUploadsPath } from '../lib/paths';
 import * as fs from 'fs';

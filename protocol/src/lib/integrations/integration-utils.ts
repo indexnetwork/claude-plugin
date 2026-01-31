@@ -1,9 +1,9 @@
-import db from '../db';
-import { userIntegrations } from '../schema';
+import db from '../drizzle/drizzle';
+import { userIntegrations } from '../../schemas/database.schema';
 import { eq, and, isNull } from 'drizzle-orm';
 import { log } from '../log';
 
-import { IntegrationConfigType } from '../schema';
+import { IntegrationConfigType } from '../../schemas/database.schema';
 
 export interface IntegrationDetails {
   id: string;

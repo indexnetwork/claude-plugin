@@ -1,7 +1,7 @@
 
 import { privyClient } from '../lib/privy';
-import db from '../lib/db';
-import { users } from '../lib/schema';
+import db from '../lib/drizzle/drizzle';
+import { users } from '../schemas/database.schema';
 import { eq } from 'drizzle-orm';
 
 export interface AuthenticatedUser {

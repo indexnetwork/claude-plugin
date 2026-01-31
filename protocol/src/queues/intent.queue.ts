@@ -2,7 +2,10 @@ import { Job } from 'bullmq';
 import { QueueFactory } from '../lib/bullmq/bullmq';
 import { ExplicitIntentInferrer } from '../agents/intent/inferrer/explicit/explicit.inferrer';
 import { profileService } from '../services/profile.service';
-import { IntentService, intentService } from '../services/intent.service';
+import { intentService } from '../services/intent.service';
+import { IndexGraphFactory } from '../lib/protocol/graphs/index/index.graph';
+import { IndexGraphDatabaseAdapter } from '../adapters/database.adapter';
+import { createIntentQueueAdapter } from '../adapters/queue.adapter';
 import { log } from '../lib/log';
 
 /**
@@ -77,15 +80,17 @@ async function intentProcessor(job: Job) {
 
 /**
  * Job: `index_intent`
- * 
- * Evaluates appropriateness of an intent for a specific index.
- * Relies on `IntentService.processIntentForIndex` which uses LLM evaluation.
- * 
+ *
+ * Evaluates appropriateness of an intent for a specific index using the Index Graph.
+ * Graph: prep → evaluate (IntentIndexer) → execute (assign/unassign).
+ *
  * @param data - Job payload containing intent and index IDs.
  */
 async function indexIntent(data: IndexIntentJobData): Promise<void> {
   const { intentId, indexId } = data;
-  await IntentService.processIntentForIndex(intentId, indexId);
+  const adapter = new IndexGraphDatabaseAdapter();
+  const graph = new IndexGraphFactory(adapter).createGraph();
+  await graph.invoke({ intentId, indexId });
 }
 
 /**
@@ -184,5 +189,7 @@ export async function addJob(
   });
 }
 
+/** Adapter implementing IntentQueue; use for DI or when depending on the adapter contract. */
+export const intentQueueAdapter = createIntentQueueAdapter(intentQueue);
 
 

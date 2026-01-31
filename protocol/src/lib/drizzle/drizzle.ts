@@ -1,6 +1,6 @@
 import { drizzle, PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
-import * as schema from './schema';
+import * as schema from '../../schemas/database.schema';
 
 declare global {
   var __db: PostgresJsDatabase<typeof schema> | undefined;
@@ -20,4 +20,3 @@ export async function closeDb(): Promise<void> {
 
 export default db;
 export type DrizzleDB = typeof db;
-
