@@ -60,8 +60,7 @@ interface StreamChatContextType {
 
 const StreamChatContext = createContext<StreamChatContextType | undefined>(undefined);
 
-const STREAM_API_KEY = '6238du93us6h';
-const MAX_OPEN_CHATS = 3;
+const STREAM_API_KEY = process.env.NEXT_PUBLIC_STREAM_API_KEY || '';
 
 export function StreamChatProvider({ children }: { children: ReactNode }) {
   const { user, isAuthenticated } = useAuthContext();

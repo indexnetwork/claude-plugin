@@ -12,8 +12,8 @@ import { discoverUsers } from '../lib/discover';
 
 const router = Router();
 
-const STREAM_API_KEY = process.env.STREAM_API_KEY || '6238du93us6h';
-const STREAM_SECRET = process.env.STREAM_SECRET || 't3mw3chjktp9p5pu2cwfahusz3ndjzfumnaap488cap2kg7nff7a48kt8qtqcrn6';
+const STREAM_API_KEY = process.env.STREAM_API_KEY || '';
+const STREAM_SECRET = process.env.STREAM_SECRET || '';
 
 // Helper: Check if users are connected
 async function areUsersConnected(userId1: string, userId2: string): Promise<boolean> {
