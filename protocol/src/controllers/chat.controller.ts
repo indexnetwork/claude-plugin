@@ -1,6 +1,9 @@
-import { eq, isNull, and } from 'drizzle-orm';
+import { eq, isNull, and, inArray } from 'drizzle-orm';
 import * as schema from '../lib/schema';
 import db from '../lib/db';
+import path from 'path';
+import { getUploadsPath } from '../lib/paths';
+import { loadFileContent } from '../lib/uploads';
 import { HumanMessage } from '@langchain/core/messages';
 import { IndexEmbedder } from '../lib/embedder';
 import { ChatGraphFactory } from '../lib/protocol/graphs/chat/chat.graph';
@@ -366,10 +369,40 @@ export class ChatController {
   }
 
   /**
+   * Load file content from user uploads by fileIds.
+   * Returns concatenated content from supported files, or empty string if none.
+   */
+  private async loadAttachedFileContent(userId: string, fileIds: string[]): Promise<string> {
+    if (!fileIds?.length) return '';
+    const rows = await db
+      .select({ id: schema.files.id, name: schema.files.name })
+      .from(schema.files)
+      .where(
+        and(
+          eq(schema.files.userId, userId),
+          inArray(schema.files.id, fileIds),
+          isNull(schema.files.deletedAt)
+        )
+      );
+    if (rows.length === 0) return '';
+    const targetDir = getUploadsPath('files', userId);
+    const parts: string[] = [];
+    for (const row of rows) {
+      const ext = path.extname(row.name);
+      const filePath = path.join(targetDir, row.id + ext);
+      const result = await loadFileContent(filePath);
+      if (result.content?.trim()) {
+        parts.push(`=== ${row.name} ===\n${result.content.substring(0, 10000)}`);
+      }
+    }
+    return parts.length ? parts.join('\n\n') : '';
+  }
+
+  /**
    * SSE streaming endpoint for chat messages with context support.
    * Streams graph events and LLM tokens in real-time, loading previous conversation context.
    *
-   * @param req - The HTTP request object (body: { message: string, sessionId?: string, useCheckpointer?: boolean })
+   * @param req - The HTTP request object (body: { message: string, sessionId?: string, useCheckpointer?: boolean, fileIds?: string[] })
    * @param user - The authenticated user from AuthGuard
    * @returns SSE Response stream
    */
@@ -377,20 +410,29 @@ export class ChatController {
   @UseGuards(AuthGuard)
   async messageStream(req: Request, user: AuthenticatedUser): Promise<Response> {
     // 1. Parse request body
-    let body: { message?: string; sessionId?: string; useCheckpointer?: boolean };
+    let body: { message?: string; sessionId?: string; useCheckpointer?: boolean; fileIds?: string[] };
     try {
-      body = await req.json() as { message?: string; sessionId?: string; useCheckpointer?: boolean };
+      body = await req.json() as { message?: string; sessionId?: string; useCheckpointer?: boolean; fileIds?: string[] };
     } catch {
       return Response.json(
-        { error: 'Invalid request body. Expected { message: string, sessionId?: string, useCheckpointer?: boolean }' },
+        { error: 'Invalid request body. Expected { message: string, sessionId?: string, useCheckpointer?: boolean, fileIds?: string[] }' },
         { status: 400 }
       );
     }
 
-    const messageContent = body.message?.trim() || '';
+    let messageContent = body.message?.trim() || '';
+    const fileIds = Array.isArray(body.fileIds) ? body.fileIds : [];
+    if (fileIds.length > 0) {
+      const fileContent = await this.loadAttachedFileContent(user.id, fileIds);
+      if (fileContent) {
+        messageContent = messageContent
+          ? `${messageContent}\n\n[Attached files]\n${fileContent}`
+          : `[Attached files]\n${fileContent}`;
+      }
+    }
     if (!messageContent) {
       return Response.json(
-        { error: 'Message content is required' },
+        { error: 'Message content or file attachments are required' },
         { status: 400 }
       );
     }
