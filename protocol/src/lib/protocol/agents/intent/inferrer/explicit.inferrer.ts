@@ -79,6 +79,19 @@ const systemPrompt = `
   - For UPDATE operations: Extract what the user wants to CHANGE.
   - For queries/questions: You should not see these - return empty intents.
   
+  CONCEPT EXTRACTION (CRITICAL FOR MATCHING):
+  - Intents must be SELF-CONTAINED and understandable to strangers with no prior context.
+  - When a document describes a project, the project's NAME is irrelevant - only WHAT IT DOES and WHAT TECH IT USES matters.
+  - STRIP OUT completely (do not include in any form):
+    * ANY project/company/product names from the source document - these mean nothing to outsiders
+    * Source references ("mentioned in", "from the document", "as discussed")
+    * File names ("Claude.md", "README", "the PDF")
+  - Describe the WORK and TECHNOLOGIES, never the project name.
+  - Examples:
+    * Source mentions "FooBar Project" using React/Node → Intent: "Seeking React/Node.js developers for real-time web apps" (NO "FooBar")
+    * Source mentions "Index Network" with LangGraph → Intent: "Seeking LangGraph/PostgreSQL developers for AI agent systems" (NO "Index Network")
+    * Source mentions "Acme Corp" doing ML → Intent: "Seeking ML engineers for computer vision pipelines" (NO "Acme")
+  
   ANAPHORIC RESOLUTION (UPDATE operations):
   - When conversation history is provided, use it to resolve references like "that intent", "this goal", "the project", etc.
   - Look for previously mentioned intents in the conversation history.
