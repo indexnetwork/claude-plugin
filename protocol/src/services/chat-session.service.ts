@@ -3,6 +3,8 @@ import { chatSessions, chatMessages } from '../lib/schema';
 import { eq, desc } from 'drizzle-orm';
 import { log } from '../lib/log';
 
+const logger = log.service.from('chat-session.service.ts');
+
 /**
  * Generates a Snowflake-like ID for chat messages.
  * Uses timestamp + random component for sortable, unique IDs.
@@ -34,7 +36,7 @@ export class ChatSessionService {
    * @returns The created session ID
    */
   async createSession(userId: string, title?: string): Promise<string> {
-    log.info('[ChatSessionService] Creating new session', { userId, title });
+    logger.info('Creating new session', { userId, title });
     
     const id = crypto.randomUUID();
     await db.insert(chatSessions).values({
@@ -56,7 +58,7 @@ export class ChatSessionService {
    * @returns The session if found and owned by user, null otherwise
    */
   async getSession(sessionId: string, userId: string) {
-    log.info('[ChatSessionService] Getting session', { sessionId, userId });
+    logger.info('Getting session', { sessionId, userId });
     
     const [session] = await db.select()
       .from(chatSessions)
@@ -64,7 +66,7 @@ export class ChatSessionService {
       .limit(1);
     
     if (!session || session.userId !== userId) {
-      log.warn('[ChatSessionService] Session not found or unauthorized', { sessionId, userId });
+      logger.warn('Session not found or unauthorized', { sessionId, userId });
       return null;
     }
     
@@ -79,7 +81,7 @@ export class ChatSessionService {
    * @returns List of sessions
    */
   async getUserSessions(userId: string, limit = 20) {
-    log.info('[ChatSessionService] Getting user sessions', { userId, limit });
+    logger.info('Getting user sessions', { userId, limit });
     
     return db.select()
       .from(chatSessions)
@@ -102,10 +104,10 @@ export class ChatSessionService {
     subgraphResults?: Record<string, unknown>;
     tokenCount?: number;
   }): Promise<string> {
-    log.info('[ChatSessionService] Adding message', { 
-      sessionId: params.sessionId, 
+    logger.info('Adding message', {
+      sessionId: params.sessionId,
       role: params.role,
-      contentLength: params.content.length 
+      contentLength: params.content.length,
     });
     
     const id = generateSnowflakeId();
@@ -137,7 +139,7 @@ export class ChatSessionService {
    * @returns List of messages
    */
   async getSessionMessages(sessionId: string, limit = 50) {
-    log.info('[ChatSessionService] Getting session messages', { sessionId, limit });
+    logger.info('Getting session messages', { sessionId, limit });
     
     return db.select()
       .from(chatMessages)
@@ -154,18 +156,18 @@ export class ChatSessionService {
    * @returns True if deleted, false if not found or unauthorized
    */
   async deleteSession(sessionId: string, userId: string): Promise<boolean> {
-    log.info('[ChatSessionService] Deleting session', { sessionId, userId });
+    logger.info('Deleting session', { sessionId, userId });
     
     const session = await this.getSession(sessionId, userId);
     if (!session) {
-      log.warn('[ChatSessionService] Cannot delete: session not found or unauthorized', { sessionId, userId });
+      logger.warn('Cannot delete: session not found or unauthorized', { sessionId, userId });
       return false;
     }
     
     await db.delete(chatSessions)
       .where(eq(chatSessions.id, sessionId));
     
-    log.info('[ChatSessionService] Session deleted', { sessionId });
+    logger.info('Session deleted', { sessionId });
     return true;
   }
 
@@ -178,7 +180,7 @@ export class ChatSessionService {
    * @returns True if updated, false if not found or unauthorized
    */
   async updateSessionTitle(sessionId: string, userId: string, title: string): Promise<boolean> {
-    log.info('[ChatSessionService] Updating session title', { sessionId, userId, title });
+    logger.info('Updating session title', { sessionId, userId, title });
     
     const session = await this.getSession(sessionId, userId);
     if (!session) {

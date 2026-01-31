@@ -26,6 +26,8 @@ import {
   createErrorEvent,
 } from '../types/chat-streaming';
 import { log } from '../lib/log';
+
+const logger = log.controller.from('chat.controller.ts');
 import { ChatTitleGenerator } from '../lib/protocol/agents/chat/title.generator';
 
 // --- Adapters ---
@@ -421,9 +423,9 @@ export class ChatController {
     if (useCheckpointer) {
       try {
         checkpointer = await getCheckpointer();
-        log.info('[ChatController.messageStream] PostgresSaver checkpointer initialized', { sessionId });
+        logger.info('PostgresSaver checkpointer initialized', { sessionId });
       } catch (error) {
-        log.warn('[ChatController.messageStream] Failed to initialize checkpointer, proceeding without', {
+        logger.warn('Failed to initialize checkpointer, proceeding without', {
           sessionId,
           error: error instanceof Error ? error.message : String(error),
         });
@@ -492,9 +494,9 @@ export class ChatController {
                   messages: messagesForTitle.map((m) => ({ role: m.role, content: m.content })),
                 });
                 await chatSessionService.updateSessionTitle(sessionId, user.id, title);
-                log.info('[ChatController.messageStream] Session title set', { sessionId, title });
+                logger.info('Session title set', { sessionId, title });
               } catch (err) {
-                log.warn('[ChatController.messageStream] Failed to set session title', {
+                logger.warn('Failed to set session title', {
                   sessionId,
                   error: err instanceof Error ? err.message : String(err),
                 });

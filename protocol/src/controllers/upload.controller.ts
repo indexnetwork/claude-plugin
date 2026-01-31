@@ -20,6 +20,9 @@ import type { AuthenticatedUser } from '../guards/auth.guard';
 import db from '../lib/db';
 import { files } from '../lib/schema';
 import { getUploadsPath } from '../lib/paths';
+import { log } from '../lib/log';
+
+const logger = log.controller.from('upload.controller.ts');
 import { validateFileByMetadata, FILE_SIZE_LIMITS } from '../lib/uploads.config';
 import type { FileRecord } from '../types';
 
@@ -128,7 +131,11 @@ export class UploadController {
     try {
       fs.writeFileSync(filePath, buffer);
     } catch (err) {
-      console.error('Upload write error:', err);
+      logger.error('Upload write error', {
+        userId: user.id,
+        fileId,
+        error: err instanceof Error ? err.message : String(err),
+      });
       return Response.json({ error: 'Failed to save file' }, { status: 500 });
     }
 
@@ -158,6 +165,13 @@ export class UploadController {
       createdAt: inserted.createdAt.toISOString(),
       url: this.fileUrl(user.id, inserted.id, inserted.name),
     };
+
+    logger.info('File uploaded', {
+      userId: user.id,
+      fileId: inserted.id,
+      name: inserted.name,
+      size,
+    });
 
     return {
       message: 'File uploaded successfully',

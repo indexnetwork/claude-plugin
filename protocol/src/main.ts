@@ -4,11 +4,14 @@ import { OpportunityController } from './controllers/opportunity.controller';
 import { ProfileController } from './controllers/profile.controller';
 import { UploadController } from './controllers/upload.controller';
 import { RouteRegistry } from './lib/router/router.decorators';
+import { log } from './lib/log';
 
 const PORT = 3003;
 const GLOBAL_PREFIX = '/v2';
 
-console.log('Initializing V2 Server...');
+const logger = log.server.from('main.ts');
+
+logger.info('Initializing V2 Server...');
 
 // Manually instantiate controllers if needed, or just let strict import handle registration (depends on how decorator works vs instantiation).
 // The decorators run when the class is defined (imported).
@@ -20,7 +23,7 @@ controllerInstances.set(IntentController, new IntentController());
 controllerInstances.set(OpportunityController, new OpportunityController());
 controllerInstances.set(UploadController, new UploadController());
 
-console.log(`Routes registered with prefix ${GLOBAL_PREFIX}`);
+logger.info('Routes registered', { prefix: GLOBAL_PREFIX });
 
 Bun.serve({
   port: PORT,
@@ -38,7 +41,7 @@ Bun.serve({
       'Access-Control-Max-Age': '86400',
     };
 
-    console.log(`[V2] Request: ${method} ${url.pathname}`);
+    logger.info('Request', { method, path: url.pathname });
 
     // Handle OPTIONS preflight requests
     if (method === 'OPTIONS') {
@@ -65,36 +68,36 @@ Bun.serve({
         // For simplicity: exact string match for now. Parameters not yet supported in this simple V1.
 
         if (url.pathname === fullPath) {
-          console.log(`[V2] Matched Route: ${fullPath} -> ${target.name}.${String(route.methodName)}`);
+          logger.info('Matched route', { path: fullPath, handler: `${target.name}.${String(route.methodName)}` });
           try {
             const instance = controllerInstances.get(target);
             if (!instance) {
-              console.error(`No instance found for controller ${target.name}`);
+              logger.error('No instance found for controller', { controller: target.name });
               return new Response('Internal Server Error', { status: 500, headers: corsHeaders });
             }
 
             // Execute Guards
             const guards = RouteRegistry.getGuards(target, route.methodName);
-            console.log(`[V2] Found ${guards.length} guards`);
+            logger.info('Guards found', { count: guards.length });
             let guardResult: any = null;
 
             for (const guard of guards) {
-              console.log(`[V2] Executing guard ${guard.name || 'anonymous'}`);
+              logger.info('Executing guard', { guard: guard.name || 'anonymous' });
               // Pass the previous guard result if needed, or just req
               // For now, guards take req. We might want to chain them or have them return context.
               // Our simple AuthGuard returns the user.
               guardResult = await guard(req);
-              console.log(`[V2] Guard execution successful`);
+              logger.info('Guard execution successful');
             }
 
             // Invoke handler
             const handler = instance[route.methodName];
-            console.log(`[V2] Invoking handler ${String(route.methodName)}`);
+            logger.info('Invoking handler', { handler: String(route.methodName) });
             // Pass req and guardResult (likely the User object)
             // If multiple guards, this simple logic passes the LAST guard's result.
             // A more robust system would build a context object.
             const result = await handler.call(instance, req, guardResult);
-            console.log(`[V2] Handler invoked successfully`);
+            logger.info('Handler invoked successfully');
 
             // If result is a Response object, add CORS headers and return it.
             if (result instanceof Response) {
@@ -113,7 +116,11 @@ Bun.serve({
             return Response.json(result, { headers: corsHeaders });
 
           } catch (error: any) {
-            console.error(`Error handling ${method} ${fullPath}:`, error);
+            logger.error('Error handling request', {
+              method,
+              path: fullPath,
+              error: error?.message ?? String(error),
+            });
             const message = error.message || 'Internal Server Error';
             // Map common auth errors
             if (message === 'Access token required' || message === 'Invalid or expired access token') {
@@ -129,9 +136,9 @@ Bun.serve({
       }
     }
 
-    console.log(`[V2] No match found for ${url.pathname}`);
+    logger.info('No match found', { path: url.pathname });
     return new Response('Not Found', { status: 404, headers: corsHeaders });
   },
 });
 
-console.log(`🚀 V2 Server running on port ${PORT}`);
+logger.info('V2 Server running', { port: PORT });

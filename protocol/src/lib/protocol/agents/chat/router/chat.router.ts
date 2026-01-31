@@ -3,6 +3,8 @@ import { BaseMessage, HumanMessage, SystemMessage } from "@langchain/core/messag
 import { z } from "zod";
 import { log } from "../../../../log";
 
+const logger = log.agent.from("chat.router.ts");
+
 /**
  * Config
  */
@@ -292,7 +294,7 @@ export class RouterAgent {
     activeIntents: string,
     conversationHistory?: BaseMessage[]
   ): Promise<RouterOutput> {
-    log.info('[RouterAgent.invoke] 🎯 Starting message analysis', {
+    logger.info('🎯 Starting message analysis', {
       userMessage: `"${userMessage}"`,
       messageLength: userMessage.length,
       hasConversationHistory: !!conversationHistory,
@@ -313,7 +315,7 @@ export class RouterAgent {
         conversationContextText += `${role}: ${content}\n`;
       });
       
-      log.info('[RouterAgent.invoke] 📜 Built conversation context for LLM', {
+      logger.info('📜 Built conversation context for LLM', {
         messageCount: recentMessages.length,
         contextLength: conversationContextText.length,
         contextPreview: conversationContextText.substring(0, 200)
@@ -331,7 +333,7 @@ ${activeIntents ? `\nActive Intents: ${activeIntents}` : ''}
 Analyze the conversation and route appropriately.
     `.trim();
 
-    log.info('[RouterAgent.invoke] 📝 Full prompt for router LLM', {
+    logger.info('📝 Full prompt for router LLM', {
       promptLength: prompt.length,
       hasConversationHistory: conversationContextText.length > 0,
       promptPreview: prompt.substring(0, 300)
@@ -347,11 +349,11 @@ Analyze the conversation and route appropriately.
       const output = routingResponseSchema.parse(result);
       
       // Log the full thinking process for debugging
-      log.info('[RouterAgent.invoke] 🧠 THINKING STEPS:', {
+      logger.info('🧠 THINKING STEPS:', {
         steps: output.thinkingSteps
       });
       
-      log.info('[RouterAgent.invoke] 🎯 CONSIDERED ACTIONS:', {
+      logger.info('🎯 CONSIDERED ACTIONS:', {
         actions: output.consideredActions?.map(a => ({
           action: a.action,
           score: a.score,
@@ -359,7 +361,7 @@ Analyze the conversation and route appropriately.
         })) || []
       });
       
-      log.info('[RouterAgent.invoke] 🤖 LLM routing decision (before safety rules)', {
+      logger.info('🤖 LLM routing decision (before safety rules)', {
         target: output.target,
         operationType: output.operationType,
         confidence: output.confidence,
@@ -378,7 +380,7 @@ Analyze the conversation and route appropriately.
         output.operationType !== safeOutput.operationType ||
         output.extractedContext !== safeOutput.extractedContext;
       
-      log.info('[RouterAgent.invoke] ✅ Final routing decision (after safety rules)', {
+      logger.info('✅ Final routing decision (after safety rules)', {
         target: safeOutput.target,
         operationType: safeOutput.operationType,
         confidence: safeOutput.confidence,
@@ -397,7 +399,7 @@ Analyze the conversation and route appropriately.
       
       return safeOutput;
     } catch (error: unknown) {
-      log.error('[RouterAgent.invoke] ❌ Error during routing', {
+      logger.error('❌ Error during routing', {
         error: error instanceof Error ? error.message : String(error),
         stack: error instanceof Error ? error.stack : undefined
       });
@@ -501,7 +503,7 @@ Analyze the conversation and route appropriately.
       const actionVerbs = /\b(make|create|update|change|modify|set|add|remove|delete)\s+(that|this|it|the)\b/i;
       
       if (actionVerbs.test(userMessage)) {
-        log.info('[RouterAgent] Strong anaphoric update signal detected, forcing intent_write update', {
+        logger.info('Strong anaphoric update signal detected, forcing intent_write update', {
           originalTarget: output.target,
           originalOperationType: output.operationType,
           messagePreview: userMessage.substring(0, 50)
@@ -518,7 +520,7 @@ Analyze the conversation and route appropriately.
     
     // Rule 1: Map deprecated targets to new targets for backward compatibility
     if (output.target === 'intent_subgraph') {
-      log.warn('[RouterAgent] Deprecated target used: intent_subgraph → intent_write', {
+      logger.warn('Deprecated target used: intent_subgraph → intent_write', {
         confidence: output.confidence
       });
       output = {
@@ -529,7 +531,7 @@ Analyze the conversation and route appropriately.
     }
     
     if (output.target === 'profile_subgraph') {
-      log.warn('[RouterAgent] Deprecated target used: profile_subgraph → profile_write', {
+      logger.warn('Deprecated target used: profile_subgraph → profile_write', {
         confidence: output.confidence
       });
       output = {
@@ -545,7 +547,7 @@ Analyze the conversation and route appropriately.
       (output.target === 'intent_write' || output.target === 'profile_write') &&
       output.confidence < 0.4
     ) {
-      log.warn('[RouterAgent] Very low confidence write operation, considering downgrade', {
+      logger.warn('Very low confidence write operation, considering downgrade', {
         originalTarget: output.target,
         confidence: output.confidence,
         reasoning: output.reasoning
@@ -564,7 +566,7 @@ Analyze the conversation and route appropriately.
       (output.target === 'intent_write' || output.target === 'profile_write') &&
       !output.operationType
     ) {
-      log.warn('[RouterAgent] Write operation missing operationType, defaulting to create', {
+      logger.warn('Write operation missing operationType, defaulting to create', {
         target: output.target
       });
       return {
@@ -578,7 +580,7 @@ Analyze the conversation and route appropriately.
       (output.target === 'intent_query' || output.target === 'profile_query') &&
       output.operationType !== 'read'
     ) {
-      log.warn('[RouterAgent] Query target with non-read operationType, correcting', {
+      logger.warn('Query target with non-read operationType, correcting', {
         target: output.target,
         originalOperationType: output.operationType
       });
@@ -594,7 +596,7 @@ Analyze the conversation and route appropriately.
       output.operationType === 'create' &&
       this.detectAnaphoricReference(userMessage)
     ) {
-      log.info('[RouterAgent] Anaphoric reference detected, upgrading create to update', {
+      logger.info('Anaphoric reference detected, upgrading create to update', {
         messagePreview: userMessage.substring(0, 50),
         originalOperationType: output.operationType
       });

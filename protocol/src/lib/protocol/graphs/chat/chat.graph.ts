@@ -12,6 +12,8 @@ import type { ChatGraphCompositeDatabase } from "../../interfaces/database.inter
 import type { Embedder } from "../../interfaces/embedder.interface";
 import type { Scraper } from "../../interfaces/scraper.interface";
 import { log } from "../../../log";
+
+const logger = log.graph.from("chat.graph.ts");
 import type { ChatStreamEvent } from "../../../../types/chat-streaming";
 import {
   createStatusEvent,
@@ -85,7 +87,7 @@ export class ChatGraphFactory {
     sessionId: string,
     maxMessages: number = 20
   ): Promise<BaseMessage[]> {
-    log.info("[ChatGraphFactory.loadSessionContext] Loading session context", {
+    logger.info("Loading session context", {
       sessionId,
       maxMessages,
     });
@@ -94,7 +96,7 @@ export class ChatGraphFactory {
       const messages = await chatSessionService.getSessionMessages(sessionId, maxMessages);
 
       if (messages.length === 0) {
-        log.info("[ChatGraphFactory.loadSessionContext] No previous messages found", {
+        logger.info("No previous messages found", {
           sessionId,
         });
         return [];
@@ -114,7 +116,7 @@ export class ChatGraphFactory {
       // Truncate to fit within token limits
       const truncatedMessages = truncateToTokenLimit(langchainMessages, MAX_CONTEXT_TOKENS);
 
-      log.info("[ChatGraphFactory.loadSessionContext] Context loaded", {
+      logger.info("Context loaded", {
         sessionId,
         originalCount: messages.length,
         truncatedCount: truncatedMessages.length,
@@ -122,7 +124,7 @@ export class ChatGraphFactory {
 
       return truncatedMessages;
     } catch (error) {
-      log.error("[ChatGraphFactory.loadSessionContext] Failed to load context", {
+      logger.error("Failed to load context", {
         sessionId,
         error: error instanceof Error ? error.message : String(error),
       });
@@ -160,7 +162,7 @@ export class ChatGraphFactory {
   ): AsyncGenerator<ChatStreamEvent> {
     const { userId, message, sessionId, maxContextMessages = 20 } = input;
 
-    log.info("[ChatGraphFactory.streamChatEventsWithContext] Starting context-aware streaming", {
+    logger.info("Starting context-aware streaming", {
       userId,
       sessionId,
       maxContextMessages,
@@ -174,7 +176,7 @@ export class ChatGraphFactory {
       // Add current message
       const allMessages = [...previousMessages, new HumanMessage(message)];
 
-      log.info("[ChatGraphFactory.streamChatEventsWithContext] Context prepared", {
+      logger.info("Context prepared", {
         previousCount: previousMessages.length,
         totalCount: allMessages.length,
       });
@@ -189,7 +191,7 @@ export class ChatGraphFactory {
         checkpointer
       );
     } catch (error) {
-      log.error("[ChatGraphFactory.streamChatEventsWithContext] Stream error", {
+      logger.error("Stream error", {
         error: error instanceof Error ? error.message : String(error),
       });
       yield createErrorEvent(
@@ -451,7 +453,7 @@ export class ChatGraphFactory {
         }
       }
     } catch (error) {
-      log.error('[ChatGraphFactory.streamChatEvents] Stream error', {
+      logger.error('Stream error', {
         error: error instanceof Error ? error.message : String(error)
       });
       yield createErrorEvent(
@@ -489,7 +491,7 @@ export class ChatGraphFactory {
     // This is the reactive gate that determines if we need onboarding.
     // ─────────────────────────────────────────────────────────
     const checkPrerequisitesNode = async (state: typeof ChatGraphState.State) => {
-      log.info("[ChatGraph:CheckPrerequisites] Checking user prerequisites...", { 
+      logger.info("Checking user prerequisites...", { 
         userId: state.userId 
       });
 
@@ -508,7 +510,7 @@ export class ChatGraphFactory {
         const activeIntents = await this.database.getActiveIntents(state.userId);
         const hasActiveIntents = activeIntents.length > 0;
 
-        log.info("[ChatGraph:CheckPrerequisites] Prerequisites checked", { 
+        logger.info("Prerequisites checked", { 
           hasCompleteProfile,
           hasActiveIntents,
           profileName: profile?.identity?.name,
@@ -522,7 +524,7 @@ export class ChatGraphFactory {
           userProfile: profile ?? undefined
         };
       } catch (error) {
-        log.error("[ChatGraph:CheckPrerequisites] Failed to check prerequisites", { 
+        logger.error("Failed to check prerequisites", { 
           error: error instanceof Error ? error.message : String(error) 
         });
         return {
@@ -540,7 +542,7 @@ export class ChatGraphFactory {
     // NOW CALLED AFTER prerequisites check and message analysis
     // ─────────────────────────────────────────────────────────
     const loadContextNode = async (state: typeof ChatGraphState.State) => {
-      log.info("[ChatGraph:LoadContext] Loading full user context...", { 
+      logger.info("Loading full user context...", { 
         userId: state.userId 
       });
 
@@ -553,7 +555,7 @@ export class ChatGraphFactory {
           ? activeIntents.map(intent => `- ${intent.payload} (${intent.summary || 'no summary'})`).join('\n')
           : "No active intents.";
 
-        log.info("[ChatGraph:LoadContext] Context loaded", { 
+        logger.info("Context loaded", { 
           hasProfile: !!profile,
           intentCount: activeIntents.length
         });
@@ -563,7 +565,7 @@ export class ChatGraphFactory {
           activeIntents: formattedIntents
         };
       } catch (error) {
-        log.error("[ChatGraph:LoadContext] Failed to load context", { 
+        logger.error("Failed to load context", { 
           error: error instanceof Error ? error.message : String(error) 
         });
         return {
@@ -583,7 +585,7 @@ export class ChatGraphFactory {
       const lastMessage = state.messages[state.messages.length - 1];
       const userMessage = lastMessage?.content?.toString() || "";
 
-      log.info("[ChatGraph:Router] 🎯 Analyzing message...", { 
+      logger.info("🎯 Analyzing message...", { 
         messagePreview: userMessage.substring(0, 50),
         fullMessage: userMessage,
         hasProfile: !!state.userProfile,
@@ -605,7 +607,7 @@ export class ChatGraphFactory {
           ? state.messages.slice(0, -1).slice(-10)  // Exclude current message, take last 10
           : undefined;
         
-        log.info("[ChatGraph:Router] 📜 Conversation context for router", {
+        logger.info("📜 Conversation context for router", {
           historyLength: conversationHistory?.length || 0,
           recentMessages: conversationHistory?.slice(-3).map(m => ({
             role: m._getType(),
@@ -620,7 +622,7 @@ export class ChatGraphFactory {
           conversationHistory
         );
 
-        log.info("[ChatGraph:Router] ✅ Decision made", {
+        logger.info("✅ Decision made", {
           target: decision.target,
           operationType: decision.operationType,
           confidence: decision.confidence,
@@ -635,7 +637,7 @@ export class ChatGraphFactory {
           routingDecision: decision as RoutingDecision
         };
       } catch (error) {
-        log.error("[ChatGraph:Router] ❌ Routing failed", { 
+        logger.error("❌ Routing failed", { 
           error: error instanceof Error ? error.message : String(error) 
         });
         return {
@@ -657,12 +659,12 @@ export class ChatGraphFactory {
     // This is the fast path for "what are my intents?" queries.
     // ─────────────────────────────────────────────────────────
     const intentQueryNode = async (state: typeof ChatGraphState.State) => {
-      log.info("[ChatGraph:IntentQuery] 🚀 Fast path: Fetching active intents (read-only)...");
+      logger.info("🚀 Fast path: Fetching active intents (read-only)...");
       
       try {
         const activeIntents = await this.database.getActiveIntents(state.userId);
         
-        log.info("[ChatGraph:IntentQuery] ✅ Retrieved intents via fast path", {
+        logger.info("✅ Retrieved intents via fast path", {
           count: activeIntents.length,
           costSavings: "~10 LLM calls avoided"
         });
@@ -685,7 +687,7 @@ export class ChatGraphFactory {
         
         return { subgraphResults };
       } catch (error) {
-        log.error("[ChatGraph:IntentQuery] Query failed", {
+        logger.error("Query failed", {
           error: error instanceof Error ? error.message : String(error)
         });
         return {
@@ -708,7 +710,7 @@ export class ChatGraphFactory {
     // Fast path for "show me my profile" queries.
     // ─────────────────────────────────────────────────────────
     const profileQueryNode = async (state: typeof ChatGraphState.State) => {
-      log.info("[ChatGraph:ProfileQuery] 🚀 Fast path: Querying profile (read-only)...");
+      logger.info("🚀 Fast path: Querying profile (read-only)...");
       
       try {
         // Invoke profile graph in query mode (no generation, just retrieval)
@@ -719,7 +721,7 @@ export class ChatGraphFactory {
 
         const result = await profileGraph.invoke(profileInput);
 
-        log.info("[ChatGraph:ProfileQuery] ✅ Profile retrieved via fast path", {
+        logger.info("✅ Profile retrieved via fast path", {
           hasProfile: !!result.profile,
           costSavings: "Profile generation pipeline avoided"
         });
@@ -733,7 +735,7 @@ export class ChatGraphFactory {
 
         return { subgraphResults };
       } catch (error) {
-        log.error("[ChatGraph:ProfileQuery] Query failed", {
+        logger.error("Query failed", {
           error: error instanceof Error ? error.message : String(error)
         });
         return {
@@ -759,7 +761,7 @@ export class ChatGraphFactory {
       const operationType = state.routingDecision?.operationType;
       const extractedContext = state.routingDecision?.extractedContext;
       
-      log.info("[ChatGraph:IntentSubgraph] 🎯 Starting intent processing", {
+      logger.info("🎯 Starting intent processing", {
         operationType,
         hasRoutingDecision: !!state.routingDecision,
         hasExtractedContext: !!extractedContext,
@@ -786,7 +788,7 @@ export class ChatGraphFactory {
         ? extractedContext 
         : userMessageRaw;
       
-      log.info("[ChatGraph:IntentSubgraph] 📝 Input content decision", {
+      logger.info("📝 Input content decision", {
         userMessageRaw: `"${userMessageRaw}"`,
         userMessageLength: userMessageRaw.length,
         hasExtractedContext: !!extractedContext,
@@ -808,7 +810,7 @@ export class ChatGraphFactory {
         ? state.messages.slice(-CONTEXT_MESSAGE_LIMIT)
         : undefined;
       
-      log.info("[ChatGraph:IntentSubgraph] 📜 Conversation context for intent graph", {
+      logger.info("📜 Conversation context for intent graph", {
         contextMessagesCount: conversationContext?.length || 0,
         hasContext: !!conversationContext,
         recentMessages: conversationContext?.slice(-3).map(m => ({
@@ -827,7 +829,7 @@ export class ChatGraphFactory {
           operationType === 'update' ? 'update' :
           'create';
         
-        log.info("[ChatGraph:IntentSubgraph] 🔀 Mapped operation type", {
+        logger.info("🔀 Mapped operation type", {
           operationType,
           operationMode,
           expectedPath: operationMode === 'delete' ? 'prep → reconciliation → execution' :
@@ -847,7 +849,7 @@ export class ChatGraphFactory {
           targetIntentIds: undefined,  // TODO: Extract from routing decision if needed
         };
 
-        log.info("[ChatGraph:IntentSubgraph] 🚀 Invoking intent graph with input", {
+        logger.info("🚀 Invoking intent graph with input", {
           userId: intentInput.userId,
           hasUserProfile: !!intentInput.userProfile,
           inputContentLength: inputContent.length,
@@ -858,7 +860,7 @@ export class ChatGraphFactory {
 
         const result = await intentGraph.invoke(intentInput);
 
-        log.info("[ChatGraph:IntentSubgraph] ✅ Intent graph complete", {
+        logger.info("✅ Intent graph complete", {
           operationMode,
           actionsCount: result.actions?.length || 0,
           inferredCount: result.inferredIntents?.length || 0,
@@ -883,7 +885,7 @@ export class ChatGraphFactory {
 
         return { subgraphResults };
       } catch (error) {
-        log.error("[ChatGraph:IntentSubgraph] ❌ Processing failed", {
+        logger.error("❌ Processing failed", {
           error: error instanceof Error ? error.message : String(error),
           stack: error instanceof Error ? error.stack : undefined,
           operationType
@@ -905,7 +907,7 @@ export class ChatGraphFactory {
       const operationType = state.routingDecision?.operationType;
       const hasUpdateContext = !!state.routingDecision?.extractedContext;
       
-      log.info("[ChatGraph:ProfileSubgraph] Processing profile...", {
+      logger.info("Processing profile...", {
         operationType,
         hasUpdateContext
       });
@@ -935,7 +937,7 @@ export class ChatGraphFactory {
         if (skillMatch && operationType === 'update' && state.userProfile) {
           const skillsToAdd = skillMatch[1].split(',').map(s => s.trim()).filter(Boolean);
           
-          log.info("[ChatGraph:ProfileSubgraph] Direct skill addition detected", {
+          logger.info("Direct skill addition detected", {
             skillsToAdd,
             currentSkills: state.userProfile.attributes.skills
           });
@@ -957,7 +959,7 @@ export class ChatGraphFactory {
           try {
             await this.database.saveProfile(state.userId, updatedProfile);
             
-            log.info("[ChatGraph:ProfileSubgraph] ✅ Skills added successfully", {
+            logger.info("✅ Skills added successfully", {
               addedSkills: skillsToAdd,
               totalSkills: updatedSkills.length
             });
@@ -980,7 +982,7 @@ export class ChatGraphFactory {
               completedOperations: ['profile_write']
             };
           } catch (error) {
-            log.error("[ChatGraph:ProfileSubgraph] Failed to add skills", {
+            logger.error("Failed to add skills", {
               error: error instanceof Error ? error.message : String(error)
             });
             return {
@@ -1015,7 +1017,7 @@ export class ChatGraphFactory {
           forceUpdate: hasUpdateContext,  // Set forceUpdate when there's new context
         };
 
-        log.info("[ChatGraph:ProfileSubgraph] Invoking profile graph", {
+        logger.info("Invoking profile graph", {
           operationMode: profileInput.operationMode,
           forceUpdate: profileInput.forceUpdate,
           hasInput: !!profileInput.input,
@@ -1026,7 +1028,7 @@ export class ChatGraphFactory {
 
         // Check if profile graph is requesting user information
         if (result.needsUserInfo && result.missingUserInfo?.length > 0) {
-          log.info("[ChatGraph:ProfileSubgraph] ⚠️ User information needed", {
+          logger.info("⚠️ User information needed", {
             missingInfo: result.missingUserInfo
           });
 
@@ -1076,7 +1078,7 @@ export class ChatGraphFactory {
           };
         }
 
-        log.info("[ChatGraph:ProfileSubgraph] ✅ Processing complete", {
+        logger.info("✅ Processing complete", {
           hasProfile: !!result.profile,
           hasError: !!result.error,
           operationsPerformed: result.operationsPerformed
@@ -1096,7 +1098,7 @@ export class ChatGraphFactory {
           completedOperations: ['profile_write']
         };
       } catch (error) {
-        log.error("[ChatGraph:ProfileSubgraph] Processing failed", {
+        logger.error("Processing failed", {
           error: error instanceof Error ? error.message : String(error)
         });
         return {
@@ -1111,7 +1113,7 @@ export class ChatGraphFactory {
     // Maps ChatGraphState to OpportunityGraphState and invokes
     // ─────────────────────────────────────────────────────────
     const opportunitySubgraphNode = async (state: typeof ChatGraphState.State) => {
-      log.info("[ChatGraph:OpportunitySubgraph] Finding opportunities...");
+      logger.info("Finding opportunities...");
       
       // Build HyDE description from user message context
       const lastMessage = state.messages[state.messages.length - 1];
@@ -1139,7 +1141,7 @@ export class ChatGraphFactory {
           ? result.opportunities
           : [];
 
-        log.info("[ChatGraph:OpportunitySubgraph] Search complete", {
+        logger.info("Search complete", {
           opportunitiesFound: opportunities.length
         });
 
@@ -1152,7 +1154,7 @@ export class ChatGraphFactory {
 
         return { subgraphResults };
       } catch (error) {
-        log.error("[ChatGraph:OpportunitySubgraph] Processing failed", { 
+        logger.error("Processing failed", { 
           error: error instanceof Error ? error.message : String(error) 
         });
         return { 
@@ -1168,14 +1170,14 @@ export class ChatGraphFactory {
     // respond naturally and mention that intents are available.
     // ─────────────────────────────────────────────────────────
     const suggestIntentsNode = async (state: typeof ChatGraphState.State) => {
-      log.info("[ChatGraph:SuggestIntents] User has profile but no intents, preparing natural response with suggestion...");
+      logger.info("User has profile but no intents, preparing natural response with suggestion...");
       
       const profile = state.userProfile;
       const lastMessage = state.messages[state.messages.length - 1];
       const userMessage = lastMessage?.content?.toString() || "";
       
       if (!profile) {
-        log.warn("[ChatGraph:SuggestIntents] No profile available for intent suggestions");
+        logger.warn("No profile available for intent suggestions");
         return {};
       }
 
@@ -1195,7 +1197,7 @@ export class ChatGraphFactory {
       contextMessage += `to help connect with relevant people. Don't be pushy about creating intents - `;
       contextMessage += `just let them know the option exists. Keep it friendly and brief.`;
 
-      log.info("[ChatGraph:SuggestIntents] Prepared natural response context", {
+      logger.info("Prepared natural response context", {
         userName,
         hasSkills: skills.length > 0,
         hasInterests: interests.length > 0,
@@ -1221,7 +1223,7 @@ export class ChatGraphFactory {
     // Handles direct responses without subgraph processing
     // ─────────────────────────────────────────────────────────
     const respondDirectNode = async (state: typeof ChatGraphState.State) => {
-      log.info("[ChatGraph:RespondDirect] Handling direct response...");
+      logger.info("Handling direct response...");
       
       // For simple responses, we proceed directly to response generation
       // The response generator will use the routing decision context
@@ -1233,7 +1235,7 @@ export class ChatGraphFactory {
     // Handles clarification requests
     // ─────────────────────────────────────────────────────────
     const clarifyNode = async (state: typeof ChatGraphState.State) => {
-      log.info("[ChatGraph:Clarify] Requesting clarification...");
+      logger.info("Requesting clarification...");
       
       // Signal that clarification is needed
       // The response generator will craft an appropriate clarification question
@@ -1247,13 +1249,13 @@ export class ChatGraphFactory {
     // Extracts content from a URL using Parallel.ai
     // ─────────────────────────────────────────────────────────
     const scrapeWebNode = async (state: typeof ChatGraphState.State) => {
-      log.info("[ChatGraph:ScrapeWeb] Extracting content from URL...");
+      logger.info("Extracting content from URL...");
       
       // Extract URL from routing decision context
       const url = state.routingDecision?.extractedContext;
       
       if (!url) {
-        log.error("[ChatGraph:ScrapeWeb] No URL provided in routing context");
+        logger.error("No URL provided in routing context");
         return {
           subgraphResults: {
             scrape: {
@@ -1267,11 +1269,11 @@ export class ChatGraphFactory {
       }
 
       try {
-        log.info("[ChatGraph:ScrapeWeb] Scraping URL", { url });
+        logger.info("Scraping URL", { url });
         const content = await this.scraper.extractUrlContent(url);
         
         if (!content) {
-          log.warn("[ChatGraph:ScrapeWeb] No content extracted", { url });
+          logger.warn("No content extracted", { url });
           return {
             subgraphResults: {
               scrape: {
@@ -1283,7 +1285,7 @@ export class ChatGraphFactory {
           };
         }
 
-        log.info("[ChatGraph:ScrapeWeb] Content extracted successfully", {
+        logger.info("Content extracted successfully", {
           url,
           contentLength: content.length
         });
@@ -1299,7 +1301,7 @@ export class ChatGraphFactory {
           completedOperations: ['scrape_web']
         };
       } catch (error) {
-        log.error("[ChatGraph:ScrapeWeb] Scraping failed", {
+        logger.error("Scraping failed", {
           url,
           error: error instanceof Error ? error.message : String(error)
         });
@@ -1326,7 +1328,7 @@ export class ChatGraphFactory {
       const userMessage = lastMessage?.content?.toString() || "";
       const completedOps = state.completedOperations || [];
       
-      log.info("[ChatGraph:Orchestrator] Checking if more operations needed", {
+      logger.info("Checking if more operations needed", {
         userMessage: userMessage.substring(0, 50),
         completedOps,
         hasScrapedContent: !!state.subgraphResults?.scrape?.content
@@ -1342,7 +1344,7 @@ export class ChatGraphFactory {
       
       // If we just scraped successfully and user wants profile update, do it
       if (justScraped && hasScrapedContent && wantsProfileUpdate && !completedOps.includes('profile_write')) {
-        log.info("[ChatGraph:Orchestrator] Scraped content available and profile update requested, routing to profile_write");
+        logger.info("Scraped content available and profile update requested, routing to profile_write");
         
         return {
           needsMoreOperations: true,
@@ -1357,7 +1359,7 @@ export class ChatGraphFactory {
       }
       
       // No more operations needed, proceed to response
-      log.info("[ChatGraph:Orchestrator] No more operations needed, proceeding to response");
+      logger.info("No more operations needed, proceeding to response");
       return {
         needsMoreOperations: false
       };
@@ -1371,7 +1373,7 @@ export class ChatGraphFactory {
       const lastMessage = state.messages[state.messages.length - 1];
       const userMessage = lastMessage?.content?.toString() || "";
 
-      log.info("[ChatGraph:GenerateResponse] 💬 Starting response generation", {
+      logger.info("💬 Starting response generation", {
         messageCount: state.messages.length,
         userMessage: `"${userMessage}"`,
         hasRoutingDecision: !!state.routingDecision,
@@ -1379,7 +1381,7 @@ export class ChatGraphFactory {
       });
 
       if (!state.routingDecision) {
-        log.error("[ChatGraph:GenerateResponse] ❌ No routing decision available");
+        logger.error("❌ No routing decision available");
         const errorResponse = "I'm sorry, I couldn't process your request. Please try again.";
         return {
           responseText: errorResponse,
@@ -1387,7 +1389,7 @@ export class ChatGraphFactory {
         };
       }
       
-      log.info("[ChatGraph:GenerateResponse] 📊 Subgraph results summary", {
+      logger.info("📊 Subgraph results summary", {
         hasIntentResults: !!state.subgraphResults?.intent,
         intentActionsCount: state.subgraphResults?.intent?.actions?.length || 0,
         intentInferredCount: state.subgraphResults?.intent?.inferredIntents?.length || 0,
@@ -1421,7 +1423,7 @@ export class ChatGraphFactory {
           state.subgraphResults || {}
         );
 
-        log.info("[ChatGraph:GenerateResponse] 📝 Built prompts for LLM", {
+        logger.info("📝 Built prompts for LLM", {
           systemPromptLength: systemPrompt.length,
           userPromptLength: userPrompt.length,
           userPromptPreview: userPrompt.substring(0, 500),
@@ -1442,7 +1444,7 @@ export class ChatGraphFactory {
           // Include all previous conversation messages except the last one
           messages.push(...state.messages.slice(0, -1));
           
-          log.info("[ChatGraph:GenerateResponse] 📜 Including conversation history", {
+          logger.info("📜 Including conversation history", {
             historyMessageCount: state.messages.length - 1,
             recentHistory: state.messages.slice(-3, -1).map(m => ({
               role: m._getType(),
@@ -1454,7 +1456,7 @@ export class ChatGraphFactory {
         // Add the final user message with structured prompt context
         messages.push(new HumanMessage(userPrompt));
 
-        log.info("[ChatGraph:GenerateResponse] 🚀 Invoking streaming model", {
+        logger.info("🚀 Invoking streaming model", {
           totalMessages: messages.length,
           historyIncluded: state.messages.length > 1,
           finalUserPromptLength: userPrompt.length
@@ -1469,7 +1471,7 @@ export class ChatGraphFactory {
           ? response.content
           : JSON.stringify(response.content);
 
-        log.info("[ChatGraph:GenerateResponse] ✅ Streaming response complete", {
+        logger.info("✅ Streaming response complete", {
           responseLength: responseText.length,
           responsePreview: responseText.substring(0, 200)
         });
@@ -1483,12 +1485,12 @@ export class ChatGraphFactory {
             state.routingDecision
           );
           
-          log.info("[ChatGraph:GenerateResponse] 💡 Suggested actions generated", {
+          logger.info("💡 Suggested actions generated", {
             actionsCount: suggestedActions.length,
             actions: suggestedActions
           });
         } catch (actionsError) {
-          log.warn("[ChatGraph:GenerateResponse] ⚠️ Failed to get suggested actions", {
+          logger.warn("⚠️ Failed to get suggested actions", {
             error: actionsError instanceof Error ? actionsError.message : String(actionsError)
           });
           // Continue without suggested actions - not critical
@@ -1500,7 +1502,7 @@ export class ChatGraphFactory {
           messages: [new AIMessage(responseText)]
         };
       } catch (error) {
-        log.error("[ChatGraph:GenerateResponse] ❌ Generation failed", {
+        logger.error("❌ Generation failed", {
           error: error instanceof Error ? error.message : String(error),
           stack: error instanceof Error ? error.stack : undefined,
           cause: error instanceof Error ? (error as any).cause : undefined
@@ -1532,7 +1534,7 @@ export class ChatGraphFactory {
       const routingTarget = state.routingDecision?.target;
       const operationType = state.routingDecision?.operationType;
       
-      log.info("[ChatGraph:PrerequisitesCondition] 🔍 Evaluating prerequisites", {
+      logger.info("🔍 Evaluating prerequisites", {
         routingTarget,
         operationType,
         hasCompleteProfile: state.hasCompleteProfile,
@@ -1545,7 +1547,7 @@ export class ChatGraphFactory {
       // Always require profile UNLESS user is asking to see their current profile
       // ═══════════════════════════════════════════════════════════════
       if (!state.hasCompleteProfile && routingTarget !== 'profile_query') {
-        log.info("[ChatGraph:PrerequisitesCondition] ⚠️ PROFILE REQUIRED - No complete profile found", {
+        logger.info("⚠️ PROFILE REQUIRED - No complete profile found", {
           originalTarget: routingTarget,
           redirectingTo: 'profile_write',
           reason: 'Profile must be created before other operations'
@@ -1567,7 +1569,7 @@ export class ChatGraphFactory {
       ].includes(routingTarget);
       
       if (isExplicitRequest) {
-        log.info("[ChatGraph:PrerequisitesCondition] ✅ EXPLICIT REQUEST - Honoring user action", {
+        logger.info("✅ EXPLICIT REQUEST - Honoring user action", {
           target: routingTarget,
           operationType,
           hasProfile: state.hasCompleteProfile,
@@ -1582,7 +1584,7 @@ export class ChatGraphFactory {
       // Respond naturally, then mention intents are available
       // ═══════════════════════════════════════════════════════════════
       if (!state.hasActiveIntents && (routingTarget === 'respond' || routingTarget === 'clarify')) {
-        log.info("[ChatGraph:PrerequisitesCondition] 💬 GENERAL CHAT - Profile exists, no intents", {
+        logger.info("💬 GENERAL CHAT - Profile exists, no intents", {
           action: 'Will respond naturally and mention intents casually',
           routingTarget
         });
@@ -1593,7 +1595,7 @@ export class ChatGraphFactory {
       // RULE 4: Default - Proceed to load context
       // User has profile (and possibly intents), continue normal flow
       // ═══════════════════════════════════════════════════════════════
-      log.info("[ChatGraph:PrerequisitesCondition] ✅ ALL PREREQUISITES MET - Loading context", {
+      logger.info("✅ ALL PREREQUISITES MET - Loading context", {
         routingTarget,
         hasProfile: state.hasCompleteProfile,
         hasIntents: state.hasActiveIntents
@@ -1610,7 +1612,7 @@ export class ChatGraphFactory {
       const operationType = state.routingDecision?.operationType;
       const extractedContext = state.routingDecision?.extractedContext;
       
-      log.info("[ChatGraph:RouteCondition] 🔀 Evaluating routing condition", {
+      logger.info("🔀 Evaluating routing condition", {
         originalTarget: target,
         operationType,
         confidence: state.routingDecision?.confidence,
@@ -1625,7 +1627,7 @@ export class ChatGraphFactory {
       };
       
       if (target in legacyMapping) {
-        log.warn('[ChatGraph:RouteCondition] ⚠️ Legacy target detected, mapping to new target', {
+        logger.warn('⚠️ Legacy target detected, mapping to new target', {
           legacyTarget: target,
           newTarget: legacyMapping[target]
         });
@@ -1645,7 +1647,7 @@ export class ChatGraphFactory {
       ];
       
       if (!validTargets.includes(target)) {
-        log.error("[ChatGraph:RouteCondition] ❌ Unknown routing target detected!", {
+        logger.error("❌ Unknown routing target detected!", {
           target,
           routingDecision: state.routingDecision,
           fallbackTo: "respond"
@@ -1655,7 +1657,7 @@ export class ChatGraphFactory {
       }
       
       // Log routing decision with operation type for debugging
-      log.info("[ChatGraph:RouteCondition] ✅ Final routing decision", {
+      logger.info("✅ Final routing decision", {
         target,
         operationType,
         confidence: state.routingDecision?.confidence,
@@ -1675,13 +1677,13 @@ export class ChatGraphFactory {
     const orchestratorCondition = (state: typeof ChatGraphState.State): string => {
       if (state.needsMoreOperations && state.routingDecision?.target) {
         const target = state.routingDecision.target;
-        log.info("[ChatGraph:OrchestratorCondition] Chaining to next operation", {
+        logger.info("Chaining to next operation", {
           target
         });
         return target;
       }
       
-      log.info("[ChatGraph:OrchestratorCondition] Proceeding to response generation");
+      logger.info("Proceeding to response generation");
       return "generate_response";
     };
 
@@ -1749,7 +1751,7 @@ export class ChatGraphFactory {
       // Generate response -> END
       .addEdge("generate_response", END);
 
-    log.info("[ChatGraphFactory] Graph built successfully (reactive flow)");
+    logger.info("Graph built successfully (reactive flow)");
     return workflow;
   }
 }

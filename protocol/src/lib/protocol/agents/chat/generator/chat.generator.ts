@@ -3,6 +3,8 @@ import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import type { Runnable } from "@langchain/core/runnables";
 import { z } from "zod";
 import { log } from "../../../../log";
+
+const logger = log.agent.from("chat.generator.ts");
 import type { RouterOutput } from "../router/chat.router";
 
 /**
@@ -452,7 +454,7 @@ export class ResponseGeneratorAgent {
     routingDecision: RouterOutput,
     subgraphResults: SubgraphResults
   ): Promise<ResponseGeneratorOutput> {
-    log.info('[ResponseGeneratorAgent.invoke] Generating response...', { 
+    logger.info('Generating response...', { 
       target: routingDecision.target 
     });
 
@@ -483,14 +485,14 @@ Generate an appropriate, natural response for the user based on the above contex
       // withStructuredOutput returns the parsed object directly
       const output = responseSchema.parse(result);
       
-      log.info('[ResponseGeneratorAgent.invoke] Response generated', { 
+      logger.info('Response generated', { 
         responseLength: output.response.length,
         suggestedActions: output.suggestedActions?.length || 0
       });
       
       return output;
     } catch (error: unknown) {
-      log.error('[ResponseGeneratorAgent.invoke] Error generating response', { 
+      logger.error('Error generating response', { 
         error: error instanceof Error ? error.message : String(error) 
       });
       
@@ -541,7 +543,7 @@ Generate an appropriate, natural response for the user based on the above contex
     streamedResponse: string,
     routingDecision: RouterOutput
   ): Promise<string[]> {
-    log.info('[ResponseGeneratorAgent.getSuggestedActions] Generating suggested actions...');
+    logger.info('Generating suggested actions...');
 
     try {
       const structuredModel = this.suggestedActionsModel.withStructuredOutput(suggestedActionsSchema);
@@ -562,13 +564,13 @@ Examples: "Update my profile", "Search for more connections", "Create a new inte
         new HumanMessage(prompt)
       ]);
 
-      log.info('[ResponseGeneratorAgent.getSuggestedActions] Generated actions', {
+      logger.info('Generated actions', {
         count: result.suggestedActions?.length || 0
       });
 
       return result.suggestedActions || [];
     } catch (error) {
-      log.error('[ResponseGeneratorAgent.getSuggestedActions] Error generating suggestions', {
+      logger.error('Error generating suggestions', {
         error: error instanceof Error ? error.message : String(error)
       });
       return ["Ask me another question", "Update my profile"];
