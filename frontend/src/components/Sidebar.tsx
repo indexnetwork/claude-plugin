@@ -228,12 +228,12 @@ export default function Sidebar() {
 
       {/* LLM Conversations Section - only on /chat page */}
       {!isAdminMode && isChatPage && (
-        <div className="">
-          <div className="flex items-center justify-between mb-3">
+        <div className="flex flex-col">
+          <div className="flex items-center justify-between mb-3 min-h-[54px] flex-shrink-0 px-3">
             <h3 className="text-sm font-bold text-black font-ibm-plex-mono">Conversations</h3>
             <button
               onClick={() => router.push('/chat')}
-              className="text-xs text-gray-600 hover:text-black font-ibm-plex-mono transition-colors flex items-center gap-1"
+              className="text-xs text-gray-600 hover:text-black font-ibm-plex-mono transition-colors flex items-center gap-1 flex-shrink-0"
               title="New chat"
             >
               <MessageSquarePlus className="w-3.5 h-3.5" />
@@ -249,26 +249,38 @@ export default function Sidebar() {
               No conversations yet
             </div>
           ) : (
-            <div className="space-y-2">
+            <div className="divide-y divide-gray-200">
               {llmSessions.map((session) => {
                 const displayTitle = session.title?.trim()
                   || (session.updatedAt
                     ? new Date(session.updatedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ' chat'
                     : 'Untitled');
+                const previewText = session.updatedAt
+                  ? new Date(session.updatedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+                  : '';
                 const isActive = searchParams?.get('sessionId') === session.id;
                 const isDeleting = deletingId === session.id;
                 return (
                   <div
                     key={session.id}
-                    className={`flex items-center gap-1 rounded transition-colors group font-ibm-plex-mono text-sm ${isActive ? 'bg-gray-200' : 'hover:bg-gray-50'}`}
+                    className={`flex items-center transition-colors group font-ibm-plex-mono text-sm ${isActive ? 'bg-gray-100' : 'hover:bg-gray-50'}`}
                   >
                     <button
                       type="button"
                       onClick={() => router.push(`/chat?sessionId=${encodeURIComponent(session.id)}`)}
-                      className="flex-1 min-w-0 text-left py-2 px-2"
+                      className="flex-1 min-w-0 py-3 px-3 text-left transition-colors"
                     >
-                      <div className="line-clamp-2 text-black group-hover:text-gray-700">
-                        {displayTitle}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-sm font-medium text-gray-900 truncate block">
+                            {displayTitle}
+                          </span>
+                        </div>
+                        {previewText && (
+                          <p className="text-xs text-gray-500 font-ibm-plex-mono truncate">
+                            {previewText}
+                          </p>
+                        )}
                       </div>
                     </button>
                     <button
