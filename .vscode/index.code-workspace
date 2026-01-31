@@ -30,7 +30,9 @@
             "graphs": "api",
             "profile": "public",
             "intent": "lib",
-            "opportunity": "event"
+            "opportunity": "event",
+            "adapters": "database",
+            "index": "public"
         }
     }
 }
