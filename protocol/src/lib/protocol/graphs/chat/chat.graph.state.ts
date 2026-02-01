@@ -2,6 +2,47 @@ import { Annotation, messagesStateReducer } from "@langchain/langgraph";
 import type { BaseMessage } from "@langchain/core/messages";
 
 // ══════════════════════════════════════════════════════════════════════════════
+// TYPES (used by legacy subgraph nodes; agent-loop graph does not set these)
+// ══════════════════════════════════════════════════════════════════════════════
+
+/** Routing decision from router node (target, operationType, extractedContext). */
+export interface RoutingDecision {
+  target: string;
+  operationType: string | null;
+  extractedContext?: string | null;
+}
+
+/** Intent subgraph result (actions, inferredIntents, etc.). */
+export interface IntentSubgraphResult {
+  actions?: Array<{ type: string; payload?: string }>;
+  inferredIntents?: unknown[];
+  indexingResults?: unknown[];
+  mode?: string;
+  intents?: unknown[];
+  count?: number;
+  error?: string;
+}
+
+/** Index subgraph result (memberships, ownedIndexes, specificIndexData). */
+export interface IndexSubgraphResult {
+  mode?: string;
+  memberships?: unknown[];
+  ownedIndexes?: unknown[];
+  specificIndexData?: unknown;
+  count?: number;
+  error?: string;
+}
+
+/** Aggregated results from subgraphs (intent, index, profile, opportunity, scrape). */
+export interface SubgraphResults {
+  intent?: IntentSubgraphResult;
+  index?: IndexSubgraphResult;
+  profile?: unknown;
+  opportunity?: unknown;
+  scrape?: unknown;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
 // CHAT GRAPH STATE (Agent Loop Architecture)
 // ══════════════════════════════════════════════════════════════════════════════
 
@@ -75,6 +116,23 @@ export const ChatGraphState = Annotation.Root({
    * Error message if the agent loop fails.
    */
   error: Annotation<string | undefined>({
+    reducer: (curr, next) => next,
+    default: () => undefined,
+  }),
+
+  // Legacy subgraph state (used by index/intent/response nodes when present)
+  /** Router output: target, operationType, extractedContext. */
+  routingDecision: Annotation<RoutingDecision | undefined>({
+    reducer: (curr, next) => next,
+    default: () => undefined,
+  }),
+  /** Results from intent/profile/opportunity/scrape subgraphs. */
+  subgraphResults: Annotation<SubgraphResults | undefined>({
+    reducer: (curr, next) => next,
+    default: () => undefined,
+  }),
+  /** User profile context (e.g. for intent nodes). */
+  userProfile: Annotation<unknown>({
     reducer: (curr, next) => next,
     default: () => undefined,
   }),

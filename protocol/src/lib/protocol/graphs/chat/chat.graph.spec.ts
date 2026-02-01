@@ -7,7 +7,7 @@ config({ path: ".env.development", override: true });
 import { describe, expect, it, beforeAll } from "bun:test";
 import { HumanMessage } from "@langchain/core/messages";
 import { ChatGraphFactory } from "./chat.graph";
-import type { ChatGraphCompositeDatabase } from "../../interfaces/database.interface";
+import type { ChatGraphCompositeDatabase, CreateIntentData } from "../../interfaces/database.interface";
 import type { Embedder } from "../../interfaces/embedder.interface";
 import type { Scraper } from "../../interfaces/scraper.interface";
 
@@ -29,7 +29,7 @@ function createMockDatabase(): ChatGraphCompositeDatabase {
     getUser: noopNull,
     saveProfile: noop,
     saveHydeProfile: noop,
-    createIntent: async (data) => ({
+    createIntent: async (data: CreateIntentData) => ({
       id: `intent-${Date.now()}`,
       payload: data.payload,
       summary: null,
@@ -106,7 +106,7 @@ describe("ChatGraphFactory", () => {
     it("should create a streaming graph with createStreamingGraph with MemorySaver checkpointer", async () => {
       const { MemorySaver } = await import("@langchain/langgraph");
       const checkpointer = new MemorySaver();
-      const graph = factory.createStreamingGraph(checkpointer);
+      const graph = factory.createStreamingGraph(checkpointer as any);
       expect(graph).toBeDefined();
       expect(typeof graph.streamEvents).toBe("function");
     });

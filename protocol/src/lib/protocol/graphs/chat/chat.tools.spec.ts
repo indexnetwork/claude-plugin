@@ -125,7 +125,7 @@ describe("get_intents_in_index tool", () => {
     const tools = createChatTools(context);
     const tool = tools.find((t: { name: string }) => t.name === "get_intents_in_index") as { invoke: (args: { indexNameOrId: string }) => Promise<string> };
     await tool.invoke({ indexNameOrId: "My Community" });
-    expect(capturedUserId).toBe(testUserId);
-    expect(capturedIndexNameOrId).toBe("My Community");
+    expect(capturedUserId === testUserId).toBe(true);
+    expect(capturedIndexNameOrId === "My Community").toBe(true);
   });
 });

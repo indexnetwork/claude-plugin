@@ -1,8 +1,14 @@
 import { ChatOpenAI } from "@langchain/openai";
 import { AIMessage, BaseMessage, HumanMessage, SystemMessage } from "@langchain/core/messages";
 import type { LoggerWithSource } from "../../../../log";
-import type { ResponseGeneratorAgent } from "../../../agents/chat/generator/chat.generator";
-import type { ChatGraphState, SubgraphResults } from "../chat.graph.state";
+import type { ChatGraphState, SubgraphResults, RoutingDecision } from "../chat.graph.state";
+
+/** Interface for response generator used by the response node (getSystemPrompt, buildUserPrompt, getSuggestedActions). */
+export interface ResponseGeneratorAgent {
+  getSystemPrompt(): string;
+  buildUserPrompt(userMessage: string, routingDecision: RoutingDecision, subgraphResults: SubgraphResults): string;
+  getSuggestedActions?(responseText: string, routingDecision: RoutingDecision): Promise<string[]>;
+}
 
 /**
  * Creates a response generation node that synthesizes final responses using streaming LLM.
@@ -36,7 +42,7 @@ export function createGenerateResponseNode(
       hasIntentResults: !!state.subgraphResults?.intent,
       intentActionsCount: state.subgraphResults?.intent?.actions?.length || 0,
       intentInferredCount: state.subgraphResults?.intent?.inferredIntents?.length || 0,
-      intentActions: state.subgraphResults?.intent?.actions?.map(a => ({
+      intentActions: state.subgraphResults?.intent?.actions?.map((a: { type: string; payload?: string }) => ({
         type: a.type,
         payload: 'payload' in a ? a.payload?.substring(0, 50) : undefined
       })),
@@ -123,10 +129,9 @@ export function createGenerateResponseNode(
       // This doesn't need to be streamed as it's supplementary data
       let suggestedActions: string[] = [];
       try {
-        suggestedActions = await responseGenerator.getSuggestedActions(
-          responseText,
-          state.routingDecision
-        );
+        suggestedActions = responseGenerator.getSuggestedActions
+          ? await responseGenerator.getSuggestedActions(responseText, state.routingDecision)
+          : [];
         
         logger.info("💡 Suggested actions generated", {
           actionsCount: suggestedActions.length,
