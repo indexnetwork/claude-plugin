@@ -148,6 +148,93 @@ export interface IndexMembership {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// INDEX OWNERSHIP TYPES
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Represents an index owned by the user with full details.
+ */
+export interface OwnedIndex {
+  /** Index ID */
+  id: string;
+  /** Display title */
+  title: string;
+  /** Index purpose/scope prompt */
+  prompt: string | null;
+  /** Permission settings */
+  permissions: {
+    joinPolicy: 'anyone' | 'invite_only';
+    allowGuestVibeCheck: boolean;
+    requireApproval: boolean;
+    invitationLink: { code: string } | null;
+  };
+  /** When the index was created */
+  createdAt: Date;
+  /** Member count */
+  memberCount: number;
+  /** Total intents indexed */
+  intentCount: number;
+}
+
+/**
+ * Member details visible to index owners.
+ */
+export interface IndexMemberDetails {
+  /** User ID */
+  userId: string;
+  /** User's display name */
+  name: string;
+  /** User's avatar URL */
+  avatar: string | null;
+  /** User's email */
+  email: string;
+  /** Member's permissions in this index */
+  permissions: string[];
+  /** Member's custom prompt */
+  memberPrompt: string | null;
+  /** Whether auto-assign is enabled */
+  autoAssign: boolean;
+  /** When they joined */
+  joinedAt: Date;
+  /** Count of their intents in this index */
+  intentCount: number;
+}
+
+/**
+ * Intent details visible to index owners.
+ */
+export interface IndexedIntentDetails {
+  /** Intent ID */
+  id: string;
+  /** Intent payload/description */
+  payload: string;
+  /** Intent summary */
+  summary: string | null;
+  /** Owner's user ID */
+  userId: string;
+  /** Owner's name */
+  userName: string;
+  /** When the intent was created */
+  createdAt: Date;
+}
+
+/**
+ * Options for updating index settings.
+ */
+export interface UpdateIndexSettingsData {
+  /** New title (optional) */
+  title?: string;
+  /** New prompt (optional) */
+  prompt?: string | null;
+  /** New join policy (optional) */
+  joinPolicy?: 'anyone' | 'invite_only';
+  /** Allow guest vibe check (optional) */
+  allowGuestVibeCheck?: boolean;
+  /** Require approval for new members (optional) */
+  requireApproval?: boolean;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // DATABASE INTERFACE
 // ═══════════════════════════════════════════════════════════════════════════════
 
@@ -439,6 +526,74 @@ export interface Database {
    * Removes an intent from an index (deletes intent_indexes row).
    */
   unassignIntentFromIndex(intentId: string, indexId: string): Promise<void>;
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Index Ownership Operations (Owner-Only)
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Get indexes where the user has owner permissions.
+   * Returns full index details with member and intent counts.
+   *
+   * @param userId - The user ID to check ownership for
+   * @returns Array of owned indexes with counts
+   */
+  getOwnedIndexes(userId: string): Promise<OwnedIndex[]>;
+
+  /**
+   * Check if user is an owner of a specific index.
+   *
+   * @param indexId - The index to check
+   * @param userId - The user to verify ownership for
+   * @returns True if user is an owner
+   */
+  isIndexOwner(indexId: string, userId: string): Promise<boolean>;
+
+  /**
+   * Get all members of an index with their details.
+   * **OWNER ONLY** - throws if user is not an owner.
+   *
+   * @param indexId - The index to get members for
+   * @param requestingUserId - The user requesting (must be owner)
+   * @returns Array of member details with intent counts
+   * @throws Error if requestingUserId is not an owner
+   */
+  getIndexMembersForOwner(
+    indexId: string,
+    requestingUserId: string
+  ): Promise<IndexMemberDetails[]>;
+
+  /**
+   * Get all indexed intents for an index.
+   * **OWNER ONLY** - throws if user is not an owner.
+   *
+   * @param indexId - The index to get intents for
+   * @param requestingUserId - The user requesting (must be owner)
+   * @param options - Pagination options
+   * @returns Array of intent details with owner info
+   * @throws Error if requestingUserId is not an owner
+   */
+  getIndexIntentsForOwner(
+    indexId: string,
+    requestingUserId: string,
+    options?: { limit?: number; offset?: number }
+  ): Promise<IndexedIntentDetails[]>;
+
+  /**
+   * Update index settings.
+   * **OWNER ONLY** - throws if user is not an owner.
+   *
+   * @param indexId - The index to update
+   * @param requestingUserId - The user requesting (must be owner)
+   * @param data - The settings to update
+   * @returns The updated index
+   * @throws Error if requestingUserId is not an owner
+   */
+  updateIndexSettings(
+    indexId: string,
+    requestingUserId: string,
+    data: UpdateIndexSettingsData
+  ): Promise<OwnedIndex>;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -493,6 +648,12 @@ export type ChatGraphCompositeDatabase = Pick<
   | 'isIntentAssignedToIndex'
   | 'assignIntentToIndex'
   | 'unassignIntentFromIndex'
+  // Index Ownership Operations (owner-only)
+  | 'getOwnedIndexes'
+  | 'isIndexOwner'
+  | 'getIndexMembersForOwner'
+  | 'getIndexIntentsForOwner'
+  | 'updateIndexSettings'
 >;
 
 /**
@@ -542,4 +703,18 @@ export type IndexGraphDatabase = Pick<
   | 'isIntentAssignedToIndex'
   | 'assignIntentToIndex'
   | 'unassignIntentFromIndex'
+>;
+
+/**
+ * Database interface for Index Ownership operations.
+ * Used by chat graph for owner-specific index management.
+ */
+export type IndexOwnershipDatabase = Pick<
+  Database,
+  | 'getOwnedIndexes'
+  | 'isIndexOwner'
+  | 'getIndexMembersForOwner'
+  | 'getIndexIntentsForOwner'
+  | 'updateIndexSettings'
+  | 'getIndexMemberships'
 >;

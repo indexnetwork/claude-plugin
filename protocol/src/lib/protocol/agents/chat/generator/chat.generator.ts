@@ -208,7 +208,7 @@ export interface SubgraphResults {
     error?: string;
   };
   index?: {
-    mode?: 'query';
+    mode?: 'query' | 'write';
     memberships?: Array<{
       indexId: string;
       indexTitle: string;
@@ -218,8 +218,27 @@ export interface SubgraphResults {
       autoAssign: boolean;
       joinedAt: Date;
     }>;
+    ownedIndexes?: Array<{
+      id: string;
+      title: string;
+      prompt: string | null;
+      permissions: { joinPolicy: string; allowGuestVibeCheck: boolean; requireApproval: boolean; invitationLink: { code: string } | null };
+      createdAt: Date;
+      memberCount: number;
+      intentCount: number;
+    }>;
+    specificIndexData?: {
+      index: unknown;
+      members?: Array<{ userId: string; name: string; avatar: string | null; email: string; permissions: string[]; memberPrompt: string | null; autoAssign: boolean; joinedAt: Date; intentCount: number }>;
+      intents?: Array<{ id: string; payload: string; summary: string | null; userId: string; userName: string; createdAt: Date }>;
+      isOwner?: boolean;
+      accessDeniedMessage?: string;
+    };
     count?: number;
     error?: string;
+    success?: boolean;
+    updatedIndex?: unknown;
+    changesApplied?: string[];
   };
 }
 
@@ -413,28 +432,70 @@ export class ResponseGeneratorAgent {
     }
 
     if (results.index) {
-      if (results.index.mode === 'query') {
+      if (results.index.mode === 'write') {
+        sections.push('## Index Settings Update Results');
+        if (results.index.success) {
+          sections.push('Index settings were updated successfully.');
+          if (results.index.changesApplied?.length) {
+            sections.push(`Changes applied: ${results.index.changesApplied.join(', ')}`);
+          }
+          if (results.index.updatedIndex && typeof results.index.updatedIndex === 'object' && 'title' in results.index.updatedIndex) {
+            sections.push(`Index: ${(results.index.updatedIndex as { title: string }).title}`);
+          }
+          sections.push('');
+          sections.push('Task: Confirm the update in a friendly way. Mention what changed.');
+        } else {
+          sections.push(`Update failed: ${results.index.error || 'Unknown error'}`);
+          sections.push('');
+          sections.push('Task: Explain the error and suggest what the user can do (e.g. specify the index name, or try again).');
+        }
+      } else if (results.index.mode === 'query') {
         sections.push('## Index Membership Query Results');
         const memberships = results.index.memberships || [];
-        sections.push(`Found ${memberships.length} index membership(s):`);
+        const ownedIndexes = results.index.ownedIndexes || [];
+        const specific = results.index.specificIndexData;
 
-        if (memberships.length === 0) {
-          sections.push('You are not a member of any indexes yet.');
-          sections.push('Suggestion: Explore and join indexes to connect with communities.');
-        } else {
-          memberships.forEach((m, index) => {
-            sections.push(`${index + 1}. **${m.indexTitle}**`);
-            if (m.indexPrompt) {
-              sections.push(`   Description: ${m.indexPrompt}`);
-            }
-            sections.push(`   Permissions: ${m.permissions.length > 0 ? m.permissions.join(', ') : 'member'}`);
-            if (m.autoAssign) {
-              sections.push(`   Auto-assign: Enabled`);
-            }
-            sections.push(`   Joined: ${new Date(m.joinedAt).toLocaleDateString()}`);
+        if (specific?.isOwner === true && specific.members != null) {
+          sections.push(`**Index (owner view):** ${(specific.index as { title?: string }).title ?? 'Unknown'}`);
+          sections.push(`Members (${specific.members.length}):`);
+          specific.members.forEach((m, i) => {
+            sections.push(`${i + 1}. ${m.name} (${m.permissions?.includes('owner') ? 'Owner' : m.permissions?.includes('admin') ? 'Admin' : 'Member'}) — ${m.intentCount} intent(s) indexed`);
           });
+          if (specific.intents?.length) {
+            sections.push(`Recent intents in this index (${specific.intents.length}):`);
+            specific.intents.slice(0, 10).forEach((intent, i) => {
+              sections.push(`${i + 1}. [${(intent as { userName?: string }).userName ?? 'Unknown'}] ${(intent as { payload?: string }).payload?.slice(0, 80) ?? ''}${((intent as { payload?: string }).payload?.length ?? 0) > 80 ? '...' : ''}`);
+            });
+          }
           sections.push('');
-          sections.push('Task: Present these index memberships in a conversational, friendly way.');
+          sections.push('Task: Present the members and intents in a clear, owner-friendly way.');
+        } else if (specific?.isOwner === false && specific.accessDeniedMessage) {
+          sections.push(specific.accessDeniedMessage);
+          sections.push('');
+          sections.push('Task: Politely explain that only the index owner can see the full member list. Suggest they contact the owner.');
+        } else {
+          sections.push(`Found ${memberships.length} index membership(s).`);
+          if (ownedIndexes.length > 0) {
+            sections.push(`Indexes you own: ${ownedIndexes.map((o) => o.title).join(', ')}`);
+          }
+          if (memberships.length === 0) {
+            sections.push('You are not a member of any indexes yet.');
+            sections.push('Suggestion: Explore and join indexes to connect with communities.');
+          } else {
+            memberships.forEach((m, idx) => {
+              sections.push(`${idx + 1}. **${m.indexTitle}**`);
+              if (m.indexPrompt) {
+                sections.push(`   Description: ${m.indexPrompt}`);
+              }
+              sections.push(`   Permissions: ${m.permissions.length > 0 ? m.permissions.join(', ') : 'member'}`);
+              if (m.autoAssign) {
+                sections.push(`   Auto-assign: Enabled`);
+              }
+              sections.push(`   Joined: ${new Date(m.joinedAt).toLocaleDateString()}`);
+            });
+            sections.push('');
+            sections.push('Task: Present these index memberships in a conversational, friendly way.');
+          }
         }
       }
     }

@@ -1744,11 +1744,17 @@ router.get('/:indexId/intents',
         return res.status(403).json({ error: 'Access denied' });
       }
 
-      // Build base conditions for intents in this index
-      const baseCondition = and(
-        showArchived ? isNotNull(intents.archivedAt) : isNull(intents.archivedAt),
-        eq(intentIndexes.indexId, indexId)
-      );
+      // Owners see all intents in the index; members see only their own
+      const baseCondition = isOwner
+        ? and(
+            showArchived ? isNotNull(intents.archivedAt) : isNull(intents.archivedAt),
+            eq(intentIndexes.indexId, indexId)
+          )
+        : and(
+            showArchived ? isNotNull(intents.archivedAt) : isNull(intents.archivedAt),
+            eq(intentIndexes.indexId, indexId),
+            eq(intents.userId, req.user!.id)
+          );
 
       const selectFields = {
         id: intents.id,

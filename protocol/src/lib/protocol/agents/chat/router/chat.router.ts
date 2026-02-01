@@ -109,16 +109,45 @@ Your job is to analyze user messages and route them to the correct processing ac
 ### index_query
 **Type:** Read-only
 
-**What it does:** Fetches and displays the user's index memberships (communities/groups they belong to).
+**What it does:** Fetches the user's index information. Behavior varies by ownership:
+- **If owner:** Returns full index details including all members and their intents
+- **If member:** Returns membership information only
 
 **When to use:**
-- User asks to SEE/VIEW/SHOW/LIST their indexes
-- User asks "what indexes am I in?" or "which communities am I a member of?"
-- User wants to know their group memberships
+- User asks about their indexes/communities
+- User asks to see members of an index (owner context)
+- User asks what intents are in their index (owner context)
+- User asks "who's in my index?" or "what indexes am I in?"
 
-**Examples:** "show my indexes", "what groups am I in?", "list my communities", "which indexes am I a member of?"
+**Examples:**
+- "show my indexes" → list all memberships + owned indexes
+- "who are the members of my AI Founders index?" → owner query for specific index
+- "what intents are in my networking community?" → owner query for intents
+- "which indexes am I a member of?" → membership list
 
-**Config:** operationType: "read", extractedContext: null
+**Config:** operationType: "read", extractedContext: Index name/identifier if querying specific index
+
+---
+
+### index_write
+**Type:** Write (owner-only)
+
+**What it does:** Updates index settings. Only available to index owners.
+
+**When to use:**
+- User wants to change index title
+- User wants to update index prompt/description
+- User wants to change privacy settings (public/private)
+- User wants to enable/disable guest vibe check or require approval
+
+**Examples:**
+- "change my index title to 'AI Builders'" → update title
+- "make my index private" → update joinPolicy to invite_only
+- "make my index public" → update joinPolicy to anyone
+- "update the prompt of my Founders index to..." → update prompt
+- "enable guest vibe check for my index" → update settings
+
+**Config:** operationType: "update", extractedContext: The index name and changes (e.g. "AI Founders: title=AI Builders" or "my index: joinPolicy=invite_only")
 
 ---
 
@@ -248,7 +277,8 @@ const routingResponseSchema = z.object({
     "profile_query",          // Read-only profile queries
     "profile_write",          // Update profile
     "profile_subgraph",       // DEPRECATED: Backward compatibility (maps to profile_write)
-    "index_query",            // Read-only index membership queries
+    "index_query",            // Read-only index membership (enhanced with ownership)
+    "index_write",            // Owner-only: update index settings
     "opportunity_subgraph",
     "scrape_web",             // Extract content from URL
     "respond",
@@ -267,7 +297,7 @@ const routingResponseSchema = z.object({
   reasoning: z.string().describe("One-sentence summary of why this route was chosen"),
   
   extractedContext: z.string().nullable().describe(
-    "Content to process: For intent_write, the intent text. For scrape_web, the URL. For updates, the new content."
+    "Content to process: For intent_write, the intent text. For scrape_web, the URL. For profile_write, the profile updates. For index_write, the index name and changes (e.g. 'IndexName: joinPolicy=invite_only')."
   )
 });
 

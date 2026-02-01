@@ -3,7 +3,7 @@
  * Postgres implementations; no dependency on lib/protocol.
  */
 
-import { eq, and, isNull } from 'drizzle-orm';
+import { eq, and, isNull, sql, count, desc } from 'drizzle-orm';
 import * as schema from '../schemas/database.schema';
 import db from '../lib/drizzle/drizzle';
 import type { User } from '../schemas/database.schema';
@@ -75,7 +75,7 @@ interface IndexMembershipRow {
   joinedAt: Date;
 }
 
-const { intents, indexes, indexMembers, intentIndexes } = schema;
+const { intents, indexes, indexMembers, intentIndexes, users } = schema;
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // Intent Graph Database Adapter
@@ -348,6 +348,290 @@ export class ChatDatabaseAdapter {
       console.error('ChatDatabaseAdapter.getIndexMemberships error:', error);
       return [];
     }
+  }
+
+  async getUserIndexIds(userId: string): Promise<string[]> {
+    try {
+      const result = await db
+        .select({ indexId: schema.indexMembers.indexId })
+        .from(schema.indexMembers)
+        .innerJoin(schema.indexes, eq(schema.indexMembers.indexId, schema.indexes.id))
+        .where(
+          and(
+            eq(schema.indexMembers.userId, userId),
+            eq(schema.indexMembers.autoAssign, true),
+            isNull(schema.indexes.deletedAt)
+          )
+        );
+      return result.map((r) => r.indexId);
+    } catch (error: unknown) {
+      console.error('ChatDatabaseAdapter.getUserIndexIds error:', error);
+      return [];
+    }
+  }
+
+  async getIntentForIndexing(intentId: string) {
+    const rows = await db
+      .select({
+        id: intents.id,
+        payload: intents.payload,
+        userId: intents.userId,
+        sourceType: intents.sourceType,
+        sourceId: intents.sourceId,
+      })
+      .from(intents)
+      .where(eq(intents.id, intentId))
+      .limit(1);
+    return rows[0] ?? null;
+  }
+
+  async getIndexMemberContext(indexId: string, userId: string) {
+    const rows = await db
+      .select({
+        indexId: indexes.id,
+        indexPrompt: indexes.prompt,
+        memberPrompt: indexMembers.prompt,
+      })
+      .from(indexes)
+      .innerJoin(indexMembers, eq(indexes.id, indexMembers.indexId))
+      .where(
+        and(
+          eq(indexes.id, indexId),
+          eq(indexMembers.userId, userId),
+          eq(indexMembers.autoAssign, true),
+          isNull(indexes.deletedAt)
+        )
+      )
+      .limit(1);
+    return rows[0] ?? null;
+  }
+
+  async isIntentAssignedToIndex(intentId: string, indexId: string): Promise<boolean> {
+    const rows = await db
+      .select({ indexId: intentIndexes.indexId })
+      .from(intentIndexes)
+      .where(
+        and(
+          eq(intentIndexes.intentId, intentId),
+          eq(intentIndexes.indexId, indexId)
+        )
+      )
+      .limit(1);
+    return rows.length > 0;
+  }
+
+  async assignIntentToIndex(intentId: string, indexId: string): Promise<void> {
+    await db.insert(intentIndexes).values({ intentId, indexId });
+  }
+
+  async unassignIntentFromIndex(intentId: string, indexId: string): Promise<void> {
+    await db
+      .delete(intentIndexes)
+      .where(
+        and(
+          eq(intentIndexes.intentId, intentId),
+          eq(intentIndexes.indexId, indexId)
+        )
+      );
+  }
+
+  async getOwnedIndexes(userId: string) {
+    const ownerRows = await db
+      .select({
+        indexId: indexMembers.indexId,
+        title: indexes.title,
+        prompt: indexes.prompt,
+        permissions: indexes.permissions,
+        createdAt: indexes.createdAt,
+      })
+      .from(indexMembers)
+      .innerJoin(indexes, eq(indexMembers.indexId, indexes.id))
+      .where(
+        and(
+          eq(indexMembers.userId, userId),
+          sql`'owner' = ANY(${indexMembers.permissions})`,
+          isNull(indexes.deletedAt)
+        )
+      );
+
+    const result = await Promise.all(
+      ownerRows.map(async (row) => {
+        const [memberCountResult, intentCountResult] = await Promise.all([
+          db.select({ count: count() }).from(indexMembers).where(eq(indexMembers.indexId, row.indexId)),
+          db.select({ count: count() }).from(intentIndexes).where(eq(intentIndexes.indexId, row.indexId)),
+        ]);
+        const perms = row.permissions as { joinPolicy: string; invitationLink: { code: string } | null; allowGuestVibeCheck: boolean; requireApproval: boolean } | null;
+        return {
+          id: row.indexId,
+          title: row.title,
+          prompt: row.prompt,
+          permissions: {
+            joinPolicy: (perms?.joinPolicy ?? 'invite_only') as 'anyone' | 'invite_only',
+            allowGuestVibeCheck: perms?.allowGuestVibeCheck ?? false,
+            requireApproval: perms?.requireApproval ?? false,
+            invitationLink: perms?.invitationLink ?? null,
+          },
+          createdAt: row.createdAt,
+          memberCount: Number(memberCountResult[0]?.count ?? 0),
+          intentCount: Number(intentCountResult[0]?.count ?? 0),
+        };
+      })
+    );
+    return result;
+  }
+
+  async isIndexOwner(indexId: string, userId: string): Promise<boolean> {
+    const rows = await db
+      .select({ userId: indexMembers.userId })
+      .from(indexMembers)
+      .where(
+        and(
+          eq(indexMembers.indexId, indexId),
+          eq(indexMembers.userId, userId),
+          sql`'owner' = ANY(${indexMembers.permissions})`
+        )
+      )
+      .limit(1);
+    return rows.length > 0;
+  }
+
+  async getIndexMembersForOwner(indexId: string, requestingUserId: string) {
+    const isOwner = await this.isIndexOwner(indexId, requestingUserId);
+    if (!isOwner) {
+      throw new Error('Access denied: Not an owner of this index');
+    }
+
+    const members = await db
+      .select({
+        userId: indexMembers.userId,
+        name: users.name,
+        avatar: users.avatar,
+        email: users.email,
+        permissions: indexMembers.permissions,
+        memberPrompt: indexMembers.prompt,
+        autoAssign: indexMembers.autoAssign,
+        joinedAt: indexMembers.createdAt,
+      })
+      .from(indexMembers)
+      .innerJoin(users, eq(indexMembers.userId, users.id))
+      .where(eq(indexMembers.indexId, indexId));
+
+    const result = await Promise.all(
+      members.map(async (m) => {
+        const [intentCountRow] = await db
+          .select({ count: count() })
+          .from(intentIndexes)
+          .innerJoin(intents, eq(intentIndexes.intentId, intents.id))
+          .where(and(eq(intentIndexes.indexId, indexId), eq(intents.userId, m.userId), isNull(intents.archivedAt)));
+        return {
+          userId: m.userId,
+          name: m.name,
+          avatar: m.avatar,
+          email: m.email,
+          permissions: m.permissions ?? [],
+          memberPrompt: m.memberPrompt,
+          autoAssign: m.autoAssign,
+          joinedAt: m.joinedAt,
+          intentCount: Number(intentCountRow?.count ?? 0),
+        };
+      })
+    );
+    return result;
+  }
+
+  async getIndexIntentsForOwner(
+    indexId: string,
+    requestingUserId: string,
+    options?: { limit?: number; offset?: number }
+  ) {
+    const isOwner = await this.isIndexOwner(indexId, requestingUserId);
+    if (!isOwner) {
+      throw new Error('Access denied: Not an owner of this index');
+    }
+
+    const limit = options?.limit ?? 50;
+    const offset = options?.offset ?? 0;
+
+    const rows = await db
+      .select({
+        id: intents.id,
+        payload: intents.payload,
+        summary: intents.summary,
+        userId: intents.userId,
+        userName: users.name,
+        createdAt: intents.createdAt,
+      })
+      .from(intentIndexes)
+      .innerJoin(intents, eq(intentIndexes.intentId, intents.id))
+      .innerJoin(users, eq(intents.userId, users.id))
+      .where(and(eq(intentIndexes.indexId, indexId), isNull(intents.archivedAt)))
+      .orderBy(desc(intents.createdAt))
+      .limit(limit)
+      .offset(offset);
+
+    return rows.map((r) => ({
+      id: r.id,
+      payload: r.payload,
+      summary: r.summary,
+      userId: r.userId,
+      userName: r.userName,
+      createdAt: r.createdAt,
+    }));
+  }
+
+  async updateIndexSettings(
+    indexId: string,
+    requestingUserId: string,
+    data: { title?: string; prompt?: string | null; joinPolicy?: 'anyone' | 'invite_only'; allowGuestVibeCheck?: boolean; requireApproval?: boolean }
+  ) {
+    const isOwner = await this.isIndexOwner(indexId, requestingUserId);
+    if (!isOwner) {
+      throw new Error('Access denied: Not an owner of this index');
+    }
+
+    const [existing] = await db.select().from(indexes).where(eq(indexes.id, indexId)).limit(1);
+    if (!existing) {
+      throw new Error('Index not found');
+    }
+
+    const updateData: Record<string, unknown> = { updatedAt: new Date() };
+    if (data.title !== undefined) updateData.title = data.title;
+    if (data.prompt !== undefined) updateData.prompt = data.prompt;
+    if (data.joinPolicy !== undefined || data.allowGuestVibeCheck !== undefined || data.requireApproval !== undefined) {
+      const currentPerms = (existing.permissions as { joinPolicy: string; invitationLink: { code: string } | null; allowGuestVibeCheck: boolean; requireApproval: boolean }) ?? {};
+      updateData.permissions = {
+        joinPolicy: data.joinPolicy ?? currentPerms.joinPolicy ?? 'invite_only',
+        invitationLink: currentPerms.invitationLink ?? null,
+        allowGuestVibeCheck: data.allowGuestVibeCheck ?? currentPerms.allowGuestVibeCheck ?? false,
+        requireApproval: data.requireApproval ?? currentPerms.requireApproval ?? false,
+      };
+    }
+
+    await db.update(indexes).set(updateData).where(eq(indexes.id, indexId));
+
+    const [updatedRow] = await db.select().from(indexes).where(eq(indexes.id, indexId)).limit(1);
+    if (!updatedRow) {
+      throw new Error('Index not found after update');
+    }
+    const [memberCountResult, intentCountResult] = await Promise.all([
+      db.select({ count: count() }).from(indexMembers).where(eq(indexMembers.indexId, indexId)),
+      db.select({ count: count() }).from(intentIndexes).where(eq(intentIndexes.indexId, indexId)),
+    ]);
+    const perms = (updatedRow.permissions as { joinPolicy: string; invitationLink: { code: string } | null; allowGuestVibeCheck: boolean; requireApproval: boolean }) ?? {};
+    return {
+      id: updatedRow.id,
+      title: updatedRow.title,
+      prompt: updatedRow.prompt,
+      permissions: {
+        joinPolicy: (perms.joinPolicy ?? 'invite_only') as 'anyone' | 'invite_only',
+        allowGuestVibeCheck: perms.allowGuestVibeCheck ?? false,
+        requireApproval: perms.requireApproval ?? false,
+        invitationLink: perms.invitationLink ?? null,
+      },
+      createdAt: updatedRow.createdAt,
+      memberCount: Number(memberCountResult[0]?.count ?? 0),
+      intentCount: Number(intentCountResult[0]?.count ?? 0),
+    };
   }
 }
 
