@@ -166,6 +166,14 @@ export interface SubgraphResults {
     }>;
     count?: number;
     error?: string;
+    /** Results of indexing created intents in user's auto-assign indexes. */
+    indexingResults?: Array<{
+      intentId: string;
+      indexId: string;
+      assigned: boolean;
+      success: boolean;
+      error?: string;
+    }>;
   };
   profile?: {
     mode?: 'query' | 'write';

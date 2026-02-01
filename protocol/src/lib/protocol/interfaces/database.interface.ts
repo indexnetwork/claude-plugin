@@ -436,7 +436,7 @@ export type ChatGraphDatabase = Pick<
 /**
  * Composite database interface for Chat Graph.
  * Includes direct ChatGraph operations plus all methods needed by
- * internally composed subgraphs (ProfileGraph, OpportunityGraph, IntentGraph).
+ * internally composed subgraphs (ProfileGraph, OpportunityGraph, IntentGraph, IndexGraph).
  *
  * Use this type when ChatGraph orchestrates subgraphs internally.
  * For direct ChatGraph operations only, use ChatGraphDatabase.
@@ -455,6 +455,13 @@ export type ChatGraphCompositeDatabase = Pick<
   | 'updateIntent'
   | 'archiveIntent'
   // OpportunityGraph subgraph requirements (getProfile already included)
+  // IndexGraph subgraph requirements (index created intents in user's indexes)
+  | 'getUserIndexIds'
+  | 'getIntentForIndexing'
+  | 'getIndexMemberContext'
+  | 'isIntentAssignedToIndex'
+  | 'assignIntentToIndex'
+  | 'unassignIntentFromIndex'
 >;
 
 /**

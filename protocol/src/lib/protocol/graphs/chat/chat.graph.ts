@@ -6,6 +6,7 @@ import { ChatGraphState, RoutingDecision, SubgraphResults } from "./chat.graph.s
 import { RouterAgent, RouteTarget } from "../../agents/chat/router/chat.router";
 import { ResponseGeneratorAgent, RESPONSE_GENERATOR_SYSTEM_PROMPT } from "../../agents/chat/generator/chat.generator";
 import { IntentGraphFactory } from "../intent/intent.graph";
+import { IndexGraphFactory } from "../index/index.graph";
 import { ProfileGraphFactory } from "../profile/profile.graph";
 import { OpportunityGraph } from "../opportunity/opportunity.graph";
 import type { ChatGraphCompositeDatabase } from "../../interfaces/database.interface";
@@ -869,17 +870,83 @@ export class ChatGraphFactory {
             payload: 'payload' in a ? a.payload?.substring(0, 50) : undefined,
             id: 'id' in a ? a.id : undefined
           })),
-          inferredIntents: result.inferredIntents?.map((i: any) => 
+          inferredIntents: result.inferredIntents?.map((i: any) =>
             typeof i === 'string' ? i.substring(0, 50) : i.description?.substring(0, 50)
           )
         });
+
+        // Index created intents in user's auto-assign indexes
+        const createdIntentIds = (result.executionResults || [])
+          .filter(
+            (r: { actionType: string; success: boolean; intentId?: string }) =>
+              r.actionType === 'create' && r.success && r.intentId
+          )
+          .map((r: { intentId: string }) => r.intentId);
+
+        let indexingResults: Array<{
+          intentId: string;
+          indexId: string;
+          assigned: boolean;
+          success: boolean;
+          error?: string;
+        }> = [];
+
+        if (createdIntentIds.length > 0) {
+          const indexIds = await this.database.getUserIndexIds(state.userId);
+
+          if (indexIds.length > 0) {
+            const indexGraph = new IndexGraphFactory(this.database).createGraph();
+
+            const results = await Promise.all(
+              createdIntentIds.flatMap((intentId: string) =>
+                indexIds.map(async (indexId: string) => {
+                  try {
+                    const indexResult = await indexGraph.invoke({
+                      intentId,
+                      indexId
+                    });
+                    return {
+                      intentId,
+                      indexId,
+                      assigned: indexResult.assignmentResult?.assigned ?? false,
+                      success: indexResult.assignmentResult?.success ?? false,
+                      error: indexResult.assignmentResult?.error
+                    };
+                  } catch (error) {
+                    logger.error("Index graph failed", {
+                      intentId,
+                      indexId,
+                      error: error instanceof Error ? error.message : String(error)
+                    });
+                    return {
+                      intentId,
+                      indexId,
+                      assigned: false,
+                      success: false,
+                      error: error instanceof Error ? error.message : String(error)
+                    };
+                  }
+                })
+              )
+            );
+
+            indexingResults = results;
+
+            logger.info("Indexing complete", {
+              intentCount: createdIntentIds.length,
+              indexCount: indexIds.length,
+              assignedCount: results.filter(r => r.assigned).length
+            });
+          }
+        }
 
         const subgraphResults: SubgraphResults = {
           intent: {
             actions: result.actions || [],
             inferredIntents: (result.inferredIntents || []).map(
               (i: { description: string }) => i.description
-            )
+            ),
+            indexingResults
           }
         };
 
@@ -891,7 +958,9 @@ export class ChatGraphFactory {
           operationType
         });
         return {
-          subgraphResults: { intent: { actions: [], inferredIntents: [] } },
+          subgraphResults: {
+            intent: { actions: [], inferredIntents: [], indexingResults: [] }
+          },
           error: "Intent processing failed"
         };
       }
