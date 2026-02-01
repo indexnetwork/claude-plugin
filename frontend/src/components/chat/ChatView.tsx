@@ -364,6 +364,7 @@ export default function ChatView({ userId, userName, userAvatar, userTitle, onCl
                     onKeyDown={handleKeyPress}
                     placeholder={`Type a message to ${userName}...`}
                     disabled={sendingMessageId !== null}
+                    autoFocus
                     className="flex-1 bg-transparent border-none outline-none font-ibm-plex-mono text-gray-900 placeholder-gray-500 h-6"
                   />
                   <button

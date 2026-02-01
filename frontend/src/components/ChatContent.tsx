@@ -283,6 +283,7 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
           onChange={(e) => setInput(e.target.value)}
           placeholder="What are you looking for?"
           disabled={isBusy}
+          autoFocus
           className="flex-1 font-ibm-plex-mono border-0 bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0 placeholder:text-gray-700"
         />
         <Button
