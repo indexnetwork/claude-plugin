@@ -1,10 +1,10 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { useRouter, usePathname } from 'next/navigation';
+import { useEffect, useState, useRef } from 'react';
+import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import Image from 'next/image';
 import Link from 'next/link';
-import { Compass, MessageCircle } from 'lucide-react';
+import { Compass, MessageCircle, Settings, MoreHorizontal, Trash2, Loader2 } from 'lucide-react';
 import { useAuthContext } from '@/contexts/AuthContext';
 import { useStreamChat } from '@/contexts/StreamChatContext';
 import { useAIChatSessions } from '@/contexts/AIChatSessionsContext';
@@ -12,6 +12,7 @@ import { useAIChat } from '@/contexts/AIChatContext';
 import { usePrivy } from '@privy-io/react-auth';
 import { getAvatarUrl } from '@/lib/file-utils';
 import { Channel } from 'stream-chat';
+import ProfileSettingsModal from '@/components/modals/ProfileSettingsModal';
 
 interface ChatSession {
   id: string;
@@ -31,6 +32,7 @@ interface RecentChat {
 export default function Sidebar() {
   const router = useRouter();
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const { user } = useAuthContext();
   const { client, isReady } = useStreamChat();
   const { sessionsVersion } = useAIChatSessions();
@@ -42,9 +44,21 @@ export default function Sidebar() {
   const [recentChats, setRecentChats] = useState<RecentChat[]>([]);
   const [loadingChats, setLoadingChats] = useState(false);
   const [navigatingToChat, setNavigatingToChat] = useState(false);
+  const [totalUnreadCount, setTotalUnreadCount] = useState(0);
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+  const { updateUser } = useAuthContext();
+  const [chatMenuOpen, setChatMenuOpen] = useState<string | null>(null);
+  const [deletingChat, setDeletingChat] = useState<string | null>(null);
+  const chatMenuRef = useRef<HTMLDivElement>(null);
 
-  const isHomeView = pathname === '/' || pathname?.startsWith('/i/');
-  const isMessagesView = pathname?.startsWith('/u/');
+  const isMessagesView = pathname?.includes('/chat') && pathname?.startsWith('/u/');
+  const isHomeView = !isMessagesView;
+  
+  // Extract current chat user ID from pathname (e.g., /u/abc123/chat -> abc123)
+  const currentChatUserId = pathname?.match(/^\/u\/([^/]+)\/chat/)?.[1] || null;
+  
+  // Get current AI session ID from URL params
+  const currentSessionId = searchParams?.get('sessionId') || null;
 
   const handleDiscoverClick = () => {
     clearChat();
@@ -154,6 +168,71 @@ export default function Sidebar() {
     fetchChats();
   }, [isMessagesView, isReady, client]);
 
+  // Track unread message count
+  useEffect(() => {
+    if (!isReady || !client) return;
+
+    const fetchUnreadCount = async () => {
+      try {
+        const filter = {
+          type: 'messaging',
+          members: { $in: [client.userID || ''] },
+        };
+        const channels = await client.queryChannels(filter, {}, {
+          watch: true,
+          state: true,
+        });
+        
+        const total = channels.reduce((sum, ch) => sum + (ch.state.unreadCount || 0), 0);
+        setTotalUnreadCount(total);
+      } catch (error) {
+        console.error('Failed to fetch unread count:', error);
+      }
+    };
+
+    fetchUnreadCount();
+
+    // Listen for message events to update unread count
+    const handleEvent = () => fetchUnreadCount();
+    client.on('message.new', handleEvent);
+    client.on('message.read', handleEvent);
+    client.on('notification.mark_read', handleEvent);
+
+    return () => {
+      client.off('message.new', handleEvent);
+      client.off('message.read', handleEvent);
+      client.off('notification.mark_read', handleEvent);
+    };
+  }, [isReady, client]);
+
+  // Close chat menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (chatMenuRef.current && !chatMenuRef.current.contains(event.target as Node)) {
+        setChatMenuOpen(null);
+      }
+    };
+    if (chatMenuOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [chatMenuOpen]);
+
+  const handleDeleteChat = async (channelId: string, chatName: string) => {
+    if (!client || deletingChat) return;
+    setDeletingChat(channelId);
+    try {
+      const channel = client.channel('messaging', channelId);
+      await channel.delete();
+      setRecentChats(prev => prev.filter(c => c.id !== channelId));
+      setChatMenuOpen(null);
+    } catch (error) {
+      console.error('Failed to delete chat:', error);
+    } finally {
+      setDeletingChat(null);
+    }
+  };
+
   return (
     <div className="flex flex-col h-full font-ibm-plex-mono overflow-hidden">
       {/* Logo */}
@@ -193,7 +272,12 @@ export default function Sidebar() {
           } ${navigatingToChat ? 'opacity-50 cursor-wait' : ''}`}
         >
           <MessageCircle className="w-5 h-5" />
-          Chat
+          <span className="flex-1 text-left">Chat</span>
+          {totalUnreadCount > 0 && (
+            <span className="bg-black text-white text-xs px-2 py-0.5 rounded-full min-w-[20px] text-center">
+              {totalUnreadCount > 99 ? '99+' : totalUnreadCount}
+            </span>
+          )}
         </button>
       </nav>
 
@@ -212,15 +296,22 @@ export default function Sidebar() {
               <div className="text-sm text-gray-400">No conversations yet</div>
             ) : (
               <div className="space-y-1">
-                {chatSessions.slice(0, 4).map((session) => (
-                  <button
-                    key={session.id}
-                    onClick={() => router.push(`/?sessionId=${session.id}`)}
-                    className="w-full text-left py-2 text-sm text-gray-700 hover:text-black transition-colors truncate"
-                  >
-                    {session.title || 'Untitled conversation'}
-                  </button>
-                ))}
+                {chatSessions.slice(0, 4).map((session) => {
+                  const isSelected = currentSessionId === session.id;
+                  return (
+                    <button
+                      key={session.id}
+                      onClick={() => router.push(`/?sessionId=${session.id}`)}
+                      className={`w-full text-left py-2 px-2 -mx-2 rounded-md text-sm transition-colors truncate ${
+                        isSelected
+                          ? 'bg-gray-50 text-black font-medium'
+                          : 'text-gray-700 hover:text-black hover:bg-gray-50'
+                      }`}
+                    >
+                      {session.title || 'Untitled conversation'}
+                    </button>
+                  );
+                })}
               </div>
             )}
           </>
@@ -237,22 +328,61 @@ export default function Sidebar() {
               <div className="text-sm text-gray-400">No messages yet</div>
             ) : (
               <div className="space-y-1">
-                {recentChats.slice(0, 4).map((chat) => (
-                  <button
-                    key={chat.id}
-                    onClick={() => router.push(`/u/${chat.recipientId}/chat`)}
-                    className="w-full flex items-center gap-3 py-2 text-sm text-gray-700 hover:text-black transition-colors"
+                {recentChats.slice(0, 4).map((chat) => {
+                  const isSelected = currentChatUserId === chat.recipientId;
+                  return (
+                  <div 
+                    key={chat.id} 
+                    className={`relative group flex items-center py-2 px-2 -mx-2 rounded-md transition-colors ${
+                      isSelected 
+                        ? 'bg-gray-50' 
+                        : 'hover:bg-gray-50'
+                    }`}
                   >
-                    <Image
-                      src={getAvatarUrl({ avatar: chat.avatar, id: chat.recipientId, name: chat.name })}
-                      alt={chat.name}
-                      width={28}
-                      height={28}
-                      className="rounded-full flex-shrink-0"
-                    />
-                    <span className="truncate">{chat.name}</span>
-                  </button>
-                ))}
+                    <button
+                      onClick={() => router.push(`/u/${chat.recipientId}/chat`)}
+                      className={`flex-1 flex items-center gap-3 text-sm text-left ${
+                        isSelected 
+                          ? 'text-black font-medium' 
+                          : 'text-gray-700 hover:text-black'
+                      }`}
+                    >
+                      <Image
+                        src={getAvatarUrl({ avatar: chat.avatar, id: chat.recipientId, name: chat.name })}
+                        alt={chat.name}
+                        width={28}
+                        height={28}
+                        className="rounded-full flex-shrink-0"
+                      />
+                      <span className="truncate">{chat.name}</span>
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setChatMenuOpen(chatMenuOpen === chat.id ? null : chat.id);
+                      }}
+                      className="p-1 opacity-0 group-hover:opacity-100 hover:bg-gray-100 rounded transition-all flex-shrink-0"
+                    >
+                      <MoreHorizontal className="w-4 h-4 text-gray-400" />
+                    </button>
+                    {chatMenuOpen === chat.id && (
+                      <div 
+                        ref={chatMenuRef}
+                        className="absolute right-0 top-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg py-1 min-w-[140px] z-30"
+                      >
+                        <button
+                          onClick={() => handleDeleteChat(chat.id, chat.name)}
+                          disabled={deletingChat === chat.id}
+                          className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors disabled:opacity-50"
+                        >
+                          {deletingChat === chat.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                          Delete
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                  );
+                })}
               </div>
             )}
           </>
@@ -265,7 +395,10 @@ export default function Sidebar() {
       {/* User Profile - always at bottom */}
       {user && (
         <div className="flex-shrink-0 px-4 py-4">
-          <div className="flex items-center gap-3">
+          <button
+            onClick={() => setIsProfileModalOpen(true)}
+            className="w-full flex items-center gap-3 hover:bg-gray-50 rounded-md p-2 -m-2 transition-colors"
+          >
             <Image
               src={getAvatarUrl(user)}
               alt={user.name || 'User'}
@@ -273,7 +406,7 @@ export default function Sidebar() {
               height={40}
               className="rounded-full flex-shrink-0"
             />
-            <div className="flex-1 min-w-0">
+            <div className="flex-1 min-w-0 text-left">
               <div className="text-sm font-medium text-black truncate">
                 {user.name}
               </div>
@@ -281,9 +414,18 @@ export default function Sidebar() {
                 Member
               </div>
             </div>
-          </div>
+            <Settings className="w-4 h-4 text-gray-400" />
+          </button>
         </div>
       )}
+
+      {/* Profile Settings Modal */}
+      <ProfileSettingsModal
+        open={isProfileModalOpen}
+        onOpenChange={setIsProfileModalOpen}
+        user={user}
+        onUserUpdate={updateUser}
+      />
     </div>
   );
 }

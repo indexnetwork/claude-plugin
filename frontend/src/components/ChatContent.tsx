@@ -289,7 +289,7 @@ export default function ChatContent() {
           onChange={(e) => setInput(e.target.value)}
           placeholder="What are you looking for?"
           disabled={isBusy}
-          className="flex-1 font-ibm-plex-mono border-0 bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0"
+          className="flex-1 font-ibm-plex-mono border-0 bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0 placeholder:text-gray-700"
         />
         <Button
           type="submit"
@@ -312,7 +312,7 @@ export default function ChatContent() {
     return (
       <div className="px-6 lg:px-8 py-6">
         <ContentContainer>
-          <h1 className="text-xl md:text-2xl font-medium text-gray-800 my-6 text-center">Discover</h1>
+          <div className="my-6" />
           {renderInputForm()}
 
           {!discoveryLoading && discoverStakes.length > 0 && (

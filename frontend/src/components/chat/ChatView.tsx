@@ -4,8 +4,9 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { Channel, MessageResponse, LocalMessage } from 'stream-chat';
 import { useStreamChat } from '@/contexts/StreamChatContext';
 import { useNotifications } from '@/contexts/NotificationContext';
-import { Clock, Check, SkipForward, Loader2, ArrowUp, X, MoreHorizontal } from 'lucide-react';
+import { Clock, Check, SkipForward, Loader2, ArrowUp, X, MoreHorizontal, Trash2 } from 'lucide-react';
 import Image from 'next/image';
+import Link from 'next/link';
 import { getAvatarUrl } from '@/lib/file-utils';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -61,6 +62,9 @@ export default function ChatView({ userId, userName, userAvatar, userTitle, onCl
   const inputRef = useRef<HTMLInputElement>(null);
   const [sendingMessageId, setSendingMessageId] = useState<string | null>(null);
   const [channelRefreshKey, setChannelRefreshKey] = useState(0);
+  const [showMenu, setShowMenu] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'auto' });
@@ -214,24 +218,68 @@ export default function ChatView({ userId, userName, userAvatar, userTitle, onCl
     return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
   };
 
+  const handleDeleteChat = async () => {
+    if (!channel || isDeleting) return;
+    setIsDeleting(true);
+    try {
+      await channel.delete();
+      success('Chat deleted', `Conversation with ${userName} has been deleted.`);
+      onClose();
+    } catch (err) {
+      console.error('Failed to delete chat:', err);
+      showError('Failed to delete', err instanceof Error ? err.message : 'Please try again.');
+    } finally {
+      setIsDeleting(false);
+      setShowMenu(false);
+    }
+  };
+
+  // Close menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setShowMenu(false);
+      }
+    };
+    if (showMenu) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showMenu]);
+
   return (
     <>
       {/* Sticky header - full width */}
       <div className="sticky top-0 bg-white z-10 px-4 py-3 flex items-center justify-between min-h-[68px]">
         <div className="flex items-center gap-3">
           <button onClick={handleBack} className="text-gray-600 hover:text-black transition-colors text-xl mr-2">←</button>
-          <div className="relative">
-            <Image src={avatarUrl} alt={userName} width={44} height={44} className="rounded-full" />
-            <span className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 border-2 border-white rounded-full" />
-          </div>
-          <div>
+          <Link href={`/u/${userId}`} className="flex items-center gap-3 hover:opacity-80 transition-opacity">
+            <div className="relative">
+              <Image src={avatarUrl} alt={userName} width={44} height={44} className="rounded-full" />
+            </div>
             <h2 className="font-ibm-plex-mono font-bold text-lg text-black">{userName}</h2>
-            {userTitle && <p className="font-ibm-plex-mono text-sm text-gray-500">{userTitle}</p>}
-          </div>
+          </Link>
         </div>
-        <button className="p-2 hover:bg-gray-100 rounded-full transition-colors">
-          <MoreHorizontal className="w-5 h-5 text-gray-500" />
-        </button>
+        <div className="relative" ref={menuRef}>
+          <button 
+            onClick={() => setShowMenu(!showMenu)}
+            className="p-2 hover:bg-gray-100 rounded-full transition-colors"
+          >
+            <MoreHorizontal className="w-5 h-5 text-gray-500" />
+          </button>
+          {showMenu && (
+            <div className="absolute right-0 top-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg py-1 min-w-[160px] z-20">
+              <button
+                onClick={handleDeleteChat}
+                disabled={isDeleting || !channel}
+                className="w-full flex items-center gap-2 px-4 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors disabled:opacity-50"
+              >
+                {isDeleting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                Delete chat
+              </button>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Scrollable content - centered */}

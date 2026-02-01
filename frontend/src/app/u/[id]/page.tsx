@@ -3,7 +3,7 @@
 import { useState, useEffect, use } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
-import { ArrowLeft, Loader2 } from "lucide-react";
+import { Loader2, MessageCircle } from "lucide-react";
 import { useAuthContext } from "@/contexts/AuthContext";
 import { useUsers, useDiscover } from "@/contexts/APIContext";
 import { getAvatarUrl } from "@/lib/file-utils";
@@ -107,8 +107,8 @@ export default function UserProfilePage({ params }: UserProfilePageProps) {
   return (
     <ClientLayout>
       {/* Sticky header - full width */}
-      <div className="sticky top-0 bg-white border-b border-gray-200 z-10 px-4 py-3 flex items-center gap-3">
-        <button onClick={() => router.back()} className="text-gray-600 hover:text-black transition-colors text-xl">←</button>
+      <div className="sticky top-0 bg-white z-10 px-4 py-3 flex items-center gap-3 min-h-[68px]">
+        <button onClick={() => router.back()} className="text-gray-600 hover:text-black transition-colors text-xl mr-2">←</button>
         <h1 className="font-ibm-plex-mono text-lg font-bold text-black">{profileData.name}</h1>
       </div>
 
@@ -194,6 +194,15 @@ export default function UserProfilePage({ params }: UserProfilePageProps) {
                 </div>
               )}
             </div>
+
+            {/* Message CTA Button */}
+            <button
+              onClick={() => router.push(`/u/${resolvedParams.id}/chat`)}
+              className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-black text-white rounded-sm hover:bg-gray-800 transition-colors font-ibm-plex-mono text-sm font-medium"
+            >
+              <MessageCircle className="w-4 h-4" />
+              Message
+            </button>
 
             {/* Intro Section */}
             {profileData.intro && (

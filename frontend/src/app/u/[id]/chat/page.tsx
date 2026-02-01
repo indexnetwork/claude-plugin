@@ -62,7 +62,7 @@ export default function ChatPage({ params }: ChatPageProps) {
   };
 
   const handleBack = () => {
-    router.push('/');
+    router.back();
   };
 
   if (authLoading || isLoading) {
