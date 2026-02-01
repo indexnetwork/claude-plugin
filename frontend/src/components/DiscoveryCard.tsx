@@ -44,7 +44,7 @@ export default function DiscoveryCard({
   popoverControlRef
 }: DiscoveryCardProps) {
   return (
-    <div className="pt-4">
+    <div>
       {/* User Header */}
       <div className="flex flex-wrap sm:flex-nowrap justify-between items-start mb-4">
         <div className="flex items-center gap-4 w-full sm:w-auto mb-2 sm:mb-0">

@@ -217,7 +217,7 @@ export default function ChatView({ userId, userName, userAvatar, userTitle, onCl
   return (
     <>
       {/* Sticky header - full width */}
-      <div className="sticky top-0 bg-white border-b border-gray-200 z-10 px-4 py-3 flex items-center justify-between min-h-[68px]">
+      <div className="sticky top-0 bg-white z-10 px-4 py-3 flex items-center justify-between min-h-[68px]">
         <div className="flex items-center gap-3">
           <button onClick={handleBack} className="text-gray-600 hover:text-black transition-colors text-xl mr-2">←</button>
           <div className="relative">
@@ -298,7 +298,7 @@ export default function ChatView({ userId, userName, userAvatar, userTitle, onCl
       </div>
 
       {/* Fixed input at bottom */}
-      <div className="fixed bottom-0 left-0 right-0 lg:left-64 bg-white border-t border-gray-200 z-20">
+      <div className="fixed bottom-0 left-0 right-0 lg:left-64 z-20">
         <div className="px-6 lg:px-8 py-4">
           <ContentContainer>
             {pendingState.isPending && pendingState.isRequester ? (
@@ -307,7 +307,7 @@ export default function ChatView({ userId, userName, userAvatar, userTitle, onCl
               <div className="text-center text-gray-500 font-ibm-plex-mono text-sm">Accept the request to continue the conversation</div>
             ) : (
               <>
-                <div className="flex items-center gap-3 bg-gray-100 rounded-full px-4 py-2">
+                <div className="flex items-center gap-3 bg-gray-100 rounded-full px-4 py-3">
                   <input
                     ref={inputRef}
                     type="text"
@@ -316,17 +316,16 @@ export default function ChatView({ userId, userName, userAvatar, userTitle, onCl
                     onKeyDown={handleKeyPress}
                     placeholder={`Type a message to ${userName}...`}
                     disabled={sendingMessageId !== null}
-                    className="flex-1 bg-transparent border-none outline-none font-ibm-plex-mono text-sm text-gray-900 placeholder-gray-500"
+                    className="flex-1 bg-transparent border-none outline-none font-ibm-plex-mono text-gray-900 placeholder-gray-500 h-6"
                   />
                   <button
                     onClick={handleSend}
                     disabled={!messageText.trim() || sendingMessageId !== null}
-                    className="w-8 h-8 rounded-full bg-black text-white flex items-center justify-center hover:bg-gray-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="shrink-0 h-8 w-8 rounded-full bg-black text-white flex items-center justify-center hover:bg-gray-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    <ArrowUp className="w-4 h-4" />
+                    <ArrowUp className="h-4 w-4" />
                   </button>
                 </div>
-                <p className="text-center text-xs text-gray-400 font-ibm-plex-mono mt-2">Press Enter to send</p>
               </>
             )}
           </ContentContainer>

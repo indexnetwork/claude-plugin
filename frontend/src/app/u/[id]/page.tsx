@@ -77,10 +77,8 @@ export default function UserProfilePage({ params }: UserProfilePageProps) {
   if (authLoading || isLoading) {
     return (
       <ClientLayout>
-        <div className="bg-white border border-gray-800 rounded-sm p-8">
-          <div className="flex items-center justify-center py-12">
-            <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
-          </div>
+        <div className="flex items-center justify-center py-12">
+          <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
         </div>
       </ClientLayout>
     );
@@ -90,17 +88,15 @@ export default function UserProfilePage({ params }: UserProfilePageProps) {
   if (error) {
     return (
       <ClientLayout>
-        <div className="bg-white border border-gray-800 rounded-sm p-8">
-          <div className="text-center py-12">
-            <h2 className="text-xl font-bold text-red-600 mb-2 font-ibm-plex-mono">Error</h2>
-            <p className="text-gray-600 mb-4 font-ibm-plex-mono">{error}</p>
-            <button
-              onClick={() => router.back()}
-              className="px-4 py-2 bg-black text-white rounded hover:bg-gray-800 font-ibm-plex-mono"
-            >
-              Go Back
-            </button>
-          </div>
+        <div className="text-center py-12">
+          <h2 className="text-xl font-bold text-red-600 mb-2 font-ibm-plex-mono">Error</h2>
+          <p className="text-gray-600 mb-4 font-ibm-plex-mono">{error}</p>
+          <button
+            onClick={() => router.back()}
+            className="px-4 py-2 bg-black text-white rounded hover:bg-gray-800 font-ibm-plex-mono"
+          >
+            Go Back
+          </button>
         </div>
       </ClientLayout>
     );

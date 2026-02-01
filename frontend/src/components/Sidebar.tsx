@@ -268,7 +268,7 @@ export default function Sidebar() {
 
       {/* User Profile - always at bottom */}
       {user && (
-        <div className="flex-shrink-0 px-4 py-4 border-t border-gray-200">
+        <div className="flex-shrink-0 px-4 py-4">
           <div className="flex items-center gap-3">
             <Image
               src={getAvatarUrl(user)}
