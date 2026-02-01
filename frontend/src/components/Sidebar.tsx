@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useRef } from 'react';
-import { useRouter, usePathname, useSearchParams } from 'next/navigation';
+import { useRouter, usePathname } from 'next/navigation';
 import Image from 'next/image';
 import Link from 'next/link';
 import { Compass, MessageCircle, Settings, MoreHorizontal, Trash2, Loader2 } from 'lucide-react';
@@ -32,7 +32,6 @@ interface RecentChat {
 export default function Sidebar() {
   const router = useRouter();
   const pathname = usePathname();
-  const searchParams = useSearchParams();
   const { user } = useAuthContext();
   const { client, isReady } = useStreamChat();
   const { sessionsVersion } = useAIChatSessions();
@@ -57,8 +56,8 @@ export default function Sidebar() {
   // Extract current chat user ID from pathname (e.g., /u/abc123/chat -> abc123)
   const currentChatUserId = pathname?.match(/^\/u\/([^/]+)\/chat/)?.[1] || null;
   
-  // Get current AI session ID from URL params
-  const currentSessionId = searchParams?.get('sessionId') || null;
+  // Get current AI session ID from pathname (e.g., /d/abc123 -> abc123)
+  const currentSessionId = pathname?.match(/^\/d\/([^/]+)/)?.[1] || null;
 
   const handleDiscoverClick = () => {
     clearChat();
@@ -301,7 +300,7 @@ export default function Sidebar() {
                   return (
                     <button
                       key={session.id}
-                      onClick={() => router.push(`/?sessionId=${session.id}`)}
+                      onClick={() => router.push(`/d/${session.id}`)}
                       className={`w-full text-left py-2 px-2 -mx-2 rounded-md text-sm transition-colors truncate ${
                         isSelected
                           ? 'bg-gray-50 text-black font-medium'

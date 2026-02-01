@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { Send, Loader2, Sparkles, Pencil, Paperclip, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -25,10 +25,13 @@ interface PendingFile {
   file: File;
 }
 
-export default function ChatContent() {
+interface ChatContentProps {
+  sessionIdParam?: string | null;
+}
+
+export default function ChatContent({ sessionIdParam }: ChatContentProps) {
   const router = useRouter();
-  const searchParams = useSearchParams();
-  const sessionIdFromUrl = searchParams?.get('sessionId') ?? null;
+  const sessionIdFromUrl = sessionIdParam ?? null;
   const { messages, isLoading, sendMessage, clearChat, loadSession, sessionId, sessionTitle, updateSessionTitle } = useAIChat();
   const uploadServiceV2 = useUploadServiceV2();
   const { error: showError } = useNotifications();
@@ -42,7 +45,6 @@ export default function ChatContent() {
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [editTitleValue, setEditTitleValue] = useState('');
   const titleInputRef = useRef<HTMLInputElement>(null);
-  const justCreatedSessionRef = useRef<string | null>(null);
 
   // Discovery state
   const [discoverStakes, setDiscoverStakes] = useState<StakesByUserResponse[]>([]);
@@ -57,12 +59,6 @@ export default function ChatContent() {
 
   useEffect(() => {
     if (sessionIdFromUrl) {
-      // Skip loading if we just created this session ourselves
-      if (justCreatedSessionRef.current === sessionIdFromUrl) {
-        justCreatedSessionRef.current = null;
-        setSessionLoaded(true);
-        return;
-      }
       loadSession(sessionIdFromUrl).finally(() => setSessionLoaded(true));
     } else {
       clearChat();
@@ -76,14 +72,12 @@ export default function ChatContent() {
     }
   }, [messages]);
 
-  // Update URL when session changes
+  // Update URL when session changes (without navigation to avoid remount)
   useEffect(() => {
     if (sessionId && !sessionIdFromUrl) {
-      // Mark that we just created this session to avoid reloading it
-      justCreatedSessionRef.current = sessionId;
-      router.replace(`/?sessionId=${sessionId}`, { scroll: false });
+      window.history.replaceState(null, '', `/d/${sessionId}`);
     }
-  }, [sessionId, sessionIdFromUrl, router]);
+  }, [sessionId, sessionIdFromUrl]);
 
   // Fetch discoveries for home state
   const fetchSynthesis = useCallback(async (targetUserId: string) => {
