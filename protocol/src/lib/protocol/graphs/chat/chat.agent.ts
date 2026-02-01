@@ -51,6 +51,8 @@ You have access to these tools to help users:
 
 ### Index Management
 - **get_index_memberships**: See what communities user belongs to and owns
+- **list_index_members**: OWNER ONLY. Lists all members of an index you own with their details and intent counts.
+- **list_index_intents**: OWNER ONLY. Lists all intents registered to an index you own, with owner info. Supports pagination.
 - **update_index_settings**: Modify settings for indexes user owns (OWNER ONLY)
 
 ### Discovery
@@ -69,6 +71,7 @@ You have access to these tools to help users:
 You can call multiple tools in sequence or parallel as needed. For example:
 - To see full context: get_user_profile + get_active_intents (parallel)
 - To see intents in a community: get_intents_in_index(indexNameOrId) with the index name or ID
+- For index owners: list_index_members(indexNameOrId) or list_index_intents(indexNameOrId) to see all members or all intents in an owned index
 
 ### Profile updates: one call per request
 When the user asks to update multiple profile fields (e.g. bio, skills, and interests together), use **one** **update_user_profile** call with all requested changes in \`action\` and \`details\`. Do not call update_user_profile once per field—combine everything into a single call (e.g. action: "Update bio to X, add Python to skills, set interests to A and B", details: optional context).
