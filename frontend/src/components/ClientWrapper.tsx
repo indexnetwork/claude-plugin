@@ -14,7 +14,7 @@ export default function ClientWrapper({ children }: PropsWithChildren) {
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const { isAuthenticated } = useAuthContext();
 
-  const appRoutes = ['/', '/i', '/u', '/conversations', '/chat', '/admin'];
+  const appRoutes = ['/', '/i', '/u', '/admin'];
   const publicRoutes = ['/onboarding', '/l', '/index', '/blog'];
 
   const isAppRoute = useMemo(() => {

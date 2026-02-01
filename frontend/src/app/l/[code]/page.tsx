@@ -168,7 +168,7 @@ export default function InvitationPage({ params }: InvitationPageProps) {
         // Refresh indexes context
         await refreshIndexes();
         // Redirect to the index page
-        router.push(`/inbox`);
+        router.push(`/`);
       }
     } catch (err) {
       console.error('Failed to accept invitation:', err);
@@ -339,7 +339,7 @@ export default function InvitationPage({ params }: InvitationPageProps) {
               </p>
             </div>
             <Button
-              onClick={() => router.push(`/inbox`)}
+              onClick={() => router.push(`/`)}
               className="bg-black text-white hover:bg-gray-800 font-ibm-plex-mono"
             >
               Go to your Inbox

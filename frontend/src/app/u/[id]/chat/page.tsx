@@ -58,11 +58,11 @@ export default function ChatPage({ params }: ChatPageProps) {
     if (profileData) {
       closeChat(profileData.id);
     }
-    router.push('/conversations');
+    router.push('/');
   };
 
   const handleBack = () => {
-    router.push('/conversations');
+    router.push('/');
   };
 
   if (authLoading || isLoading) {
@@ -79,7 +79,7 @@ export default function ChatPage({ params }: ChatPageProps) {
         <h2 className="text-xl font-bold text-red-600 mb-2 font-ibm-plex-mono">Error</h2>
         <p className="text-gray-600 mb-4 font-ibm-plex-mono">{error}</p>
         <button
-          onClick={() => router.push('/conversations')}
+          onClick={() => router.push('/')}
           className="px-4 py-2 bg-black text-white rounded hover:bg-gray-800 font-ibm-plex-mono"
         >
           Go Back

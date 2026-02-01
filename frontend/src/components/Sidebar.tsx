@@ -44,7 +44,7 @@ export default function Sidebar() {
   const [navigatingToChat, setNavigatingToChat] = useState(false);
 
   const isHomeView = pathname === '/' || pathname?.startsWith('/i/');
-  const isMessagesView = pathname === '/conversations' || pathname?.startsWith('/u/');
+  const isMessagesView = pathname?.startsWith('/u/');
 
   const handleDiscoverClick = () => {
     clearChat();
@@ -53,7 +53,6 @@ export default function Sidebar() {
 
   const handleChatClick = async () => {
     if (!isReady || !client) {
-      router.push('/conversations');
       return;
     }
 
@@ -78,13 +77,10 @@ export default function Sidebar() {
         
         if (recipientId) {
           router.push(`/u/${recipientId}/chat`);
-          return;
         }
       }
-      router.push('/conversations');
     } catch (error) {
       console.error('Failed to fetch most recent chat:', error);
-      router.push('/conversations');
     } finally {
       setNavigatingToChat(false);
     }
