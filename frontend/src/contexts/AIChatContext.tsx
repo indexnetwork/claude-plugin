@@ -10,6 +10,14 @@ interface ThinkingStep {
   timestamp: Date;
 }
 
+export interface DiscoveryOpportunity {
+  candidateId: string;
+  candidateName?: string;
+  candidateAvatar?: string;
+  score: number;
+  sourceDescription: string;
+}
+
 interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
@@ -18,6 +26,7 @@ interface ChatMessage {
   isStreaming?: boolean;
   thinking?: ThinkingStep[];
   attachmentNames?: string[];
+  discoveries?: DiscoveryOpportunity[];
 }
 
 interface AIChatContextType {
