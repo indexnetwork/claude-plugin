@@ -145,9 +145,11 @@ export default function ChatSidebar() {
 
   if (!isReady) {
     return (
-      <div className="">
-        <div className="flex items-center gap-2 mb-4">
-          <MessageSquare className="w-5 h-5 text-gray-600" />
+      <div className="flex flex-col">
+        <div className="flex items-center gap-3 mb-3 min-h-[54px] flex-shrink-0 px-3">
+          <div className="w-10 h-10 flex items-center justify-center flex-shrink-0">
+            <MessageSquare className="w-5 h-5 text-gray-600" />
+          </div>
           <h2 className="font-bold text-sm text-black font-ibm-plex-mono">Conversations</h2>
         </div>
         <div className="text-center text-gray-500 text-sm py-8">
@@ -161,7 +163,7 @@ export default function ChatSidebar() {
     <div className="flex flex-col">
       {/* Message Requests section */}
       {messageRequests.length > 0 && (
-        <div className="border-b border-gray-200">
+        <div>
           <div className="flex items-center gap-2 px-3 py-3 bg-amber-50">
             <Inbox className="w-5 h-5 text-amber-600" />
             <h2 className="font-bold text-sm text-black font-ibm-plex-mono">
@@ -259,10 +261,12 @@ export default function ChatSidebar() {
         </div>
       )}
 
-      {/* Conversations header */}
-      <div className="flex items-center gap-2 mb-3">
-        <MessageSquare className="w-5 h-5 text-gray-600" />
-        <h2 className="font-bold text-sm text-black font-ibm-plex-mono">Conversations</h2>
+      {/* Conversations header - min-h-[54px] aligns with ChatView header bar; w-10 matches avatar width for alignment */}
+      <div className="flex items-center gap-3 mb-3 min-h-[54px] flex-shrink-0 px-3">
+        <div className="w-10 h-10 flex items-center justify-center flex-shrink-0">
+          <MessageSquare className="w-5 h-5 text-gray-600" />
+        </div>
+        <h2 className="font-bold text-sm text-black font-ibm-plex-mono flex-1 min-w-0">Conversations</h2>
         {totalUnreadCount > 0 && (
           <span className="ml-auto text-xs px-2 py-1 rounded-full bg-black text-white font-ibm-plex-mono">
             {totalUnreadCount}
@@ -279,7 +283,7 @@ export default function ChatSidebar() {
             No conversations yet
           </div>
         ) : (
-          <div className="divide-y divide-gray-200">
+          <div>
             {channels.map((channel) => {
               const members = Object.values(channel.state.members || {}) as ChannelMember[];
               const otherMember = members.find(

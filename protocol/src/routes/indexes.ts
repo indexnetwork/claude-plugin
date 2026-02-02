@@ -1,7 +1,7 @@
 import { Router, Response, Request } from 'express';
 import { body, query, param, validationResult } from 'express-validator';
-import db from '../lib/db';
-import { indexes, users, indexMembers, intentIndexes, intents } from '../lib/schema';
+import db from '../lib/drizzle/drizzle';
+import { indexes, users, indexMembers, intentIndexes, intents } from '../schemas/database.schema';
 import { authenticatePrivy, AuthRequest } from '../middleware/auth';
 import { eq, isNull, isNotNull, and, count, desc, or, ilike, exists, sql } from 'drizzle-orm';
 import {
@@ -1744,11 +1744,17 @@ router.get('/:indexId/intents',
         return res.status(403).json({ error: 'Access denied' });
       }
 
-      // Build base conditions for intents in this index
-      const baseCondition = and(
-        showArchived ? isNotNull(intents.archivedAt) : isNull(intents.archivedAt),
-        eq(intentIndexes.indexId, indexId)
-      );
+      // Owners see all intents in the index; members see only their own
+      const baseCondition = isOwner
+        ? and(
+            showArchived ? isNotNull(intents.archivedAt) : isNull(intents.archivedAt),
+            eq(intentIndexes.indexId, indexId)
+          )
+        : and(
+            showArchived ? isNotNull(intents.archivedAt) : isNull(intents.archivedAt),
+            eq(intentIndexes.indexId, indexId),
+            eq(intents.userId, req.user!.id)
+          );
 
       const selectFields = {
         id: intents.id,

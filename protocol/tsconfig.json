@@ -4,6 +4,9 @@
     "lib": [
       "es2017"
     ],
+    "types": [
+      "bun-types"
+    ],
     "allowJs": true,
     "skipLibCheck": true,
     "strict": true,
@@ -23,7 +26,9 @@
     "noImplicitThis": true,
     "noImplicitReturns": true,
     "noFallthroughCasesInSwitch": true,
-    "forceConsistentCasingInFileNames": true
+    "forceConsistentCasingInFileNames": true,
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true
   },
   "include": [
     "src/**/*"

@@ -1,5 +1,5 @@
-import db from './db';
-import { users } from './schema';
+import db from './drizzle/drizzle';
+import { users } from '../schemas/database.schema';
 import { eq } from 'drizzle-orm';
 import { log } from './log';
 import type { IntegrationName } from './integrations/config';

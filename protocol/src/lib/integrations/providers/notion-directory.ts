@@ -2,7 +2,7 @@ import { getClient } from '../composio';
 import { getIntegrationById } from '../integration-utils';
 import { log } from '../../log';
 import type { DirectorySyncProvider, Source, Column, DirectoryRecord } from '../directory-sync';
-import type { DirectorySyncConfig } from '../../schema';
+import type { DirectorySyncConfig } from '../../../schemas/database.schema';
 
 interface NotionDatabase {
   id: string;

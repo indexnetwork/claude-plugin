@@ -1,5 +1,5 @@
-import db from './db';
-import { indexMembers, indexes } from './schema';
+import db from './drizzle/drizzle';
+import { indexMembers, indexes } from '../schemas/database.schema';
 import { eq, and } from 'drizzle-orm';
 import { MemberEvents } from '../events/user.event';
 import { log } from './log';

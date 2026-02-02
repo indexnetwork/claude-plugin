@@ -1,8 +1,8 @@
 import { log } from '../../log';
 import { generateSummaryWithIntents, GenerateSummaryInput } from '../../parallels';
 import { IntentService } from '../../intent-service';
-import db from '../../db';
-import { users } from '../../schema';
+import db from '../../drizzle/drizzle';
+import { users } from '../../../schemas/database.schema';
 import { eq, isNull, and } from 'drizzle-orm';
 
 export interface ProfileEnrichResult {

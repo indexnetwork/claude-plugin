@@ -1,7 +1,7 @@
 import { Router, Response } from 'express';
 import { body, param, query, validationResult } from 'express-validator';
-import db from '../lib/db';
-import { users, userConnectionEvents, intents, intentIndexes, indexMembers, indexes } from '../lib/schema';
+import db from '../lib/drizzle/drizzle';
+import { users, userConnectionEvents, intents, intentIndexes, indexMembers, indexes } from '../schemas/database.schema';
 import { authenticatePrivy, AuthRequest } from '../middleware/auth';
 import { eq, isNull, and, or, desc, sql, inArray } from 'drizzle-orm';
 import { sendConnectionRequestNotification, sendConnectionAcceptedNotification } from '../lib/notification-service';

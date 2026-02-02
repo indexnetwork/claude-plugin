@@ -1,5 +1,5 @@
-import db from '../../lib/db';
-import { agents } from '../../lib/schema';
+import db from '../../lib/drizzle/drizzle';
+import { agents } from '../../schemas/database.schema';
 import { eq, isNull } from 'drizzle-orm';
 import { SemanticRelevancyBroker } from './semantic_relevancy';
 

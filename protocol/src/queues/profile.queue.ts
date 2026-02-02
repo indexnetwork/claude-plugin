@@ -1,5 +1,6 @@
 import { Job } from 'bullmq';
 import { QueueFactory } from '../lib/bullmq/bullmq';
+import { createProfileQueueAdapter } from '../adapters/queue.adapter';
 import { log } from '../lib/log';
 import { profileService } from '../services/profile.service';
 import { opportunityService } from '../services/opportunity.service';
@@ -111,3 +112,6 @@ export const addJob = async (
     throw error;
   }
 };
+
+/** Adapter implementing ProfileQueue; use for DI or when depending on the adapter contract. */
+export const profileQueueAdapter = createProfileQueueAdapter(profileQueue);

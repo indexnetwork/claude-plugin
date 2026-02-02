@@ -2,14 +2,14 @@ import { eq, and, isNull, sql, ne, isNotNull, notInArray } from 'drizzle-orm';
 import { UserMemoryProfile } from '../agents/intent/manager/intent.manager.types';
 import { HydeGeneratorAgent } from '../agents/profile/hyde/hyde.generator';
 import { ProfileGenerator } from '../agents/profile/profile.generator';
-import db from '../lib/db';
+import db from '../lib/drizzle/drizzle';
 import { IndexEmbedder } from '../lib/embedder';
 import { VectorStoreOption, VectorSearchResult, Embedder } from '../agents/common/types';
 import { checkAndTriggerSocialSync } from '../lib/integrations/social-sync';
 import { json2md } from '../lib/json2md/json2md';
 import { log } from '../lib/log';
 import { searchUser } from '../lib/parallel/parallel';
-import { NotificationPreferences, User, UserSocials, userNotificationSettings, userProfiles, users } from '../lib/schema';
+import { NotificationPreferences, User, UserSocials, userNotificationSettings, userProfiles, users } from '../schemas/database.schema';
 
 export interface UpdateProfileDto {
   name?: string;

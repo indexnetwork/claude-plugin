@@ -1,7 +1,7 @@
 import { Router, Response } from 'express';
 import { body, param, validationResult } from 'express-validator';
-import db from '../lib/db';
-import { users, userConnectionEvents, indexes, indexMembers } from '../lib/schema';
+import db from '../lib/drizzle/drizzle';
+import { users, userConnectionEvents, indexes, indexMembers } from '../schemas/database.schema';
 import { authenticatePrivy, AuthRequest } from '../middleware/auth';
 import { eq, isNull, and, or, desc, inArray, sql } from 'drizzle-orm';
 import { checkIndexOwnership, checkIndexAdminAccess } from '../lib/index-access';

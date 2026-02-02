@@ -2,8 +2,8 @@ import { sendEmail } from './transport.helper';
 import { connectionRequestTemplate } from './templates/connection-request.template';
 import { connectionAcceptedTemplate } from './templates/connection-accepted.template';
 import { ownerApprovalRequestTemplate } from './templates/owner-approval-request.template';
-import db from '../db';
-import { userNotificationSettings, users } from '../schema';
+import db from '../drizzle/drizzle';
+import { userNotificationSettings, users } from '../../schemas/database.schema';
 import { eq } from 'drizzle-orm';
 
 const API_URL = process.env.API_URL || 'https://index.network.api';
