@@ -10,6 +10,9 @@
     "build": "bun run build:protocol && bun run build:frontend",
     "build:frontend": "bun --filter frontend build",
     "build:protocol": "bun --filter protocol build",
+    "start": "bun run start:protocol & bun run start:frontend",
+    "start:frontend": "bun --filter frontend start",
+    "start:protocol": "bun --filter protocol start",
     "lint": "bun --filter frontend lint && bun --filter protocol lint",
     "test": "bun --filter protocol test"
   }
