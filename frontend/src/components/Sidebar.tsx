@@ -21,7 +21,6 @@ import CreateIndexModal from '@/components/modals/CreateIndexModal';
 import MemberSettingsModal from '@/components/modals/MemberSettingsModal';
 import IndexSelectorModal from '@/components/modals/IndexSelectorModal';
 import IndexOwnerModal from '@/components/modals/IndexOwnerModal';
-import LibraryModal from '@/components/modals/LibraryModal';
 
 interface ChatSession {
   id: string;
@@ -48,7 +47,6 @@ export default function Sidebar() {
   const [totalUnreadCount, setTotalUnreadCount] = useState(0);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [preferencesModalOpen, setPreferencesModalOpen] = useState(false);
-  const [libraryModalOpen, setLibraryModalOpen] = useState(false);
   const [createIndexModalOpen, setCreateIndexModalOpen] = useState(false);
   const [memberSettingsIndex, setMemberSettingsIndex] = useState<IndexType | null>(null);
   const [ownerModalIndex, setOwnerModalIndex] = useState<IndexType | null>(null);
@@ -57,7 +55,8 @@ export default function Sidebar() {
   const userDropdownRef = useRef<HTMLDivElement>(null);
 
   const isMessagesView = pathname?.includes('/chat') && pathname?.startsWith('/u/');
-  const isHomeView = !isMessagesView;
+  const isLibraryView = pathname?.startsWith('/library');
+  const isHomeView = !isMessagesView && !isLibraryView;
 
   // Get current AI session ID from pathname (e.g., /d/abc123 -> abc123)
   const currentSessionId = pathname?.match(/^\/d\/([^/]+)/)?.[1] || null;
@@ -316,10 +315,14 @@ export default function Sidebar() {
                   Indexes
                 </button>
                 <button
-                  className="w-full px-4 py-2 text-left text-gray-700 hover:bg-gray-50 flex items-center font-ibm-plex-mono text-sm"
+                  className={`w-full px-4 py-2 text-left flex items-center font-ibm-plex-mono text-sm ${
+                    isLibraryView 
+                      ? 'text-black bg-gray-100 font-medium' 
+                      : 'text-gray-700 hover:bg-gray-50'
+                  }`}
                   onClick={() => {
                     setUserDropdownOpen(false);
-                    setLibraryModalOpen(true);
+                    router.push('/library');
                   }}
                 >
                   <Library className="h-4 w-4 mr-2" />
@@ -415,12 +418,6 @@ export default function Sidebar() {
           index={ownerModalIndex}
         />
       )}
-
-      {/* Library Modal */}
-      <LibraryModal
-        open={libraryModalOpen}
-        onOpenChange={setLibraryModalOpen}
-      />
     </div>
   );
 }
