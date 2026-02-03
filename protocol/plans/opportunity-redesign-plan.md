@@ -3019,78 +3019,276 @@ GET /api/opportunities?role=agent
 
 ## 14. Implementation Checklist
 
-### Phase 1: Interfaces & Schema
-- [ ] **Add `Cache` interface** to `lib/protocol/interfaces/cache.interface.ts`
-- [ ] **Extend `Embedder` interface** with HyDE search methods
-- [ ] **Extend `Database` interface** with HyDE and Opportunity types/methods
-- [ ] Create `hyde_documents` table migration
-- [ ] Create `opportunities` table migration with JSONB fields and GIN indexes
-- [ ] Update Drizzle schema files
+> **Ordering Principle**: Each step is independently testable and committable.
+> Dependencies flow downward — later steps depend on earlier ones.
+> Mark steps `[x]` as completed just before committing.
 
-### Phase 2: Adapters
-- [ ] **Create `cache.adapter.ts`** (Redis implementation)
-- [ ] **Create `embedder.adapter.ts`** (Postgres/pgvector + OpenAI)
-- [ ] **Extend `database.adapter.ts`** with HyDE document methods
-- [ ] **Extend `database.adapter.ts`** with Opportunity methods
+---
 
-### Phase 3: HyDE Pipeline
-- [ ] Create `lib/protocol/agents/hyde/hyde.strategies.ts` (strategy registry)
-- [ ] Create `lib/protocol/agents/hyde/hyde.generator.ts` (pure LLM agent)
-- [ ] Create `lib/protocol/graphs/hyde/hyde.graph.state.ts`
-- [ ] Create `lib/protocol/graphs/hyde/hyde.graph.ts` (cache-aware generation)
-- [ ] Add HyDE pre-generation to intent creation queue job
-- [ ] Add HyDE refresh to intent update queue job
+### Step 1: Database Schema & Types
+**Goal**: Create the foundation — tables and TypeScript types.
 
-### Phase 4: Opportunity Graph
-- [ ] Update `lib/protocol/graphs/opportunity/opportunity.state.ts`
+- [ ] Create `lib/protocol/schemas/hyde.schema.ts` (Drizzle schema for `hyde_documents`)
+- [ ] Create `lib/protocol/schemas/opportunity.schema.ts` (Drizzle schema for `opportunities`)
+- [ ] Generate migration: `bun run db:generate`
+- [ ] Apply migration: `bun run db:migrate`
+- [ ] Add TypeScript types to `lib/protocol/interfaces/database.interface.ts`:
+  - [ ] `HydeDocument`, `CreateHydeDocumentData`
+  - [ ] `Opportunity`, `CreateOpportunityData`, `OpportunityQueryOptions`
+  - [ ] `OpportunityDetection`, `OpportunityActor`, `OpportunityInterpretation`, `OpportunityContext`
+
+**Test**: 
+- Verify tables exist via `bun run db:studio`
+- TypeScript compiles without errors
+
+---
+
+### Step 2: Cache Interface & Adapter
+**Goal**: Redis caching infrastructure for HyDE documents.
+
+- [ ] Create `lib/protocol/interfaces/cache.interface.ts`:
+  - [ ] `Cache` interface with `get`, `set`, `delete`, `exists`, `mget`, `deleteByPattern`
+  - [ ] `HydeCache` narrowed type
+  - [ ] `OpportunityCache` narrowed type
+- [ ] Create `src/adapters/cache.adapter.ts` (Redis implementation)
+
+**Test**:
+- Unit test: `set` → `get` → `delete` cycle
+- Unit test: `mget` with multiple keys
+- Unit test: `deleteByPattern` clears matching keys
+
+---
+
+### Step 3: HyDE Document Persistence
+**Goal**: Database adapter methods for HyDE documents.
+
+- [ ] Extend `Database` interface with HyDE methods:
+  - [ ] `getHydeDocument(sourceType, sourceId, strategy)`
+  - [ ] `getHydeDocumentsForSource(sourceType, sourceId)`
+  - [ ] `saveHydeDocument(data)` (upsert)
+  - [ ] `deleteHydeDocumentsForSource(sourceType, sourceId)`
+  - [ ] `deleteExpiredHydeDocuments()`
+  - [ ] `getStaleHydeDocuments(threshold)`
+- [ ] Add `HydeGraphDatabase` narrowed type
+- [ ] Implement methods in `src/adapters/database.adapter.ts`
+
+**Test**:
+- Integration test: Create HyDE document, retrieve by source+strategy
+- Integration test: Upsert replaces existing
+- Integration test: Delete by source clears all strategies
+
+---
+
+### Step 4: Opportunity Persistence
+**Goal**: Database adapter methods for opportunities.
+
+- [ ] Extend `Database` interface with Opportunity methods:
+  - [ ] `createOpportunity(data)`
+  - [ ] `getOpportunity(id)`
+  - [ ] `getOpportunitiesForUser(userId, options)`
+  - [ ] `getOpportunitiesForIndex(indexId, options)`
+  - [ ] `updateOpportunityStatus(id, status)`
+  - [ ] `opportunityExistsBetweenActors(actorIds, indexId)`
+  - [ ] `expireOpportunitiesByIntent(intentId)`
+  - [ ] `expireOpportunitiesForRemovedMember(indexId, userId)`
+- [ ] Add `OpportunityGraphDatabase`, `OpportunityMaintenanceDatabase`, `OpportunityControllerDatabase` narrowed types
+- [ ] Implement methods in `src/adapters/database.adapter.ts`
+
+**Test**:
+- Integration test: Create opportunity with JSONB actors, query by actor
+- Integration test: Deduplication check works
+- Integration test: Status update persists
+
+---
+
+### Step 5: Embedder Adapter with HyDE Search
+**Goal**: Vector search infrastructure with HyDE-aware multi-strategy search.
+
+- [ ] Extend `Embedder` interface in `lib/protocol/interfaces/embedder.interface.ts`:
+  - [ ] `HydeSearchOptions` type
+  - [ ] `HydeCandidate` type
+  - [ ] `searchWithHydeEmbeddings(hydeEmbeddings, options)` method
+- [ ] Create `src/adapters/embedder.adapter.ts`:
+  - [ ] `generate(text)` — OpenAI embeddings
+  - [ ] `search(queryVector, collection, options)` — pgvector similarity
+  - [ ] `searchWithHydeEmbeddings(...)` — multi-strategy search with merge/rank
+
+**Test**:
+- Integration test: Generate embedding, store, search returns match
+- Integration test: Multi-strategy search merges results correctly
+- Integration test: Index scope filtering works
+
+---
+
+### Step 6: HyDE Strategies & Generator Agent
+**Goal**: Pure LLM agent for generating hypothetical documents.
+
+- [ ] Create `lib/protocol/agents/hyde/hyde.strategies.ts`:
+  - [ ] `HydeStrategy` type (`mirror`, `reciprocal`, `mentor`, `investor`, `collaborator`, `hiree`)
+  - [ ] `HydeStrategyConfig` interface
+  - [ ] `HYDE_STRATEGIES` registry with prompts and persist flags
+- [ ] Create `lib/protocol/agents/hyde/hyde.generator.ts`:
+  - [ ] Extend `BaseLangChainAgent`
+  - [ ] `generate(sourceText, strategy, context)` method
+  - [ ] Static helpers: `getTargetCorpus`, `shouldPersist`, `getCacheTTL`
+
+**Test**:
+- Unit test: Each strategy config is valid
+- Integration test: Generator produces reasonable text for each strategy (mocked or real LLM)
+
+---
+
+### Step 7: HyDE Graph
+**Goal**: LangGraph workflow for cache-aware HyDE generation.
+
+- [ ] Create `lib/protocol/graphs/hyde/hyde.graph.state.ts`:
+  - [ ] `HydeDocumentState` interface
+  - [ ] `HydeGraphState` annotation
+- [ ] Create `lib/protocol/graphs/hyde/hyde.graph.ts`:
+  - [ ] Constructor injects `Database`, `Embedder`, `Cache`, `HydeGenerator`
+  - [ ] `check_cache` node — check Redis then DB
+  - [ ] `generate_missing` node — use HydeGenerator
+  - [ ] `embed` node — batch embed texts
+  - [ ] `cache_results` node — save to cache/DB
+  - [ ] Conditional routing for cache hits
+
+**Test**:
+- E2E test: Invoke with intent text → returns embeddings
+- E2E test: Second invoke hits cache (no LLM call)
+- E2E test: `forceRegenerate: true` bypasses cache
+
+---
+
+### Step 8: Opportunity Graph Refactor
+**Goal**: Refactor opportunity detection to use HyDE graph and new interfaces.
+
+- [ ] Create `lib/protocol/graphs/opportunity/opportunity.utils.ts`:
+  - [ ] `selectStrategies(intent, context)` — choose HyDE strategies
+  - [ ] `deriveRolesFromStrategy(strategy)` — map strategy to actor roles
+- [ ] Update `lib/protocol/graphs/opportunity/opportunity.state.ts`:
+  - [ ] Add `hydeEmbeddings`, `candidates`, `opportunities` to state
 - [ ] Refactor `lib/protocol/graphs/opportunity/opportunity.graph.ts`:
-  - [ ] Inject `HydeGraph` as subgraph
-  - [ ] Inject `Embedder` interface for search
-  - [ ] Inject `Database` interface for persistence
-  - [ ] Add deduplication node
-- [ ] Create `lib/protocol/agents/opportunity/notification.agent.ts`
+  - [ ] Constructor injects `Database`, `Embedder`, `Cache`, compiled `HydeGraph`
+  - [ ] Add `invoke_hyde` node — call HyDE subgraph
+  - [ ] Add `search_candidates` node — use `searchWithHydeEmbeddings`
+  - [ ] Add `deduplicate` node — filter existing opportunities
+  - [ ] Add `evaluate_candidates` node — score/filter (optional LLM)
+  - [ ] Add `persist_opportunities` node — save to DB
 
-### Phase 5: Controller & API
+**Test**:
+- E2E test: Given intent with embedding → finds candidate opportunities
+- E2E test: Deduplication prevents duplicate opportunities
+- E2E test: Roles correctly derived from strategies
+
+---
+
+### Step 9: Opportunity API
+**Goal**: REST endpoints for opportunities.
+
 - [ ] Refactor `src/controllers/opportunity.controller.ts`:
-  - [ ] Add manual creation endpoint
-  - [ ] Add presentation helper function
-  - [ ] Inject database adapter
-- [ ] Add permission checking (owner vs member)
-- [ ] Add API routes:
-  - [ ] `GET /api/opportunities` (list for user)
-  - [ ] `GET /api/opportunities/:id` (get with presentation)
-  - [ ] `PATCH /api/opportunities/:id/status` (reply = accept, skip = reject)
-  - [ ] `POST /api/indexes/:indexId/opportunities` (manual create)
-  - [ ] `GET /api/indexes/:indexId/opportunities` (admin list)
+  - [ ] Constructor injects `OpportunityControllerDatabase`
+  - [ ] Add `presentOpportunity()` pure function
+  - [ ] `listOpportunities(userId, options)` — for user
+  - [ ] `getOpportunity(id, viewerId)` — with presentation
+  - [ ] `updateStatus(id, status)` — reply/skip
+  - [ ] `createManual(indexId, actorIds, interpretation)` — curator create
+  - [ ] `listForIndex(indexId, options)` — admin view
+- [ ] Add routes in `src/routes/opportunity.routes.ts`:
+  - [ ] `GET /api/opportunities`
+  - [ ] `GET /api/opportunities/:id`
+  - [ ] `PATCH /api/opportunities/:id/status`
+  - [ ] `POST /api/indexes/:indexId/opportunities`
+  - [ ] `GET /api/indexes/:indexId/opportunities`
+- [ ] Add permission checks (owner vs member)
 
-### Phase 6: Jobs & Maintenance
+**Test**:
+- API test: List returns user's opportunities
+- API test: Status update changes status
+- API test: Manual create requires owner permission
+- API test: Presentation copy varies by viewer role
+
+---
+
+### Step 10: Background Jobs
+**Goal**: Automated opportunity detection and maintenance.
+
 - [ ] Create `src/jobs/hyde.job.ts`:
-  - [ ] Daily cleanup of expired HyDE
-  - [ ] Weekly refresh of stale HyDE
+  - [ ] `cleanupExpiredHyde()` — daily cron
+  - [ ] `refreshStaleHyde()` — weekly cron
+- [ ] Update `src/queues/intent.queue.ts`:
+  - [ ] Add job to pre-generate HyDE on intent creation
+  - [ ] Add job to refresh HyDE on intent update
 - [ ] Update `src/jobs/opportunity.job.ts`:
-  - [ ] Opportunity expiration cron
-  - [ ] Trigger opportunity graph on intent create/update
-- [ ] Add intent archived handler (expire related opportunities)
-- [ ] Add member removed handler (expire related opportunities)
+  - [ ] `expireStaleOpportunities()` — cron
+  - [ ] Add handler for `onIntentCreated` → trigger opportunity graph
+  - [ ] Add handler for `onIntentUpdated` → re-evaluate opportunities
+- [ ] Add event handlers:
+  - [ ] `onIntentArchived` → expire related opportunities, delete HyDE
+  - [ ] `onMemberRemoved` → expire related opportunities
 
-### Phase 7: Chat Integration
-- [ ] Add `selectStrategiesFromQuery()` to chat utils
-- [ ] Create discover node that invokes HyDE graph
+**Test**:
+- Job test: Intent created → HyDE documents generated
+- Job test: Expired HyDE cleanup removes old records
+- Job test: Intent archived → opportunities expired
+
+---
+
+### Step 11: Chat Integration
+**Goal**: Discovery via chat interface.
+
+- [ ] Add `selectStrategiesFromQuery(query)` to `lib/protocol/graphs/chat/chat.utils.ts`
+- [ ] Create discover node in `lib/protocol/graphs/chat/nodes/discover.nodes.ts`:
+  - [ ] Invoke HyDE graph with ad-hoc query
+  - [ ] Search with generated embeddings
+  - [ ] Return formatted candidates
+- [ ] Update chat graph to route discovery queries to discover node
 - [ ] Add discovery results formatting in response generator
 
-### Phase 8: Notifications
-- [ ] Create notification queue jobs
-- [ ] Implement WebSocket broadcast for immediate notifications
-- [ ] Implement email queue for high-priority notifications
-- [ ] Add weekly digest aggregation for low-priority
+**Test**:
+- E2E test: Chat query "find me a mentor" → returns matching profiles
+- E2E test: Query "who needs a React developer" → returns matching intents
+- E2E test: Results formatted appropriately for chat response
 
-### Phase 9: Cleanup & Migration
-- [ ] Remove `SemanticRelevancyBroker` event handler
-- [ ] Remove any service files (use adapters instead)
-- [ ] Drop `intent_stakes` table (clean break)
-- [ ] Drop `intent_stake_items` table
-- [ ] Update CLAUDE.md with new architecture patterns
-- [ ] Add tests for new graphs and adapters
+---
+
+### Step 12: Notifications
+**Goal**: Alert users about new opportunities.
+
+- [ ] Create `src/queues/notification.queue.ts`:
+  - [ ] `queueOpportunityNotification(opportunityId, recipientId, priority)`
+- [ ] Create `src/jobs/notification.job.ts`:
+  - [ ] Immediate: WebSocket broadcast
+  - [ ] High priority: Email via Resend
+  - [ ] Low priority: Aggregate for weekly digest
+- [ ] Create `lib/protocol/agents/opportunity/notification.agent.ts`:
+  - [ ] Decide notification priority based on confidence/category
+- [ ] Integrate into opportunity creation flow
+
+**Test**:
+- Integration test: Opportunity created → notification queued
+- Integration test: High-confidence opportunity → email sent
+- Integration test: WebSocket message received by client
+
+---
+
+### Step 13: Cleanup & Migration
+**Goal**: Remove legacy code, finalize architecture.
+
+- [ ] Remove `SemanticRelevancyBroker` from `src/agents/context_brokers/`
+- [ ] Remove any service files that wrap database operations
+- [ ] Create migration to drop `intent_stakes` table
+- [ ] Create migration to drop `intent_stake_items` table
+- [ ] Run migrations: `bun run db:migrate`
+- [ ] Update `CLAUDE.md`:
+  - [ ] Document new opportunity architecture
+  - [ ] Document HyDE pipeline
+  - [ ] Remove references to intent_stakes
+- [ ] Verify no broken imports across codebase
+
+**Test**:
+- Full app test: Server starts without errors
+- E2E test: Create intent → opportunity detected → user notified
+- Verify: No references to `intent_stakes` in codebase
 
 ### File Structure Summary
 
