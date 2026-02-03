@@ -3063,15 +3063,15 @@ GET /api/opportunities?role=agent
 ### Step 3: HyDE Document Persistence
 **Goal**: Database adapter methods for HyDE documents.
 
-- [ ] Extend `Database` interface with HyDE methods:
-  - [ ] `getHydeDocument(sourceType, sourceId, strategy)`
-  - [ ] `getHydeDocumentsForSource(sourceType, sourceId)`
-  - [ ] `saveHydeDocument(data)` (upsert)
-  - [ ] `deleteHydeDocumentsForSource(sourceType, sourceId)`
-  - [ ] `deleteExpiredHydeDocuments()`
-  - [ ] `getStaleHydeDocuments(threshold)`
-- [ ] Add `HydeGraphDatabase` narrowed type
-- [ ] Implement methods in `src/adapters/database.adapter.ts`
+- [x] Extend `Database` interface with HyDE methods:
+  - [x] `getHydeDocument(sourceType, sourceId, strategy)`
+  - [x] `getHydeDocumentsForSource(sourceType, sourceId)`
+  - [x] `saveHydeDocument(data)` (upsert)
+  - [x] `deleteHydeDocumentsForSource(sourceType, sourceId)`
+  - [x] `deleteExpiredHydeDocuments()`
+  - [x] `getStaleHydeDocuments(threshold)`
+- [x] Add `HydeGraphDatabase` narrowed type
+- [x] Implement methods in `src/adapters/database.adapter.ts`
 
 **Test**:
 - Integration test: Create HyDE document, retrieve by source+strategy

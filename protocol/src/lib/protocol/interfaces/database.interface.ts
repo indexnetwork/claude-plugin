@@ -720,6 +720,72 @@ export interface Database {
     requestingUserId: string,
     data: UpdateIndexSettingsData
   ): Promise<OwnedIndex>;
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // HyDE Document Operations (Opportunity Redesign)
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Get a HyDE document by source and strategy.
+   * Returns the first matching document when multiple target corpuses exist.
+   *
+   * @param sourceType - 'intent' | 'profile' | 'query'
+   * @param sourceId - Source entity ID (e.g. intent ID, user ID)
+   * @param strategy - Strategy name (e.g. 'mirror', 'reciprocal', 'mentor')
+   * @returns The HyDE document or null if not found
+   */
+  getHydeDocument(
+    sourceType: HydeSourceType,
+    sourceId: string,
+    strategy: string
+  ): Promise<HydeDocument | null>;
+
+  /**
+   * Get all HyDE documents for a source (all strategies).
+   *
+   * @param sourceType - 'intent' | 'profile' | 'query'
+   * @param sourceId - Source entity ID
+   * @returns Array of HyDE documents for that source
+   */
+  getHydeDocumentsForSource(
+    sourceType: HydeSourceType,
+    sourceId: string
+  ): Promise<HydeDocument[]>;
+
+  /**
+   * Save a HyDE document (upsert by sourceType + sourceId + strategy + targetCorpus).
+   *
+   * @param data - HyDE document data
+   * @returns The saved HyDE document
+   */
+  saveHydeDocument(data: CreateHydeDocumentData): Promise<HydeDocument>;
+
+  /**
+   * Delete all HyDE documents for a source (e.g. when intent/profile archived).
+   *
+   * @param sourceType - 'intent' | 'profile' | 'query'
+   * @param sourceId - Source entity ID
+   * @returns Number of documents deleted
+   */
+  deleteHydeDocumentsForSource(
+    sourceType: HydeSourceType,
+    sourceId: string
+  ): Promise<number>;
+
+  /**
+   * Delete expired HyDE documents (expires_at <= now). Used by maintenance jobs.
+   *
+   * @returns Number of documents deleted
+   */
+  deleteExpiredHydeDocuments(): Promise<number>;
+
+  /**
+   * Get stale HyDE documents for refresh (e.g. createdAt < threshold).
+   *
+   * @param threshold - Date threshold; documents created before this are considered stale
+   * @returns Array of stale HyDE documents
+   */
+  getStaleHydeDocuments(threshold: Date): Promise<HydeDocument[]>;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -846,4 +912,13 @@ export type IndexOwnershipDatabase = Pick<
   | 'getIndexIntentsForOwner'
   | 'updateIndexSettings'
   | 'getIndexMemberships'
+>;
+
+/**
+ * Database interface narrowed for HyDE Graph operations.
+ * Provides HyDE document CRUD and intent lookup for refresh.
+ */
+export type HydeGraphDatabase = Pick<
+  Database,
+  'getHydeDocument' | 'getHydeDocumentsForSource' | 'saveHydeDocument' | 'getIntent'
 >;

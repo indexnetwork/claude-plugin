@@ -3,7 +3,7 @@
  * Postgres implementations; no dependency on lib/protocol.
  */
 
-import { eq, and, isNull, sql, count, desc } from 'drizzle-orm';
+import { eq, and, isNull, isNotNull, sql, count, desc, lt, lte } from 'drizzle-orm';
 import * as schema from '../schemas/database.schema';
 import db from '../lib/drizzle/drizzle';
 import type { User } from '../schemas/database.schema';
@@ -76,7 +76,40 @@ interface IndexMembershipRow {
   joinedAt: Date;
 }
 
-const { intents, indexes, indexMembers, intentIndexes, users } = schema;
+const { intents, indexes, indexMembers, intentIndexes, users, hydeDocuments } = schema;
+
+// HyDE row to document shape (embedding may come as number[] or pg vector)
+type HydeSourceTypeLocal = 'intent' | 'profile' | 'query';
+interface HydeDocumentRow {
+  id: string;
+  sourceType: HydeSourceTypeLocal;
+  sourceId: string | null;
+  sourceText: string | null;
+  strategy: string;
+  targetCorpus: string;
+  hydeText: string;
+  hydeEmbedding: number[];
+  context: Record<string, unknown> | null;
+  createdAt: Date;
+  expiresAt: Date | null;
+}
+function toHydeDocument(row: typeof hydeDocuments.$inferSelect): HydeDocumentRow {
+  const embedding = row.hydeEmbedding;
+  const vec = Array.isArray(embedding) ? embedding : (typeof embedding === 'string' ? (JSON.parse(embedding) as number[]) : []);
+  return {
+    id: row.id,
+    sourceType: row.sourceType as HydeSourceTypeLocal,
+    sourceId: row.sourceId,
+    sourceText: row.sourceText,
+    strategy: row.strategy,
+    targetCorpus: row.targetCorpus,
+    hydeText: row.hydeText,
+    hydeEmbedding: vec,
+    context: row.context as Record<string, unknown> | null,
+    createdAt: row.createdAt,
+    expiresAt: row.expiresAt,
+  };
+}
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // Intent Graph Database Adapter
@@ -187,6 +220,8 @@ export class IntentDatabaseAdapter {
  * Database adapter for Chat Graph and its subgraphs.
  */
 export class ChatDatabaseAdapter {
+  private readonly hydeAdapter = new HydeDatabaseAdapter();
+
   async getProfile(userId: string): Promise<ProfileRow | null> {
     const result = await db.select()
       .from(schema.userProfiles)
@@ -509,6 +544,41 @@ export class ChatDatabaseAdapter {
           eq(intentIndexes.indexId, indexId)
         )
       );
+  }
+
+  // HyDE document operations (delegate to HydeDatabaseAdapter)
+  async getHydeDocument(
+    sourceType: 'intent' | 'profile' | 'query',
+    sourceId: string,
+    strategy: string
+  ): Promise<HydeDocumentRow | null> {
+    return this.hydeAdapter.getHydeDocument(sourceType, sourceId, strategy);
+  }
+
+  async getHydeDocumentsForSource(
+    sourceType: 'intent' | 'profile' | 'query',
+    sourceId: string
+  ): Promise<HydeDocumentRow[]> {
+    return this.hydeAdapter.getHydeDocumentsForSource(sourceType, sourceId);
+  }
+
+  async saveHydeDocument(data: SaveHydeDocumentInput): Promise<HydeDocumentRow> {
+    return this.hydeAdapter.saveHydeDocument(data);
+  }
+
+  async deleteHydeDocumentsForSource(
+    sourceType: 'intent' | 'profile' | 'query',
+    sourceId: string
+  ): Promise<number> {
+    return this.hydeAdapter.deleteHydeDocumentsForSource(sourceType, sourceId);
+  }
+
+  async deleteExpiredHydeDocuments(): Promise<number> {
+    return this.hydeAdapter.deleteExpiredHydeDocuments();
+  }
+
+  async getStaleHydeDocuments(threshold: Date): Promise<HydeDocumentRow[]> {
+    return this.hydeAdapter.getStaleHydeDocuments(threshold);
   }
 
   async getOwnedIndexes(userId: string) {
@@ -971,5 +1041,137 @@ export class IndexGraphDatabaseAdapter {
           eq(intentIndexes.indexId, indexId)
         )
       );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// HyDE Document Database Adapter
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/** Input shape for saving a HyDE document (matches CreateHydeDocumentData). */
+interface SaveHydeDocumentInput {
+  sourceType: HydeSourceTypeLocal;
+  sourceId?: string | null;
+  sourceText?: string | null;
+  strategy: string;
+  targetCorpus: string;
+  hydeText: string;
+  hydeEmbedding: number[];
+  context?: Record<string, unknown> | null;
+  expiresAt?: Date | null;
+}
+
+/**
+ * Database adapter for HyDE document persistence (HyDE Graph, maintenance jobs).
+ */
+export class HydeDatabaseAdapter {
+  async getHydeDocument(
+    sourceType: HydeSourceTypeLocal,
+    sourceId: string,
+    strategy: string
+  ): Promise<HydeDocumentRow | null> {
+    const rows = await db
+      .select()
+      .from(hydeDocuments)
+      .where(
+        and(
+          eq(hydeDocuments.sourceType, sourceType),
+          eq(hydeDocuments.sourceId, sourceId),
+          eq(hydeDocuments.strategy, strategy)
+        )
+      )
+      .limit(1);
+    const row = rows[0];
+    return row ? toHydeDocument(row) : null;
+  }
+
+  async getHydeDocumentsForSource(
+    sourceType: HydeSourceTypeLocal,
+    sourceId: string
+  ): Promise<HydeDocumentRow[]> {
+    const rows = await db
+      .select()
+      .from(hydeDocuments)
+      .where(
+        and(
+          eq(hydeDocuments.sourceType, sourceType),
+          eq(hydeDocuments.sourceId, sourceId)
+        )
+      );
+    return rows.map(toHydeDocument);
+  }
+
+  async saveHydeDocument(data: SaveHydeDocumentInput): Promise<HydeDocumentRow> {
+    const value = {
+      sourceType: data.sourceType,
+      sourceId: data.sourceId ?? null,
+      sourceText: data.sourceText ?? null,
+      strategy: data.strategy,
+      targetCorpus: data.targetCorpus,
+      context: data.context ?? null,
+      hydeText: data.hydeText,
+      hydeEmbedding: data.hydeEmbedding,
+      expiresAt: data.expiresAt ?? null,
+    };
+    const inserted = await db
+      .insert(hydeDocuments)
+      .values(value)
+      .onConflictDoUpdate({
+        target: [
+          hydeDocuments.sourceType,
+          hydeDocuments.sourceId,
+          hydeDocuments.strategy,
+          hydeDocuments.targetCorpus,
+        ],
+        set: {
+          sourceText: value.sourceText,
+          context: value.context,
+          hydeText: value.hydeText,
+          hydeEmbedding: value.hydeEmbedding,
+          expiresAt: value.expiresAt,
+        },
+      })
+      .returning();
+    const row = inserted[0];
+    if (!row) throw new Error('HydeDatabaseAdapter.saveHydeDocument: no row returned');
+    return toHydeDocument(row);
+  }
+
+  async deleteHydeDocumentsForSource(
+    sourceType: HydeSourceTypeLocal,
+    sourceId: string
+  ): Promise<number> {
+    const deleted = await db
+      .delete(hydeDocuments)
+      .where(
+        and(
+          eq(hydeDocuments.sourceType, sourceType),
+          eq(hydeDocuments.sourceId, sourceId)
+        )
+      )
+      .returning({ id: hydeDocuments.id });
+    return deleted.length;
+  }
+
+  async deleteExpiredHydeDocuments(): Promise<number> {
+    const now = new Date();
+    const deleted = await db
+      .delete(hydeDocuments)
+      .where(
+        and(
+          isNotNull(hydeDocuments.expiresAt),
+          lte(hydeDocuments.expiresAt, now)
+        )
+      )
+      .returning({ id: hydeDocuments.id });
+    return deleted.length;
+  }
+
+  async getStaleHydeDocuments(threshold: Date): Promise<HydeDocumentRow[]> {
+    const rows = await db
+      .select()
+      .from(hydeDocuments)
+      .where(lt(hydeDocuments.createdAt, threshold));
+    return rows.map(toHydeDocument);
   }
 }
