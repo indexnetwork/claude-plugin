@@ -109,6 +109,19 @@ export interface VerificationResult {
 }
 
 /**
+ * Phase timings and summary attached to RunScenarioResult for tests to log.
+ * Use this (and verification.reasoning) in test failure messages so bun test shows Smartest info.
+ */
+export interface RunScenarioReport {
+  scenarioName: string;
+  /** Phase name -> elapsed ms */
+  phases: Record<string, number>;
+  totalMs: number;
+  /** Set when LLM verifier ran (model id). */
+  verifierModel?: string;
+}
+
+/**
  * Result of runScenario().
  */
 export interface RunScenarioResult {
@@ -117,6 +130,8 @@ export interface RunScenarioResult {
   verification?: VerificationResult;
   /** Set when schema validation fails. */
   schemaError?: string;
+  /** Timings and summary; use in test assertions so bun test output includes Smartest info. */
+  report?: RunScenarioReport;
 }
 
 /**

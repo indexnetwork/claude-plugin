@@ -25,7 +25,7 @@ Smartest is **project-agnostic**: it does not know about profiles, intents, oppo
 
 ```ts
 import { describe, expect, it } from 'bun:test';
-import { runScenario, defineScenario } from '../lib/smartest'; // or your path
+import { runScenario, defineScenario, expectSmartest } from '../lib/smartest'; // or your path
 
 describe('My agent', () => {
   it('echoes the message (no LLM verify)', async () => {
@@ -49,11 +49,26 @@ describe('My agent', () => {
         },
       })
     );
-    expect(result.pass).toBe(true);
+    expectSmartest(result);
     expect(result.output).toBeDefined();
   });
 });
 ```
+
+---
+
+## Logging and bun test
+
+Smartest **does not log to console**. It returns a `report` (phase timings, totalMs, verifierModel) and `verification.reasoning` so that **only bun test output** shows Smartest info.
+
+Use **`expectSmartest(result)`** after `runScenario(...)`. On failure it throws an `Error` whose message includes the report and verifier reasoning; bun test then displays that as the failure message, so you get a single, coherent block instead of mixed Smartest + bun logs.
+
+```ts
+const result = await runScenario(defineScenario({ ... }));
+expectSmartest(result);  // throws with report + reasoning if !result.pass
+```
+
+Result shape: `{ pass, output?, verification?: { pass, reasoning }, schemaError?, report?: { scenarioName, phases, totalMs, verifierModel? } }`.
 
 ---
 
@@ -281,8 +296,7 @@ const result = await runScenario({
   },
 }, 60000);
 
-expect(result.pass).toBe(true);
-if (!result.pass) console.log(result.verification?.reasoning);
+expectSmartest(result);  // failure message includes report + reasoning
 ```
 
 ---
@@ -302,7 +316,8 @@ Verification uses a thinking-style model by default; data generation uses a fast
 
 ## API summary
 
-- **`runScenario(scenario, options?)`** – Run one scenario. Returns `{ pass, output?, verification?, schemaError? }`. Optionally pass `options.generators` to extend or override the default generator registry.
+- **`runScenario(scenario, options?)`** – Run one scenario. Returns `{ pass, output?, verification?, schemaError?, report? }`. No console logging; use `report` and `verification.reasoning` in tests.
+- **`expectSmartest(result)`** – Asserts `result.pass`. On failure, throws with a message that includes `report` (timings) and verifier reasoning so bun test shows one clear failure block.
 - **`defineScenario(scenario)`** – Type-check a scenario (no runtime effect).
 - **`defaultGeneratorRegistry`** – `{ text: textGenerator }`. Merge with your generators when calling `runScenario`.
 - **`mergeGeneratorRegistry(custom?)`** – Returns default registry merged with `custom` (custom wins on key clash).
@@ -314,12 +329,13 @@ Verification uses a thinking-style model by default; data generation uses a fast
 
 ```
 smartest/
-├── index.ts                 # Public API
-├── smartest.types.ts        # Scenario, fixtures, verification types
+├── index.ts                 # Public API (runScenario, expectSmartest)
+├── smartest.types.ts        # Scenario, fixtures, verification, report types
+├── smartest.expect.ts       # expectSmartest(result) for bun-test-friendly failures
 ├── smartest.config.ts       # Model env vars
 ├── smartest.fixtures.ts     # Fixture resolution, @fixtures refs
 ├── smartest.generators.ts   # Default registry, text generator
-├── smartest.runner.ts       # runScenario
+├── smartest.runner.ts       # runScenario (no console logging)
 ├── smartest.verifier.ts     # Schema check + LLM verifier
 ├── smartest.verifier.prompt.ts
 ├── smartest.spec.ts         # Tests

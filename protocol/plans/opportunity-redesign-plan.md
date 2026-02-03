@@ -3142,21 +3142,21 @@ GET /api/opportunities?role=agent
 ### Step 7: HyDE Graph
 **Goal**: LangGraph workflow for cache-aware HyDE generation.
 
-- [ ] Create `lib/protocol/graphs/hyde/hyde.graph.state.ts`:
-  - [ ] `HydeDocumentState` interface
-  - [ ] `HydeGraphState` annotation
-- [ ] Create `lib/protocol/graphs/hyde/hyde.graph.ts`:
-  - [ ] Constructor injects `Database`, `Embedder`, `Cache`, `HydeGenerator`
-  - [ ] `check_cache` node — check Redis then DB
-  - [ ] `generate_missing` node — use HydeGenerator
-  - [ ] `embed` node — batch embed texts
-  - [ ] `cache_results` node — save to cache/DB
-  - [ ] Conditional routing for cache hits
+- [x] Create `lib/protocol/graphs/hyde/hyde.graph.state.ts`:
+  - [x] `HydeDocumentState` interface
+  - [x] `HydeGraphState` annotation
+- [x] Create `lib/protocol/graphs/hyde/hyde.graph.ts`:
+  - [x] Constructor injects `Database`, `Embedder`, `Cache`, `HydeGenerator`
+  - [x] `check_cache` node — check Redis then DB
+  - [x] `generate_missing` node — use HydeGenerator
+  - [x] `embed` node — batch embed texts
+  - [x] `cache_results` node — save to cache/DB
+  - [x] Conditional routing for cache hits
 
 **Test**:
-- E2E test: Invoke with intent text → returns embeddings
-- E2E test: Second invoke hits cache (no LLM call)
-- E2E test: `forceRegenerate: true` bypasses cache
+- [x] E2E test: Invoke with intent text → returns embeddings
+- [x] E2E test: Second invoke hits cache (no LLM call)
+- [x] E2E test: `forceRegenerate: true` bypasses cache
 
 ---
 

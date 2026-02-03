@@ -39,9 +39,7 @@ export async function runLlmVerifier(
   output: unknown,
   criteria: string
 ): Promise<VerificationResult> {
-  const verifierStart = Date.now();
   const modelId = getSmartestVerifierModel();
-  console.log(`[smartest] verifier start | model=${modelId}`);
 
   const userContent = buildVerifierUserMessage(
     scenarioDescription,
@@ -70,7 +68,6 @@ export async function runLlmVerifier(
   ];
 
   const parsed = await structuredModel.invoke(messages);
-  console.log(`[smartest] verifier done | ${Date.now() - verifierStart}ms`);
 
   if (!parsed || typeof parsed.pass !== 'boolean') {
     return {

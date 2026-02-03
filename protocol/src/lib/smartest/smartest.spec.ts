@@ -10,6 +10,7 @@ import { z } from 'zod';
 import {
   runScenario,
   defineScenario,
+  expectSmartest,
   defaultGeneratorRegistry,
 } from './index';
 import type { SmartestScenario } from './smartest.types';
@@ -160,6 +161,29 @@ describe('smartest runScenario', () => {
     const result = await runScenario(scenario);
     expect(result.pass).toBe(true);
     expect((result.output as { double: number }).double).toBe(200);
+  });
+
+  it('expectSmartest throws with report and reasoning when result.pass is false', () => {
+    const result = {
+      pass: false,
+      schemaError: 'Expected number, received string',
+      report: {
+        scenarioName: 'test',
+        phases: { resolveFixtures: 1, invoke: 10 },
+        totalMs: 11,
+      },
+      verification: { pass: false, reasoning: 'The output did not satisfy the criteria.' },
+    };
+    expect(() => expectSmartest(result)).toThrow();
+    try {
+      expectSmartest(result);
+    } catch (e) {
+      const msg = (e as Error).message;
+      expect(msg).toContain('test');
+      expect(msg).toContain('11ms');
+      expect(msg).toContain('Expected number');
+      expect(msg).toContain('did not satisfy');
+    }
   });
 
   it('fails schema check when output does not match schema', async () => {

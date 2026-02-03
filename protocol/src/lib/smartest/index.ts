@@ -4,6 +4,7 @@
  */
 
 import { runScenario } from './smartest.runner';
+import { expectSmartest } from './smartest.expect';
 import type {
   FixtureDef,
   GeneratorDef,
@@ -12,6 +13,7 @@ import type {
   GeneratorRegistry,
   ResolvedFixtures,
   RunScenarioResult,
+  RunScenarioReport,
   RunScenarioOptions,
   SmartestScenario,
   SmartestSut,
@@ -19,7 +21,7 @@ import type {
   VerificationResult,
 } from './smartest.types';
 
-export { runScenario };
+export { runScenario, expectSmartest };
 export {
   SMARTEST_GENERATOR_MODEL,
   SMARTEST_VERIFIER_MODEL,
@@ -37,6 +39,7 @@ export type {
   GeneratorRegistry,
   ResolvedFixtures,
   RunScenarioResult,
+  RunScenarioReport,
   RunScenarioOptions,
   SmartestScenario,
   SmartestSut,
