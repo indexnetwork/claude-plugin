@@ -32,7 +32,8 @@
             "intent": "lib",
             "opportunity": "event",
             "adapters": "database",
-            "index": "public"
+            "index": "public",
+            "smartest": "test",
         }
     }
 }
