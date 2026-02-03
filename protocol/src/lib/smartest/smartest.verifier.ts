@@ -5,7 +5,7 @@
 
 import { HumanMessage, SystemMessage } from '@langchain/core/messages';
 import { ChatOpenAI } from '@langchain/openai';
-import { SMARTEST_VERIFIER_MODEL } from './smartest.config';
+import { getSmartestVerifierModel } from './smartest.config';
 import type { VerificationResult } from './smartest.types';
 import {
   SMARTEST_VERIFIER_SYSTEM_PROMPT,
@@ -39,6 +39,10 @@ export async function runLlmVerifier(
   output: unknown,
   criteria: string
 ): Promise<VerificationResult> {
+  const verifierStart = Date.now();
+  const modelId = getSmartestVerifierModel();
+  console.log(`[smartest] verifier start | model=${modelId}`);
+
   const userContent = buildVerifierUserMessage(
     scenarioDescription,
     input,
@@ -47,7 +51,7 @@ export async function runLlmVerifier(
   );
 
   const model = new ChatOpenAI({
-    model: SMARTEST_VERIFIER_MODEL,
+    model: modelId,
     apiKey: process.env.OPENROUTER_API_KEY!,
     configuration: {
       baseURL: process.env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1',
@@ -66,6 +70,7 @@ export async function runLlmVerifier(
   ];
 
   const parsed = await structuredModel.invoke(messages);
+  console.log(`[smartest] verifier done | ${Date.now() - verifierStart}ms`);
 
   if (!parsed || typeof parsed.pass !== 'boolean') {
     return {
