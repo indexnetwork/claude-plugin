@@ -50,7 +50,9 @@ function createMockDatabase(): ChatGraphCompositeDatabase {
     getOwnedIndexes: noopArray,
     isIndexOwner: noopBool,
     getIndexMembersForOwner: noopArray,
+    getIndexMembersForMember: noopArray,
     getIndexIntentsForOwner: noopArray,
+    getIndexIntentsForMember: noopArray,
     updateIndexSettings: async () =>
       ({
         id: "",

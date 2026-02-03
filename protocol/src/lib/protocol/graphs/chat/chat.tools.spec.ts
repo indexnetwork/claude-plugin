@@ -12,12 +12,12 @@ const testUserId = "test-user-id-for-tools";
 
 type MockOverrides = Partial<Pick<
   ChatGraphCompositeDatabase,
-  "getOwnedIndexes" | "isIndexOwner" | "getIndexMembersForOwner" | "getIndexIntentsForOwner"
+  "getOwnedIndexes" | "isIndexOwner" | "getIndexMembersForOwner" | "getIndexMembersForMember" | "getIndexIntentsForOwner" | "getIndexMemberships" | "getIndexIntentsForMember"
 >>;
 
 /**
  * Minimal mock database. getIntentsInIndexForMemberImpl is required for get_intents_in_index.
- * Optional overrides for owner-only tools (getOwnedIndexes, isIndexOwner, getIndexMembersForOwner, getIndexIntentsForOwner).
+ * Optional overrides for index tools (getIndexMemberships, getIndexIntentsForMember, getOwnedIndexes, isIndexOwner, etc.).
  */
 function createMockDatabase(
   getIntentsInIndexForMemberImpl: (userId: string, indexNameOrId: string) => Promise<ActiveIntent[]>,
@@ -47,7 +47,9 @@ function createMockDatabase(
     getOwnedIndexes: noopArray,
     isIndexOwner: noopBool,
     getIndexMembersForOwner: noopArray,
+    getIndexMembersForMember: noopArray,
     getIndexIntentsForOwner: noopArray,
+    getIndexIntentsForMember: noopArray,
     updateIndexSettings: async () => ({ id: "", title: "", prompt: null, permissions: {} as any, createdAt: new Date(), updatedAt: new Date(), deletedAt: null, memberCount: 0, intentCount: 0 }),
   };
   return { ...base, ...overrides } as unknown as ChatGraphCompositeDatabase;
@@ -148,39 +150,39 @@ describe("get_intents_in_index tool", () => {
 });
 
 describe("list_index_members tool", () => {
-  const ownedIndexId = "a1b2c3d4-0000-4000-8000-000000000001";
+  const memberIndexId = "a1b2c3d4-0000-4000-8000-000000000001";
   const mockMembers: IndexMemberDetails[] = [
     { userId: "u1", name: "Alice", avatar: null, email: "alice@example.com", permissions: ["member"], memberPrompt: null, autoAssign: true, joinedAt: new Date("2025-01-01"), intentCount: 2 },
     { userId: "u2", name: "Bob", avatar: null, email: "bob@example.com", permissions: ["member"], memberPrompt: null, autoAssign: false, joinedAt: new Date("2025-01-02"), intentCount: 1 },
   ];
 
-  test("invoke returns success with members when owner and index found by ID", async () => {
+  test("invoke returns success with members when member and index found by ID", async () => {
     const mockDb = createMockDatabase(async () => [], {
-      isIndexOwner: async (indexId, uid) => indexId === ownedIndexId && uid === testUserId,
-      getIndexMembersForOwner: async (indexId, uid) => {
-        if (indexId === ownedIndexId && uid === testUserId) return mockMembers;
-        throw new Error("Access denied: Not an owner of this index");
+      getIndexMemberships: async (uid) =>
+        uid === testUserId ? [{ indexId: memberIndexId, indexTitle: "Test Index", indexPrompt: null, permissions: [], memberPrompt: null, autoAssign: true, joinedAt: new Date() }] : [],
+      getIndexMembersForMember: async (indexId, uid) => {
+        if (indexId === memberIndexId && uid === testUserId) return mockMembers;
+        throw new Error("Access denied: Not a member of this index");
       },
     });
     const context: ToolContext = { userId: testUserId, database: mockDb, embedder: mockEmbedder, scraper: mockScraper };
     const tools = createChatTools(context);
     const tool = tools.find((t: { name: string }) => t.name === "list_index_members") as { invoke: (args: { indexNameOrId: string }) => Promise<string> };
-    const result = await tool.invoke({ indexNameOrId: ownedIndexId });
+    const result = await tool.invoke({ indexNameOrId: memberIndexId });
     const parsed = JSON.parse(result);
     expect(parsed.success).toBe(true);
-    expect(parsed.data.indexId).toBe(ownedIndexId);
+    expect(parsed.data.indexId).toBe(memberIndexId);
     expect(parsed.data.count).toBe(2);
     expect(parsed.data.members).toBeArray();
-    expect(parsed.data.members[0]).toMatchObject({ name: "Alice", email: "alice@example.com", intentCount: 2 });
-    expect(parsed.data.members[1]).toMatchObject({ name: "Bob", email: "bob@example.com", intentCount: 1 });
+    expect(parsed.data.members[0]).toMatchObject({ name: "Alice", intentCount: 2 });
+    expect(parsed.data.members[1]).toMatchObject({ name: "Bob", intentCount: 1 });
   });
 
   test("invoke returns success with members when index resolved by name", async () => {
-    const mockOwned: OwnedIndex[] = [{ id: ownedIndexId, title: "AI Founders", prompt: null, permissions: {} as any, createdAt: new Date(), memberCount: 2, intentCount: 3 }];
+    const mockMemberships = [{ indexId: memberIndexId, indexTitle: "AI Founders", indexPrompt: null, permissions: [], memberPrompt: null, autoAssign: true, joinedAt: new Date() }];
     const mockDb = createMockDatabase(async () => [], {
-      getOwnedIndexes: async () => mockOwned,
-      isIndexOwner: async () => true,
-      getIndexMembersForOwner: async () => mockMembers,
+      getIndexMemberships: async (uid) => (uid === testUserId ? mockMemberships : []),
+      getIndexMembersForMember: async () => mockMembers,
     });
     const context: ToolContext = { userId: testUserId, database: mockDb, embedder: mockEmbedder, scraper: mockScraper };
     const tools = createChatTools(context);
@@ -188,73 +190,73 @@ describe("list_index_members tool", () => {
     const result = await tool.invoke({ indexNameOrId: "AI Founders" });
     const parsed = JSON.parse(result);
     expect(parsed.success).toBe(true);
-    expect(parsed.data.indexId).toBe(ownedIndexId);
+    expect(parsed.data.indexId).toBe(memberIndexId);
     expect(parsed.data.count).toBe(2);
   });
 
-  test("invoke returns error when not owner", async () => {
+  test("invoke returns error when not member", async () => {
     const mockDb = createMockDatabase(async () => [], {
-      isIndexOwner: async () => false,
-      getOwnedIndexes: async () => [],
+      getIndexMemberships: async () => [],
     });
     const context: ToolContext = { userId: testUserId, database: mockDb, embedder: mockEmbedder, scraper: mockScraper };
     const tools = createChatTools(context);
     const tool = tools.find((t: { name: string }) => t.name === "list_index_members") as { invoke: (args: { indexNameOrId: string }) => Promise<string> };
-    const result = await tool.invoke({ indexNameOrId: ownedIndexId });
+    const result = await tool.invoke({ indexNameOrId: memberIndexId });
     const parsed = JSON.parse(result);
     expect(parsed.success).toBe(false);
     expect(parsed.error).toBeDefined();
-    expect(parsed.error).toContain("not an owner");
+    expect(parsed.error).toContain("not a member");
   });
 });
 
 describe("list_index_intents tool", () => {
-  const ownedIndexId = "a1b2c3d4-0000-4000-8000-000000000002";
+  const memberIndexId = "a1b2c3d4-0000-4000-8000-000000000002";
   const mockIntents: IndexedIntentDetails[] = [
     { id: "i1", payload: "Find ML collaborators", summary: "ML", userId: "u1", userName: "Alice", createdAt: new Date("2025-01-01") },
     { id: "i2", payload: "Learn Rust", summary: "Rust", userId: "u2", userName: "Bob", createdAt: new Date("2025-01-02") },
   ];
 
-  test("invoke returns success with intents when owner", async () => {
+  test("invoke returns success with intents when member", async () => {
     const mockDb = createMockDatabase(async () => [], {
-      isIndexOwner: async (indexId, uid) => indexId === ownedIndexId && uid === testUserId,
-      getIndexIntentsForOwner: async (indexId, uid) => {
-        if (indexId === ownedIndexId && uid === testUserId) return mockIntents;
-        throw new Error("Access denied: Not an owner of this index");
+      getIndexMemberships: async (uid) =>
+        uid === testUserId ? [{ indexId: memberIndexId, indexTitle: "Test Index", indexPrompt: null, permissions: [], memberPrompt: null, autoAssign: true, joinedAt: new Date() }] : [],
+      getIndexIntentsForMember: async (indexId, uid) => {
+        if (indexId === memberIndexId && uid === testUserId) return mockIntents;
+        throw new Error("Access denied: Not a member of this index");
       },
     });
     const context: ToolContext = { userId: testUserId, database: mockDb, embedder: mockEmbedder, scraper: mockScraper };
     const tools = createChatTools(context);
     const tool = tools.find((t: { name: string }) => t.name === "list_index_intents") as { invoke: (args: { indexNameOrId: string }) => Promise<string> };
-    const result = await tool.invoke({ indexNameOrId: ownedIndexId });
+    const result = await tool.invoke({ indexNameOrId: memberIndexId });
     const parsed = JSON.parse(result);
     expect(parsed.success).toBe(true);
-    expect(parsed.data.indexId).toBe(ownedIndexId);
+    expect(parsed.data.indexId).toBe(memberIndexId);
     expect(parsed.data.count).toBe(2);
     expect(parsed.data.intents[0]).toMatchObject({ payload: "Find ML collaborators", summary: "ML", userName: "Alice" });
     expect(parsed.data.intents[1]).toMatchObject({ payload: "Learn Rust", summary: "Rust", userName: "Bob" });
   });
 
-  test("invoke returns error when not owner", async () => {
+  test("invoke returns error when not member", async () => {
     const mockDb = createMockDatabase(async () => [], {
-      isIndexOwner: async () => false,
-      getOwnedIndexes: async () => [],
+      getIndexMemberships: async () => [],
     });
     const context: ToolContext = { userId: testUserId, database: mockDb, embedder: mockEmbedder, scraper: mockScraper };
     const tools = createChatTools(context);
     const tool = tools.find((t: { name: string }) => t.name === "list_index_intents") as { invoke: (args: { indexNameOrId: string }) => Promise<string> };
-    const result = await tool.invoke({ indexNameOrId: ownedIndexId });
+    const result = await tool.invoke({ indexNameOrId: memberIndexId });
     const parsed = JSON.parse(result);
     expect(parsed.success).toBe(false);
     expect(parsed.error).toBeDefined();
-    expect(parsed.error).toContain("not an owner");
+    expect(parsed.error).toContain("not a member");
   });
 
-  test("invoke passes limit and offset to getIndexIntentsForOwner", async () => {
+  test("invoke passes limit and offset to getIndexIntentsForMember", async () => {
     let capturedOptions: { limit?: number; offset?: number } | undefined;
     const mockDb = createMockDatabase(async () => [], {
-      isIndexOwner: async () => true,
-      getIndexIntentsForOwner: async (_indexId, _uid, options) => {
+      getIndexMemberships: async (uid) =>
+        uid === testUserId ? [{ indexId: memberIndexId, indexTitle: "Test Index", indexPrompt: null, permissions: [], memberPrompt: null, autoAssign: true, joinedAt: new Date() }] : [],
+      getIndexIntentsForMember: async (_indexId, _uid, options) => {
         capturedOptions = options;
         return [];
       },
@@ -262,7 +264,7 @@ describe("list_index_intents tool", () => {
     const context: ToolContext = { userId: testUserId, database: mockDb, embedder: mockEmbedder, scraper: mockScraper };
     const tools = createChatTools(context);
     const tool = tools.find((t: { name: string }) => t.name === "list_index_intents") as { invoke: (args: { indexNameOrId: string; limit?: number; offset?: number }) => Promise<string> };
-    await tool.invoke({ indexNameOrId: ownedIndexId, limit: 10, offset: 5 });
+    await tool.invoke({ indexNameOrId: memberIndexId, limit: 10, offset: 5 });
     expect(capturedOptions).toBeDefined();
     expect(capturedOptions?.limit).toBe(10);
     expect(capturedOptions?.offset).toBe(5);
