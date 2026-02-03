@@ -22,6 +22,108 @@ import remarkGfm from 'remark-gfm';
 import { useIndexFilter } from '@/contexts/IndexFilterContext';
 import { useIndexesState } from '@/contexts/IndexesContext';
 import { useSuggestions } from '@/hooks/useSuggestions';
+import Image from 'next/image';
+import { getAvatarUrl } from '@/lib/file-utils';
+
+/**
+ * Static home discovery data (no remote calls). Realistic placeholder names and avatars.
+ * Synthesis text is static copy. Set to true to use this data instead of discover API.
+ */
+const USE_STATIC_HOME_DISCOVERY = true;
+
+const STATIC_AVATARS = {
+  p1: 'https://i.pravatar.cc/150?img=32',
+  p2: 'https://i.pravatar.cc/150?img=33',
+  p3: 'https://i.pravatar.cc/150?img=47',
+  p4: 'https://i.pravatar.cc/150?img=52',
+} as const;
+
+const STATIC_OPPORTUNITIES: MockOpportunity[] = [
+  {
+    id: 'static-1',
+    user: { id: 'au', name: 'Sofia Chen', avatar: STATIC_AVATARS.p1 },
+    sharedIntents: 1,
+    backingAgents: 1,
+    synthesis: 'You are [exploring privacy](https://index.network/intents/65c37d58-a75d-4bf1-b746-f2a050f48eba) within agent-native protocols, which aligns perfectly with Sofia\'s work building privacy standards for the open metaverse. It\'s a rare find to meet someone else who thinks decentralized ID is the real solution to our data crisis, so you two should definitely compare notes.',
+    friendNote: { name: 'Index', text: 'Good fit based on shared intent.' },
+    expired: false,
+  },
+  {
+    id: 'static-2',
+    user: { id: 'ms', name: 'James Okonkwo', avatar: STATIC_AVATARS.p2 },
+    sharedIntents: 1,
+    backingAgents: 1,
+    synthesis: 'You are [experimenting with coordination](https://index.network/intents/cd9c9a91-f56c-40ed-b48a-073aa8706a9e) for multi-agent systems, which aligns perfectly with James Okonkwo\'s deep expertise in behavioral economics and incentive design. It is a rare chance to bridge your technical models with his experience in building trust-based game theory—basically, the ultimate brain trust for your agents.',
+    expired: false,
+  },
+  {
+    id: 'static-3',
+    user: { id: 'at', name: 'Maya Patel', avatar: STATIC_AVATARS.p3 },
+    sharedIntents: 1,
+    backingAgents: 1,
+    synthesis: 'You are looking to [partner with ecosystems](https://index.network/intents/14378471-d361-455b-a25f-967351404369) to seed high-intent users, which aligns perfectly with Maya Patel\'s expertise in driving Web3 growth through data-driven community strategies. It seems like a great time to brainstorm how her background in decentralized outreach can help you accelerate those network effects—plus, two heads are always better than one when navigating the crypto wild west.',
+    expired: false,
+  },
+];
+
+const STATIC_PERSPECTIVES: MockOpportunity[] = [
+  {
+    id: 'static-p1',
+    user: { id: 'au', name: 'Sofia Chen', avatar: STATIC_AVATARS.p1 },
+    sharedIntents: 1,
+    backingAgents: 1,
+    synthesis: 'You are [exploring privacy](https://index.network/intents/65c37d58-a75d-4bf1-b746-f2a050f48eba) within agent-native protocols, which aligns perfectly with Sofia\'s work building privacy standards for the open metaverse. It\'s a rare find to meet someone else who thinks decentralized ID is the real solution to our data crisis, so you two should definitely compare notes.',
+    friendNote: { name: 'Alex', text: 'Would intro again—rare alignment.' },
+    expired: false,
+  },
+  {
+    id: 'static-p2',
+    user: { id: 'ms', name: 'James Okonkwo', avatar: STATIC_AVATARS.p2 },
+    sharedIntents: 1,
+    backingAgents: 1,
+    synthesis: 'You are [experimenting with coordination](https://index.network/intents/cd9c9a91-f56c-40ed-b48a-073aa8706a9e) for multi-agent systems, which aligns perfectly with James Okonkwo\'s deep expertise in behavioral economics and incentive design. It is a rare chance to bridge your technical models with his experience in building trust-based game theory—basically, the ultimate brain trust for your agents.',
+    friendNote: { name: 'Sam', text: 'Seen their work. Worth your time.' },
+    expired: false,
+  },
+];
+
+const STATIC_PERSPECTIVES2: MockOpportunity[] = [
+  {
+    id: 'static-p2-1',
+    user: { id: 'at', name: 'Maya Patel', avatar: STATIC_AVATARS.p3 },
+    sharedIntents: 1,
+    backingAgents: 1,
+    synthesis: 'You are looking to [partner with ecosystems](https://index.network/intents/14378471-d361-455b-a25f-967351404369) to seed high-intent users, which aligns perfectly with Maya Patel\'s expertise in driving Web3 growth through data-driven community strategies. It seems like a great time to brainstorm how her background in decentralized outreach can help you accelerate those network effects—plus, two heads are always better than one when navigating the crypto wild west.',
+    friendNote: { name: 'Jordan', text: 'One of the sharpest in the space.' },
+    expired: false,
+  },
+  {
+    id: 'static-p2-2',
+    user: { id: 'mr', name: 'Lucas Berg', avatar: STATIC_AVATARS.p4 },
+    sharedIntents: 2,
+    backingAgents: 2,
+    synthesis: 'You are looking to [connect with innovators](https://index.network/intents/d034b346-7c04-4d9e-9321-9a98ae307098) to discuss retail media, while Lucas Berg brings a unique blend of clinical expertise and deep crypto experience dating back to 2016. His background in full-stack development and blockchain offers a fresh technical perspective for your [potential integrations](https://index.network/intents/d034b346-7c04-4d9e-9321-9a98ae307098), proving that even orthodontists can be tech pioneers.',
+    friendNote: { name: 'Riley', text: 'Known them for years. Strong vouch.' },
+    expired: false,
+  },
+];
+
+const STATIC_BRIDGE: MockBridgeMatch[] = [
+  {
+    id: 'static-b1',
+    userA: { id: 'au', name: 'Sofia Chen', role: 'Member', avatar: STATIC_AVATARS.p1 },
+    userB: { id: 'ms', name: 'James Okonkwo', role: 'Member', avatar: STATIC_AVATARS.p2 },
+    reason: 'You are [exploring privacy](https://index.network/intents/65c37d58-a75d-4bf1-b746-f2a050f48eba) within agent-native protocols, which aligns perfectly with Sofia\'s work building privacy standards for the open metaverse. It\'s a rare find to meet someone else who thinks decentralized ID is the real solution to our data crisis, so you two should definitely compare notes.',
+    expired: false,
+  },
+  {
+    id: 'static-b2',
+    userA: { id: 'at', name: 'Maya Patel', role: 'Member', avatar: STATIC_AVATARS.p3 },
+    userB: { id: 'mr', name: 'Lucas Berg', role: 'Member', avatar: STATIC_AVATARS.p4 },
+    reason: 'You are looking to [partner with ecosystems](https://index.network/intents/14378471-d361-455b-a25f-967351404369) to seed high-intent users. Maya and Lucas both bring Web3 growth and technical depth—a good intro could unlock collaboration.',
+    expired: false,
+  },
+];
 
 interface PendingFile {
   id: string;
@@ -41,6 +143,7 @@ interface MockOpportunity {
   synthesis: string;
   friendNote?: { name: string; text: string };
   expired: boolean;
+  expiredAt?: string; // ISO date, for ordering when expired
 }
 
 interface MockBridgeMatch {
@@ -49,6 +152,7 @@ interface MockBridgeMatch {
   userB: { id: string; name: string; role: string; avatar: string | null };
   reason: string;
   expired: boolean;
+  expiredAt?: string;
 }
 
 interface MockQuestionMatch {
@@ -59,7 +163,14 @@ interface MockQuestionMatch {
   backingAgents: number;
   synthesis: string;
   expired: boolean;
+  expiredAt?: string;
 }
+
+type ExpiredItem =
+  | { type: 'opportunity'; expiredAt: string; data: MockOpportunity }
+  | { type: 'perspective'; expiredAt: string; data: MockOpportunity }
+  | { type: 'question'; expiredAt: string; data: MockQuestionMatch }
+  | { type: 'bridge'; expiredAt: string; data: MockBridgeMatch };
 
 // Mock data for home sections
 const mockOpportunities: MockOpportunity[] = [
@@ -86,7 +197,8 @@ const mockOpportunities: MockOpportunity[] = [
     sharedIntents: 1,
     backingAgents: 1,
     synthesis: 'No clear opportunity at this time.',
-    expired: true
+    expired: true,
+    expiredAt: '2026-01-28T10:00:00Z'
   }
 ];
 
@@ -106,7 +218,8 @@ const mockPerspectives: MockOpportunity[] = [
     sharedIntents: 2,
     backingAgents: 1,
     synthesis: 'No clear opportunity at this time.',
-    expired: true
+    expired: true,
+    expiredAt: '2026-01-30T14:00:00Z'
   }
 ];
 
@@ -135,7 +248,8 @@ const mockBridgeMatches: MockBridgeMatch[] = [
     userA: { id: 'a2', name: 'Marcus', role: 'CTO at TechFlow', avatar: null },
     userB: { id: 'b2', name: 'Nina', role: 'Head of Eng at ScaleUp', avatar: null },
     reason: 'No clear opportunity at this time.',
-    expired: true
+    expired: true,
+    expiredAt: '2026-01-29T09:00:00Z'
   }
 ];
 
@@ -250,7 +364,7 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
     try {
       const discoverData = await discoverService.discoverUsers({
         excludeDiscovered: true,
-        limit: 3
+        limit: 8
       });
 
       const transformedStakesData: StakesByUserResponse[] = (discoverData?.results || []).map(result => ({
@@ -272,7 +386,7 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
   }, [discoverService, fetchSynthesis]);
 
   useEffect(() => {
-    if (sessionLoaded && messages.length === 0 && !sessionIdFromUrl) {
+    if (!USE_STATIC_HOME_DISCOVERY && sessionLoaded && messages.length === 0 && !sessionIdFromUrl) {
       fetchDiscovery();
     }
   }, [sessionLoaded, messages.length, sessionIdFromUrl, fetchDiscovery]);
@@ -470,11 +584,56 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
   // HOME STATE - No messages yet
   if (messages.length === 0) {
     const selectedIndex = indexes.find(i => selectedIndexIds.includes(i.id));
-    
+
+    // Static data when USE_STATIC_HOME_DISCOVERY; otherwise from discover API or mock fallback
+    const opportunitiesDisplay = USE_STATIC_HOME_DISCOVERY
+      ? STATIC_OPPORTUNITIES.slice(0, 2)
+      : discoverStakes.length > 0
+        ? discoverStakes.slice(0, 2).map((s, i) => ({
+            id: s.user.id,
+            user: { id: s.user.id, name: s.user.name, avatar: s.user.avatar },
+            sharedIntents: s.intents?.length ?? 0,
+            backingAgents: s.intents?.length ?? 0,
+            synthesis: syntheses[s.user.id] ?? `Strong overlap with your intents. Worth a conversation.`,
+            friendNote: i === 0 ? { name: 'Index', text: 'Good fit based on shared intent.' } as const : undefined,
+            expired: false
+          }))
+        : mockOpportunities.filter(o => !o.expired);
+
+    const perspectivesDisplay = USE_STATIC_HOME_DISCOVERY
+      ? STATIC_PERSPECTIVES
+      : discoverStakes.length > 0
+        ? discoverStakes.slice(0, 2).map((s, i) => ({
+            id: `p-${s.user.id}`,
+            user: { id: s.user.id, name: s.user.name, avatar: s.user.avatar },
+            sharedIntents: s.intents?.length ?? 0,
+            backingAgents: s.intents?.length ?? 0,
+            synthesis: syntheses[s.user.id] ?? `Your experience could help. They're weighing a similar decision.`,
+            friendNote: i === 0 ? { name: 'Index', text: 'Your perspective would add value here.' } as const : undefined,
+            expired: false
+          }))
+        : mockPerspectives.filter(p => !p.expired);
+
+    const bridgeDisplay = USE_STATIC_HOME_DISCOVERY
+      ? STATIC_BRIDGE
+      : discoverStakes.length >= 2
+        ? [
+            { id: `b-${discoverStakes[0].user.id}-${discoverStakes[1].user.id}`, userA: { id: discoverStakes[0].user.id, name: discoverStakes[0].user.name, role: 'Member', avatar: discoverStakes[0].user.avatar }, userB: { id: discoverStakes[1].user.id, name: discoverStakes[1].user.name, role: 'Member', avatar: discoverStakes[1].user.avatar }, reason: syntheses[discoverStakes[0].user.id] || syntheses[discoverStakes[1].user.id] || 'Their intents align; an intro could unlock value for both.', expired: false },
+            ...(discoverStakes.length >= 4 ? [{ id: `b-${discoverStakes[2].user.id}-${discoverStakes[3].user.id}`, userA: { id: discoverStakes[2].user.id, name: discoverStakes[2].user.name, role: 'Member', avatar: discoverStakes[2].user.avatar }, userB: { id: discoverStakes[3].user.id, name: discoverStakes[3].user.name, role: 'Member', avatar: discoverStakes[3].user.avatar }, reason: syntheses[discoverStakes[2].user.id] || syntheses[discoverStakes[3].user.id] || 'Their intents align; an intro could unlock value for both.', expired: false }] : [])
+          ]
+        : mockBridgeMatches.filter(b => !b.expired);
+
+    const expiredItems: ExpiredItem[] = [
+      ...mockOpportunities.filter(o => o.expired && o.expiredAt).map(data => ({ type: 'opportunity' as const, expiredAt: data.expiredAt!, data })),
+      ...mockPerspectives.filter(p => p.expired && p.expiredAt).map(data => ({ type: 'perspective' as const, expiredAt: data.expiredAt!, data })),
+      ...mockQuestionMatches.filter(q => q.expired && q.expiredAt).map(data => ({ type: 'question' as const, expiredAt: data.expiredAt!, data })),
+      ...mockBridgeMatches.filter(b => b.expired && b.expiredAt).map(data => ({ type: 'bridge' as const, expiredAt: data.expiredAt!, data })),
+    ].sort((a, b) => b.expiredAt.localeCompare(a.expiredAt));
+
     return (
-      <div className="px-6 lg:px-8 py-6">
-        <ContentContainer>
-          <div className="my-6" />
+      <div className="px-6 lg:px-8 py-4 bg-[#fafafa] min-h-full">
+        <ContentContainer className="text-left">
+          <div className="my-4" />
           
           {/* Input with index dropdown */}
           <form onSubmit={handleSubmit} className="flex items-center gap-3 bg-gray-100 rounded-full px-4 py-3">
@@ -586,9 +745,162 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
             </div>
           )}
 
-          {/* Show expired toggle */}
-          <div className="mt-8 flex justify-end">
-            <label className="flex items-center gap-2 text-sm text-gray-500 cursor-pointer font-ibm-plex-mono">
+          {/* Section 1: Opportunities waiting for action */}
+          <div className="mt-5">
+            <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3 font-ibm-plex-mono text-left">
+              Opportunities waiting for action
+            </h3>
+            <div className="space-y-3">
+              {opportunitiesDisplay.map((item) => (
+                  <div
+                    key={item.id}
+                    className={cn(
+                      "bg-[#f5f5f5] rounded-md p-3",
+                      item.expired && "opacity-50"
+                    )}
+                  >
+                    <div className="flex items-center gap-2 min-w-0 mb-2">
+                      <div className="w-8 h-8 rounded-full overflow-hidden bg-gray-300/80 flex items-center justify-center shrink-0">
+                        <Image src={getAvatarUrl(item.user)} alt="" width={32} height={32} className="w-full h-full object-cover" />
+                      </div>
+                      <div className="min-w-0">
+                        <h4 className="font-bold text-gray-900 font-ibm-plex-mono text-sm">{item.user.name}</h4>
+                        <p className="text-[11px] text-gray-500 font-ibm-plex-mono">
+                          {item.sharedIntents} shared intent · {item.backingAgents} backing agents
+                        </p>
+                      </div>
+                    </div>
+                    <div className="text-[14px] text-gray-700 leading-snug mb-2 [&_a]:text-[#006D4B] [&_a]:underline [&_a]:underline-offset-1">
+                      <ReactMarkdown remarkPlugins={[remarkGfm]} components={{ a: ({ href, children }) => <a href={href} target="_blank" rel="noopener noreferrer">{children}</a> }}>{item.synthesis}</ReactMarkdown>
+                    </div>
+                    {item.friendNote && (
+                      <div className="mb-2">
+                        <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-full bg-[#006D4B]/10 text-[11px] text-[#006D4B] border border-[#006D4B]/30">
+                          <span className="w-5 h-5 rounded-full overflow-hidden shrink-0">
+                            <Image src="https://i.pravatar.cc/150?img=68" alt="" width={20} height={20} className="w-full h-full object-cover" />
+                          </span>
+                          {item.friendNote.name}: {item.friendNote.text}
+                        </span>
+                      </div>
+                    )}
+                    <div className="flex gap-1.5 justify-start">
+                      <button className="bg-black text-white px-3 py-1.5 rounded-sm text-xs font-medium hover:bg-gray-800 transition-colors font-ibm-plex-mono">
+                        Start Chat
+                      </button>
+                      <button className="bg-transparent border border-gray-400 text-gray-700 px-3 py-1.5 rounded-sm text-xs font-medium hover:bg-gray-200 transition-colors font-ibm-plex-mono">
+                        Skip
+                      </button>
+                    </div>
+                  </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Section 2: Your perspective is crucial */}
+          <div className="mt-6">
+            <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3 font-ibm-plex-mono text-left">
+              Your perspective is crucial
+            </h3>
+            <div className="space-y-3">
+              {perspectivesDisplay.map((item) => (
+                  <div
+                    key={item.id}
+                    className={cn(
+                      "bg-[#f5f5f5] rounded-md p-3",
+                      item.expired && "opacity-50"
+                    )}
+                  >
+                    <div className="flex items-center gap-2 min-w-0 mb-2">
+                      <div className="w-8 h-8 rounded-full overflow-hidden bg-gray-300/80 flex items-center justify-center shrink-0">
+                        <Image src={getAvatarUrl(item.user)} alt="" width={32} height={32} className="w-full h-full object-cover" />
+                      </div>
+                      <div className="min-w-0">
+                        <h4 className="font-bold text-gray-900 font-ibm-plex-mono text-sm">{item.user.name}</h4>
+                        <p className="text-[11px] text-gray-500 font-ibm-plex-mono">
+                          {item.sharedIntents} shared intent · {item.backingAgents} backing agents
+                        </p>
+                      </div>
+                    </div>
+                    <div className="text-[14px] text-gray-700 leading-snug mb-2 [&_a]:text-[#006D4B] [&_a]:underline [&_a]:underline-offset-1">
+                      <ReactMarkdown remarkPlugins={[remarkGfm]} components={{ a: ({ href, children }) => <a href={href} target="_blank" rel="noopener noreferrer">{children}</a> }}>{item.synthesis}</ReactMarkdown>
+                    </div>
+                    {item.friendNote && (
+                      <div className="mb-2">
+                        <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-full bg-[#006D4B]/10 text-[11px] text-[#006D4B] border border-[#006D4B]/30">
+                          <span className="w-5 h-5 rounded-full overflow-hidden shrink-0">
+                            <Image src="https://i.pravatar.cc/150?img=68" alt="" width={20} height={20} className="w-full h-full object-cover" />
+                          </span>
+                          {item.friendNote.name}: {item.friendNote.text}
+                        </span>
+                      </div>
+                    )}
+                    <div className="flex gap-1.5 justify-start">
+                      <button className="bg-black text-white px-3 py-1.5 rounded-sm text-xs font-medium hover:bg-gray-800 transition-colors font-ibm-plex-mono">
+                        Start Chat
+                      </button>
+                      <button className="bg-transparent border border-gray-400 text-gray-700 px-3 py-1.5 rounded-sm text-xs font-medium hover:bg-gray-200 transition-colors font-ibm-plex-mono">
+                        Skip
+                      </button>
+                    </div>
+                  </div>
+                ))}
+            </div>
+          </div>
+
+          {/* Section: You're the connector they need (bridge) */}
+          <div className="mt-6">
+            <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3 font-ibm-plex-mono text-left">
+              You&apos;re the connector they need
+            </h3>
+            <div className="space-y-3">
+              {bridgeDisplay.map((item) => (
+                  <div
+                    key={item.id}
+                    className={cn(
+                      "bg-[#f5f5f5] rounded-md p-3",
+                      item.expired && "opacity-50"
+                    )}
+                  >
+                    <div className="flex flex-wrap items-center gap-2 sm:gap-4 mb-2">
+                      <div className="flex items-center gap-2 text-left min-w-0">
+                        <div className="w-8 h-8 rounded-full overflow-hidden bg-gray-300/80 flex items-center justify-center shrink-0">
+                          <Image src={getAvatarUrl(item.userA)} alt="" width={32} height={32} className="w-full h-full object-cover" />
+                        </div>
+                        <div className="min-w-0">
+                          <h4 className="font-bold text-gray-900 font-ibm-plex-mono text-sm">{item.userA.name}</h4>
+                          <p className="text-[11px] text-gray-500">{item.userA.role}</p>
+                        </div>
+                      </div>
+                      <span className="text-gray-500 shrink-0" aria-hidden>↔</span>
+                      <div className="flex items-center gap-2 text-left min-w-0 sm:ml-0">
+                        <div className="w-8 h-8 rounded-full overflow-hidden bg-gray-300/80 flex items-center justify-center shrink-0">
+                          <Image src={getAvatarUrl(item.userB)} alt="" width={32} height={32} className="w-full h-full object-cover" />
+                        </div>
+                        <div className="min-w-0">
+                          <h4 className="font-bold text-gray-900 font-ibm-plex-mono text-sm">{item.userB.name}</h4>
+                          <p className="text-[11px] text-gray-500">{item.userB.role}</p>
+                        </div>
+                      </div>
+                    </div>
+                      <div className="text-[14px] text-gray-700 leading-snug text-left mb-2 [&_a]:text-[#006D4B] [&_a]:underline [&_a]:underline-offset-1">
+                        <ReactMarkdown remarkPlugins={[remarkGfm]} components={{ a: ({ href, children }) => <a href={href} target="_blank" rel="noopener noreferrer">{children}</a> }}>{item.reason}</ReactMarkdown>
+                      </div>
+                    <div className="flex gap-1.5 justify-start">
+                      <button className="bg-black text-white px-3 py-1.5 rounded-sm text-xs font-medium hover:bg-gray-800 transition-colors font-ibm-plex-mono">
+                        This is a good match
+                      </button>
+                      <button className="bg-transparent border border-gray-400 text-gray-700 px-3 py-1.5 rounded-sm text-xs font-medium hover:bg-gray-200 transition-colors font-ibm-plex-mono">
+                        Pass
+                      </button>
+                    </div>
+                  </div>
+                ))}
+            </div>
+          </div>
+
+          {/* Section: Expired (after frictioned scroll) — all together, ordered by date */}
+          <section className="mt-8 pt-6 border-t border-gray-200/80">
+            <label className="flex items-center gap-2 text-xs text-gray-500 cursor-pointer font-ibm-plex-mono mb-3 pb-4">
               <input
                 type="checkbox"
                 checked={showExpired}
@@ -597,209 +909,98 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
               />
               Show expired
             </label>
-          </div>
-
-          {/* Section 1: Opportunities waiting for action */}
-          <div className="mt-8">
-            <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-4 font-ibm-plex-mono">
-              Opportunities waiting for action
-            </h3>
-            <div className="space-y-4">
-              {mockOpportunities
-                .filter(item => showExpired || !item.expired)
-                .map((item) => (
-                  <div
-                    key={item.id}
-                    className={cn(
-                      "bg-white border border-gray-200 rounded-lg p-4",
-                      item.expired && "opacity-50"
-                    )}
-                  >
-                    <div className="flex flex-wrap sm:flex-nowrap justify-between items-start mb-3">
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center text-gray-600 font-semibold">
-                          {item.user.name.charAt(0)}
-                        </div>
-                        <div>
-                          <h4 className="font-bold text-gray-900 font-ibm-plex-mono">{item.user.name}</h4>
-                          <p className="text-xs text-gray-500 font-ibm-plex-mono">
-                            {item.sharedIntents} shared intent · {item.backingAgents} backing agents
-                          </p>
-                        </div>
-                      </div>
-                      <div className="flex gap-2 mt-2 sm:mt-0">
-                        <button className="bg-black text-white px-3 py-1.5 rounded-sm text-xs font-medium hover:bg-gray-800 transition-colors font-ibm-plex-mono">
-                          Start Chat
-                        </button>
-                        <button className="bg-gray-100 border border-gray-200 text-gray-700 px-3 py-1.5 rounded-sm text-xs font-medium hover:bg-gray-200 transition-colors font-ibm-plex-mono">
-                          Skip
-                        </button>
-                      </div>
-                    </div>
-                    <p className="text-sm text-gray-700 leading-relaxed mb-3">
-                      {item.synthesis}
-                    </p>
-                    {item.friendNote && (
-                      <blockquote className="border-l-2 border-gray-300 pl-3 text-sm text-gray-600 italic">
-                        <span className="font-semibold not-italic">{item.friendNote.name} thinks:</span> {item.friendNote.text}
-                      </blockquote>
-                    )}
-                  </div>
-                ))}
-            </div>
-          </div>
-
-          {/* Section 2: Your perspective is crucial */}
-          <div className="mt-10">
-            <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-4 font-ibm-plex-mono">
-              Your perspective is crucial:
-            </h3>
-            <div className="space-y-4">
-              {mockPerspectives
-                .filter(item => showExpired || !item.expired)
-                .map((item) => (
-                  <div
-                    key={item.id}
-                    className={cn(
-                      "bg-white border border-gray-200 rounded-lg p-4",
-                      item.expired && "opacity-50"
-                    )}
-                  >
-                    <div className="flex flex-wrap sm:flex-nowrap justify-between items-start mb-3">
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center text-gray-600 font-semibold">
-                          {item.user.name.charAt(0)}
-                        </div>
-                        <div>
-                          <h4 className="font-bold text-gray-900 font-ibm-plex-mono">{item.user.name}</h4>
-                          <p className="text-xs text-gray-500 font-ibm-plex-mono">
-                            {item.sharedIntents} shared intent · {item.backingAgents} backing agents
-                          </p>
-                        </div>
-                      </div>
-                      <div className="flex gap-2 mt-2 sm:mt-0">
-                        <button className="bg-black text-white px-3 py-1.5 rounded-sm text-xs font-medium hover:bg-gray-800 transition-colors font-ibm-plex-mono">
-                          Start Chat
-                        </button>
-                        <button className="bg-gray-100 border border-gray-200 text-gray-700 px-3 py-1.5 rounded-sm text-xs font-medium hover:bg-gray-200 transition-colors font-ibm-plex-mono">
-                          Skip
-                        </button>
-                      </div>
-                    </div>
-                    <p className="text-sm text-gray-700 leading-relaxed mb-3">
-                      {item.synthesis}
-                    </p>
-                    {item.friendNote && (
-                      <blockquote className="border-l-2 border-gray-300 pl-3 text-sm text-gray-600 italic">
-                        <span className="font-semibold not-italic">{item.friendNote.name} thinks:</span> {item.friendNote.text}
-                      </blockquote>
-                    )}
-                  </div>
-                ))}
-            </div>
-          </div>
-
-          {/* Section 3: Question-driven matches */}
-          {mockQuestionMatches.filter(item => showExpired || !item.expired).length > 0 && (
-            <div className="mt-10">
-              <h3 className="text-sm font-medium text-gray-900 mb-4 font-ibm-plex-mono">
-                {mockQuestionMatches[0].question}
-              </h3>
-              <div className="space-y-4">
-                {mockQuestionMatches
-                  .filter(item => showExpired || !item.expired)
-                  .map((item) => (
-                    <div
-                      key={item.id}
-                      className={cn(
-                        "bg-white border border-gray-200 rounded-lg p-4",
-                        item.expired && "opacity-50"
-                      )}
-                    >
-                      <div className="flex flex-wrap sm:flex-nowrap justify-between items-start mb-3">
-                        <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center text-gray-600 font-semibold">
-                            {item.user.name.charAt(0)}
-                          </div>
-                          <div>
-                            <h4 className="font-bold text-gray-900 font-ibm-plex-mono">{item.user.name}</h4>
-                            <p className="text-xs text-gray-500 font-ibm-plex-mono">
-                              {item.sharedIntents} shared intent · {item.backingAgents} backing agents
-                            </p>
+            {showExpired && expiredItems.length > 0 && (
+              <div className="space-y-3">
+                {expiredItems.map((entry) => {
+                  if (entry.type === 'opportunity' || entry.type === 'perspective') {
+                    const item = entry.data;
+                    return (
+                      <div key={`${entry.type}-${item.id}`} className="bg-[#f5f5f5] rounded-md p-3 opacity-75">
+                        <div className="flex flex-wrap sm:flex-nowrap justify-between items-start gap-2 mb-2">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <div className="w-8 h-8 rounded-full bg-gray-300/80 flex items-center justify-center text-gray-600 text-sm font-semibold shrink-0">
+                              {item.user.name.charAt(0)}
+                            </div>
+                            <div className="min-w-0">
+                              <h4 className="font-bold text-gray-900 font-ibm-plex-mono text-sm">{item.user.name}</h4>
+                              <p className="text-[11px] text-gray-500 font-ibm-plex-mono">
+                                {item.sharedIntents} shared intent · {item.backingAgents} backing agents
+                              </p>
+                            </div>
                           </div>
                         </div>
-                        <div className="flex gap-2 mt-2 sm:mt-0">
-                          <button className="bg-black text-white px-3 py-1.5 rounded-sm text-xs font-medium hover:bg-gray-800 transition-colors font-ibm-plex-mono">
-                            Start Chat
-                          </button>
-                          <button className="bg-gray-100 border border-gray-200 text-gray-700 px-3 py-1.5 rounded-sm text-xs font-medium hover:bg-gray-200 transition-colors font-ibm-plex-mono">
-                            Skip
-                          </button>
-                        </div>
+                        <p className="text-[13px] text-gray-700 leading-snug mb-2">{item.synthesis}</p>
+                        {item.friendNote && (
+                          <p className="text-[12px] text-gray-600 pl-2 border-l border-gray-300">
+                            <span className="font-semibold">{item.friendNote.name} thinks:</span> {item.friendNote.text}
+                          </p>
+                        )}
+                        <p className="text-[11px] text-gray-400 mt-2 font-ibm-plex-mono">
+                          Expired {new Date(entry.expiredAt).toLocaleDateString()}
+                        </p>
                       </div>
-                      <p className="text-sm text-gray-700 leading-relaxed">
-                        {item.synthesis}
-                      </p>
-                    </div>
-                  ))}
-              </div>
-            </div>
-          )}
-
-          {/* Section 4: You should act as a bridge */}
-          <div className="mt-10">
-            <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-4 font-ibm-plex-mono">
-              You should act as a bridge
-            </h3>
-            <div className="space-y-4">
-              {mockBridgeMatches
-                .filter(item => showExpired || !item.expired)
-                .map((item) => (
-                  <div
-                    key={item.id}
-                    className={cn(
-                      "bg-white border border-gray-200 rounded-lg p-4",
-                      item.expired && "opacity-50"
-                    )}
-                  >
-                    <div className="flex flex-wrap sm:flex-nowrap justify-between items-start mb-4">
-                      <div className="flex items-center gap-2">
-                        <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center text-gray-600 font-semibold">
+                    );
+                  }
+                  if (entry.type === 'question') {
+                    const item = entry.data;
+                    return (
+                      <div key={`question-${item.id}`} className="bg-[#f5f5f5] rounded-md p-3 opacity-75">
+                        <div className="flex flex-wrap sm:flex-nowrap justify-between items-start gap-2 mb-2">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <div className="w-8 h-8 rounded-full bg-gray-300/80 flex items-center justify-center text-gray-600 text-sm font-semibold shrink-0">
+                              {item.user.name.charAt(0)}
+                            </div>
+                            <div className="min-w-0">
+                              <h4 className="font-bold text-gray-900 font-ibm-plex-mono text-sm">{item.user.name}</h4>
+                              <p className="text-[11px] text-gray-500 font-ibm-plex-mono">
+                                {item.sharedIntents} shared intent · {item.backingAgents} backing agents
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                        <p className="text-[13px] text-gray-700 leading-snug">{item.synthesis}</p>
+                        <p className="text-[11px] text-gray-400 mt-2 font-ibm-plex-mono">
+                          Expired {new Date(entry.expiredAt).toLocaleDateString()}
+                        </p>
+                      </div>
+                    );
+                  }
+                  const item = entry.data;
+                  return (
+                    <div key={`bridge-${item.id}`} className="rounded-md opacity-75">
+                      <div className="flex flex-wrap items-center gap-2 sm:gap-4 mb-2">
+                        <div className="flex items-center gap-2 text-left min-w-0">
+                          <div className="w-8 h-8 rounded-full bg-gray-300/80 flex items-center justify-center text-gray-600 text-sm font-semibold shrink-0">
                             {item.userA.name.charAt(0)}
                           </div>
-                          <div className="text-left">
+                          <div className="min-w-0">
                             <h4 className="font-bold text-gray-900 font-ibm-plex-mono text-sm">{item.userA.name}</h4>
-                            <p className="text-xs text-gray-500">{item.userA.role}</p>
+                            <p className="text-[11px] text-gray-500">{item.userA.role}</p>
                           </div>
                         </div>
-                        <span className="text-gray-400 mx-2">↔</span>
-                        <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center text-gray-600 font-semibold">
+                        <span className="text-gray-500 shrink-0" aria-hidden>↔</span>
+                        <div className="flex items-center gap-2 text-left min-w-0">
+                          <div className="w-8 h-8 rounded-full bg-gray-300/80 flex items-center justify-center text-gray-600 text-sm font-semibold shrink-0">
                             {item.userB.name.charAt(0)}
                           </div>
-                          <div className="text-left">
+                          <div className="min-w-0">
                             <h4 className="font-bold text-gray-900 font-ibm-plex-mono text-sm">{item.userB.name}</h4>
-                            <p className="text-xs text-gray-500">{item.userB.role}</p>
+                            <p className="text-[11px] text-gray-500">{item.userB.role}</p>
                           </div>
                         </div>
                       </div>
-                      <div className="flex gap-2 mt-3 sm:mt-0">
-                        <button className="bg-black text-white px-3 py-1.5 rounded-sm text-xs font-medium hover:bg-gray-800 transition-colors font-ibm-plex-mono">
-                          This is a good match
-                        </button>
-                        <button className="bg-gray-100 border border-gray-200 text-gray-700 px-3 py-1.5 rounded-sm text-xs font-medium hover:bg-gray-200 transition-colors font-ibm-plex-mono">
-                          Skip
-                        </button>
+                      <div className="bg-[#f0f0f0] rounded-md px-3 py-2 mb-2">
+                        <p className="text-[13px] text-gray-700 leading-snug text-left">{item.reason}</p>
                       </div>
+                      <p className="text-[11px] text-gray-400 font-ibm-plex-mono">
+                        Expired {new Date(entry.expiredAt).toLocaleDateString()}
+                      </p>
                     </div>
-                    <blockquote className="border-l-2 border-gray-300 pl-3 text-sm text-gray-600 italic">
-                      {item.reason}
-                    </blockquote>
-                  </div>
-                ))}
-            </div>
-          </div>
+                  );
+                })}
+              </div>
+            )}
+          </section>
         </ContentContainer>
       </div>
     );

@@ -61,6 +61,36 @@ export default function LibraryPage() {
 
   const [activeTab, setActiveTab] = useState<'intents' | 'connections' | 'files' | 'links'>('intents');
   const [isLoading, setIsLoading] = useState(true);
+  const tabDescriptions = {
+    intents: {
+      title: "My Intents",
+      description:
+        "Things the agent thinks you might be looking for, inferred from your activity. Review them and remove anything that doesn’t feel right.",
+      privacy:
+        "AI agents use these to surface opportunities and only match when there’s mutual intent."
+    },
+    connections: {
+      title: "Connections",
+      description:
+        "Accounts and tools linked to your library. Activity from these sources helps keep your intents accurate and up to date.",
+      privacy:
+        "AI agents use connected sources to keep your intents up to date."
+    },
+    files: {
+      title: "Files",
+      description:
+        "Files you’ve shared in conversations, available for review and management here.",
+      privacy:
+        "AI agents use these files to help generate intents, and they stay private to your account."
+    },
+    links: {
+      title: "Links",
+      description:
+        "URLs you’ve added so we can periodically refresh them and extract relevant intents.",
+      privacy:
+        "AI agents use web content to keep your intents up to date."
+    }
+  } as const;
 
   // Data states
   const [intents, setIntents] = useState<LibrarySourceIntent[]>([]);
@@ -351,6 +381,14 @@ export default function LibraryPage() {
               )}
             </Tabs.Trigger>
           </Tabs.List>
+          <div className="mb-6 space-y-1">
+            <div className="text-sm text-gray-700 font-ibm-plex-mono">
+              {tabDescriptions[activeTab].description}
+            </div>
+            <div className="text-xs text-gray-500 font-ibm-plex-mono">
+              {tabDescriptions[activeTab].privacy}
+            </div>
+          </div>
 
           {/* My Intents Tab */}
           <Tabs.Content value="intents" className="w-full">
