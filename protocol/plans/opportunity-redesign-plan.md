@@ -228,36 +228,46 @@ erDiagram
 | **introducer** | Created/facilitated the match | "Introduced by..." |
 | **party** | Generic participant (for manual matches) | Context-dependent |
 
-### 3.2 Extended Roles (Future)
+### 3.2 Strategy-Derived Roles
+
+These roles are automatically assigned based on which HyDE strategy found the match:
+
+| Role | Description | Derived From Strategy |
+|------|-------------|----------------------|
+| **mentor** | Teaches/guides | `mentor` HyDE |
+| **mentee** | Learns/receives guidance | `mentor` HyDE (source) |
+| **investor** | Provides capital | `investor` HyDE |
+| **founder** | Seeks capital | `investor` HyDE (source) |
+
+### 3.3 Future Roles
 
 | Role | Description | Use Case |
 |------|-------------|----------|
-| **mentor** | Teaches/guides | Mentorship matching |
-| **mentee** | Learns/receives guidance | Mentorship matching |
-| **investor** | Provides capital | Fundraising |
-| **founder** | Seeks capital | Fundraising |
 | **referrer** | Knows relevant people | Network expansion |
 
-### 3.3 Role Assignment
+### 3.4 Role Assignment
 
 Roles are assigned by:
-1. **LLM Analysis** — When opportunity graph evaluates candidates
+1. **HyDE Strategy** — Primary method: roles derived from which search strategy found the match (see `deriveRolesFromStrategy()` in Section 9.5)
 2. **Curator Selection** — When manually creating opportunities
 3. **Conversation Context** — When detected in chat
 
 ```typescript
-// OpportunityEvaluator determines roles based on intent analysis
-const rolePrompt = `
-Analyze the relationship between these two parties:
-- Party A: ${partyA.intent || partyA.profile}
-- Party B: ${partyB.intent || partyB.profile}
-
-Determine the valency role for each:
-- "agent": Party CAN DO something for the other
-- "patient": Party NEEDS something from the other
-- "peer": Symmetric collaboration, neither dominant
-`;
+// Role derivation from HyDE strategy (no LLM call needed)
+function deriveRolesFromStrategy(strategy: HydeStrategy): { source: string; candidate: string } {
+  switch (strategy) {
+    case 'mirror':     return { source: 'patient', candidate: 'agent' };
+    case 'reciprocal': return { source: 'peer', candidate: 'peer' };
+    case 'mentor':     return { source: 'mentee', candidate: 'mentor' };
+    case 'investor':   return { source: 'founder', candidate: 'investor' };
+    case 'hiree':      return { source: 'agent', candidate: 'patient' };
+    case 'collaborator': return { source: 'peer', candidate: 'peer' };
+    default:           return { source: 'party', candidate: 'party' };
+  }
+}
 ```
+
+This approach eliminates the need for an LLM call to determine roles, as the HyDE strategy semantically encodes the relationship type.
 
 ---
 
@@ -305,58 +315,565 @@ flowchart TD
 
 ---
 
-## 5. HyDE Strategy (Decoupled)
+## 5. HyDE Generation Pipeline
 
-### 5.1 HyDE is a Search Strategy, Not a Match Type
+### 5.1 Core Concept
 
-The HyDE vectors are **search tools**, not opportunity classifiers. The same opportunity can be found via different HyDE strategies.
+HyDE (Hypothetical Document Embeddings) solves the **cross-voice retrieval problem**. When searching for matches, the source and target documents are written in different perspectives:
+
+| Source | Target | Problem |
+|--------|--------|---------|
+| Intent: "I need a Rust developer" | Profile: "I'm a Rust dev with 5 years..." | Different voice/perspective |
+| Intent: "Looking for seed funding" | Intent: "Looking to invest in early-stage" | Complementary but not lexically similar |
+| Chat query: "Find me a mentor" | Profile: "I mentor founders in..." | Ad-hoc query vs structured data |
+
+HyDE bridges this by generating a **hypothetical document in the target's voice**, then searching for real matches against that embedding.
+
+### 5.2 Architecture Overview
 
 ```mermaid
-flowchart LR
-    subgraph "HyDE Strategies (How we search)"
-        MIRROR["Mirror HyDE<br/>(Find profiles)"]
-        RECIP["Reciprocal HyDE<br/>(Find intents)"]
-        CUSTOM["Custom HyDE<br/>(On-demand)"]
+flowchart TB
+    subgraph "Sources"
+        INTENT["Intent"]
+        PROFILE["Profile"]
+        QUERY["Ad-hoc Query"]
     end
     
-    subgraph "Opportunities (What we create)"
-        OPP["Generic Opportunity<br/>(actors + interpretation)"]
+    subgraph "HyDE Generation Pipeline"
+        ROUTER["Strategy Router"]
+        GEN["HyDE Generator<br/>(LLM + Templates)"]
+        EMBED["Embedder<br/>(text-embedding-3-large)"]
     end
     
-    MIRROR --> OPP
-    RECIP --> OPP
-    CUSTOM --> OPP
+    subgraph "Cache Layer"
+        DB["Persisted<br/>(hyde_documents table)<br/>mirror, reciprocal"]
+        REDIS["Ephemeral<br/>(Redis TTL)<br/>mentor, investor, custom"]
+    end
+    
+    subgraph "Search"
+        PROF_SEARCH["Profile Search<br/>(user_profiles)"]
+        INT_SEARCH["Intent Search<br/>(intents)"]
+    end
+    
+    INTENT --> ROUTER
+    PROFILE --> ROUTER
+    QUERY --> ROUTER
+    
+    ROUTER --> GEN
+    GEN --> EMBED
+    EMBED --> DB
+    EMBED --> REDIS
+    
+    DB --> PROF_SEARCH
+    DB --> INT_SEARCH
+    REDIS --> PROF_SEARCH
+    REDIS --> INT_SEARCH
+    
+    PROF_SEARCH --> CANDIDATES["Merged Candidates"]
+    INT_SEARCH --> CANDIDATES
 ```
 
-### 5.2 HyDE Types
+### 5.3 Strategy Registry
 
-| Strategy | Purpose | Searches Against | When Used |
-|----------|---------|------------------|-----------|
-| **Mirror** | Find profiles that satisfy intent | `user_profiles.hyde_embedding` | Always (pre-computed) |
-| **Reciprocal** | Find complementary intents | `intents.embedding` | Always (pre-computed) |
-| **Custom** | Context-specific search | Varies | On-demand (e.g., "find mentors") |
+HyDE strategies are composable templates that define how to generate hypothetical documents:
 
-### 5.3 Intent HyDE Storage
+```typescript
+// hyde.strategies.ts
+
+interface HydeStrategyConfig {
+  targetCorpus: 'profiles' | 'intents';
+  prompt: (source: string, context?: HydeContext) => string;
+  persist: boolean;      // Store in DB or ephemeral?
+  cacheTTL?: number;     // Redis TTL in seconds (if not persisted)
+}
+
+const HYDE_STRATEGIES: Record<string, HydeStrategyConfig> = {
+  // ═══════════════════════════════════════════════════════════════
+  // CORE STRATEGIES (Pre-computed at intent creation)
+  // ═══════════════════════════════════════════════════════════════
+  
+  mirror: {
+    targetCorpus: 'profiles',
+    prompt: (intent) => `
+      Write a professional biography for the ideal person who can satisfy this goal:
+      "${intent}"
+      
+      Include their expertise, experience, and what they're currently focused on.
+      Write in first person as if they are describing themselves.
+    `,
+    persist: true,
+  },
+  
+  reciprocal: {
+    targetCorpus: 'intents',
+    prompt: (intent) => `
+      Write a goal or aspiration statement for someone who is looking for exactly 
+      what this person offers or needs:
+      "${intent}"
+      
+      Write from the first person perspective as if stating their own goal.
+    `,
+    persist: true,
+  },
+  
+  // ═══════════════════════════════════════════════════════════════
+  // CATEGORY STRATEGIES (Generated on-demand, cached)
+  // ═══════════════════════════════════════════════════════════════
+  
+  mentor: {
+    targetCorpus: 'profiles',
+    prompt: (intent) => `
+      Write a mentor profile for someone who could guide a person with this goal:
+      "${intent}"
+      
+      Describe their background, what they've achieved, and how they help others.
+      Write in first person.
+    `,
+    persist: false,
+    cacheTTL: 3600,  // 1 hour
+  },
+  
+  investor: {
+    targetCorpus: 'profiles',
+    prompt: (intent) => `
+      Write an investor thesis for someone who would be interested in funding:
+      "${intent}"
+      
+      Include their investment focus, stage preference, and what they look for.
+      Write in first person.
+    `,
+    persist: false,
+    cacheTTL: 3600,
+  },
+  
+  collaborator: {
+    targetCorpus: 'intents',
+    prompt: (intent) => `
+      Write a collaboration-seeking statement for someone who would be a great 
+      peer partner for this person:
+      "${intent}"
+      
+      Focus on complementary skills and shared interests.
+      Write in first person.
+    `,
+    persist: false,
+    cacheTTL: 3600,
+  },
+  
+  hiree: {
+    targetCorpus: 'intents',
+    prompt: (intent) => `
+      Write a job-seeking statement for someone who would be perfect for:
+      "${intent}"
+      
+      Describe what role they're looking for and their relevant experience.
+      Write in first person.
+    `,
+    persist: false,
+    cacheTTL: 3600,
+  },
+};
+```
+
+### 5.4 HyDE Storage Schema
 
 ```sql
--- Intents store pre-computed HyDE vectors
-ALTER TABLE intents
-ADD COLUMN mirror_hyde_text TEXT,
-ADD COLUMN mirror_hyde_embedding vector(2000),
-ADD COLUMN reciprocal_hyde_text TEXT,
-ADD COLUMN reciprocal_hyde_embedding vector(2000);
+-- Dedicated table for HyDE documents (replaces columns on intents)
+CREATE TABLE hyde_documents (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  
+  -- Source reference
+  source_type TEXT NOT NULL,        -- 'intent' | 'profile' | 'query'
+  source_id UUID,                    -- FK to source (nullable for ad-hoc queries)
+  source_text TEXT,                  -- For ad-hoc queries without entity reference
+  
+  -- Strategy configuration
+  strategy TEXT NOT NULL,            -- 'mirror' | 'reciprocal' | 'mentor' | ...
+  target_corpus TEXT NOT NULL,       -- 'profiles' | 'intents'
+  
+  -- Context constraints (for scoped generation)
+  context JSONB,                     -- { category, indexId, ... }
+  
+  -- Generated content
+  hyde_text TEXT NOT NULL,
+  hyde_embedding vector(2000) NOT NULL,
+  
+  -- Lifecycle
+  created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+  expires_at TIMESTAMP WITH TIME ZONE,  -- Staleness control
+  
+  -- Prevent duplicate HyDE for same source+strategy
+  CONSTRAINT hyde_source_strategy_unique 
+    UNIQUE NULLS NOT DISTINCT (source_type, source_id, strategy, target_corpus)
+);
+
+-- Fast lookup by source
+CREATE INDEX hyde_source_idx ON hyde_documents(source_type, source_id);
+
+-- Fast lookup by strategy (for bulk refresh)
+CREATE INDEX hyde_strategy_idx ON hyde_documents(strategy);
+
+-- Vector similarity search (when searching FROM hyde)
+CREATE INDEX hyde_embedding_idx ON hyde_documents 
+USING hnsw (hyde_embedding vector_cosine_ops);
+
+-- Cleanup expired HyDE
+CREATE INDEX hyde_expires_idx ON hyde_documents(expires_at) 
+WHERE expires_at IS NOT NULL;
 ```
 
-### 5.4 Signals in Interpretation
+### 5.5 Drizzle Schema
+
+```typescript
+// schemas/hyde.schema.ts
+
+import { pgTable, uuid, text, jsonb, timestamp, index, uniqueIndex } from 'drizzle-orm/pg-core';
+import { vector } from 'pgvector/drizzle-orm';
+
+export type HydeSourceType = 'intent' | 'profile' | 'query';
+export type HydeTargetCorpus = 'profiles' | 'intents';
+export type HydeStrategy = 'mirror' | 'reciprocal' | 'mentor' | 'investor' | 'collaborator' | 'hiree' | 'custom';
+
+export interface HydeContext {
+  category?: string;
+  indexId?: string;
+  customPrompt?: string;
+}
+
+export const hydeDocuments = pgTable('hyde_documents', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  
+  // Source
+  sourceType: text('source_type').$type<HydeSourceType>().notNull(),
+  sourceId: uuid('source_id'),
+  sourceText: text('source_text'),
+  
+  // Strategy
+  strategy: text('strategy').$type<HydeStrategy>().notNull(),
+  targetCorpus: text('target_corpus').$type<HydeTargetCorpus>().notNull(),
+  
+  // Context
+  context: jsonb('context').$type<HydeContext>(),
+  
+  // Content
+  hydeText: text('hyde_text').notNull(),
+  hydeEmbedding: vector('hyde_embedding', { dimensions: 2000 }).notNull(),
+  
+  // Lifecycle
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  expiresAt: timestamp('expires_at', { withTimezone: true }),
+}, (table) => ({
+  sourceIdx: index('hyde_source_idx').on(table.sourceType, table.sourceId),
+  strategyIdx: index('hyde_strategy_idx').on(table.strategy),
+  expiresIdx: index('hyde_expires_idx').on(table.expiresAt),
+}));
+```
+
+### 5.6 HyDE Generation Service
+
+```typescript
+// services/hyde.service.ts
+
+interface HydeGenerationParams {
+  source: Intent | UserProfile | string;
+  strategy: HydeStrategy;
+  context?: HydeContext;
+  forceRegenerate?: boolean;
+}
+
+interface HydeDocument {
+  id: string;
+  hydeText: string;
+  hydeEmbedding: number[];
+  strategy: HydeStrategy;
+  targetCorpus: HydeTargetCorpus;
+}
+
+class HydeService {
+  /**
+   * Get existing HyDE or generate new one
+   */
+  async getOrGenerate(params: HydeGenerationParams): Promise<HydeDocument> {
+    const { source, strategy, context, forceRegenerate } = params;
+    const { sourceType, sourceId, sourceText } = this.normalizeSource(source);
+    
+    // Check cache (DB for persisted, Redis for ephemeral)
+    if (!forceRegenerate) {
+      const cached = await this.getCached(sourceType, sourceId, strategy);
+      if (cached && !this.isExpired(cached)) {
+        return cached;
+      }
+    }
+    
+    // Generate new HyDE
+    const strategyConfig = HYDE_STRATEGIES[strategy];
+    if (!strategyConfig) {
+      throw new Error(`Unknown HyDE strategy: ${strategy}`);
+    }
+    
+    // Generate hypothetical document text
+    const hydeText = await this.generateHydeText(sourceText, strategyConfig, context);
+    
+    // Embed the hypothetical document
+    const hydeEmbedding = await this.embed(hydeText);
+    
+    // Cache appropriately
+    const hyde = await this.cache({
+      sourceType,
+      sourceId,
+      sourceText: typeof source === 'string' ? source : undefined,
+      strategy,
+      targetCorpus: strategyConfig.targetCorpus,
+      context,
+      hydeText,
+      hydeEmbedding,
+      expiresAt: strategyConfig.persist ? null : this.calculateExpiry(strategyConfig.cacheTTL),
+    });
+    
+    return hyde;
+  }
+  
+  /**
+   * Pre-generate core HyDE strategies for an intent
+   */
+  async pregenerate(intent: Intent): Promise<void> {
+    await Promise.all([
+      this.getOrGenerate({ source: intent, strategy: 'mirror' }),
+      this.getOrGenerate({ source: intent, strategy: 'reciprocal' }),
+    ]);
+  }
+  
+  /**
+   * Refresh HyDE when intent is updated
+   */
+  async refresh(intentId: string): Promise<void> {
+    const intent = await db.query.intents.findFirst({ where: eq(intents.id, intentId) });
+    if (!intent) return;
+    
+    // Force regenerate persisted strategies
+    await Promise.all([
+      this.getOrGenerate({ source: intent, strategy: 'mirror', forceRegenerate: true }),
+      this.getOrGenerate({ source: intent, strategy: 'reciprocal', forceRegenerate: true }),
+    ]);
+    
+    // Invalidate cached category strategies
+    await this.invalidateCached(intentId);
+  }
+  
+  private async generateHydeText(
+    sourceText: string, 
+    config: HydeStrategyConfig, 
+    context?: HydeContext
+  ): Promise<string> {
+    const prompt = config.prompt(sourceText, context);
+    
+    const result = await llm.invoke([
+      { role: 'system', content: 'Generate the requested hypothetical document. Be specific and detailed.' },
+      { role: 'user', content: prompt }
+    ]);
+    
+    return result.content as string;
+  }
+}
+```
+
+### 5.7 HyDE-Powered Search
+
+```typescript
+// services/hyde.search.ts
+
+interface HydeSearchParams {
+  source: Intent | UserProfile | string;
+  strategies: HydeStrategy[];
+  indexScope: string[];           // Which indexes to search within
+  excludeUserId?: string;         // Exclude self-matches
+  limit?: number;
+}
+
+interface HydeCandidate {
+  type: 'profile' | 'intent';
+  id: string;
+  userId: string;
+  score: number;
+  matchedVia: HydeStrategy;
+  indexId: string;
+}
+
+async function hydeSearch(params: HydeSearchParams): Promise<HydeCandidate[]> {
+  const { source, strategies, indexScope, excludeUserId, limit = 10 } = params;
+  
+  // 1. Get or generate HyDE for each strategy (parallel)
+  const hydeDocuments = await Promise.all(
+    strategies.map(strategy => hydeService.getOrGenerate({ source, strategy }))
+  );
+  
+  // 2. Run parallel searches against target corpora
+  const searchPromises = hydeDocuments.map(async (hyde) => {
+    if (hyde.targetCorpus === 'profiles') {
+      return searchProfiles({
+        embedding: hyde.hydeEmbedding,
+        indexScope,
+        excludeUserId,
+        limit,
+      }).then(results => results.map(r => ({ ...r, matchedVia: hyde.strategy })));
+    } else {
+      return searchIntents({
+        embedding: hyde.hydeEmbedding,
+        indexScope,
+        excludeUserId,
+        limit,
+      }).then(results => results.map(r => ({ ...r, matchedVia: hyde.strategy })));
+    }
+  });
+  
+  const allResults = await Promise.all(searchPromises);
+  
+  // 3. Merge, deduplicate, and rank
+  return mergeAndRankCandidates(allResults.flat(), limit);
+}
+
+function mergeAndRankCandidates(
+  candidates: HydeCandidate[], 
+  limit: number
+): HydeCandidate[] {
+  // Group by userId (same person might match multiple strategies)
+  const byUser = new Map<string, HydeCandidate[]>();
+  for (const c of candidates) {
+    const existing = byUser.get(c.userId) || [];
+    existing.push(c);
+    byUser.set(c.userId, existing);
+  }
+  
+  // Score aggregation: boost users who match multiple strategies
+  const scored = Array.from(byUser.entries()).map(([userId, matches]) => {
+    const bestMatch = matches.reduce((a, b) => a.score > b.score ? a : b);
+    const strategyBonus = (matches.length - 1) * 0.1;  // 10% boost per additional strategy
+    return {
+      ...bestMatch,
+      score: Math.min(bestMatch.score + strategyBonus, 1.0),
+      matchedStrategies: matches.map(m => m.matchedVia),
+    };
+  });
+  
+  // Sort by score and limit
+  return scored
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit);
+}
+```
+
+### 5.8 Strategy Selection
+
+The OpportunityGraph selects which HyDE strategies to use based on context:
+
+```typescript
+// opportunity.graph.ts
+
+function selectStrategies(intent: Intent, context?: { category?: string }): HydeStrategy[] {
+  // Always include core strategies
+  const strategies: HydeStrategy[] = ['mirror', 'reciprocal'];
+  
+  // Add category-specific strategies
+  const category = context?.category || intent.category;
+  
+  switch (category) {
+    case 'hiring':
+      strategies.push('hiree');
+      break;
+    case 'fundraising':
+    case 'investment':
+      strategies.push('investor');
+      break;
+    case 'mentorship':
+    case 'learning':
+      strategies.push('mentor');
+      break;
+    case 'collaboration':
+      strategies.push('collaborator');
+      break;
+  }
+  
+  return strategies;
+}
+```
+
+### 5.9 Signals in Interpretation
 
 When an opportunity is created, the `interpretation.signals` array tracks which HyDE strategy contributed:
 
 ```json
 {
   "signals": [
-    { "type": "mirror_hyde", "weight": 0.6, "detail": "Profile matched mirror description" },
-    { "type": "reciprocal_hyde", "weight": 0.4, "detail": "Intent matched reciprocal description" }
+    { "type": "mirror", "weight": 0.6, "detail": "Profile matched via mirror HyDE" },
+    { "type": "reciprocal", "weight": 0.3, "detail": "Intent matched via reciprocal HyDE" },
+    { "type": "mentor", "weight": 0.1, "detail": "Profile matched via mentor HyDE" }
   ]
+}
+```
+
+### 5.10 Chat Integration
+
+For ad-hoc discovery queries in chat:
+
+```typescript
+// chat.nodes.ts
+
+const discoverNode = async (state: ChatGraphState) => {
+  const { userQuery, userId, currentIndexId } = state;
+  
+  // Analyze query to determine appropriate strategies
+  const strategies = analyzeQueryForStrategies(userQuery);
+  // e.g., "find me a mentor" → ['mentor', 'mirror']
+  // e.g., "who needs help with React?" → ['reciprocal', 'hiree']
+  
+  // Run HyDE search with the query string as source
+  const candidates = await hydeSearch({
+    source: userQuery,  // Ad-hoc string, not a persisted intent
+    strategies,
+    indexScope: [currentIndexId],
+    excludeUserId: userId,
+    limit: 5,
+  });
+  
+  return { candidates, responseType: 'discovery_results' };
+};
+```
+
+### 5.11 HyDE Lifecycle Management
+
+| Event | Action |
+|-------|--------|
+| Intent created | Pre-generate `mirror` + `reciprocal` HyDE |
+| Intent updated | Regenerate persisted HyDE, invalidate cached |
+| Intent archived | Soft-delete associated HyDE (or let expire) |
+| Cron (daily) | Clean up expired ephemeral HyDE |
+| Cron (weekly) | Refresh stale persisted HyDE (> 30 days old) |
+
+```typescript
+// jobs/hyde.maintenance.ts
+
+async function cleanupExpiredHyde() {
+  await db.delete(hydeDocuments)
+    .where(and(
+      isNotNull(hydeDocuments.expiresAt),
+      lt(hydeDocuments.expiresAt, new Date())
+    ));
+}
+
+async function refreshStaleHyde() {
+  const staleThreshold = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  
+  const staleHyde = await db.select()
+    .from(hydeDocuments)
+    .where(and(
+      eq(hydeDocuments.sourceType, 'intent'),
+      isNull(hydeDocuments.expiresAt),  // Persisted only
+      lt(hydeDocuments.createdAt, staleThreshold)
+    ));
+  
+  for (const hyde of staleHyde) {
+    await hydeService.refresh(hyde.sourceId);
+  }
 }
 ```
 
@@ -765,19 +1282,16 @@ async function createManualOpportunity(
 stateDiagram-v2
     [*] --> PrepNode: START
     
-    PrepNode --> RouteNode: Intent loaded
+    PrepNode --> StrategyNode: Intent loaded
     
-    state RouteNode <<choice>>
-    RouteNode --> HydeNode: No HyDE vectors
-    RouteNode --> SearchNode: HyDE exists
-    
-    HydeNode --> SearchNode: Vectors generated
+    StrategyNode --> SearchNode: Strategies selected
+    note right of StrategyNode: Selects HyDE strategies<br/>based on intent category
     
     state SearchNode {
-        [*] --> ProfileSearch: Mirror HyDE
-        [*] --> IntentSearch: Reciprocal HyDE
-        ProfileSearch --> [*]: Profile candidates
-        IntentSearch --> [*]: Intent candidates
+        [*] --> HydeSearch: hydeSearch()
+        note right of HydeSearch: Parallel search across<br/>all selected strategies
+        HydeSearch --> MergeCandidates: Raw candidates
+        MergeCandidates --> [*]: Ranked candidates
     }
     
     SearchNode --> EvaluateNode: Candidates found
@@ -796,6 +1310,7 @@ stateDiagram-v2
 // opportunity.graph.state.ts
 
 import { Annotation } from "@langchain/langgraph";
+import { HydeStrategy, HydeCandidate } from '../hyde/hyde.types';
 
 export const OpportunityGraphState = Annotation.Root({
   // Input
@@ -812,12 +1327,9 @@ export const OpportunityGraphState = Annotation.Root({
     default: () => null,
   }),
   
-  // Intermediate - HyDE vectors
-  hydeVectors: Annotation<{
-    mirror: { text: string; embedding: number[] } | null;
-    reciprocal: { text: string; embedding: number[] } | null;
-  }>({
-    default: () => ({ mirror: null, reciprocal: null }),
+  // Intermediate - Selected HyDE strategies
+  selectedStrategies: Annotation<HydeStrategy[]>({
+    default: () => ['mirror', 'reciprocal'],
   }),
   
   // Intermediate - User's index memberships
@@ -825,14 +1337,8 @@ export const OpportunityGraphState = Annotation.Root({
     default: () => [],
   }),
   
-  // Intermediate - Candidates from search
-  candidates: Annotation<Array<{
-    type: 'profile' | 'intent';
-    userId: string;
-    intentId?: string;
-    score: number;
-    indexId: string;  // Which shared index
-  }>>({
+  // Intermediate - Candidates from HyDE search
+  candidates: Annotation<HydeCandidate[]>({
     reducer: (curr, next) => next ?? curr,
     default: () => [],
   }),
@@ -845,7 +1351,66 @@ export const OpportunityGraphState = Annotation.Root({
 });
 ```
 
-### 9.3 Opportunity Creation in Graph
+### 9.3 Strategy Selection Node
+
+```typescript
+// opportunity.graph.ts - StrategyNode
+
+const strategyNode = async (state: typeof OpportunityGraphState.State) => {
+  const { intent } = state;
+  
+  // Select strategies based on intent category and context
+  const selectedStrategies = selectStrategies(intent);
+  
+  return { selectedStrategies };
+};
+
+function selectStrategies(intent: Intent): HydeStrategy[] {
+  const strategies: HydeStrategy[] = ['mirror', 'reciprocal'];
+  
+  switch (intent.category) {
+    case 'hiring':
+      strategies.push('hiree');
+      break;
+    case 'fundraising':
+    case 'investment':
+      strategies.push('investor');
+      break;
+    case 'mentorship':
+    case 'learning':
+      strategies.push('mentor');
+      break;
+    case 'collaboration':
+      strategies.push('collaborator');
+      break;
+  }
+  
+  return strategies;
+}
+```
+
+### 9.4 Search Node (HyDE-Powered)
+
+```typescript
+// opportunity.graph.ts - SearchNode
+
+const searchNode = async (state: typeof OpportunityGraphState.State) => {
+  const { intent, userId, selectedStrategies, userIndexIds } = state;
+  
+  // Use HyDE search service with selected strategies
+  const candidates = await hydeSearch({
+    source: intent,
+    strategies: selectedStrategies,
+    indexScope: userIndexIds,
+    excludeUserId: userId,
+    limit: 20,
+  });
+  
+  return { candidates };
+};
+```
+
+### 9.5 Opportunity Creation in Graph
 
 ```typescript
 // opportunity.graph.ts - EvaluateNode
@@ -856,8 +1421,8 @@ const evaluateNode = async (state: typeof OpportunityGraphState.State) => {
   const opportunities: Opportunity[] = [];
   
   for (const candidate of candidates) {
-    // Determine roles via LLM
-    const roles = await determineRoles(intent, candidate);
+    // Determine roles based on HyDE strategy used
+    const roles = deriveRolesFromStrategy(candidate.matchedVia, intent, candidate);
     
     // Build actors array
     const actors: OpportunityActor[] = [
@@ -878,6 +1443,15 @@ const evaluateNode = async (state: typeof OpportunityGraphState.State) => {
     // Build interpretation
     const evaluation = await evaluateMatch(intent, candidate);
     
+    // Build signals from all matched strategies
+    const signals: OpportunitySignal[] = candidate.matchedStrategies 
+      ? candidate.matchedStrategies.map(strategy => ({
+          type: strategy,
+          weight: strategy === candidate.matchedVia ? candidate.score : candidate.score * 0.8,
+          detail: `Matched via ${strategy} HyDE`
+        }))
+      : [{ type: candidate.matchedVia, weight: candidate.score, detail: `Matched via ${candidate.matchedVia} HyDE` }];
+    
     const opportunity: Opportunity = {
       detection: {
         source: 'opportunity_graph',
@@ -890,13 +1464,7 @@ const evaluateNode = async (state: typeof OpportunityGraphState.State) => {
         category: evaluation.category,
         summary: evaluation.reasoning,
         confidence: evaluation.confidence,
-        signals: [
-          { 
-            type: candidate.type === 'profile' ? 'mirror_hyde' : 'reciprocal_hyde',
-            weight: candidate.score,
-            detail: `Matched via ${candidate.type} search`
-          }
-        ]
+        signals
       },
       context: {
         indexId: candidate.indexId,
@@ -910,6 +1478,48 @@ const evaluateNode = async (state: typeof OpportunityGraphState.State) => {
   
   return { opportunities };
 };
+
+/**
+ * Derive actor roles from the HyDE strategy that found the match.
+ * This reduces LLM calls by inferring roles from search semantics.
+ */
+function deriveRolesFromStrategy(
+  strategy: HydeStrategy,
+  intent: Intent,
+  candidate: HydeCandidate
+): { source: string; candidate: string } {
+  switch (strategy) {
+    case 'mirror':
+      // Mirror found a profile that satisfies the intent
+      // Source is seeking (patient), candidate can provide (agent)
+      return { source: 'patient', candidate: 'agent' };
+    
+    case 'reciprocal':
+      // Reciprocal found a complementary intent
+      // Both are seeking, symmetric relationship
+      return { source: 'peer', candidate: 'peer' };
+    
+    case 'mentor':
+      // Mentor strategy found someone who can guide
+      return { source: 'mentee', candidate: 'mentor' };
+    
+    case 'investor':
+      // Investor strategy found potential funder
+      return { source: 'founder', candidate: 'investor' };
+    
+    case 'hiree':
+      // Hiree strategy found job seeker
+      return { source: 'agent', candidate: 'patient' };
+    
+    case 'collaborator':
+      // Collaborator strategy found peer
+      return { source: 'peer', candidate: 'peer' };
+    
+    default:
+      // Fall back to symmetric for unknown strategies
+      return { source: 'party', candidate: 'party' };
+  }
+}
 ```
 
 ---
@@ -1164,39 +1774,55 @@ GET /api/opportunities?role=agent
 - [ ] Create new `opportunities` table with JSONB fields
 - [ ] Add GIN indexes for actor queries
 - [ ] Update Drizzle schema with TypeScript types
-- [ ] Add HyDE columns to `intents` table
+- [ ] Create `hyde_documents` table with vector index
 - [ ] Add `settings` column to `indexes` table
 
-### Phase 2: Core Logic
-- [ ] Create `IntentHydeGenerator` agent
+### Phase 2: HyDE Generation Pipeline
+- [ ] Define HyDE strategy registry (`hyde.strategies.ts`)
+- [ ] Implement `HydeService` with get-or-generate logic
+- [ ] Add Redis caching for ephemeral HyDE
+- [ ] Implement `hydeSearch()` with multi-strategy support
+- [ ] Add strategy selection logic based on intent category
+- [ ] Wire HyDE pre-generation into intent creation flow
+- [ ] Add HyDE refresh on intent update
+
+### Phase 3: OpportunityGraph Integration
 - [ ] Refactor `OpportunityGraph` with new state
-- [ ] Implement index-scoped candidate search
+- [ ] Replace direct vector search with `hydeSearch()`
+- [ ] Implement candidate merging and ranking
 - [ ] Implement `OpportunityEvaluator` for role determination
 - [ ] Create presentation service for on-demand descriptions
 
-### Phase 3: Manual Creation
+### Phase 4: Manual Creation
 - [ ] Add `POST /indexes/:indexId/opportunities` endpoint
 - [ ] Implement permission model (admin vs member)
 - [ ] Add suggestion/approval flow for non-admin members
 
-### Phase 4: Notifications
+### Phase 5: Notifications
 - [ ] Create notification agent for smart delivery
 - [ ] Add `NotifyNode` to `OpportunityGraph`
 - [ ] Implement WebSocket broadcasts
 - [ ] Add email queue integration
 
-### Phase 5: Lifecycle
+### Phase 6: Lifecycle & Maintenance
 - [ ] Implement status transitions
 - [ ] Add `onIntentArchived` handler
 - [ ] Add `onMemberRemoved` handler
-- [ ] Create expiration cron job
+- [ ] Create opportunity expiration cron job
+- [ ] Create HyDE cleanup cron job (expired ephemeral)
+- [ ] Create HyDE refresh cron job (stale persisted)
 
-### Phase 6: API & Frontend
+### Phase 7: Chat Integration
+- [ ] Add `analyzeQueryForStrategies()` for ad-hoc queries
+- [ ] Implement `discoverNode` with HyDE search
+- [ ] Add discovery results presentation in chat
+
+### Phase 8: API & Frontend
 - [ ] Implement all API endpoints
 - [ ] Add access control middleware
 - [ ] Update frontend to use presentation layer
 
-### Phase 7: Cleanup
+### Phase 9: Cleanup
 - [ ] Remove `SemanticRelevancyBroker`
 - [ ] Drop `intent_stakes` table (clean break)
 - [ ] Drop `intent_stake_items` table
