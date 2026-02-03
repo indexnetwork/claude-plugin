@@ -3124,18 +3124,18 @@ GET /api/opportunities?role=agent
 ### Step 6: HyDE Strategies & Generator Agent
 **Goal**: Pure LLM agent for generating hypothetical documents.
 
-- [ ] Create `lib/protocol/agents/hyde/hyde.strategies.ts`:
-  - [ ] `HydeStrategy` type (`mirror`, `reciprocal`, `mentor`, `investor`, `collaborator`, `hiree`)
-  - [ ] `HydeStrategyConfig` interface
-  - [ ] `HYDE_STRATEGIES` registry with prompts and persist flags
-- [ ] Create `lib/protocol/agents/hyde/hyde.generator.ts`:
-  - [ ] Extend `BaseLangChainAgent`
-  - [ ] `generate(sourceText, strategy, context)` method
-  - [ ] Static helpers: `getTargetCorpus`, `shouldPersist`, `getCacheTTL`
+- [x] Create `lib/protocol/agents/hyde/hyde.strategies.ts`:
+  - [x] `HydeStrategy` type (`mirror`, `reciprocal`, `mentor`, `investor`, `collaborator`, `hiree`)
+  - [x] `HydeStrategyConfig` interface
+  - [x] `HYDE_STRATEGIES` registry with prompts and persist flags
+- [x] Create `lib/protocol/agents/hyde/hyde.generator.ts`:
+  - [x] Extend `BaseLangChainAgent`
+  - [x] `generate(sourceText, strategy, context)` method
+  - [x] Static helpers: `getTargetCorpus`, `shouldPersist`, `getCacheTTL`
 
 **Test**:
-- Unit test: Each strategy config is valid
-- Integration test: Generator produces reasonable text for each strategy (mocked or real LLM)
+- [x] Unit test: Each strategy config is valid
+- [x] Integration test: Generator produces reasonable text for each strategy (mocked or real LLM)
 
 ---
 
