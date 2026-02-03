@@ -65,7 +65,7 @@ export default function LibraryPage() {
     intents: {
       title: "My Intents",
       description:
-        "Things the agent thinks you might be looking for, inferred from your activity. Review them and remove anything that doesn’t feel right.",
+        "Things that your agent thinks you might be looking for, inferred from your activity. Review them and remove anything that doesn’t feel right.",
       privacy:
         "AI agents use these to surface opportunities and only match when there’s mutual intent."
     },
