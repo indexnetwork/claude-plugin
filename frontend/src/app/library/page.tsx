@@ -346,7 +346,7 @@ export default function LibraryPage() {
             <Tabs.List className="flex border-b border-gray-200 mb-6">
             <Tabs.Trigger 
               value="intents" 
-              className="px-4 py-2 text-sm text-gray-600 border-b-2 border-transparent data-[state=active]:border-black data-[state=active]:text-black"
+              className="px-4 py-2 text-sm text-gray-600 border-b-2 border-transparent data-[state=active]:border-black data-[state=active]:text-black data-[state=active]:font-bold"
             >
               My Intents
               {intents.length > 0 && (
@@ -355,7 +355,7 @@ export default function LibraryPage() {
             </Tabs.Trigger>
             <Tabs.Trigger 
               value="connections" 
-              className="px-4 py-2 text-sm text-gray-600 border-b-2 border-transparent data-[state=active]:border-black data-[state=active]:text-black"
+              className="px-4 py-2 text-sm text-gray-600 border-b-2 border-transparent data-[state=active]:border-black data-[state=active]:text-black data-[state=active]:font-bold"
             >
               Connections
               {integrations.filter(i => i.connected).length > 0 && (
@@ -364,7 +364,7 @@ export default function LibraryPage() {
             </Tabs.Trigger>
             <Tabs.Trigger 
               value="files" 
-              className="px-4 py-2 text-sm text-gray-600 border-b-2 border-transparent data-[state=active]:border-black data-[state=active]:text-black"
+              className="px-4 py-2 text-sm text-gray-600 border-b-2 border-transparent data-[state=active]:border-black data-[state=active]:text-black data-[state=active]:font-bold"
             >
               Files
               {files.length > 0 && (
@@ -373,7 +373,7 @@ export default function LibraryPage() {
             </Tabs.Trigger>
             <Tabs.Trigger 
               value="links" 
-              className="px-4 py-2 text-sm text-gray-600 border-b-2 border-transparent data-[state=active]:border-black data-[state=active]:text-black"
+              className="px-4 py-2 text-sm text-gray-600 border-b-2 border-transparent data-[state=active]:border-black data-[state=active]:text-black data-[state=active]:font-bold"
             >
               Links
               {links.length > 0 && (

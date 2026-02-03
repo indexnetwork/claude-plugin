@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowUp, Loader2, Pencil, Paperclip, X, Globe, Zap, Type, ChevronDown, Lock, ChevronLeft } from 'lucide-react';
+import { ArrowUp, Loader2, Pencil, Paperclip, X, Globe, Zap, Type, ChevronDown, Lock, ChevronLeft, Bot } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useAIChat } from '@/contexts/AIChatContext';
@@ -786,10 +786,13 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
                     </div>
                     {item.friendNote && (
                       <div className="mt-3">
-                        <div className="inline-flex items-center gap-2.5 px-3 py-2 bg-[#F0F0F0] rounded-full">
+                        <div className="inline-flex items-center gap-2.5 px-3 py-1 bg-[#F0F0F0] rounded-md">
                           <div className="relative shrink-0">
-                            <Image src="https://i.pravatar.cc/150?img=68" alt="" width={28} height={28} className="w-7 h-7 rounded-full object-cover" />
-                            <span className="absolute bottom-0 left-0 w-2.5 h-2.5 bg-green-500 rounded-full border-2 border-[#F0F0F0]" />
+                            {item.friendNote.name === 'Index' && item.friendNote.text === 'Good fit based on mutual intent.' ? (
+                              <Bot className="w-7 h-7 text-[#3D3D3D]" />
+                            ) : (
+                              <Image src="https://i.pravatar.cc/150?img=68" alt="" width={28} height={28} className="w-7 h-7 rounded-full object-cover" />
+                            )}
                           </div>
                           <span className="text-[13px] text-[#3D3D3D]">
                             <span className="font-semibold">{item.friendNote.name}:</span> {item.friendNote.text}
@@ -842,10 +845,9 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
                     </div>
                     {item.friendNote && (
                       <div className="mt-3">
-                        <div className="inline-flex items-center gap-2.5 px-3 py-2 bg-[#F0F0F0] rounded-full">
+                        <div className="inline-flex items-center gap-2.5 px-3 py-1 bg-[#F0F0F0] rounded-md">
                           <div className="relative shrink-0">
                             <Image src="https://i.pravatar.cc/150?img=68" alt="" width={28} height={28} className="w-7 h-7 rounded-full object-cover" />
-                            <span className="absolute bottom-0 left-0 w-2.5 h-2.5 bg-green-500 rounded-full border-2 border-[#F0F0F0]" />
                           </div>
                           <span className="text-[13px] text-[#3D3D3D]">
                             <span className="font-semibold">{item.friendNote.name}:</span> {item.friendNote.text}

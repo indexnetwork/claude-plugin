@@ -273,8 +273,8 @@ export default function Sidebar() {
                       onClick={() => router.push(`/d/${session.id}`)}
                       className={`w-full text-left py-1.5 px-2 rounded-md text-sm transition-colors truncate ${
                         isSelected
-                          ? 'bg-gray-100 text-black font-bold'
-                          : 'text-black font-medium hover:bg-gray-50'
+                          ? 'bg-gray-100 text-black font-normal'
+                          : 'text-black font-normal hover:bg-gray-50'
                       }`}
                     >
                       {session.title || 'Untitled chat'}
@@ -316,10 +316,10 @@ export default function Sidebar() {
           </button>
 
           {userDropdownOpen && (
-            <div className="absolute bottom-full left-4 right-4 mb-2 bg-white border border-black shadow-[0px_1px_0px_#000000] rounded-[2px] z-50">
+            <div className="absolute bottom-full left-4 right-4 mb-2 bg-white border border-[#E9E9E9] rounded-sm z-50">
               <div className="py-1">
                 <button
-                  className="w-full px-4 py-2 text-left text-gray-700 hover:bg-gray-50 flex items-center text-sm"
+                  className="w-full px-4 py-2 text-left text-gray-800 hover:bg-gray-50 flex items-center text-sm"
                   onClick={() => {
                     setUserDropdownOpen(false);
                     router.push('/networks');
@@ -331,8 +331,8 @@ export default function Sidebar() {
                 <button
                   className={`w-full px-4 py-2 text-left flex items-center text-sm ${
                     isLibraryView 
-                      ? 'text-black bg-gray-100 font-medium' 
-                      : 'text-gray-700 hover:bg-gray-50'
+                      ? 'text-gray-800 bg-gray-100 font-medium' 
+                      : 'text-gray-800 hover:bg-gray-50'
                   }`}
                   onClick={() => {
                     setUserDropdownOpen(false);
@@ -343,7 +343,7 @@ export default function Sidebar() {
                   Library
                 </button>
                 <button
-                  className="w-full px-4 py-2 text-left text-gray-700 hover:bg-gray-50 flex items-center text-sm"
+                  className="w-full px-4 py-2 text-left text-gray-800 hover:bg-gray-50 flex items-center text-sm"
                   onClick={() => {
                     setUserDropdownOpen(false);
                     setIsProfileModalOpen(true);
@@ -353,7 +353,7 @@ export default function Sidebar() {
                   Profile
                 </button>
                 <button
-                  className="w-full px-4 py-2 text-left text-gray-700 hover:bg-gray-50 flex items-center text-sm"
+                  className="w-full px-4 py-2 text-left text-gray-800 hover:bg-gray-50 flex items-center text-sm"
                   onClick={() => {
                     setUserDropdownOpen(false);
                     setPreferencesModalOpen(true);
@@ -362,7 +362,7 @@ export default function Sidebar() {
                   <Settings className="h-4 w-4 mr-2" />
                   Preferences
                 </button>
-                <div className="border-t border-gray-200 my-1" />
+                <div className="border-t border-[#E9E9E9] my-1" />
                 <button
                   className="w-full px-4 py-2 text-left text-red-600 hover:bg-red-50 hover:text-red-700 flex items-center transition-colors text-sm"
                   onClick={() => {
