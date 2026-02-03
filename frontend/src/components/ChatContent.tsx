@@ -550,7 +550,7 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
           size="icon"
           disabled={isBusy}
           onClick={() => fileInputRef.current?.click()}
-          className="shrink-0 h-8 w-8 rounded-full text-gray-500 hover:text-[#006D4B] hover:bg-gray-200 p-0"
+          className="shrink-0 h-8 w-8 rounded-full text-gray-500 hover:text-[#007EFF] hover:bg-gray-200 p-0"
           title="Attach files"
           aria-label="Attach files"
         >
@@ -651,7 +651,7 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
               size="icon"
               disabled={isBusy}
               onClick={() => fileInputRef.current?.click()}
-              className="shrink-0 h-8 w-8 rounded-full text-gray-500 hover:text-[#006D4B] hover:bg-gray-200 p-0"
+              className="shrink-0 h-8 w-8 rounded-full text-gray-500 hover:text-[#007EFF] hover:bg-gray-200 p-0"
               title="Attach files"
             >
               <Paperclip className="h-4 w-4" />
@@ -770,12 +770,12 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
                         </p>
                       </div>
                     </div>
-                    <div className="text-[14px] text-gray-700 leading-snug mb-2 [&_a]:text-[#006D4B] [&_a]:underline [&_a]:underline-offset-1">
+                    <div className="text-[14px] text-gray-700 leading-snug mb-2 [&_a]:text-[#007EFF] [&_a]:underline [&_a]:underline-offset-1">
                       <ReactMarkdown remarkPlugins={[remarkGfm]} components={{ a: ({ href, children }) => <a href={href} target="_blank" rel="noopener noreferrer">{children}</a> }}>{item.synthesis}</ReactMarkdown>
                     </div>
                     {item.friendNote && (
                       <div className="mb-2">
-                        <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-full bg-[#006D4B]/10 text-[11px] text-[#006D4B] border border-[#006D4B]/30">
+                        <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-full bg-[#EDF7ED] text-[11px] text-[#006D4B] border border-[#006D4B]/30">
                           <span className="w-5 h-5 rounded-full overflow-hidden shrink-0">
                             <Image src="https://i.pravatar.cc/150?img=68" alt="" width={20} height={20} className="w-full h-full object-cover" />
                           </span>
@@ -821,12 +821,12 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
                         </p>
                       </div>
                     </div>
-                    <div className="text-[14px] text-gray-700 leading-snug mb-2 [&_a]:text-[#006D4B] [&_a]:underline [&_a]:underline-offset-1">
+                    <div className="text-[14px] text-gray-700 leading-snug mb-2 [&_a]:text-[#007EFF] [&_a]:underline [&_a]:underline-offset-1">
                       <ReactMarkdown remarkPlugins={[remarkGfm]} components={{ a: ({ href, children }) => <a href={href} target="_blank" rel="noopener noreferrer">{children}</a> }}>{item.synthesis}</ReactMarkdown>
                     </div>
                     {item.friendNote && (
                       <div className="mb-2">
-                        <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-full bg-[#006D4B]/10 text-[11px] text-[#006D4B] border border-[#006D4B]/30">
+                        <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-full bg-[#EDF7ED] text-[11px] text-[#006D4B] border border-[#006D4B]/30">
                           <span className="w-5 h-5 rounded-full overflow-hidden shrink-0">
                             <Image src="https://i.pravatar.cc/150?img=68" alt="" width={20} height={20} className="w-full h-full object-cover" />
                           </span>
@@ -882,7 +882,7 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
                         </div>
                       </div>
                     </div>
-                      <div className="text-[14px] text-gray-700 leading-snug text-left mb-2 [&_a]:text-[#006D4B] [&_a]:underline [&_a]:underline-offset-1">
+                      <div className="text-[14px] text-gray-700 leading-snug text-left mb-2 [&_a]:text-[#007EFF] [&_a]:underline [&_a]:underline-offset-1">
                         <ReactMarkdown remarkPlugins={[remarkGfm]} components={{ a: ({ href, children }) => <a href={href} target="_blank" rel="noopener noreferrer">{children}</a> }}>{item.reason}</ReactMarkdown>
                       </div>
                     <div className="flex gap-1.5 justify-start">
@@ -1022,7 +1022,7 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
         >
           <ChevronLeft className="h-5 w-5" />
         </button>
-        <Sparkles className="h-5 w-5 shrink-0 text-[#006D4B]" aria-hidden />
+        <Sparkles className="h-5 w-5 shrink-0 text-[#007EFF]" aria-hidden />
         {isEditingTitle ? (
           <input
             ref={titleInputRef}
@@ -1039,7 +1039,7 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
                 setIsEditingTitle(false);
               }
             }}
-            className="flex-1 min-w-0 font-semibold font-ibm-plex-mono text-gray-900 bg-transparent border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-[#006D4B]/30 focus:border-[#006D4B]"
+            className="flex-1 min-w-0 font-semibold font-ibm-plex-mono text-gray-900 bg-transparent border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-[#007EFF]/30 focus:border-[#007EFF]"
             placeholder="Conversation title"
           />
         ) : (
@@ -1057,7 +1057,7 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
                 type="button"
                 onClick={startEditingTitle}
                 title="Rename conversation"
-                className="shrink-0 p-1 rounded text-gray-500 hover:text-[#006D4B] hover:bg-gray-100 focus:outline-none"
+                className="shrink-0 p-1 rounded text-gray-500 hover:text-[#007EFF] hover:bg-gray-100 focus:outline-none"
                 aria-label="Rename conversation"
               >
                 <Pencil className="h-4 w-4" />
@@ -1098,7 +1098,7 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
                       )}
                     >
                       {msg.role === 'assistant' && (
-                        <span className="text-[10px] uppercase tracking-wider text-[#006D4B]/70 font-ibm-plex-mono mb-1 block">
+                        <span className="text-[10px] uppercase tracking-wider text-[#007EFF]/70 font-ibm-plex-mono mb-1 block">
                           AI Assistant
                         </span>
                       )}
