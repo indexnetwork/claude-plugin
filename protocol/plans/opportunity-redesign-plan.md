@@ -3047,11 +3047,11 @@ GET /api/opportunities?role=agent
 ### Step 2: Cache Interface & Adapter
 **Goal**: Redis caching infrastructure for HyDE documents.
 
-- [ ] Create `lib/protocol/interfaces/cache.interface.ts`:
-  - [ ] `Cache` interface with `get`, `set`, `delete`, `exists`, `mget`, `deleteByPattern`
-  - [ ] `HydeCache` narrowed type
-  - [ ] `OpportunityCache` narrowed type
-- [ ] Create `src/adapters/cache.adapter.ts` (Redis implementation)
+- [x] Create `lib/protocol/interfaces/cache.interface.ts`:
+  - [x] `Cache` interface with `get`, `set`, `delete`, `exists`, `mget`, `deleteByPattern`
+  - [x] `HydeCache` narrowed type
+  - [x] `OpportunityCache` narrowed type
+- [x] Create `src/adapters/cache.adapter.ts` (Redis implementation)
 
 **Test**:
 - Unit test: `set` → `get` → `delete` cycle
