@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowUp, Loader2, Pencil, Paperclip, X, Globe, Zap, Type, ChevronDown, Lock, ChevronLeft } from 'lucide-react';
+import { ArrowUp, Loader2, Pencil, Paperclip, X, Globe, Zap, Type, ChevronDown, Lock, ChevronLeft, Hourglass, Telescope, Route } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useAIChat } from '@/contexts/AIChatContext';
@@ -748,7 +748,8 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
 
           {/* Section 1: Opportunities waiting for action */}
           <div className="mt-12">
-            <h3 className="text-xs font-semibold text-[#3D3D3D] uppercase tracking-wider mb-3 font-ibm-plex-mono text-left">
+            <h3 className="text-xs font-semibold text-[#3D3D3D] uppercase tracking-wider mb-3 font-ibm-plex-mono text-left flex items-center gap-2">
+              <Hourglass className="w-3.5 h-3.5 shrink-0" />
               Opportunities waiting for action
             </h3>
             <div className="space-y-3">
@@ -804,7 +805,8 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
 
           {/* Section 2: Your perspective is crucial */}
           <div className="mt-6">
-            <h3 className="text-xs font-semibold text-[#3D3D3D] uppercase tracking-wider mb-3 font-ibm-plex-mono text-left">
+            <h3 className="text-xs font-semibold text-[#3D3D3D] uppercase tracking-wider mb-3 font-ibm-plex-mono text-left flex items-center gap-2">
+              <Telescope className="w-3.5 h-3.5 shrink-0" />
               Your perspective is crucial
             </h3>
             <div className="space-y-3">
@@ -860,7 +862,8 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
 
           {/* Section: You're the connector they need (bridge) */}
           <div className="mt-6">
-            <h3 className="text-xs font-semibold text-[#3D3D3D] uppercase tracking-wider mb-3 font-ibm-plex-mono text-left">
+            <h3 className="text-xs font-semibold text-[#3D3D3D] uppercase tracking-wider mb-3 font-ibm-plex-mono text-left flex items-center gap-2">
+              <Route className="w-3.5 h-3.5 shrink-0" aria-hidden />
               You&apos;re the connector they need
             </h3>
             <div className="space-y-3">
@@ -1109,7 +1112,7 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
                     >
                       {msg.role === 'assistant' && (
                         <span className="text-[10px] uppercase tracking-wider text-[#007EFF]/70 mb-1 block">
-                          AI Assistant
+                          Index
                         </span>
                       )}
                       <article className={cn(
