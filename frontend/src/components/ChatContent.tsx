@@ -915,7 +915,7 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
                   Expired
                 </h3>
                 <p className="text-sm text-gray-600 mb-4 font-ibm-plex-mono">
-                  This was a thing for a moment. Then it wasn’t.
+                  This no longer presents itself as possible. Timing does that.
                 </p>
               </>
             )}
