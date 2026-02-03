@@ -3,11 +3,11 @@
 > **Status**: DRAFT - Discussion Only  
 > **Author**: AI Assistant  
 > **Date**: 2026-02-03  
-> **Version**: 2.0 (Extensible Model)
+> **Version**: 3.0 (Interface-Driven Architecture)
 
 ## Executive Summary
 
-This document outlines a redesign of the Opportunity system with an **extensible, schema-flexible architecture** that:
+This document outlines a redesign of the Opportunity system with an **extensible, interface-driven architecture** that:
 
 1. **Retires `intent_stakes`** — Clean break, no migration
 2. **Drops I2I/I2P distinction** — Unified opportunity model
@@ -15,6 +15,7 @@ This document outlines a redesign of the Opportunity system with an **extensible
 4. **Enables third-party matching** — Curators can create opportunities for others
 5. **Separates data from presentation** — Descriptions generated at render time
 6. **Supports agent-driven notifications** — No static thresholds
+7. **Follows Interface → Adapter → Graph → Controller pattern** — No services layer
 
 ---
 
@@ -29,8 +30,33 @@ This document outlines a redesign of the Opportunity system with an **extensible
 | **Actor-Centric** | Opportunities have participants with roles, not fixed source/candidate |
 | **Detection Agnostic** | Same opportunity structure whether found by AI, chat, or human curator |
 | **Index-Scoped** | All opportunities exist within a community context |
+| **Interface-Driven** | All dependencies injected via interfaces, implemented in adapters |
 
-### 1.2 What We're NOT Doing
+### 1.2 Architectural Pattern
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                              ARCHITECTURE                                    │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│   lib/protocol/interfaces/     ──►  Abstract contracts (Database, Embedder, │
+│                                      Cache, Queue)                           │
+│                                                                              │
+│   src/adapters/                ──►  Concrete implementations (Postgres,     │
+│                                      Redis, pgvector)                        │
+│                                                                              │
+│   lib/protocol/graphs/         ──►  LangGraph workflows (inject interfaces) │
+│                                                                              │
+│   lib/protocol/agents/         ──►  Pure LLM agents (no DB access)          │
+│                                                                              │
+│   src/controllers/             ──►  HTTP handlers (wire adapters → graphs)  │
+│                                                                              │
+│   src/jobs/                    ──►  Background jobs (use adapters directly) │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### 1.3 What We're NOT Doing
 
 - ❌ Static `matchType` enum (I2I, I2P)
 - ❌ Fixed `sourceUserId` / `candidateUserId` columns
@@ -38,6 +64,7 @@ This document outlines a redesign of the Opportunity system with an **extensible
 - ❌ Incognito intent handling
 - ❌ Data migration from `intent_stakes`
 - ❌ Static notification thresholds
+- ❌ **Services layer** — Use interfaces + adapters instead
 
 ---
 
@@ -329,7 +356,20 @@ HyDE (Hypothetical Document Embeddings) solves the **cross-voice retrieval probl
 
 HyDE bridges this by generating a **hypothetical document in the target's voice**, then searching for real matches against that embedding.
 
-### 5.2 Architecture Overview
+### 5.2 Dual-Mode HyDE Architecture
+
+HyDE generation operates in two modes:
+
+| Mode | Trigger | Strategies | Storage | Use Case |
+|------|---------|------------|---------|----------|
+| **Automatic** | Intent/Profile creation/update | `mirror`, `reciprocal` | Database (persisted) | Background opportunity detection |
+| **Dynamic** | Discovery query, chat, on-demand | `mentor`, `investor`, `collaborator`, `hiree` | Redis (ephemeral TTL) | Real-time search |
+
+**Automatic HyDE** is triggered by existing `intent.graph.ts` and `profile.graph.ts` via queue jobs.
+
+**Dynamic HyDE** uses a dedicated `hyde.graph.ts` for complex multi-strategy generation.
+
+### 5.3 Architecture Overview
 
 ```mermaid
 flowchart TB
@@ -339,30 +379,34 @@ flowchart TB
         QUERY["Ad-hoc Query"]
     end
     
-    subgraph "HyDE Generation Pipeline"
-        ROUTER["Strategy Router"]
-        GEN["HyDE Generator<br/>(LLM + Templates)"]
-        EMBED["Embedder<br/>(text-embedding-3-large)"]
+    subgraph "HyDE Graph (lib/protocol/graphs/hyde/)"
+        CHECK["Check Cache Node"]
+        GEN["Generate Missing Node<br/>(uses HydeGenerator agent)"]
+        EMBED["Embed Node<br/>(uses Embedder interface)"]
+        CACHE_SAVE["Cache Results Node<br/>(uses Cache interface)"]
     end
     
-    subgraph "Cache Layer"
-        DB["Persisted<br/>(hyde_documents table)<br/>mirror, reciprocal"]
-        REDIS["Ephemeral<br/>(Redis TTL)<br/>mentor, investor, custom"]
+    subgraph "Storage (via interfaces)"
+        DB["Database Interface<br/>(persisted: mirror, reciprocal)"]
+        REDIS["Cache Interface<br/>(ephemeral: mentor, investor, etc.)"]
     end
     
-    subgraph "Search"
-        PROF_SEARCH["Profile Search<br/>(user_profiles)"]
-        INT_SEARCH["Intent Search<br/>(intents)"]
+    subgraph "Search (via Embedder interface)"
+        PROF_SEARCH["searchWithHydeEmbeddings()<br/>profiles corpus"]
+        INT_SEARCH["searchWithHydeEmbeddings()<br/>intents corpus"]
     end
     
-    INTENT --> ROUTER
-    PROFILE --> ROUTER
-    QUERY --> ROUTER
+    INTENT --> CHECK
+    PROFILE --> CHECK
+    QUERY --> CHECK
     
-    ROUTER --> GEN
+    CHECK -->|"missing"| GEN
+    CHECK -->|"all cached"| EMBED
     GEN --> EMBED
-    EMBED --> DB
-    EMBED --> REDIS
+    EMBED --> CACHE_SAVE
+    
+    CACHE_SAVE --> DB
+    CACHE_SAVE --> REDIS
     
     DB --> PROF_SEARCH
     DB --> INT_SEARCH
@@ -373,23 +417,39 @@ flowchart TB
     INT_SEARCH --> CANDIDATES
 ```
 
-### 5.3 Strategy Registry
+### 5.4 Strategy Registry
 
 HyDE strategies are composable templates that define how to generate hypothetical documents:
 
 ```typescript
-// hyde.strategies.ts
+// lib/protocol/agents/hyde/hyde.strategies.ts
 
-interface HydeStrategyConfig {
-  targetCorpus: 'profiles' | 'intents';
+export type HydeStrategy = 
+  | 'mirror'      // Intent → Profile (who can help me?)
+  | 'reciprocal'  // Intent → Intent (who needs what I offer?)
+  | 'mentor'      // Intent → Profile (who can guide me?)
+  | 'investor'    // Intent → Profile (who would fund this?)
+  | 'collaborator'// Intent → Intent (who shares my interests?)
+  | 'hiree';      // Intent → Intent (who wants this job?)
+
+export type HydeTargetCorpus = 'profiles' | 'intents';
+
+export interface HydeStrategyConfig {
+  targetCorpus: HydeTargetCorpus;
   prompt: (source: string, context?: HydeContext) => string;
-  persist: boolean;      // Store in DB or ephemeral?
-  cacheTTL?: number;     // Redis TTL in seconds (if not persisted)
+  persist: boolean;      // Store in DB or ephemeral (cache)?
+  cacheTTL?: number;     // Cache TTL in seconds (if not persisted)
 }
 
-const HYDE_STRATEGIES: Record<string, HydeStrategyConfig> = {
+export interface HydeContext {
+  category?: string;
+  indexId?: string;
+  customPrompt?: string;
+}
+
+export const HYDE_STRATEGIES: Record<HydeStrategy, HydeStrategyConfig> = {
   // ═══════════════════════════════════════════════════════════════
-  // CORE STRATEGIES (Pre-computed at intent creation)
+  // CORE STRATEGIES (Pre-computed at intent creation, persisted to DB)
   // ═══════════════════════════════════════════════════════════════
   
   mirror: {
@@ -417,7 +477,7 @@ const HYDE_STRATEGIES: Record<string, HydeStrategyConfig> = {
   },
   
   // ═══════════════════════════════════════════════════════════════
-  // CATEGORY STRATEGIES (Generated on-demand, cached)
+  // CATEGORY STRATEGIES (Generated on-demand, cached in Redis)
   // ═══════════════════════════════════════════════════════════════
   
   mentor: {
@@ -475,7 +535,7 @@ const HYDE_STRATEGIES: Record<string, HydeStrategyConfig> = {
 };
 ```
 
-### 5.4 HyDE Storage Schema
+### 5.5 HyDE Storage Schema
 
 ```sql
 -- Dedicated table for HyDE documents (replaces columns on intents)
@@ -522,23 +582,16 @@ CREATE INDEX hyde_expires_idx ON hyde_documents(expires_at)
 WHERE expires_at IS NOT NULL;
 ```
 
-### 5.5 Drizzle Schema
+### 5.6 Drizzle Schema
 
 ```typescript
 // schemas/hyde.schema.ts
 
-import { pgTable, uuid, text, jsonb, timestamp, index, uniqueIndex } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, text, jsonb, timestamp, index } from 'drizzle-orm/pg-core';
 import { vector } from 'pgvector/drizzle-orm';
+import { HydeStrategy, HydeTargetCorpus, HydeContext } from '../lib/protocol/agents/hyde/hyde.strategies';
 
 export type HydeSourceType = 'intent' | 'profile' | 'query';
-export type HydeTargetCorpus = 'profiles' | 'intents';
-export type HydeStrategy = 'mirror' | 'reciprocal' | 'mentor' | 'investor' | 'collaborator' | 'hiree' | 'custom';
-
-export interface HydeContext {
-  category?: string;
-  indexId?: string;
-  customPrompt?: string;
-}
 
 export const hydeDocuments = pgTable('hyde_documents', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -569,207 +622,762 @@ export const hydeDocuments = pgTable('hyde_documents', {
 }));
 ```
 
-### 5.6 HyDE Generation Service
+### 5.7 Cache Interface
 
 ```typescript
-// services/hyde.service.ts
+// lib/protocol/interfaces/cache.interface.ts
 
-interface HydeGenerationParams {
-  source: Intent | UserProfile | string;
-  strategy: HydeStrategy;
-  context?: HydeContext;
-  forceRegenerate?: boolean;
+export interface CacheOptions {
+  /** TTL in seconds */
+  ttl?: number;
 }
 
-interface HydeDocument {
-  id: string;
-  hydeText: string;
-  hydeEmbedding: number[];
-  strategy: HydeStrategy;
-  targetCorpus: HydeTargetCorpus;
-}
-
-class HydeService {
+export interface Cache {
   /**
-   * Get existing HyDE or generate new one
+   * Get a cached value by key.
+   * @returns The cached value or null if not found/expired
    */
-  async getOrGenerate(params: HydeGenerationParams): Promise<HydeDocument> {
-    const { source, strategy, context, forceRegenerate } = params;
-    const { sourceType, sourceId, sourceText } = this.normalizeSource(source);
-    
-    // Check cache (DB for persisted, Redis for ephemeral)
-    if (!forceRegenerate) {
-      const cached = await this.getCached(sourceType, sourceId, strategy);
-      if (cached && !this.isExpired(cached)) {
-        return cached;
-      }
-    }
-    
-    // Generate new HyDE
+  get<T>(key: string): Promise<T | null>;
+
+  /**
+   * Set a value in cache with optional TTL.
+   */
+  set<T>(key: string, value: T, options?: CacheOptions): Promise<void>;
+
+  /**
+   * Delete a cached value.
+   */
+  delete(key: string): Promise<boolean>;
+
+  /**
+   * Check if a key exists in cache.
+   */
+  exists(key: string): Promise<boolean>;
+
+  /**
+   * Get multiple values by keys.
+   */
+  mget<T>(keys: string[]): Promise<(T | null)[]>;
+
+  /**
+   * Delete multiple keys by pattern (e.g., "hyde:intent:*")
+   */
+  deleteByPattern(pattern: string): Promise<number>;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// NARROWED CACHE INTERFACES
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/** Cache interface for HyDE Graph operations. */
+export type HydeCache = Pick<Cache, 'get' | 'set' | 'delete' | 'exists'>;
+
+/** Cache interface for Opportunity Graph operations. */
+export type OpportunityCache = Pick<Cache, 'get' | 'set' | 'mget'>;
+```
+
+### 5.8 HyDE Generator Agent (Pure LLM)
+
+```typescript
+// lib/protocol/agents/hyde/hyde.generator.ts
+
+import { BaseLangChainAgent } from '../base.agent';
+import { HYDE_STRATEGIES, HydeStrategy, HydeContext, HydeStrategyConfig } from './hyde.strategies';
+import { z } from 'zod';
+
+const HydeOutputSchema = z.object({
+  hydeText: z.string().describe('The generated hypothetical document'),
+});
+
+/**
+ * Pure LLM agent that generates hypothetical documents.
+ * No database or cache access - just text generation.
+ */
+export class HydeGenerator extends BaseLangChainAgent<
+  { sourceText: string; strategy: HydeStrategy; context?: HydeContext },
+  z.infer<typeof HydeOutputSchema>
+> {
+  constructor() {
+    super({
+      preset: 'hyde-generator',
+      schema: HydeOutputSchema,
+    });
+  }
+
+  async generate(
+    sourceText: string,
+    strategy: HydeStrategy,
+    context?: HydeContext
+  ): Promise<string> {
     const strategyConfig = HYDE_STRATEGIES[strategy];
     if (!strategyConfig) {
       throw new Error(`Unknown HyDE strategy: ${strategy}`);
     }
-    
-    // Generate hypothetical document text
-    const hydeText = await this.generateHydeText(sourceText, strategyConfig, context);
-    
-    // Embed the hypothetical document
-    const hydeEmbedding = await this.embed(hydeText);
-    
-    // Cache appropriately
-    const hyde = await this.cache({
-      sourceType,
-      sourceId,
-      sourceText: typeof source === 'string' ? source : undefined,
-      strategy,
-      targetCorpus: strategyConfig.targetCorpus,
-      context,
-      hydeText,
-      hydeEmbedding,
-      expiresAt: strategyConfig.persist ? null : this.calculateExpiry(strategyConfig.cacheTTL),
+
+    const prompt = strategyConfig.prompt(sourceText, context);
+
+    const result = await this.invoke({
+      systemPrompt: 'Generate the requested hypothetical document. Be specific and detailed. Write naturally as if you are the person described.',
+      userPrompt: prompt,
     });
-    
-    return hyde;
+
+    return result.hydeText;
   }
-  
+
   /**
-   * Pre-generate core HyDE strategies for an intent
+   * Get the target corpus for a strategy.
    */
-  async pregenerate(intent: Intent): Promise<void> {
-    await Promise.all([
-      this.getOrGenerate({ source: intent, strategy: 'mirror' }),
-      this.getOrGenerate({ source: intent, strategy: 'reciprocal' }),
-    ]);
+  static getTargetCorpus(strategy: HydeStrategy): 'profiles' | 'intents' {
+    return HYDE_STRATEGIES[strategy].targetCorpus;
   }
-  
+
   /**
-   * Refresh HyDE when intent is updated
+   * Check if a strategy should be persisted to DB vs cached.
    */
-  async refresh(intentId: string): Promise<void> {
-    const intent = await db.query.intents.findFirst({ where: eq(intents.id, intentId) });
-    if (!intent) return;
-    
-    // Force regenerate persisted strategies
-    await Promise.all([
-      this.getOrGenerate({ source: intent, strategy: 'mirror', forceRegenerate: true }),
-      this.getOrGenerate({ source: intent, strategy: 'reciprocal', forceRegenerate: true }),
-    ]);
-    
-    // Invalidate cached category strategies
-    await this.invalidateCached(intentId);
+  static shouldPersist(strategy: HydeStrategy): boolean {
+    return HYDE_STRATEGIES[strategy].persist;
   }
-  
-  private async generateHydeText(
-    sourceText: string, 
-    config: HydeStrategyConfig, 
-    context?: HydeContext
-  ): Promise<string> {
-    const prompt = config.prompt(sourceText, context);
-    
-    const result = await llm.invoke([
-      { role: 'system', content: 'Generate the requested hypothetical document. Be specific and detailed.' },
-      { role: 'user', content: prompt }
-    ]);
-    
-    return result.content as string;
+
+  /**
+   * Get cache TTL for ephemeral strategies.
+   */
+  static getCacheTTL(strategy: HydeStrategy): number | undefined {
+    return HYDE_STRATEGIES[strategy].cacheTTL;
   }
 }
 ```
 
-### 5.7 HyDE-Powered Search
+### 5.9 HyDE Graph (Dynamic Generation)
 
 ```typescript
-// services/hyde.search.ts
+// lib/protocol/graphs/hyde/hyde.graph.state.ts
 
-interface HydeSearchParams {
-  source: Intent | UserProfile | string;
-  strategies: HydeStrategy[];
-  indexScope: string[];           // Which indexes to search within
-  excludeUserId?: string;         // Exclude self-matches
-  limit?: number;
+import { Annotation } from "@langchain/langgraph";
+import { HydeStrategy, HydeTargetCorpus } from "../../agents/hyde/hyde.strategies";
+
+export interface HydeDocumentState {
+  strategy: HydeStrategy;
+  targetCorpus: HydeTargetCorpus;
+  hydeText: string;
+  hydeEmbedding: number[];
 }
 
-interface HydeCandidate {
+export const HydeGraphState = Annotation.Root({
+  // Input
+  sourceText: Annotation<string>,
+  sourceType: Annotation<'intent' | 'profile' | 'query'>,
+  sourceId: Annotation<string | null>({
+    default: () => null,
+  }),
+  strategies: Annotation<HydeStrategy[]>,
+  
+  // Control
+  forceRegenerate: Annotation<boolean>({
+    default: () => false,
+  }),
+  
+  // Intermediate - Cached/Generated HyDE documents
+  hydeDocuments: Annotation<Map<HydeStrategy, HydeDocumentState>>({
+    reducer: (curr, next) => new Map([...curr, ...next]),
+    default: () => new Map(),
+  }),
+  
+  // Output - Embeddings ready for search
+  hydeEmbeddings: Annotation<Map<HydeStrategy, number[]>>({
+    reducer: (curr, next) => new Map([...curr, ...next]),
+    default: () => new Map(),
+  }),
+});
+```
+
+```typescript
+// lib/protocol/graphs/hyde/hyde.graph.ts
+
+import { StateGraph, END, START } from "@langchain/langgraph";
+import { HydeGraphState, HydeDocumentState } from "./hyde.graph.state";
+import { HydeGenerator } from "../../agents/hyde/hyde.generator";
+import { HydeGraphDatabase } from "../../interfaces/database.interface";
+import { Embedder } from "../../interfaces/embedder.interface";
+import { HydeCache } from "../../interfaces/cache.interface";
+import { HydeStrategy } from "../../agents/hyde/hyde.strategies";
+import { log } from "../../../log";
+
+export class HydeGraph {
+  constructor(
+    private database: HydeGraphDatabase,
+    private embedder: Embedder,
+    private cache: HydeCache,
+    private generator: HydeGenerator = new HydeGenerator(),
+  ) {}
+
+  public compile() {
+    return new StateGraph(HydeGraphState)
+      .addNode("check_cache", this.checkCacheNode.bind(this))
+      .addNode("generate_missing", this.generateMissingNode.bind(this))
+      .addNode("embed", this.embedNode.bind(this))
+      .addNode("cache_results", this.cacheResultsNode.bind(this))
+      .addEdge(START, "check_cache")
+      .addConditionalEdges("check_cache", this.shouldGenerate.bind(this), {
+        generate: "generate_missing",
+        skip: "embed",
+      })
+      .addEdge("generate_missing", "embed")
+      .addEdge("embed", "cache_results")
+      .addEdge("cache_results", END)
+      .compile();
+  }
+
+  /**
+   * NODE: check_cache
+   * Check cache (Redis) and database for existing HyDE documents.
+   */
+  private async checkCacheNode(state: typeof HydeGraphState.State) {
+    const { sourceType, sourceId, strategies, forceRegenerate } = state;
+    
+    if (forceRegenerate) {
+      log.info("[HydeGraph:CheckCache] Force regenerate - skipping cache");
+      return { hydeDocuments: new Map() };
+    }
+
+    const cached = new Map<HydeStrategy, HydeDocumentState>();
+    
+    for (const strategy of strategies) {
+      // Build cache key
+      const cacheKey = `hyde:${sourceType}:${sourceId || 'query'}:${strategy}`;
+      
+      // Check Redis cache first (for all strategies)
+      const fromCache = await this.cache.get<HydeDocumentState>(cacheKey);
+      if (fromCache) {
+        log.info(`[HydeGraph:CheckCache] Cache hit for ${strategy}`);
+        cached.set(strategy, fromCache);
+        continue;
+      }
+      
+      // Check DB for persisted strategies (mirror, reciprocal)
+      if (sourceId && HydeGenerator.shouldPersist(strategy)) {
+        const fromDb = await this.database.getHydeDocument(sourceType as 'intent' | 'profile', sourceId, strategy);
+        if (fromDb) {
+          log.info(`[HydeGraph:CheckCache] DB hit for ${strategy}`);
+          cached.set(strategy, {
+            strategy: fromDb.strategy,
+            targetCorpus: fromDb.targetCorpus,
+            hydeText: fromDb.hydeText,
+            hydeEmbedding: fromDb.hydeEmbedding,
+          });
+        }
+      }
+    }
+    
+    log.info(`[HydeGraph:CheckCache] Found ${cached.size}/${strategies.length} cached`);
+    return { hydeDocuments: cached };
+  }
+
+  /**
+   * CONDITIONAL: shouldGenerate
+   * Route to generation if any strategies are missing.
+   */
+  private shouldGenerate(state: typeof HydeGraphState.State): string {
+    const { strategies, hydeDocuments } = state;
+    const missing = strategies.filter(s => !hydeDocuments.has(s));
+    
+    if (missing.length > 0) {
+      log.info(`[HydeGraph:Conditional] Need to generate: ${missing.join(', ')}`);
+      return 'generate';
+    }
+    
+    log.info("[HydeGraph:Conditional] All strategies cached, skipping generation");
+    return 'skip';
+  }
+
+  /**
+   * NODE: generate_missing
+   * Generate HyDE text for missing strategies using HydeGenerator agent.
+   */
+  private async generateMissingNode(state: typeof HydeGraphState.State) {
+    const { sourceText, strategies, hydeDocuments } = state;
+    const missing = strategies.filter(s => !hydeDocuments.has(s));
+    
+    log.info(`[HydeGraph:Generate] Generating ${missing.length} HyDE documents`);
+    
+    const generated = new Map<HydeStrategy, HydeDocumentState>();
+    
+    // Generate in parallel
+    const results = await Promise.all(
+      missing.map(async (strategy) => {
+        const hydeText = await this.generator.generate(sourceText, strategy);
+        return {
+          strategy,
+          hydeText,
+          targetCorpus: HydeGenerator.getTargetCorpus(strategy),
+        };
+      })
+    );
+    
+    for (const result of results) {
+      generated.set(result.strategy, {
+        strategy: result.strategy,
+        targetCorpus: result.targetCorpus,
+        hydeText: result.hydeText,
+        hydeEmbedding: [], // Will be filled in embed node
+      });
+    }
+    
+    return { hydeDocuments: generated };
+  }
+
+  /**
+   * NODE: embed
+   * Generate embeddings for all HyDE documents.
+   */
+  private async embedNode(state: typeof HydeGraphState.State) {
+    const { hydeDocuments } = state;
+    
+    const updated = new Map<HydeStrategy, HydeDocumentState>();
+    const hydeEmbeddings = new Map<HydeStrategy, number[]>();
+    
+    // Collect texts that need embedding
+    const toEmbed: { strategy: HydeStrategy; doc: HydeDocumentState }[] = [];
+    
+    for (const [strategy, doc] of hydeDocuments) {
+      if (doc.hydeEmbedding && doc.hydeEmbedding.length > 0) {
+        // Already has embedding (from cache)
+        updated.set(strategy, doc);
+        hydeEmbeddings.set(strategy, doc.hydeEmbedding);
+      } else {
+        toEmbed.push({ strategy, doc });
+      }
+    }
+    
+    if (toEmbed.length > 0) {
+      log.info(`[HydeGraph:Embed] Embedding ${toEmbed.length} documents`);
+      
+      // Batch embed
+      const texts = toEmbed.map(t => t.doc.hydeText);
+      const embeddings = await this.embedder.generate(texts);
+      const embeddingArray = Array.isArray(embeddings[0]) 
+        ? embeddings as number[][] 
+        : [embeddings as number[]];
+      
+      for (let i = 0; i < toEmbed.length; i++) {
+        const { strategy, doc } = toEmbed[i];
+        const embedding = embeddingArray[i];
+        
+        updated.set(strategy, { ...doc, hydeEmbedding: embedding });
+        hydeEmbeddings.set(strategy, embedding);
+      }
+    }
+    
+    return { hydeDocuments: updated, hydeEmbeddings };
+  }
+
+  /**
+   * NODE: cache_results
+   * Save HyDE documents to cache (Redis) and/or database.
+   */
+  private async cacheResultsNode(state: typeof HydeGraphState.State) {
+    const { sourceType, sourceId, hydeDocuments } = state;
+    
+    for (const [strategy, doc] of hydeDocuments) {
+      const cacheKey = `hyde:${sourceType}:${sourceId || 'query'}:${strategy}`;
+      const ttl = HydeGenerator.getCacheTTL(strategy);
+      
+      // Always cache in Redis
+      await this.cache.set(cacheKey, doc, ttl ? { ttl } : undefined);
+      
+      // Persist to DB for core strategies
+      if (sourceId && HydeGenerator.shouldPersist(strategy)) {
+        await this.database.saveHydeDocument({
+          sourceType: sourceType as 'intent' | 'profile',
+          sourceId,
+          strategy,
+          targetCorpus: doc.targetCorpus,
+          hydeText: doc.hydeText,
+          hydeEmbedding: doc.hydeEmbedding,
+        });
+      }
+    }
+    
+    log.info(`[HydeGraph:Cache] Cached ${hydeDocuments.size} documents`);
+    return {};
+  }
+}
+```
+
+### 5.10 Embedder Interface Extensions
+
+```typescript
+// lib/protocol/interfaces/embedder.interface.ts - ADDITIONS
+
+import { HydeStrategy, HydeTargetCorpus } from '../agents/hyde/hyde.strategies';
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// HYDE SEARCH TYPES
+// ═══════════════════════════════════════════════════════════════════════════════
+
+export interface HydeSearchOptions {
+  /** HyDE strategies to use */
+  strategies: HydeStrategy[];
+  /** Index IDs to scope search */
+  indexScope: string[];
+  /** Exclude this user from results */
+  excludeUserId?: string;
+  /** Max results per strategy */
+  limitPerStrategy?: number;
+  /** Overall max results after merge */
+  limit?: number;
+  /** Minimum similarity score */
+  minScore?: number;
+}
+
+export interface HydeCandidate {
   type: 'profile' | 'intent';
   id: string;
   userId: string;
   score: number;
   matchedVia: HydeStrategy;
   indexId: string;
+  /** All strategies that matched this candidate */
+  matchedStrategies?: HydeStrategy[];
 }
 
-async function hydeSearch(params: HydeSearchParams): Promise<HydeCandidate[]> {
-  const { source, strategies, indexScope, excludeUserId, limit = 10 } = params;
-  
-  // 1. Get or generate HyDE for each strategy (parallel)
-  const hydeDocuments = await Promise.all(
-    strategies.map(strategy => hydeService.getOrGenerate({ source, strategy }))
-  );
-  
-  // 2. Run parallel searches against target corpora
-  const searchPromises = hydeDocuments.map(async (hyde) => {
-    if (hyde.targetCorpus === 'profiles') {
-      return searchProfiles({
-        embedding: hyde.hydeEmbedding,
-        indexScope,
-        excludeUserId,
-        limit,
-      }).then(results => results.map(r => ({ ...r, matchedVia: hyde.strategy })));
-    } else {
-      return searchIntents({
-        embedding: hyde.hydeEmbedding,
-        indexScope,
-        excludeUserId,
-        limit,
-      }).then(results => results.map(r => ({ ...r, matchedVia: hyde.strategy })));
-    }
-  });
-  
-  const allResults = await Promise.all(searchPromises);
-  
-  // 3. Merge, deduplicate, and rank
-  return mergeAndRankCandidates(allResults.flat(), limit);
-}
+// ═══════════════════════════════════════════════════════════════════════════════
+// EMBEDDER INTERFACE (extended)
+// ═══════════════════════════════════════════════════════════════════════════════
 
-function mergeAndRankCandidates(
-  candidates: HydeCandidate[], 
-  limit: number
-): HydeCandidate[] {
-  // Group by userId (same person might match multiple strategies)
-  const byUser = new Map<string, HydeCandidate[]>();
-  for (const c of candidates) {
-    const existing = byUser.get(c.userId) || [];
-    existing.push(c);
-    byUser.set(c.userId, existing);
-  }
-  
-  // Score aggregation: boost users who match multiple strategies
-  const scored = Array.from(byUser.entries()).map(([userId, matches]) => {
-    const bestMatch = matches.reduce((a, b) => a.score > b.score ? a : b);
-    const strategyBonus = (matches.length - 1) * 0.1;  // 10% boost per additional strategy
-    return {
-      ...bestMatch,
-      score: Math.min(bestMatch.score + strategyBonus, 1.0),
-      matchedStrategies: matches.map(m => m.matchedVia),
-    };
-  });
-  
-  // Sort by score and limit
-  return scored
-    .sort((a, b) => b.score - a.score)
-    .slice(0, limit);
+export interface Embedder extends EmbeddingGenerator, VectorStore {
+  /**
+   * Search for candidates using pre-computed HyDE embeddings.
+   * Handles multi-strategy search with result merging and ranking.
+   * 
+   * @param hydeEmbeddings - Pre-computed HyDE embeddings keyed by strategy
+   * @param options - Search options including strategies, scope, and limits
+   */
+  searchWithHydeEmbeddings(
+    hydeEmbeddings: Map<HydeStrategy, number[]>,
+    options: HydeSearchOptions
+  ): Promise<HydeCandidate[]>;
 }
 ```
 
-### 5.8 Strategy Selection
-
-The OpportunityGraph selects which HyDE strategies to use based on context:
+### 5.11 Embedder Adapter (Postgres Implementation)
 
 ```typescript
-// opportunity.graph.ts
+// src/adapters/embedder.adapter.ts
 
-function selectStrategies(intent: Intent, context?: { category?: string }): HydeStrategy[] {
+import { eq, and, inArray, sql, ne, isNull } from 'drizzle-orm';
+import * as schema from '../schemas/database.schema';
+import db from '../lib/drizzle/drizzle';
+import OpenAI from 'openai';
+import { 
+  Embedder, 
+  EmbeddingGenerator, 
+  VectorStore, 
+  VectorStoreOption, 
+  VectorSearchResult,
+  HydeSearchOptions,
+  HydeCandidate 
+} from '../lib/protocol/interfaces/embedder.interface';
+import { HydeStrategy, HydeGenerator } from '../lib/protocol/agents/hyde/hyde.strategies';
+import { log } from '../lib/log';
+
+/**
+ * Postgres/pgvector implementation of the Embedder interface.
+ */
+export class PostgresEmbedderAdapter implements Embedder {
+  private openai: OpenAI;
+  private model = 'text-embedding-3-large';
+  private dimensions = 2000;
+
+  constructor() {
+    this.openai = new OpenAI();
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // EmbeddingGenerator Implementation
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  async generate(text: string | string[], dimensions?: number): Promise<number[] | number[][]> {
+    const input = Array.isArray(text) ? text : [text];
+    const dim = dimensions ?? this.dimensions;
+
+    const response = await this.openai.embeddings.create({
+      model: this.model,
+      input,
+      dimensions: dim,
+    });
+
+    const embeddings = response.data.map(d => d.embedding);
+    return Array.isArray(text) ? embeddings : embeddings[0];
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // VectorStore Implementation
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  async search<T>(
+    queryVector: number[],
+    collection: string,
+    options?: VectorStoreOption<T>
+  ): Promise<VectorSearchResult<T>[]> {
+    const limit = options?.limit ?? 10;
+    const minScore = options?.minScore ?? 0.0;
+
+    if (collection === 'profiles') {
+      return this.searchProfiles(queryVector, options?.filter, limit, minScore) as Promise<VectorSearchResult<T>[]>;
+    } else if (collection === 'intents') {
+      return this.searchIntents(queryVector, options?.filter, limit, minScore) as Promise<VectorSearchResult<T>[]>;
+    }
+
+    throw new Error(`Unknown collection: ${collection}`);
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // HyDE Search Implementation
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  async searchWithHydeEmbeddings(
+    hydeEmbeddings: Map<HydeStrategy, number[]>,
+    options: HydeSearchOptions
+  ): Promise<HydeCandidate[]> {
+    const {
+      strategies,
+      indexScope,
+      excludeUserId,
+      limitPerStrategy = 10,
+      limit = 20,
+      minScore = 0.5,
+    } = options;
+
+    log.info(`[EmbedderAdapter:HydeSearch] Searching with ${hydeEmbeddings.size} strategies`);
+
+    // Run parallel searches for each strategy
+    const searchPromises = strategies.map(async (strategy) => {
+      const embedding = hydeEmbeddings.get(strategy);
+      if (!embedding) {
+        log.warn(`[EmbedderAdapter:HydeSearch] No embedding for strategy: ${strategy}`);
+        return [];
+      }
+
+      const targetCorpus = HydeGenerator.getTargetCorpus(strategy);
+      const filter = {
+        indexScope,
+        excludeUserId,
+      };
+
+      let results: HydeCandidate[];
+      if (targetCorpus === 'profiles') {
+        results = await this.searchProfilesForHyde(embedding, filter, limitPerStrategy, minScore, strategy);
+      } else {
+        results = await this.searchIntentsForHyde(embedding, filter, limitPerStrategy, minScore, strategy);
+      }
+
+      return results;
+    });
+
+    const allResults = await Promise.all(searchPromises);
+    const flatResults = allResults.flat();
+
+    // Merge, deduplicate, and rank
+    return this.mergeAndRankCandidates(flatResults, limit);
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Private Search Methods
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  private async searchProfilesForHyde(
+    embedding: number[],
+    filter: { indexScope: string[]; excludeUserId?: string },
+    limit: number,
+    minScore: number,
+    strategy: HydeStrategy
+  ): Promise<HydeCandidate[]> {
+    const vectorStr = `[${embedding.join(',')}]`;
+
+    const results = await db
+      .select({
+        userId: schema.userProfiles.userId,
+        similarity: sql<number>`1 - (${schema.userProfiles.hydeEmbedding} <=> ${vectorStr}::vector)`,
+        indexId: schema.indexMembers.indexId,
+      })
+      .from(schema.userProfiles)
+      .innerJoin(schema.indexMembers, eq(schema.userProfiles.userId, schema.indexMembers.userId))
+      .where(
+        and(
+          inArray(schema.indexMembers.indexId, filter.indexScope),
+          filter.excludeUserId ? ne(schema.userProfiles.userId, filter.excludeUserId) : undefined,
+          sql`1 - (${schema.userProfiles.hydeEmbedding} <=> ${vectorStr}::vector) >= ${minScore}`
+        )
+      )
+      .orderBy(sql`${schema.userProfiles.hydeEmbedding} <=> ${vectorStr}::vector`)
+      .limit(limit);
+
+    return results.map(r => ({
+      type: 'profile' as const,
+      id: r.userId,
+      userId: r.userId,
+      score: r.similarity,
+      matchedVia: strategy,
+      indexId: r.indexId,
+    }));
+  }
+
+  private async searchIntentsForHyde(
+    embedding: number[],
+    filter: { indexScope: string[]; excludeUserId?: string },
+    limit: number,
+    minScore: number,
+    strategy: HydeStrategy
+  ): Promise<HydeCandidate[]> {
+    const vectorStr = `[${embedding.join(',')}]`;
+
+    const results = await db
+      .select({
+        id: schema.intents.id,
+        userId: schema.intents.userId,
+        similarity: sql<number>`1 - (${schema.intents.embedding} <=> ${vectorStr}::vector)`,
+        indexId: schema.intentIndexes.indexId,
+      })
+      .from(schema.intents)
+      .innerJoin(schema.intentIndexes, eq(schema.intents.id, schema.intentIndexes.intentId))
+      .where(
+        and(
+          inArray(schema.intentIndexes.indexId, filter.indexScope),
+          filter.excludeUserId ? ne(schema.intents.userId, filter.excludeUserId) : undefined,
+          isNull(schema.intents.archivedAt),
+          sql`1 - (${schema.intents.embedding} <=> ${vectorStr}::vector) >= ${minScore}`
+        )
+      )
+      .orderBy(sql`${schema.intents.embedding} <=> ${vectorStr}::vector`)
+      .limit(limit);
+
+    return results.map(r => ({
+      type: 'intent' as const,
+      id: r.id,
+      userId: r.userId,
+      score: r.similarity,
+      matchedVia: strategy,
+      indexId: r.indexId,
+    }));
+  }
+
+  private mergeAndRankCandidates(
+    candidates: HydeCandidate[],
+    limit: number
+  ): HydeCandidate[] {
+    // Group by userId (same person might match multiple strategies)
+    const byUser = new Map<string, HydeCandidate[]>();
+    for (const c of candidates) {
+      const existing = byUser.get(c.userId) || [];
+      existing.push(c);
+      byUser.set(c.userId, existing);
+    }
+
+    // Score aggregation: boost users who match multiple strategies
+    const scored = Array.from(byUser.entries()).map(([userId, matches]) => {
+      const bestMatch = matches.reduce((a, b) => (a.score > b.score ? a : b));
+      const strategyBonus = (matches.length - 1) * 0.1; // 10% boost per additional strategy
+      return {
+        ...bestMatch,
+        score: Math.min(bestMatch.score + strategyBonus, 1.0),
+        matchedStrategies: [...new Set(matches.map(m => m.matchedVia))],
+      };
+    });
+
+    // Sort by score and limit
+    return scored.sort((a, b) => b.score - a.score).slice(0, limit);
+  }
+
+  private async searchProfiles(
+    embedding: number[],
+    filter: Record<string, any> | undefined,
+    limit: number,
+    minScore: number
+  ): Promise<VectorSearchResult<any>[]> {
+    // Generic profile search implementation
+    const vectorStr = `[${embedding.join(',')}]`;
+
+    const results = await db
+      .select({
+        userId: schema.userProfiles.userId,
+        identity: schema.userProfiles.identity,
+        narrative: schema.userProfiles.narrative,
+        attributes: schema.userProfiles.attributes,
+        similarity: sql<number>`1 - (${schema.userProfiles.hydeEmbedding} <=> ${vectorStr}::vector)`,
+      })
+      .from(schema.userProfiles)
+      .where(sql`1 - (${schema.userProfiles.hydeEmbedding} <=> ${vectorStr}::vector) >= ${minScore}`)
+      .orderBy(sql`${schema.userProfiles.hydeEmbedding} <=> ${vectorStr}::vector`)
+      .limit(limit);
+
+    return results.map(r => ({
+      item: {
+        userId: r.userId,
+        identity: r.identity,
+        narrative: r.narrative,
+        attributes: r.attributes,
+      },
+      score: r.similarity,
+    }));
+  }
+
+  private async searchIntents(
+    embedding: number[],
+    filter: Record<string, any> | undefined,
+    limit: number,
+    minScore: number
+  ): Promise<VectorSearchResult<any>[]> {
+    // Generic intent search implementation
+    const vectorStr = `[${embedding.join(',')}]`;
+
+    const results = await db
+      .select({
+        id: schema.intents.id,
+        payload: schema.intents.payload,
+        summary: schema.intents.summary,
+        userId: schema.intents.userId,
+        similarity: sql<number>`1 - (${schema.intents.embedding} <=> ${vectorStr}::vector)`,
+      })
+      .from(schema.intents)
+      .where(
+        and(
+          isNull(schema.intents.archivedAt),
+          sql`1 - (${schema.intents.embedding} <=> ${vectorStr}::vector) >= ${minScore}`
+        )
+      )
+      .orderBy(sql`${schema.intents.embedding} <=> ${vectorStr}::vector`)
+      .limit(limit);
+
+    return results.map(r => ({
+      item: {
+        id: r.id,
+        payload: r.payload,
+        summary: r.summary,
+        userId: r.userId,
+      },
+      score: r.similarity,
+    }));
+  }
+}
+```
+
+### 5.12 Strategy Selection
+
+The OpportunityGraph selects which HyDE strategies to use based on intent category:
+
+```typescript
+// lib/protocol/graphs/opportunity/opportunity.utils.ts
+
+import { HydeStrategy } from '../../agents/hyde/hyde.strategies';
+
+/**
+ * Select HyDE strategies based on intent category.
+ * Core strategies (mirror, reciprocal) are always included.
+ */
+export function selectStrategies(
+  intent: { payload: string; category?: string },
+  context?: { category?: string }
+): HydeStrategy[] {
   // Always include core strategies
   const strategies: HydeStrategy[] = ['mirror', 'reciprocal'];
   
@@ -811,70 +1419,170 @@ When an opportunity is created, the `interpretation.signals` array tracks which 
 }
 ```
 
-### 5.10 Chat Integration
+### 5.13 Chat Integration
 
-For ad-hoc discovery queries in chat:
+For ad-hoc discovery queries in chat, the chat graph invokes the HyDE graph as a subgraph:
 
 ```typescript
-// chat.nodes.ts
+// lib/protocol/graphs/chat/nodes/discover.nodes.ts
 
-const discoverNode = async (state: ChatGraphState) => {
-  const { userQuery, userId, currentIndexId } = state;
+import { HydeGraph } from '../../hyde/hyde.graph';
+import { selectStrategiesFromQuery } from '../chat.utils';
+
+/**
+ * Discover node - uses HyDE search for ad-hoc queries.
+ * Invokes HyDE graph to generate embeddings, then searches via Embedder.
+ */
+const discoverNode = async (state: typeof ChatGraphState.State) => {
+  const { userQuery, userId, currentIndexId, hydeGraph, embedder } = state;
   
   // Analyze query to determine appropriate strategies
-  const strategies = analyzeQueryForStrategies(userQuery);
+  const strategies = selectStrategiesFromQuery(userQuery);
   // e.g., "find me a mentor" → ['mentor', 'mirror']
   // e.g., "who needs help with React?" → ['reciprocal', 'hiree']
   
-  // Run HyDE search with the query string as source
-  const candidates = await hydeSearch({
-    source: userQuery,  // Ad-hoc string, not a persisted intent
+  // Invoke HyDE graph to generate embeddings
+  const hydeResult = await hydeGraph.invoke({
+    sourceText: userQuery,
+    sourceType: 'query',
+    sourceId: null,  // Ad-hoc query, no persisted source
     strategies,
-    indexScope: [currentIndexId],
-    excludeUserId: userId,
-    limit: 5,
   });
+  
+  // Search using the generated HyDE embeddings
+  const candidates = await embedder.searchWithHydeEmbeddings(
+    hydeResult.hydeEmbeddings,
+    {
+      strategies,
+      indexScope: [currentIndexId],
+      excludeUserId: userId,
+      limit: 5,
+    }
+  );
   
   return { candidates, responseType: 'discovery_results' };
 };
+
+/**
+ * Analyze a natural language query to determine HyDE strategies.
+ */
+export function selectStrategiesFromQuery(query: string): HydeStrategy[] {
+  const lowerQuery = query.toLowerCase();
+  const strategies: HydeStrategy[] = [];
+  
+  // Mentor-related
+  if (lowerQuery.includes('mentor') || lowerQuery.includes('guide') || lowerQuery.includes('advice')) {
+    strategies.push('mentor');
+  }
+  
+  // Investor-related
+  if (lowerQuery.includes('invest') || lowerQuery.includes('fund') || lowerQuery.includes('capital')) {
+    strategies.push('investor');
+  }
+  
+  // Hiring-related
+  if (lowerQuery.includes('hire') || lowerQuery.includes('developer') || lowerQuery.includes('looking for')) {
+    strategies.push('hiree');
+    strategies.push('mirror');
+  }
+  
+  // Collaboration-related
+  if (lowerQuery.includes('collaborat') || lowerQuery.includes('partner') || lowerQuery.includes('work with')) {
+    strategies.push('collaborator');
+    strategies.push('reciprocal');
+  }
+  
+  // Default: use core strategies
+  if (strategies.length === 0) {
+    strategies.push('mirror', 'reciprocal');
+  }
+  
+  return [...new Set(strategies)]; // Deduplicate
+}
 ```
 
-### 5.11 HyDE Lifecycle Management
+### 5.14 HyDE Lifecycle Management
 
-| Event | Action |
-|-------|--------|
-| Intent created | Pre-generate `mirror` + `reciprocal` HyDE |
-| Intent updated | Regenerate persisted HyDE, invalidate cached |
-| Intent archived | Soft-delete associated HyDE (or let expire) |
-| Cron (daily) | Clean up expired ephemeral HyDE |
-| Cron (weekly) | Refresh stale persisted HyDE (> 30 days old) |
+| Event | Action | Implementation |
+|-------|--------|----------------|
+| Intent created | Pre-generate `mirror` + `reciprocal` HyDE | Queue job via `intent.queue.ts` |
+| Intent updated | Regenerate persisted HyDE, invalidate cached | Queue job via `intent.queue.ts` |
+| Intent archived | Delete associated HyDE | Database adapter method |
+| Cron (daily) | Clean up expired ephemeral HyDE | `hyde.job.ts` |
+| Cron (weekly) | Refresh stale persisted HyDE (> 30 days old) | `hyde.job.ts` |
 
 ```typescript
-// jobs/hyde.maintenance.ts
+// src/jobs/hyde.job.ts
 
-async function cleanupExpiredHyde() {
-  await db.delete(hydeDocuments)
-    .where(and(
-      isNotNull(hydeDocuments.expiresAt),
-      lt(hydeDocuments.expiresAt, new Date())
-    ));
+import { CronJob } from 'cron';
+import { ChatDatabaseAdapter } from '../adapters/database.adapter';
+import { PostgresEmbedderAdapter } from '../adapters/embedder.adapter';
+import { RedisCacheAdapter } from '../adapters/cache.adapter';
+import { HydeGraph } from '../lib/protocol/graphs/hyde/hyde.graph';
+import { log } from '../lib/log';
+
+const database = new ChatDatabaseAdapter();
+
+/**
+ * Daily job: Clean up expired HyDE documents from database.
+ */
+export async function cleanupExpiredHyde() {
+  log.info('[HydeJob:Cleanup] Starting expired HyDE cleanup');
+  
+  const deletedCount = await database.deleteExpiredHydeDocuments();
+  
+  log.info(`[HydeJob:Cleanup] Deleted ${deletedCount} expired HyDE documents`);
+  return deletedCount;
 }
 
-async function refreshStaleHyde() {
+/**
+ * Weekly job: Refresh stale persisted HyDE documents.
+ */
+export async function refreshStaleHyde() {
+  log.info('[HydeJob:Refresh] Starting stale HyDE refresh');
+  
   const staleThreshold = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
   
-  const staleHyde = await db.select()
-    .from(hydeDocuments)
-    .where(and(
-      eq(hydeDocuments.sourceType, 'intent'),
-      isNull(hydeDocuments.expiresAt),  // Persisted only
-      lt(hydeDocuments.createdAt, staleThreshold)
-    ));
+  const staleDocuments = await database.getStaleHydeDocuments(staleThreshold);
+  log.info(`[HydeJob:Refresh] Found ${staleDocuments.length} stale HyDE documents`);
   
-  for (const hyde of staleHyde) {
-    await hydeService.refresh(hyde.sourceId);
+  // Initialize dependencies
+  const embedder = new PostgresEmbedderAdapter();
+  const cache = new RedisCacheAdapter();
+  const hydeGraph = new HydeGraph(database, embedder, cache).compile();
+  
+  let refreshedCount = 0;
+  
+  for (const doc of staleDocuments) {
+    if (!doc.sourceId) continue;
+    
+    // Get source intent
+    const intent = await database.getIntent(doc.sourceId);
+    if (!intent) {
+      // Intent was archived, delete orphaned HyDE
+      await database.deleteHydeDocumentsForSource(doc.sourceType, doc.sourceId);
+      continue;
+    }
+    
+    // Regenerate via HyDE graph
+    await hydeGraph.invoke({
+      sourceText: intent.payload,
+      sourceType: doc.sourceType,
+      sourceId: doc.sourceId,
+      strategies: [doc.strategy],
+      forceRegenerate: true,
+    });
+    
+    refreshedCount++;
   }
+  
+  log.info(`[HydeJob:Refresh] Refreshed ${refreshedCount} HyDE documents`);
+  return refreshedCount;
 }
+
+// Cron schedules
+export const hydeCleanupCron = new CronJob('0 3 * * *', cleanupExpiredHyde);  // Daily at 3 AM
+export const hydeRefreshCron = new CronJob('0 4 * * 0', refreshStaleHyde);    // Weekly Sunday at 4 AM
 ```
 
 ---
@@ -957,11 +1665,11 @@ WHERE actors @> '[{"intents": ["intent-abc123"]}]'::jsonb;
 ```typescript
 // schemas/database.schema.ts
 
-import { pgTable, uuid, jsonb, text, numeric, timestamp, index } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, jsonb, text, numeric, timestamp, index, pgEnum } from 'drizzle-orm/pg-core';
 
 // JSON type definitions
 export interface OpportunityDetection {
-  source: string;
+  source: 'opportunity_graph' | 'chat' | 'manual' | 'cron' | 'member_added';
   createdBy?: string;
   triggeredBy?: string;
   timestamp: string;
@@ -1018,6 +1726,211 @@ export const opportunities = pgTable('opportunities', {
 });
 ```
 
+### 6.4 Database Interface Additions
+
+```typescript
+// lib/protocol/interfaces/database.interface.ts - ADDITIONS
+
+import { HydeStrategy, HydeTargetCorpus } from '../agents/hyde/hyde.strategies';
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// HYDE DOCUMENT TYPES
+// ═══════════════════════════════════════════════════════════════════════════════
+
+export interface HydeDocument {
+  id: string;
+  sourceType: 'intent' | 'profile' | 'query';
+  sourceId: string | null;
+  sourceText: string | null;
+  strategy: HydeStrategy;
+  targetCorpus: HydeTargetCorpus;
+  hydeText: string;
+  hydeEmbedding: number[];
+  context: Record<string, any> | null;
+  createdAt: Date;
+  expiresAt: Date | null;
+}
+
+export interface CreateHydeDocumentData {
+  sourceType: 'intent' | 'profile' | 'query';
+  sourceId?: string;
+  sourceText?: string;
+  strategy: HydeStrategy;
+  targetCorpus: HydeTargetCorpus;
+  hydeText: string;
+  hydeEmbedding: number[];
+  context?: Record<string, any>;
+  expiresAt?: Date;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// OPPORTUNITY TYPES
+// ═══════════════════════════════════════════════════════════════════════════════
+
+export type OpportunityStatus = 'pending' | 'viewed' | 'accepted' | 'rejected' | 'expired';
+
+export interface Opportunity {
+  id: string;
+  detection: OpportunityDetection;
+  actors: OpportunityActor[];
+  interpretation: OpportunityInterpretation;
+  context: OpportunityContext;
+  indexId: string;
+  confidence: number;
+  status: OpportunityStatus;
+  createdAt: Date;
+  updatedAt: Date;
+  expiresAt: Date | null;
+}
+
+export interface CreateOpportunityData {
+  detection: OpportunityDetection;
+  actors: OpportunityActor[];
+  interpretation: OpportunityInterpretation;
+  context: OpportunityContext;
+  indexId: string;
+  confidence: number;
+  status?: OpportunityStatus;
+  expiresAt?: Date;
+}
+
+export interface OpportunityQueryOptions {
+  status?: OpportunityStatus;
+  indexId?: string;
+  role?: string;
+  limit?: number;
+  offset?: number;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// DATABASE INTERFACE ADDITIONS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+export interface Database {
+  // ... existing methods ...
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // HyDE Document Operations
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  /** Get a persisted HyDE document by source and strategy. */
+  getHydeDocument(
+    sourceType: 'intent' | 'profile',
+    sourceId: string,
+    strategy: HydeStrategy
+  ): Promise<HydeDocument | null>;
+
+  /** Get all HyDE documents for a source. */
+  getHydeDocumentsForSource(
+    sourceType: 'intent' | 'profile',
+    sourceId: string
+  ): Promise<HydeDocument[]>;
+
+  /** Save a HyDE document (upsert by source+strategy). */
+  saveHydeDocument(data: CreateHydeDocumentData): Promise<HydeDocument>;
+
+  /** Delete HyDE documents for a source (when intent/profile archived). */
+  deleteHydeDocumentsForSource(
+    sourceType: 'intent' | 'profile',
+    sourceId: string
+  ): Promise<number>;
+
+  /** Delete expired HyDE documents (maintenance job). */
+  deleteExpiredHydeDocuments(): Promise<number>;
+
+  /** Get stale HyDE documents for refresh. */
+  getStaleHydeDocuments(threshold: Date): Promise<HydeDocument[]>;
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Opportunity Operations
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  /** Create a new opportunity. */
+  createOpportunity(data: CreateOpportunityData): Promise<Opportunity>;
+
+  /** Get an opportunity by ID. */
+  getOpportunity(id: string): Promise<Opportunity | null>;
+
+  /** Get opportunities for a user (as any actor role). */
+  getOpportunitiesForUser(
+    userId: string,
+    options?: OpportunityQueryOptions
+  ): Promise<Opportunity[]>;
+
+  /** Get opportunities in an index (for index admins). */
+  getOpportunitiesForIndex(
+    indexId: string,
+    options?: OpportunityQueryOptions
+  ): Promise<Opportunity[]>;
+
+  /** Update opportunity status. */
+  updateOpportunityStatus(
+    id: string,
+    status: OpportunityStatus
+  ): Promise<Opportunity | null>;
+
+  /** Check if opportunity exists between actors in index (deduplication). */
+  opportunityExistsBetweenActors(
+    actorIds: string[],
+    indexId: string
+  ): Promise<boolean>;
+
+  /** Expire opportunities referencing an intent. */
+  expireOpportunitiesByIntent(intentId: string): Promise<number>;
+
+  /** Expire opportunities for a user removed from index. */
+  expireOpportunitiesForRemovedMember(
+    indexId: string,
+    userId: string
+  ): Promise<number>;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// NARROWED DATABASE INTERFACES
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/** Database interface for HyDE Graph operations. */
+export type HydeGraphDatabase = Pick<
+  Database,
+  | 'getHydeDocument'
+  | 'getHydeDocumentsForSource'
+  | 'saveHydeDocument'
+  | 'getIntent'  // For refreshing HyDE
+>;
+
+/** Database interface for Opportunity Graph operations. */
+export type OpportunityGraphDatabase = Pick<
+  Database,
+  | 'getProfile'
+  | 'createOpportunity'
+  | 'opportunityExistsBetweenActors'
+>;
+
+/** Database interface for opportunity maintenance jobs. */
+export type OpportunityMaintenanceDatabase = Pick<
+  Database,
+  | 'deleteExpiredHydeDocuments'
+  | 'getStaleHydeDocuments'
+  | 'deleteHydeDocumentsForSource'
+  | 'expireOpportunitiesByIntent'
+  | 'expireOpportunitiesForRemovedMember'
+  | 'getIntent'
+>;
+
+/** Database interface for opportunity controller. */
+export type OpportunityControllerDatabase = Pick<
+  Database,
+  | 'getOpportunity'
+  | 'getOpportunitiesForUser'
+  | 'getOpportunitiesForIndex'
+  | 'updateOpportunityStatus'
+  | 'createOpportunity'
+  | 'opportunityExistsBetweenActors'
+  | 'isIndexOwner'
+  | 'isIndexMember'
+>;
+```
+
 ---
 
 ## 7. Presentation Layer
@@ -1029,35 +1942,45 @@ Descriptions are NOT stored. They are generated at render time based on:
 - Viewer's role in the opportunity
 - Context (email, push notification, UI card)
 
-```typescript
-// services/opportunity.presentation.ts
+This is implemented as a **pure function** in the controller, not a service.
 
-interface OpportunityPresentation {
+```typescript
+// src/controllers/opportunity.controller.ts (presentation helper)
+
+export interface OpportunityPresentation {
   title: string;
   description: string;
   callToAction: string;
 }
 
-function presentOpportunity(
-  opp: Opportunity, 
+export interface UserInfo {
+  id: string;
+  name: string;
+  avatar: string | null;
+}
+
+/**
+ * Generate presentation copy for an opportunity based on viewer context.
+ * Pure function - no side effects, no database access.
+ */
+export function presentOpportunity(
+  opp: Opportunity,
   viewerId: string,
+  otherPartyInfo: UserInfo,
+  introducerInfo: UserInfo | null,
   format: 'card' | 'email' | 'notification'
 ): OpportunityPresentation {
   const myActor = opp.actors.find(a => a.identityId === viewerId);
-  const otherActors = opp.actors.filter(a => a.identityId !== viewerId && a.role !== 'introducer');
   const introducer = opp.actors.find(a => a.role === 'introducer');
-  
+
   if (!myActor) {
     throw new Error('Viewer is not an actor in this opportunity');
   }
-  
-  // Get other party's name (from profile service)
-  const otherName = await getDisplayName(otherActors[0]?.identityId);
-  
-  // Generate role-appropriate framing
+
+  const otherName = otherPartyInfo.name;
   let title: string;
   let description: string;
-  
+
   switch (myActor.role) {
     case 'agent':
       title = `You can help ${otherName}`;
@@ -1071,10 +1994,26 @@ function presentOpportunity(
       title = `Potential collaboration with ${otherName}`;
       description = `You and ${otherName} have complementary interests.`;
       break;
+    case 'mentee':
+      title = `${otherName} could mentor you`;
+      description = `${otherName} has experience that could help guide your journey.`;
+      break;
+    case 'mentor':
+      title = `${otherName} is looking for guidance`;
+      description = `Your expertise could help ${otherName} on their path.`;
+      break;
+    case 'founder':
+      title = `${otherName} might be interested in your venture`;
+      description = `${otherName}'s investment focus aligns with what you're building.`;
+      break;
+    case 'investor':
+      title = `${otherName} is building something interesting`;
+      description = `${otherName}'s venture might fit your investment thesis.`;
+      break;
     case 'party':
-      if (introducer) {
-        const introducerName = await getDisplayName(introducer.identityId);
-        title = `${introducerName} thinks you should meet ${otherName}`;
+    default:
+      if (introducer && introducerInfo) {
+        title = `${introducerInfo.name} thinks you should meet ${otherName}`;
         description = opp.interpretation.summary;
       } else {
         title = `Opportunity with ${otherName}`;
@@ -1082,19 +2021,19 @@ function presentOpportunity(
       }
       break;
   }
-  
+
   // Add interpretation context
   description += `\n\n${opp.interpretation.summary}`;
-  
+
   // Format-specific adjustments
   if (format === 'notification') {
-    description = truncate(description, 100);
+    description = description.length > 100 ? description.slice(0, 97) + '...' : description;
   }
-  
+
   return {
     title,
     description,
-    callToAction: 'View Opportunity'
+    callToAction: 'View Opportunity',
   };
 }
 ```
@@ -1194,81 +2133,138 @@ interface CreateManualOpportunityRequest {
 | Index Member (self-involved) | Self + other member | No |
 | Index Member (not involved) | Any members | Yes (admin approval) |
 
-```typescript
-// middleware/opportunity.permissions.ts
+### 8.3 Controller Implementation
 
-async function canCreateOpportunity(
-  creatorId: string, 
-  partyIds: string[], 
-  indexId: string
-): Promise<{ allowed: boolean; requiresApproval: boolean }> {
-  const isAdmin = await isIndexAdmin(creatorId, indexId);
-  const isSelfIncluded = partyIds.includes(creatorId);
-  
-  if (isAdmin) {
-    return { allowed: true, requiresApproval: false };
-  }
-  
-  if (isSelfIncluded) {
-    return { allowed: true, requiresApproval: false };
-  }
-  
-  // Non-admin, not involved → needs approval
-  return { allowed: true, requiresApproval: true };
-}
-```
-
-### 8.3 Transformation to Opportunity
+Manual opportunity creation is handled directly in the controller using the Database interface:
 
 ```typescript
-// services/opportunity.service.ts
+// src/controllers/opportunity.controller.ts
 
-async function createManualOpportunity(
-  indexId: string,
-  creatorId: string,
-  request: CreateManualOpportunityRequest
-): Promise<Opportunity> {
-  const { parties, reasoning, category, confidence } = request;
-  
-  // Build actors array
-  const actors: OpportunityActor[] = parties.map(p => ({
-    role: 'party',  // Manual matches use generic 'party' role
-    identityId: p.userId,
-    intents: p.intentId ? [p.intentId] : [],
-    profile: true
-  }));
-  
-  // Add introducer (the creator)
-  actors.push({
-    role: 'introducer',
-    identityId: creatorId,
-    intents: []
-  });
-  
-  const opportunity: NewOpportunity = {
-    detection: {
-      source: 'manual',
-      createdBy: creatorId,
-      timestamp: new Date().toISOString()
-    },
-    actors,
-    interpretation: {
-      category: category || 'collaboration',
-      summary: reasoning,
-      confidence: confidence || 0.8,
-      signals: [
-        { type: 'curator_judgment', weight: 1.0, detail: 'Manual match by curator' }
-      ]
-    },
-    context: {
-      indexId
-    },
-    indexId,
-    confidence: confidence || 0.8,
-    status: 'pending'
-  };
-  
-  return await db.insert(opportunities).values(opportunity).returning();
+import { Request, Response, Router } from 'express';
+import { authenticatePrivy, AuthRequest } from '../middleware/auth.middleware';
+import { OpportunityControllerDatabase } from '../lib/protocol/interfaces/database.interface';
+import { CreateOpportunityData, OpportunityActor } from '../lib/protocol/interfaces/database.interface';
+
+export class OpportunityController {
+  private router: Router;
+
+  constructor(private database: OpportunityControllerDatabase) {
+    this.router = Router();
+    this.setupRoutes();
+  }
+
+  private setupRoutes() {
+    this.router.post('/indexes/:indexId/opportunities', authenticatePrivy, this.createManual.bind(this));
+    this.router.get('/opportunities', authenticatePrivy, this.listForUser.bind(this));
+    this.router.get('/opportunities/:id', authenticatePrivy, this.getById.bind(this));
+    this.router.patch('/opportunities/:id/status', authenticatePrivy, this.updateStatus.bind(this));
+  }
+
+  /**
+   * POST /api/indexes/:indexId/opportunities
+   * Create a manual opportunity (curator-created).
+   */
+  private async createManual(req: AuthRequest, res: Response) {
+    const { indexId } = req.params;
+    const creatorId = req.user!.id;
+    const { parties, reasoning, category, confidence } = req.body;
+
+    try {
+      // Check permissions
+      const permission = await this.checkCreatePermission(creatorId, parties, indexId);
+      if (!permission.allowed) {
+        return res.status(403).json({ error: 'Not authorized to create opportunities in this index' });
+      }
+
+      // Check for duplicates
+      const partyIds = parties.map((p: { userId: string }) => p.userId);
+      const exists = await this.database.opportunityExistsBetweenActors(partyIds, indexId);
+      if (exists) {
+        return res.status(409).json({ error: 'Opportunity already exists between these parties' });
+      }
+
+      // Build actors array
+      const actors: OpportunityActor[] = parties.map((p: { userId: string; intentId?: string }) => ({
+        role: 'party',
+        identityId: p.userId,
+        intents: p.intentId ? [p.intentId] : [],
+        profile: true,
+      }));
+
+      // Add introducer (the creator)
+      actors.push({
+        role: 'introducer',
+        identityId: creatorId,
+        intents: [],
+      });
+
+      // Build opportunity data
+      const opportunityData: CreateOpportunityData = {
+        detection: {
+          source: 'manual',
+          createdBy: creatorId,
+          timestamp: new Date().toISOString(),
+        },
+        actors,
+        interpretation: {
+          category: category || 'collaboration',
+          summary: reasoning,
+          confidence: confidence || 0.8,
+          signals: [
+            { type: 'curator_judgment', weight: 1.0, detail: 'Manual match by curator' },
+          ],
+        },
+        context: {
+          indexId,
+        },
+        indexId,
+        confidence: confidence || 0.8,
+        status: permission.requiresApproval ? 'pending' : 'pending', // Could add 'pending_approval' status
+      };
+
+      // Create via database interface
+      const opportunity = await this.database.createOpportunity(opportunityData);
+
+      res.status(201).json(opportunity);
+    } catch (error) {
+      console.error('[OpportunityController:createManual] Error:', error);
+      res.status(500).json({ error: 'Failed to create opportunity' });
+    }
+  }
+
+  /**
+   * Check if user can create opportunity in index.
+   */
+  private async checkCreatePermission(
+    creatorId: string,
+    parties: Array<{ userId: string }>,
+    indexId: string
+  ): Promise<{ allowed: boolean; requiresApproval: boolean }> {
+    const isOwner = await this.database.isIndexOwner(indexId, creatorId);
+    const isSelfIncluded = parties.some(p => p.userId === creatorId);
+
+    if (isOwner) {
+      return { allowed: true, requiresApproval: false };
+    }
+
+    const isMember = await this.database.isIndexMember(indexId, creatorId);
+    if (!isMember) {
+      return { allowed: false, requiresApproval: false };
+    }
+
+    if (isSelfIncluded) {
+      return { allowed: true, requiresApproval: false };
+    }
+
+    // Non-owner member, not involved → needs approval
+    return { allowed: true, requiresApproval: true };
+  }
+
+  // ... other controller methods (listForUser, getById, updateStatus)
+
+  public getRouter() {
+    return this.router;
+  }
 }
 ```
 
@@ -1284,22 +2280,28 @@ stateDiagram-v2
     
     PrepNode --> StrategyNode: Intent loaded
     
-    StrategyNode --> SearchNode: Strategies selected
+    StrategyNode --> HydeNode: Strategies selected
     note right of StrategyNode: Selects HyDE strategies<br/>based on intent category
     
+    HydeNode --> SearchNode: HyDE embeddings generated
+    note right of HydeNode: Invokes HyDE subgraph<br/>(cache-aware generation)
+    
     state SearchNode {
-        [*] --> HydeSearch: hydeSearch()
-        note right of HydeSearch: Parallel search across<br/>all selected strategies
-        HydeSearch --> MergeCandidates: Raw candidates
+        [*] --> EmbedderSearch: embedder.searchWithHydeEmbeddings()
+        note right of EmbedderSearch: Parallel search via<br/>Embedder interface
+        EmbedderSearch --> MergeCandidates: Raw candidates
         MergeCandidates --> [*]: Ranked candidates
     }
     
     SearchNode --> EvaluateNode: Candidates found
     SearchNode --> [*]: No candidates (END)
     
-    EvaluateNode --> PersistNode: Opportunities created
+    EvaluateNode --> DeduplicateNode: Opportunities created
     
-    PersistNode --> NotifyNode: Saved
+    DeduplicateNode --> PersistNode: Duplicates filtered
+    note right of DeduplicateNode: database.opportunityExistsBetweenActors()
+    
+    PersistNode --> NotifyNode: Saved via database.createOpportunity()
     
     NotifyNode --> [*]: END
 ```
@@ -1307,217 +2309,368 @@ stateDiagram-v2
 ### 9.2 Graph State
 
 ```typescript
-// opportunity.graph.state.ts
+// lib/protocol/graphs/opportunity/opportunity.state.ts
 
 import { Annotation } from "@langchain/langgraph";
-import { HydeStrategy, HydeCandidate } from '../hyde/hyde.types';
+import { HydeStrategy } from "../../agents/hyde/hyde.strategies";
+import { HydeCandidate, Opportunity, CreateOpportunityData } from "../../interfaces/database.interface";
+
+export interface IntentData {
+  id: string;
+  payload: string;
+  summary: string | null;
+  userId: string;
+  category?: string;
+}
 
 export const OpportunityGraphState = Annotation.Root({
-  // Input
+  // ═══════════════════════════════════════════════════════════════
+  // INPUT
+  // ═══════════════════════════════════════════════════════════════
   intentId: Annotation<string>,
   userId: Annotation<string>,
   
-  // Control
+  // ═══════════════════════════════════════════════════════════════
+  // CONTROL
+  // ═══════════════════════════════════════════════════════════════
   operationMode: Annotation<'create' | 'refresh'>({
     default: () => 'create',
   }),
   
-  // Intermediate - Intent Data
-  intent: Annotation<Intent | null>({
+  // ═══════════════════════════════════════════════════════════════
+  // INTERMEDIATE - Loaded from database
+  // ═══════════════════════════════════════════════════════════════
+  intent: Annotation<IntentData | null>({
     default: () => null,
   }),
   
-  // Intermediate - Selected HyDE strategies
-  selectedStrategies: Annotation<HydeStrategy[]>({
-    default: () => ['mirror', 'reciprocal'],
-  }),
-  
-  // Intermediate - User's index memberships
   userIndexIds: Annotation<string[]>({
     default: () => [],
   }),
   
-  // Intermediate - Candidates from HyDE search
+  // ═══════════════════════════════════════════════════════════════
+  // INTERMEDIATE - Strategy selection
+  // ═══════════════════════════════════════════════════════════════
+  selectedStrategies: Annotation<HydeStrategy[]>({
+    default: () => ['mirror', 'reciprocal'],
+  }),
+  
+  // ═══════════════════════════════════════════════════════════════
+  // INTERMEDIATE - HyDE embeddings (from HyDE subgraph)
+  // ═══════════════════════════════════════════════════════════════
+  hydeEmbeddings: Annotation<Map<HydeStrategy, number[]>>({
+    reducer: (curr, next) => new Map([...curr, ...next]),
+    default: () => new Map(),
+  }),
+  
+  // ═══════════════════════════════════════════════════════════════
+  // INTERMEDIATE - Search results
+  // ═══════════════════════════════════════════════════════════════
   candidates: Annotation<HydeCandidate[]>({
     reducer: (curr, next) => next ?? curr,
     default: () => [],
   }),
   
-  // Output
-  opportunities: Annotation<Opportunity[]>({
+  // ═══════════════════════════════════════════════════════════════
+  // OUTPUT
+  // ═══════════════════════════════════════════════════════════════
+  opportunitiesToCreate: Annotation<CreateOpportunityData[]>({
+    reducer: (curr, next) => next ?? curr,
+    default: () => [],
+  }),
+  
+  persistedOpportunities: Annotation<Opportunity[]>({
     reducer: (curr, next) => next,
     default: () => [],
   }),
 });
 ```
 
-### 9.3 Strategy Selection Node
+### 9.3 Full Graph Implementation
 
 ```typescript
-// opportunity.graph.ts - StrategyNode
+// lib/protocol/graphs/opportunity/opportunity.graph.ts
 
-const strategyNode = async (state: typeof OpportunityGraphState.State) => {
-  const { intent } = state;
-  
-  // Select strategies based on intent category and context
-  const selectedStrategies = selectStrategies(intent);
-  
-  return { selectedStrategies };
-};
+import { StateGraph, END, START } from "@langchain/langgraph";
+import { OpportunityGraphState, IntentData } from "./opportunity.state";
+import { OpportunityGraphDatabase, CreateOpportunityData, OpportunityActor, OpportunitySignal, HydeCandidate } from "../../interfaces/database.interface";
+import { Embedder } from "../../interfaces/embedder.interface";
+import { OpportunityCache } from "../../interfaces/cache.interface";
+import { HydeGraph } from "../hyde/hyde.graph";
+import { HydeStrategy } from "../../agents/hyde/hyde.strategies";
+import { OpportunityEvaluator } from "../../agents/opportunity/opportunity.evaluator";
+import { NotificationAgent } from "../../agents/opportunity/notification.agent";
+import { selectStrategies } from "./opportunity.utils";
+import { log } from "../../../log";
 
-function selectStrategies(intent: Intent): HydeStrategy[] {
-  const strategies: HydeStrategy[] = ['mirror', 'reciprocal'];
-  
-  switch (intent.category) {
-    case 'hiring':
-      strategies.push('hiree');
-      break;
-    case 'fundraising':
-    case 'investment':
-      strategies.push('investor');
-      break;
-    case 'mentorship':
-    case 'learning':
-      strategies.push('mentor');
-      break;
-    case 'collaboration':
-      strategies.push('collaborator');
-      break;
+export class OpportunityGraph {
+  constructor(
+    private database: OpportunityGraphDatabase,
+    private embedder: Embedder,
+    private cache: OpportunityCache,
+    private hydeGraph: ReturnType<HydeGraph['compile']>,
+    private evaluator: OpportunityEvaluator = new OpportunityEvaluator(),
+    private notificationAgent: NotificationAgent = new NotificationAgent(),
+  ) {}
+
+  public compile() {
+    return new StateGraph(OpportunityGraphState)
+      .addNode("prep", this.prepNode.bind(this))
+      .addNode("select_strategies", this.selectStrategiesNode.bind(this))
+      .addNode("generate_hyde", this.generateHydeNode.bind(this))
+      .addNode("search", this.searchNode.bind(this))
+      .addNode("evaluate", this.evaluateNode.bind(this))
+      .addNode("deduplicate", this.deduplicateNode.bind(this))
+      .addNode("persist", this.persistNode.bind(this))
+      .addNode("notify", this.notifyNode.bind(this))
+      .addEdge(START, "prep")
+      .addEdge("prep", "select_strategies")
+      .addEdge("select_strategies", "generate_hyde")
+      .addEdge("generate_hyde", "search")
+      .addConditionalEdges("search", this.hasCandidates.bind(this), {
+        evaluate: "evaluate",
+        end: END,
+      })
+      .addEdge("evaluate", "deduplicate")
+      .addEdge("deduplicate", "persist")
+      .addEdge("persist", "notify")
+      .addEdge("notify", END)
+      .compile();
   }
-  
-  return strategies;
-}
-```
 
-### 9.4 Search Node (HyDE-Powered)
+  // ─────────────────────────────────────────────────────────────────────────────
+  // NODE: prep - Load intent data from database
+  // ─────────────────────────────────────────────────────────────────────────────
+  private async prepNode(state: typeof OpportunityGraphState.State) {
+    const { intentId, userId } = state;
+    log.info(`[OpportunityGraph:Prep] Loading intent ${intentId}`);
 
-```typescript
-// opportunity.graph.ts - SearchNode
+    // Load intent
+    const intentRow = await this.database.getIntent(intentId);
+    if (!intentRow) {
+      log.error(`[OpportunityGraph:Prep] Intent not found: ${intentId}`);
+      return { intent: null };
+    }
 
-const searchNode = async (state: typeof OpportunityGraphState.State) => {
-  const { intent, userId, selectedStrategies, userIndexIds } = state;
-  
-  // Use HyDE search service with selected strategies
-  const candidates = await hydeSearch({
-    source: intent,
-    strategies: selectedStrategies,
-    indexScope: userIndexIds,
-    excludeUserId: userId,
-    limit: 20,
-  });
-  
-  return { candidates };
-};
-```
-
-### 9.5 Opportunity Creation in Graph
-
-```typescript
-// opportunity.graph.ts - EvaluateNode
-
-const evaluateNode = async (state: typeof OpportunityGraphState.State) => {
-  const { intent, candidates, userId } = state;
-  
-  const opportunities: Opportunity[] = [];
-  
-  for (const candidate of candidates) {
-    // Determine roles based on HyDE strategy used
-    const roles = deriveRolesFromStrategy(candidate.matchedVia, intent, candidate);
-    
-    // Build actors array
-    const actors: OpportunityActor[] = [
-      {
-        role: roles.source,
-        identityId: userId,
-        intents: [intent.id],
-        profile: false
-      },
-      {
-        role: roles.candidate,
-        identityId: candidate.userId,
-        intents: candidate.intentId ? [candidate.intentId] : [],
-        profile: candidate.type === 'profile'
-      }
-    ];
-    
-    // Build interpretation
-    const evaluation = await evaluateMatch(intent, candidate);
-    
-    // Build signals from all matched strategies
-    const signals: OpportunitySignal[] = candidate.matchedStrategies 
-      ? candidate.matchedStrategies.map(strategy => ({
-          type: strategy,
-          weight: strategy === candidate.matchedVia ? candidate.score : candidate.score * 0.8,
-          detail: `Matched via ${strategy} HyDE`
-        }))
-      : [{ type: candidate.matchedVia, weight: candidate.score, detail: `Matched via ${candidate.matchedVia} HyDE` }];
-    
-    const opportunity: Opportunity = {
-      detection: {
-        source: 'opportunity_graph',
-        createdBy: 'agent-opportunity-finder',
-        triggeredBy: intent.id,
-        timestamp: new Date().toISOString()
-      },
-      actors,
-      interpretation: {
-        category: evaluation.category,
-        summary: evaluation.reasoning,
-        confidence: evaluation.confidence,
-        signals
-      },
-      context: {
-        indexId: candidate.indexId,
-        triggeringIntentId: intent.id
-      },
-      status: 'pending'
+    const intent: IntentData = {
+      id: intentRow.id,
+      payload: intentRow.payload,
+      summary: intentRow.summary,
+      userId: intentRow.userId,
     };
-    
-    opportunities.push(opportunity);
-  }
-  
-  return { opportunities };
-};
 
-/**
- * Derive actor roles from the HyDE strategy that found the match.
- * This reduces LLM calls by inferring roles from search semantics.
- */
-function deriveRolesFromStrategy(
-  strategy: HydeStrategy,
-  intent: Intent,
-  candidate: HydeCandidate
-): { source: string; candidate: string } {
-  switch (strategy) {
-    case 'mirror':
-      // Mirror found a profile that satisfies the intent
-      // Source is seeking (patient), candidate can provide (agent)
-      return { source: 'patient', candidate: 'agent' };
-    
-    case 'reciprocal':
-      // Reciprocal found a complementary intent
-      // Both are seeking, symmetric relationship
-      return { source: 'peer', candidate: 'peer' };
-    
-    case 'mentor':
-      // Mentor strategy found someone who can guide
-      return { source: 'mentee', candidate: 'mentor' };
-    
-    case 'investor':
-      // Investor strategy found potential funder
-      return { source: 'founder', candidate: 'investor' };
-    
-    case 'hiree':
-      // Hiree strategy found job seeker
-      return { source: 'agent', candidate: 'patient' };
-    
-    case 'collaborator':
-      // Collaborator strategy found peer
-      return { source: 'peer', candidate: 'peer' };
-    
-    default:
-      // Fall back to symmetric for unknown strategies
-      return { source: 'party', candidate: 'party' };
+    // Load user's index memberships
+    const userIndexIds = await this.database.getUserIndexIds(userId);
+
+    log.info(`[OpportunityGraph:Prep] Loaded intent, user has ${userIndexIds.length} indexes`);
+    return { intent, userIndexIds };
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // NODE: select_strategies - Choose HyDE strategies based on intent
+  // ─────────────────────────────────────────────────────────────────────────────
+  private async selectStrategiesNode(state: typeof OpportunityGraphState.State) {
+    const { intent } = state;
+    if (!intent) return { selectedStrategies: [] };
+
+    const selectedStrategies = selectStrategies(intent);
+    log.info(`[OpportunityGraph:SelectStrategies] Selected: ${selectedStrategies.join(', ')}`);
+
+    return { selectedStrategies };
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // NODE: generate_hyde - Invoke HyDE subgraph to get embeddings
+  // ─────────────────────────────────────────────────────────────────────────────
+  private async generateHydeNode(state: typeof OpportunityGraphState.State) {
+    const { intent, selectedStrategies } = state;
+    if (!intent) return { hydeEmbeddings: new Map() };
+
+    log.info(`[OpportunityGraph:GenerateHyde] Generating HyDE for ${selectedStrategies.length} strategies`);
+
+    const hydeResult = await this.hydeGraph.invoke({
+      sourceText: intent.payload,
+      sourceType: 'intent',
+      sourceId: intent.id,
+      strategies: selectedStrategies,
+    });
+
+    return { hydeEmbeddings: hydeResult.hydeEmbeddings };
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // NODE: search - Search for candidates using Embedder interface
+  // ─────────────────────────────────────────────────────────────────────────────
+  private async searchNode(state: typeof OpportunityGraphState.State) {
+    const { hydeEmbeddings, userIndexIds, userId, selectedStrategies } = state;
+
+    if (hydeEmbeddings.size === 0 || userIndexIds.length === 0) {
+      log.info("[OpportunityGraph:Search] No embeddings or indexes, skipping search");
+      return { candidates: [] };
+    }
+
+    log.info(`[OpportunityGraph:Search] Searching with ${hydeEmbeddings.size} embeddings across ${userIndexIds.length} indexes`);
+
+    const candidates = await this.embedder.searchWithHydeEmbeddings(
+      hydeEmbeddings,
+      {
+        strategies: selectedStrategies,
+        indexScope: userIndexIds,
+        excludeUserId: userId,
+        limit: 20,
+      }
+    );
+
+    log.info(`[OpportunityGraph:Search] Found ${candidates.length} candidates`);
+    return { candidates };
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // CONDITIONAL: hasCandidates
+  // ─────────────────────────────────────────────────────────────────────────────
+  private hasCandidates(state: typeof OpportunityGraphState.State): string {
+    return state.candidates.length > 0 ? 'evaluate' : 'end';
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // NODE: evaluate - Create opportunity data from candidates
+  // ─────────────────────────────────────────────────────────────────────────────
+  private async evaluateNode(state: typeof OpportunityGraphState.State) {
+    const { intent, candidates, userId } = state;
+    if (!intent) return { opportunitiesToCreate: [] };
+
+    log.info(`[OpportunityGraph:Evaluate] Evaluating ${candidates.length} candidates`);
+
+    const opportunities: CreateOpportunityData[] = [];
+
+    for (const candidate of candidates) {
+      // Determine roles from strategy
+      const roles = this.deriveRolesFromStrategy(candidate.matchedVia);
+
+      // Build actors
+      const actors: OpportunityActor[] = [
+        {
+          role: roles.source,
+          identityId: userId,
+          intents: [intent.id],
+          profile: false,
+        },
+        {
+          role: roles.candidate,
+          identityId: candidate.userId,
+          intents: candidate.type === 'intent' ? [candidate.id] : [],
+          profile: candidate.type === 'profile',
+        },
+      ];
+
+      // Evaluate match (uses agent for reasoning)
+      const evaluation = await this.evaluator.invoke(intent.payload, candidate);
+
+      // Build signals
+      const signals: OpportunitySignal[] = candidate.matchedStrategies
+        ? candidate.matchedStrategies.map(strategy => ({
+            type: strategy,
+            weight: strategy === candidate.matchedVia ? candidate.score : candidate.score * 0.8,
+            detail: `Matched via ${strategy} HyDE`,
+          }))
+        : [{ type: candidate.matchedVia, weight: candidate.score, detail: `Matched via ${candidate.matchedVia} HyDE` }];
+
+      opportunities.push({
+        detection: {
+          source: 'opportunity_graph',
+          createdBy: 'agent-opportunity-finder',
+          triggeredBy: intent.id,
+          timestamp: new Date().toISOString(),
+        },
+        actors,
+        interpretation: {
+          category: evaluation.category,
+          summary: evaluation.reasoning,
+          confidence: evaluation.confidence,
+          signals,
+        },
+        context: {
+          indexId: candidate.indexId,
+          triggeringIntentId: intent.id,
+        },
+        indexId: candidate.indexId,
+        confidence: evaluation.confidence,
+      });
+    }
+
+    log.info(`[OpportunityGraph:Evaluate] Created ${opportunities.length} opportunity records`);
+    return { opportunitiesToCreate: opportunities };
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // NODE: deduplicate - Filter out existing opportunities
+  // ─────────────────────────────────────────────────────────────────────────────
+  private async deduplicateNode(state: typeof OpportunityGraphState.State) {
+    const { opportunitiesToCreate } = state;
+
+    const deduplicated: CreateOpportunityData[] = [];
+
+    for (const opp of opportunitiesToCreate) {
+      const actorIds = opp.actors.map(a => a.identityId);
+      const exists = await this.database.opportunityExistsBetweenActors(actorIds, opp.indexId);
+
+      if (!exists) {
+        deduplicated.push(opp);
+      }
+    }
+
+    log.info(`[OpportunityGraph:Deduplicate] ${opportunitiesToCreate.length} -> ${deduplicated.length} (filtered ${opportunitiesToCreate.length - deduplicated.length} duplicates)`);
+    return { opportunitiesToCreate: deduplicated };
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // NODE: persist - Save opportunities via database interface
+  // ─────────────────────────────────────────────────────────────────────────────
+  private async persistNode(state: typeof OpportunityGraphState.State) {
+    const { opportunitiesToCreate } = state;
+
+    const persisted = await Promise.all(
+      opportunitiesToCreate.map(opp => this.database.createOpportunity(opp))
+    );
+
+    log.info(`[OpportunityGraph:Persist] Persisted ${persisted.length} opportunities`);
+    return { persistedOpportunities: persisted };
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // NODE: notify - Queue notifications via NotificationAgent
+  // ─────────────────────────────────────────────────────────────────────────────
+  private async notifyNode(state: typeof OpportunityGraphState.State) {
+    const { persistedOpportunities } = state;
+
+    for (const opp of persistedOpportunities) {
+      await this.notificationAgent.evaluate(opp);
+    }
+
+    log.info(`[OpportunityGraph:Notify] Processed ${persistedOpportunities.length} notification decisions`);
+    return {};
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // HELPER: Derive roles from HyDE strategy
+  // ─────────────────────────────────────────────────────────────────────────────
+  private deriveRolesFromStrategy(strategy: HydeStrategy): { source: string; candidate: string } {
+    switch (strategy) {
+      case 'mirror':
+        return { source: 'patient', candidate: 'agent' };
+      case 'reciprocal':
+        return { source: 'peer', candidate: 'peer' };
+      case 'mentor':
+        return { source: 'mentee', candidate: 'mentor' };
+      case 'investor':
+        return { source: 'founder', candidate: 'investor' };
+      case 'hiree':
+        return { source: 'agent', candidate: 'patient' };
+      case 'collaborator':
+        return { source: 'peer', candidate: 'peer' };
+      default:
+        return { source: 'party', candidate: 'party' };
+    }
   }
 }
 ```
@@ -1528,79 +2681,161 @@ function deriveRolesFromStrategy(
 
 ### 10.1 Graph-Based Side Effects
 
-All side effects are handled **directly within the graph** — no separate events file.
+All side effects are handled **directly within the graph** via the NotifyNode. The NotificationAgent decides if/when to notify.
 
 ```mermaid
 flowchart TD
     subgraph "OpportunityGraph"
-        PERSIST["PersistNode<br/>(saves opportunities)"]
-        PERSIST --> NOTIFY["NotifyNode<br/>(inline side effects)"]
+        PERSIST["PersistNode<br/>(database.createOpportunity)"]
+        PERSIST --> NOTIFY["NotifyNode<br/>(notificationAgent.evaluate)"]
     end
     
-    subgraph "NotifyNode Actions"
-        NOTIFY --> AGENT["Notification Agent<br/>(decides if/when to notify)"]
-        AGENT --> WS["WebSocket Broadcast"]
-        AGENT --> QUEUE["Queue Email Job"]
-        AGENT --> LOG["Audit Log"]
+    subgraph "NotificationAgent Decisions"
+        NOTIFY --> DECISION{"Evaluate Factors"}
+        DECISION -->|"immediate"| WS["Queue WebSocket"]
+        DECISION -->|"email"| EMAIL["Queue Email Job"]
+        DECISION -->|"batch"| BATCH["Add to Digest"]
+        DECISION -->|"skip"| SKIP["No Notification"]
     end
 ```
 
-### 10.2 Agent-Driven Notifications
-
-No static thresholds. A notification agent evaluates context:
+### 10.2 Notification Agent
 
 ```typescript
-// NotifyNode
-const notifyNode = async (state: typeof OpportunityGraphState.State) => {
-  const { opportunities } = state;
-  
-  for (const opp of opportunities) {
-    for (const actor of opp.actors) {
-      if (actor.role === 'introducer') continue; // Don't notify self
-      
-      const shouldNotify = await notificationAgent.evaluate({
-        opportunity: opp,
-        userId: actor.identityId,
-        factors: {
-          confidence: opp.interpretation.confidence,
-          detectionSource: opp.detection.source,
-          userRecentActivity: await getUserActivity(actor.identityId),
-          existingUnviewedCount: await getUnviewedCount(actor.identityId),
-          timeOfDay: new Date().getHours(),
-          category: opp.interpretation.category
-        }
-      });
-      
-      if (shouldNotify.immediate) {
-        await websocketService.broadcast(actor.identityId, {
+// lib/protocol/agents/opportunity/notification.agent.ts
+
+import { BaseLangChainAgent } from '../base.agent';
+import { Opportunity } from '../../interfaces/database.interface';
+import { Queue } from '../../interfaces/queue.interface';
+import { z } from 'zod';
+
+const NotificationDecisionSchema = z.object({
+  immediate: z.boolean().describe('Send WebSocket notification immediately'),
+  email: z.boolean().describe('Queue email notification'),
+  emailPriority: z.enum(['high', 'normal', 'low']).optional(),
+  reasoning: z.string().describe('Why this notification decision was made'),
+});
+
+export interface NotificationFactors {
+  confidence: number;
+  detectionSource: string;
+  category: string;
+  actorRole: string;
+  // These would be fetched if needed
+  userRecentActivity?: Date | null;
+  existingUnviewedCount?: number;
+  timeOfDay?: number;
+}
+
+/**
+ * Agent that decides notification timing and channel.
+ * Can be a simple rule-based agent or LLM-powered.
+ */
+export class NotificationAgent {
+  private queue: Queue;
+
+  constructor(queue?: Queue) {
+    this.queue = queue!; // Injected
+  }
+
+  /**
+   * Evaluate an opportunity and queue appropriate notifications.
+   */
+  async evaluate(opportunity: Opportunity): Promise<void> {
+    for (const actor of opportunity.actors) {
+      // Skip introducers (they created it)
+      if (actor.role === 'introducer') continue;
+
+      const factors: NotificationFactors = {
+        confidence: opportunity.interpretation.confidence,
+        detectionSource: opportunity.detection.source,
+        category: opportunity.interpretation.category,
+        actorRole: actor.role,
+      };
+
+      const decision = this.decide(factors);
+
+      if (decision.immediate) {
+        await this.queue.add('websocket_notification', {
           type: 'opportunity_created',
-          opportunityId: opp.id,
-          preview: generatePreview(opp, actor.identityId)
+          userId: actor.identityId,
+          opportunityId: opportunity.id,
         });
       }
-      
-      if (shouldNotify.email) {
-        await emailQueue.add('opportunity_notification', {
+
+      if (decision.email) {
+        await this.queue.add('email_notification', {
+          type: 'opportunity_notification',
           userId: actor.identityId,
-          opportunityId: opp.id,
-          priority: shouldNotify.emailPriority
+          opportunityId: opportunity.id,
+          priority: decision.emailPriority,
         });
       }
     }
   }
-};
+
+  /**
+   * Rule-based notification decision.
+   * Could be replaced with LLM-powered decision for more nuance.
+   */
+  private decide(factors: NotificationFactors): z.infer<typeof NotificationDecisionSchema> {
+    const { confidence, detectionSource, category } = factors;
+
+    // High-priority: manual introductions always notify immediately
+    if (detectionSource === 'manual') {
+      return {
+        immediate: true,
+        email: true,
+        emailPriority: 'high',
+        reasoning: 'Manual introduction from curator',
+      };
+    }
+
+    // High-priority: high confidence + valuable categories
+    if (confidence > 0.8 && ['hiring', 'investment'].includes(category)) {
+      return {
+        immediate: true,
+        email: true,
+        emailPriority: 'high',
+        reasoning: 'High confidence match in priority category',
+      };
+    }
+
+    // Medium-priority: decent confidence
+    if (confidence > 0.6) {
+      return {
+        immediate: true,
+        email: false,
+        reasoning: 'Moderate confidence match',
+      };
+    }
+
+    // Low-priority: batch into digest
+    return {
+      immediate: false,
+      email: false,
+      reasoning: 'Low confidence, will include in weekly digest',
+    };
+  }
+}
 ```
 
-### 10.3 Notification Agent Considerations
+### 10.3 Notification Priority Matrix
 
-| Factor | High Priority | Low Priority |
-|--------|--------------|--------------|
-| Confidence | > 0.8 | < 0.6 |
-| Detection source | `manual` (curator) | `cron` (background) |
-| Category | `hiring`, `investment` | `networking` |
-| User activity | Active in last 24h | Inactive > 7 days |
-| Unviewed count | < 3 | > 10 (batch instead) |
-| Time of day | Business hours | Night |
+| Factor | High Priority | Medium Priority | Low Priority |
+|--------|--------------|-----------------|--------------|
+| **Detection source** | `manual` | `chat`, `member_added` | `opportunity_graph`, `cron` |
+| **Confidence** | > 0.8 | 0.6 - 0.8 | < 0.6 |
+| **Category** | `hiring`, `investment` | `mentorship` | `networking`, `collaboration` |
+| **Actor role** | `agent` (can help) | `peer` | `patient` (needs help) |
+
+### 10.4 Notification Channels
+
+| Channel | Trigger | Implementation |
+|---------|---------|----------------|
+| **WebSocket** | Immediate notification | Queue job → WebSocket service |
+| **Email** | High-priority or explicit preference | Queue job → Resend |
+| **Weekly Digest** | Batched low-priority | Cron job aggregates unviewed opportunities |
 
 ---
 
@@ -1770,63 +3005,118 @@ GET /api/opportunities?role=agent
 
 ## 14. Implementation Checklist
 
-### Phase 1: Schema & Foundation
-- [ ] Create new `opportunities` table with JSONB fields
-- [ ] Add GIN indexes for actor queries
-- [ ] Update Drizzle schema with TypeScript types
-- [ ] Create `hyde_documents` table with vector index
-- [ ] Add `settings` column to `indexes` table
+### Phase 1: Interfaces & Schema
+- [ ] **Add `Cache` interface** to `lib/protocol/interfaces/cache.interface.ts`
+- [ ] **Extend `Embedder` interface** with HyDE search methods
+- [ ] **Extend `Database` interface** with HyDE and Opportunity types/methods
+- [ ] Create `hyde_documents` table migration
+- [ ] Create `opportunities` table migration with JSONB fields and GIN indexes
+- [ ] Update Drizzle schema files
 
-### Phase 2: HyDE Generation Pipeline
-- [ ] Define HyDE strategy registry (`hyde.strategies.ts`)
-- [ ] Implement `HydeService` with get-or-generate logic
-- [ ] Add Redis caching for ephemeral HyDE
-- [ ] Implement `hydeSearch()` with multi-strategy support
-- [ ] Add strategy selection logic based on intent category
-- [ ] Wire HyDE pre-generation into intent creation flow
-- [ ] Add HyDE refresh on intent update
+### Phase 2: Adapters
+- [ ] **Create `cache.adapter.ts`** (Redis implementation)
+- [ ] **Create `embedder.adapter.ts`** (Postgres/pgvector + OpenAI)
+- [ ] **Extend `database.adapter.ts`** with HyDE document methods
+- [ ] **Extend `database.adapter.ts`** with Opportunity methods
 
-### Phase 3: OpportunityGraph Integration
-- [ ] Refactor `OpportunityGraph` with new state
-- [ ] Replace direct vector search with `hydeSearch()`
-- [ ] Implement candidate merging and ranking
-- [ ] Implement `OpportunityEvaluator` for role determination
-- [ ] Create presentation service for on-demand descriptions
+### Phase 3: HyDE Pipeline
+- [ ] Create `lib/protocol/agents/hyde/hyde.strategies.ts` (strategy registry)
+- [ ] Create `lib/protocol/agents/hyde/hyde.generator.ts` (pure LLM agent)
+- [ ] Create `lib/protocol/graphs/hyde/hyde.graph.state.ts`
+- [ ] Create `lib/protocol/graphs/hyde/hyde.graph.ts` (cache-aware generation)
+- [ ] Add HyDE pre-generation to intent creation queue job
+- [ ] Add HyDE refresh to intent update queue job
 
-### Phase 4: Manual Creation
-- [ ] Add `POST /indexes/:indexId/opportunities` endpoint
-- [ ] Implement permission model (admin vs member)
-- [ ] Add suggestion/approval flow for non-admin members
+### Phase 4: Opportunity Graph
+- [ ] Update `lib/protocol/graphs/opportunity/opportunity.state.ts`
+- [ ] Refactor `lib/protocol/graphs/opportunity/opportunity.graph.ts`:
+  - [ ] Inject `HydeGraph` as subgraph
+  - [ ] Inject `Embedder` interface for search
+  - [ ] Inject `Database` interface for persistence
+  - [ ] Add deduplication node
+- [ ] Create `lib/protocol/agents/opportunity/notification.agent.ts`
 
-### Phase 5: Notifications
-- [ ] Create notification agent for smart delivery
-- [ ] Add `NotifyNode` to `OpportunityGraph`
-- [ ] Implement WebSocket broadcasts
-- [ ] Add email queue integration
+### Phase 5: Controller & API
+- [ ] Refactor `src/controllers/opportunity.controller.ts`:
+  - [ ] Add manual creation endpoint
+  - [ ] Add presentation helper function
+  - [ ] Inject database adapter
+- [ ] Add permission checking (owner vs member)
+- [ ] Add API routes:
+  - [ ] `GET /api/opportunities` (list for user)
+  - [ ] `GET /api/opportunities/:id` (get with presentation)
+  - [ ] `PATCH /api/opportunities/:id/status` (accept/reject)
+  - [ ] `POST /api/indexes/:indexId/opportunities` (manual create)
+  - [ ] `GET /api/indexes/:indexId/opportunities` (admin list)
 
-### Phase 6: Lifecycle & Maintenance
-- [ ] Implement status transitions
-- [ ] Add `onIntentArchived` handler
-- [ ] Add `onMemberRemoved` handler
-- [ ] Create opportunity expiration cron job
-- [ ] Create HyDE cleanup cron job (expired ephemeral)
-- [ ] Create HyDE refresh cron job (stale persisted)
+### Phase 6: Jobs & Maintenance
+- [ ] Create `src/jobs/hyde.job.ts`:
+  - [ ] Daily cleanup of expired HyDE
+  - [ ] Weekly refresh of stale HyDE
+- [ ] Update `src/jobs/opportunity.job.ts`:
+  - [ ] Opportunity expiration cron
+  - [ ] Trigger opportunity graph on intent create/update
+- [ ] Add intent archived handler (expire related opportunities)
+- [ ] Add member removed handler (expire related opportunities)
 
 ### Phase 7: Chat Integration
-- [ ] Add `analyzeQueryForStrategies()` for ad-hoc queries
-- [ ] Implement `discoverNode` with HyDE search
-- [ ] Add discovery results presentation in chat
+- [ ] Add `selectStrategiesFromQuery()` to chat utils
+- [ ] Create discover node that invokes HyDE graph
+- [ ] Add discovery results formatting in response generator
 
-### Phase 8: API & Frontend
-- [ ] Implement all API endpoints
-- [ ] Add access control middleware
-- [ ] Update frontend to use presentation layer
+### Phase 8: Notifications
+- [ ] Create notification queue jobs
+- [ ] Implement WebSocket broadcast for immediate notifications
+- [ ] Implement email queue for high-priority notifications
+- [ ] Add weekly digest aggregation for low-priority
 
-### Phase 9: Cleanup
-- [ ] Remove `SemanticRelevancyBroker`
+### Phase 9: Cleanup & Migration
+- [ ] Remove `SemanticRelevancyBroker` event handler
+- [ ] Remove any service files (use adapters instead)
 - [ ] Drop `intent_stakes` table (clean break)
 - [ ] Drop `intent_stake_items` table
-- [ ] Update documentation
+- [ ] Update CLAUDE.md with new architecture patterns
+- [ ] Add tests for new graphs and adapters
+
+### File Structure Summary
+
+```
+protocol/src/
+├── lib/protocol/
+│   ├── interfaces/
+│   │   ├── cache.interface.ts           # NEW
+│   │   ├── database.interface.ts        # EXTENDED
+│   │   ├── embedder.interface.ts        # EXTENDED
+│   │   └── ...
+│   ├── agents/
+│   │   ├── hyde/
+│   │   │   ├── hyde.generator.ts        # NEW
+│   │   │   └── hyde.strategies.ts       # NEW
+│   │   └── opportunity/
+│   │       ├── opportunity.evaluator.ts # EXISTS
+│   │       └── notification.agent.ts    # NEW
+│   └── graphs/
+│       ├── hyde/
+│       │   ├── hyde.graph.ts            # NEW
+│       │   └── hyde.graph.state.ts      # NEW
+│       └── opportunity/
+│           ├── opportunity.graph.ts     # REFACTORED
+│           ├── opportunity.state.ts     # REFACTORED
+│           └── opportunity.utils.ts     # NEW
+├── adapters/
+│   ├── cache.adapter.ts                 # NEW
+│   ├── database.adapter.ts              # EXTENDED
+│   ├── embedder.adapter.ts              # NEW
+│   └── ...
+├── controllers/
+│   └── opportunity.controller.ts        # REFACTORED
+├── jobs/
+│   ├── hyde.job.ts                      # NEW
+│   └── opportunity.job.ts               # EXTENDED
+└── schemas/
+    ├── hyde.schema.ts                   # NEW
+    └── opportunity.schema.ts            # NEW
+```
 
 ---
 
@@ -1891,8 +3181,170 @@ actors: [
 
 ---
 
-## 17. References
+## 17. Cache Adapter Implementation
+
+```typescript
+// src/adapters/cache.adapter.ts
+
+import Redis from 'ioredis';
+import { Cache, CacheOptions } from '../lib/protocol/interfaces/cache.interface';
+import { log } from '../lib/log';
+
+/**
+ * Redis implementation of the Cache interface.
+ */
+export class RedisCacheAdapter implements Cache {
+  private redis: Redis;
+
+  constructor(redisUrl?: string) {
+    this.redis = new Redis(redisUrl || process.env.REDIS_URL || 'redis://localhost:6379');
+  }
+
+  async get<T>(key: string): Promise<T | null> {
+    try {
+      const value = await this.redis.get(key);
+      if (!value) return null;
+      return JSON.parse(value) as T;
+    } catch (error) {
+      log.error('[CacheAdapter:get] Error:', { key, error });
+      return null;
+    }
+  }
+
+  async set<T>(key: string, value: T, options?: CacheOptions): Promise<void> {
+    try {
+      const serialized = JSON.stringify(value);
+      if (options?.ttl) {
+        await this.redis.setex(key, options.ttl, serialized);
+      } else {
+        await this.redis.set(key, serialized);
+      }
+    } catch (error) {
+      log.error('[CacheAdapter:set] Error:', { key, error });
+    }
+  }
+
+  async delete(key: string): Promise<boolean> {
+    try {
+      const result = await this.redis.del(key);
+      return result > 0;
+    } catch (error) {
+      log.error('[CacheAdapter:delete] Error:', { key, error });
+      return false;
+    }
+  }
+
+  async exists(key: string): Promise<boolean> {
+    try {
+      const result = await this.redis.exists(key);
+      return result > 0;
+    } catch (error) {
+      log.error('[CacheAdapter:exists] Error:', { key, error });
+      return false;
+    }
+  }
+
+  async mget<T>(keys: string[]): Promise<(T | null)[]> {
+    try {
+      const values = await this.redis.mget(...keys);
+      return values.map(v => (v ? JSON.parse(v) as T : null));
+    } catch (error) {
+      log.error('[CacheAdapter:mget] Error:', { keys, error });
+      return keys.map(() => null);
+    }
+  }
+
+  async deleteByPattern(pattern: string): Promise<number> {
+    try {
+      const keys = await this.redis.keys(pattern);
+      if (keys.length === 0) return 0;
+      return await this.redis.del(...keys);
+    } catch (error) {
+      log.error('[CacheAdapter:deleteByPattern] Error:', { pattern, error });
+      return 0;
+    }
+  }
+}
+```
+
+---
+
+## 18. Architectural Principles Summary
+
+### 18.1 Interface-Driven Design
+
+| Layer | Location | Responsibility |
+|-------|----------|----------------|
+| **Interfaces** | `lib/protocol/interfaces/` | Define contracts (Database, Embedder, Cache, Queue) |
+| **Adapters** | `src/adapters/` | Implement interfaces with infrastructure (Postgres, Redis, OpenAI) |
+| **Graphs** | `lib/protocol/graphs/` | Orchestrate business logic using injected interfaces |
+| **Agents** | `lib/protocol/agents/` | Pure LLM agents (no DB/cache access) |
+| **Controllers** | `src/controllers/` | HTTP handlers (wire adapters → graphs) |
+| **Jobs** | `src/jobs/` | Background tasks (instantiate adapters directly) |
+
+### 18.2 Dependency Injection Pattern
+
+```typescript
+// Graph constructor pattern
+class OpportunityGraph {
+  constructor(
+    private database: OpportunityGraphDatabase,  // Narrowed interface
+    private embedder: Embedder,
+    private cache: OpportunityCache,
+    private hydeGraph: CompiledHydeGraph,        // Subgraph
+  ) {}
+}
+
+// Controller wiring pattern
+class OpportunityController {
+  constructor(private database: OpportunityControllerDatabase) {}
+  
+  // Routes use database interface methods directly
+}
+
+// Job pattern
+async function runOpportunityJob() {
+  const database = new ChatDatabaseAdapter();  // Instantiate adapter
+  const embedder = new PostgresEmbedderAdapter();
+  // Use adapters directly, no intermediate service layer
+}
+```
+
+### 18.3 No Services Layer
+
+❌ **DON'T**: Create service classes that wrap database operations
+```typescript
+// BAD: services/opportunity.service.ts
+class OpportunityService {
+  async createOpportunity(...) { /* wraps db */ }
+}
+```
+
+✅ **DO**: Use database interface methods directly in controllers/graphs
+```typescript
+// GOOD: controllers/opportunity.controller.ts
+const opportunity = await this.database.createOpportunity(data);
+```
+
+### 18.4 Subgraph Composition
+
+Graphs can invoke other graphs as subgraphs:
+
+```typescript
+// OpportunityGraph invokes HydeGraph
+const hydeResult = await this.hydeGraph.invoke({
+  sourceText: intent.payload,
+  strategies: selectedStrategies,
+});
+```
+
+---
+
+## 19. References
 
 1. [HyDE Strategies Document](../src/lib/protocol/docs/HyDE%20Strategies%20for%20Explicit%20Intent%20Matching%20and%20Retrieval.md)
 2. [LangGraph Patterns](../.cursor/rules/langgraph-patterns.mdc)
 3. [File Naming Convention](../.cursor/rules/file-naming-convention.mdc)
+4. [Database Interface](../src/lib/protocol/interfaces/database.interface.ts)
+5. [Embedder Interface](../src/lib/protocol/interfaces/embedder.interface.ts)
+6. [Existing Database Adapter](../src/adapters/database.adapter.ts)
