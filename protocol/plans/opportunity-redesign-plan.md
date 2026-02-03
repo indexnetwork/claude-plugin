@@ -3118,6 +3118,7 @@ GET /api/opportunities?role=agent
 - [x] Integration test: Generate embedding, store, search returns match
 - [x] Integration test: Multi-strategy search merges results correctly
 - [x] Integration test: Index scope filtering works
+- Consider [Smartest](../src/lib/smartest/README.md) for scenarios that exercise the embedder via a graph or agent (spec-driven, LLM-verified tests).
 
 ---
 
@@ -3136,6 +3137,7 @@ GET /api/opportunities?role=agent
 **Test**:
 - [x] Unit test: Each strategy config is valid
 - [x] Integration test: Generator produces reasonable text for each strategy (mocked or real LLM)
+- Consider [Smartest](../src/lib/smartest/README.md) for the HyDE generator agent (spec-driven, LLM-verified tests).
 
 ---
 
@@ -3157,6 +3159,7 @@ GET /api/opportunities?role=agent
 - [x] E2E test: Invoke with intent text → returns embeddings
 - [x] E2E test: Second invoke hits cache (no LLM call)
 - [x] E2E test: `forceRegenerate: true` bypasses cache
+- Consider [Smartest](../src/lib/smartest/README.md) for the HyDE graph (spec-driven, LLM-verified tests).
 
 ---
 
@@ -3180,6 +3183,7 @@ GET /api/opportunities?role=agent
 - E2E test: Given intent with embedding → finds candidate opportunities
 - E2E test: Deduplication prevents duplicate opportunities
 - E2E test: Roles correctly derived from strategies
+- If you add the optional LLM in `evaluate_candidates`, add [Smartest](../src/lib/smartest/README.md) scenarios (spec-driven, LLM-verified tests).
 
 ---
 
@@ -3269,6 +3273,7 @@ GET /api/opportunities?role=agent
 - Integration test: Opportunity created → notification queued
 - Integration test: High-confidence opportunity → email sent
 - Integration test: WebSocket message received by client
+- Consider [Smartest](../src/lib/smartest/README.md) for the notification agent (spec-driven, LLM-verified tests).
 
 ---
 
