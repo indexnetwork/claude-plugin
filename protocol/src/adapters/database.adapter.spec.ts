@@ -17,6 +17,7 @@ import {
   indexMembers,
   intents,
   intentIndexes,
+  opportunities,
 } from '../schemas/database.schema';
 import {
   IntentDatabaseAdapter,
@@ -95,6 +96,7 @@ afterAll(async () => {
     await db.delete(intentIndexes).where(inArray(intentIndexes.intentId, intentIds));
     await db.delete(intents).where(inArray(intents.id, intentIds));
   }
+  await db.delete(opportunities).where(eq(opportunities.indexId, fixture.indexId));
   await db.delete(indexMembers).where(eq(indexMembers.indexId, fixture.indexId));
   await db.delete(userProfiles).where(inArray(userProfiles.userId, [fixture.userAId, fixture.userBId]));
   await db.delete(indexes).where(eq(indexes.id, fixture.indexId));
@@ -403,6 +405,62 @@ describe('OpportunityDatabaseAdapter', () => {
     const profile = await adapter.getProfile(newUserId);
     expect(profile).toBeNull();
     await db.delete(users).where(eq(users.id, newUserId));
+  });
+
+  it('should create opportunity with JSONB actors and query by actor', async () => {
+    const created = await adapter.createOpportunity({
+      detection: {
+        source: 'opportunity_graph',
+        createdBy: 'agent-opportunity-finder',
+        triggeredBy: fixture.intent1Id,
+        timestamp: new Date().toISOString(),
+      },
+      actors: [
+        { role: 'agent', identityId: fixture.userAId, intents: [fixture.intent1Id], profile: true },
+        { role: 'patient', identityId: fixture.userBId, intents: [], profile: false },
+      ],
+      interpretation: {
+        category: 'collaboration',
+        summary: 'Test opportunity',
+        confidence: 0.85,
+      },
+      context: { indexId: fixture.indexId, triggeringIntentId: fixture.intent1Id },
+      indexId: fixture.indexId,
+      confidence: '0.85',
+    });
+    expect(created.id).toBeDefined();
+    expect(created.actors).toHaveLength(2);
+    expect(created.status).toBe('pending');
+
+    const forUserA = await adapter.getOpportunitiesForUser(fixture.userAId, { indexId: fixture.indexId });
+    expect(forUserA.some((o) => o.id === created.id)).toBe(true);
+    const forUserB = await adapter.getOpportunitiesForUser(fixture.userBId);
+    expect(forUserB.some((o) => o.id === created.id)).toBe(true);
+
+    const byId = await adapter.getOpportunity(created.id);
+    expect(byId).not.toBeNull();
+    expect(byId!.interpretation.summary).toBe('Test opportunity');
+  });
+
+  it('should report deduplication (opportunityExistsBetweenActors)', async () => {
+    const actorIds = [fixture.userAId, fixture.userBId];
+    const exists = await adapter.opportunityExistsBetweenActors(actorIds, fixture.indexId);
+    expect(exists).toBe(true);
+
+    const otherUserId = uuidv4();
+    const notExists = await adapter.opportunityExistsBetweenActors([fixture.userAId, otherUserId], fixture.indexId);
+    expect(notExists).toBe(false);
+  });
+
+  it('should update opportunity status and persist', async () => {
+    const list = await adapter.getOpportunitiesForUser(fixture.userAId, { indexId: fixture.indexId, limit: 1 });
+    expect(list.length).toBeGreaterThanOrEqual(1);
+    const opp = list[0];
+    const updated = await adapter.updateOpportunityStatus(opp.id, 'viewed');
+    expect(updated).not.toBeNull();
+    expect(updated!.status).toBe('viewed');
+    const refetched = await adapter.getOpportunity(opp.id);
+    expect(refetched!.status).toBe('viewed');
   });
 });
 

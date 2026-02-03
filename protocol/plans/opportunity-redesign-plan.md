@@ -3083,22 +3083,22 @@ GET /api/opportunities?role=agent
 ### Step 4: Opportunity Persistence
 **Goal**: Database adapter methods for opportunities.
 
-- [ ] Extend `Database` interface with Opportunity methods:
-  - [ ] `createOpportunity(data)`
-  - [ ] `getOpportunity(id)`
-  - [ ] `getOpportunitiesForUser(userId, options)`
-  - [ ] `getOpportunitiesForIndex(indexId, options)`
-  - [ ] `updateOpportunityStatus(id, status)`
-  - [ ] `opportunityExistsBetweenActors(actorIds, indexId)`
-  - [ ] `expireOpportunitiesByIntent(intentId)`
-  - [ ] `expireOpportunitiesForRemovedMember(indexId, userId)`
-- [ ] Add `OpportunityGraphDatabase`, `OpportunityMaintenanceDatabase`, `OpportunityControllerDatabase` narrowed types
-- [ ] Implement methods in `src/adapters/database.adapter.ts`
+- [x] Extend `Database` interface with Opportunity methods:
+  - [x] `createOpportunity(data)`
+  - [x] `getOpportunity(id)`
+  - [x] `getOpportunitiesForUser(userId, options)`
+  - [x] `getOpportunitiesForIndex(indexId, options)`
+  - [x] `updateOpportunityStatus(id, status)`
+  - [x] `opportunityExistsBetweenActors(actorIds, indexId)`
+  - [x] `expireOpportunitiesByIntent(intentId)`
+  - [x] `expireOpportunitiesForRemovedMember(indexId, userId)`
+- [x] Add `OpportunityGraphDatabase`, `OpportunityMaintenanceDatabase`, `OpportunityControllerDatabase` narrowed types
+- [x] Implement methods in `src/adapters/database.adapter.ts`
 
 **Test**:
-- Integration test: Create opportunity with JSONB actors, query by actor
-- Integration test: Deduplication check works
-- Integration test: Status update persists
+- [x] Integration test: Create opportunity with JSONB actors, query by actor
+- [x] Integration test: Deduplication check works
+- [x] Integration test: Status update persists
 
 ---
 

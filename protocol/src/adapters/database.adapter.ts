@@ -3,7 +3,7 @@
  * Postgres implementations; no dependency on lib/protocol.
  */
 
-import { eq, and, isNull, isNotNull, sql, count, desc, lt, lte } from 'drizzle-orm';
+import { eq, and, isNull, isNotNull, sql, count, desc, lt, lte, ne } from 'drizzle-orm';
 import * as schema from '../schemas/database.schema';
 import db from '../lib/drizzle/drizzle';
 import type { User } from '../schemas/database.schema';
@@ -76,7 +76,7 @@ interface IndexMembershipRow {
   joinedAt: Date;
 }
 
-const { intents, indexes, indexMembers, intentIndexes, users, hydeDocuments } = schema;
+const { intents, indexes, indexMembers, intentIndexes, users, hydeDocuments, opportunities } = schema;
 
 // HyDE row to document shape (embedding may come as number[] or pg vector)
 type HydeSourceTypeLocal = 'intent' | 'profile' | 'query';
@@ -221,6 +221,11 @@ export class IntentDatabaseAdapter {
  */
 export class ChatDatabaseAdapter {
   private readonly hydeAdapter = new HydeDatabaseAdapter();
+  private _opportunityAdapter: OpportunityDatabaseAdapter | null = null;
+  private get opportunityAdapter(): OpportunityDatabaseAdapter {
+    if (!this._opportunityAdapter) this._opportunityAdapter = new OpportunityDatabaseAdapter();
+    return this._opportunityAdapter;
+  }
 
   async getProfile(userId: string): Promise<ProfileRow | null> {
     const result = await db.select()
@@ -879,6 +884,41 @@ export class ChatDatabaseAdapter {
       intentCount: Number(intentCountResult[0]?.count ?? 0),
     };
   }
+
+  // Opportunity operations (delegate to OpportunityDatabaseAdapter)
+  async createOpportunity(data: CreateOpportunityInput): Promise<OpportunityRow> {
+    return this.opportunityAdapter.createOpportunity(data);
+  }
+  async getOpportunity(id: string): Promise<OpportunityRow | null> {
+    return this.opportunityAdapter.getOpportunity(id);
+  }
+  async getOpportunitiesForUser(
+    userId: string,
+    options?: { status?: string; indexId?: string; role?: string; limit?: number; offset?: number }
+  ): Promise<OpportunityRow[]> {
+    return this.opportunityAdapter.getOpportunitiesForUser(userId, options);
+  }
+  async getOpportunitiesForIndex(
+    indexId: string,
+    options?: { status?: string; limit?: number; offset?: number }
+  ): Promise<OpportunityRow[]> {
+    return this.opportunityAdapter.getOpportunitiesForIndex(indexId, options);
+  }
+  async updateOpportunityStatus(
+    id: string,
+    status: 'pending' | 'viewed' | 'accepted' | 'rejected' | 'expired'
+  ): Promise<OpportunityRow | null> {
+    return this.opportunityAdapter.updateOpportunityStatus(id, status);
+  }
+  async opportunityExistsBetweenActors(actorIds: string[], indexId: string): Promise<boolean> {
+    return this.opportunityAdapter.opportunityExistsBetweenActors(actorIds, indexId);
+  }
+  async expireOpportunitiesByIntent(intentId: string): Promise<number> {
+    return this.opportunityAdapter.expireOpportunitiesByIntent(intentId);
+  }
+  async expireOpportunitiesForRemovedMember(indexId: string, userId: string): Promise<number> {
+    return this.opportunityAdapter.expireOpportunitiesForRemovedMember(indexId, userId);
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -949,8 +989,52 @@ export class ProfileDatabaseAdapter {
 // Opportunity Graph Database Adapter
 // ═══════════════════════════════════════════════════════════════════════════════
 
+/** Opportunity row shape (matches protocol Opportunity; confidence as string from numeric). */
+interface OpportunityRow {
+  id: string;
+  detection: schema.OpportunityDetection;
+  actors: schema.OpportunityActor[];
+  interpretation: schema.OpportunityInterpretation;
+  context: schema.OpportunityContext;
+  indexId: string;
+  confidence: string;
+  status: 'pending' | 'viewed' | 'accepted' | 'rejected' | 'expired';
+  createdAt: Date;
+  updatedAt: Date;
+  expiresAt: Date | null;
+}
+
+/** Create opportunity input (matches protocol CreateOpportunityData). */
+interface CreateOpportunityInput {
+  detection: schema.OpportunityDetection;
+  actors: schema.OpportunityActor[];
+  interpretation: schema.OpportunityInterpretation;
+  context: schema.OpportunityContext;
+  indexId: string;
+  confidence: string;
+  status?: 'pending' | 'viewed' | 'accepted' | 'rejected' | 'expired';
+  expiresAt?: Date;
+}
+
+function toOpportunityRow(row: typeof opportunities.$inferSelect): OpportunityRow {
+  const confidence = row.confidence;
+  return {
+    id: row.id,
+    detection: row.detection as schema.OpportunityDetection,
+    actors: row.actors as schema.OpportunityActor[],
+    interpretation: row.interpretation as schema.OpportunityInterpretation,
+    context: row.context as schema.OpportunityContext,
+    indexId: row.indexId,
+    confidence: typeof confidence === 'string' ? confidence : String(confidence),
+    status: row.status,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+    expiresAt: row.expiresAt,
+  };
+}
+
 /**
- * Database adapter for Opportunity Graph.
+ * Database adapter for Opportunity Graph and opportunity controller.
  */
 export class OpportunityDatabaseAdapter {
   async getProfile(userId: string): Promise<ProfileRow | null> {
@@ -967,6 +1051,134 @@ export class OpportunityDatabaseAdapter {
       attributes: profile.attributes as ProfileAttributes,
       embedding: profile.embedding,
     };
+  }
+
+  async createOpportunity(data: CreateOpportunityInput): Promise<OpportunityRow> {
+    const [row] = await db
+      .insert(opportunities)
+      .values({
+        detection: data.detection,
+        actors: data.actors,
+        interpretation: data.interpretation,
+        context: data.context,
+        indexId: data.indexId,
+        confidence: data.confidence,
+        status: data.status ?? 'pending',
+        expiresAt: data.expiresAt ?? null,
+      })
+      .returning();
+    if (!row) throw new Error('OpportunityDatabaseAdapter.createOpportunity: no row returned');
+    return toOpportunityRow(row);
+  }
+
+  async getOpportunity(id: string): Promise<OpportunityRow | null> {
+    const rows = await db.select().from(opportunities).where(eq(opportunities.id, id)).limit(1);
+    const row = rows[0];
+    return row ? toOpportunityRow(row) : null;
+  }
+
+  async getOpportunitiesForUser(
+    userId: string,
+    options?: { status?: string; indexId?: string; role?: string; limit?: number; offset?: number }
+  ): Promise<OpportunityRow[]> {
+    const actorFilter = sql`${opportunities.actors} @> ${JSON.stringify([{ identityId: userId }])}::jsonb`;
+    const conditions = [actorFilter];
+    if (options?.status) conditions.push(eq(opportunities.status, options.status as typeof opportunities.$inferSelect.status));
+    if (options?.indexId) conditions.push(eq(opportunities.indexId, options.indexId));
+    let q = db
+      .select()
+      .from(opportunities)
+      .where(and(...conditions))
+      .orderBy(desc(opportunities.createdAt));
+    if (options?.limit != null) q = q.limit(options.limit) as typeof q;
+    if (options?.offset != null) q = q.offset(options.offset) as typeof q;
+    const rows = await q;
+    return rows.map(toOpportunityRow);
+  }
+
+  async getOpportunitiesForIndex(
+    indexId: string,
+    options?: { status?: string; limit?: number; offset?: number }
+  ): Promise<OpportunityRow[]> {
+    const conditions = [eq(opportunities.indexId, indexId)];
+    if (options?.status) conditions.push(eq(opportunities.status, options.status as typeof opportunities.$inferSelect.status));
+    let q = db
+      .select()
+      .from(opportunities)
+      .where(and(...conditions))
+      .orderBy(desc(opportunities.createdAt));
+    if (options?.limit != null) q = q.limit(options.limit) as typeof q;
+    if (options?.offset != null) q = q.offset(options.offset) as typeof q;
+    const rows = await q;
+    return rows.map(toOpportunityRow);
+  }
+
+  async updateOpportunityStatus(
+    id: string,
+    status: 'pending' | 'viewed' | 'accepted' | 'rejected' | 'expired'
+  ): Promise<OpportunityRow | null> {
+    const [row] = await db
+      .update(opportunities)
+      .set({ status, updatedAt: new Date() })
+      .where(eq(opportunities.id, id))
+      .returning();
+    return row ? toOpportunityRow(row) : null;
+  }
+
+  async opportunityExistsBetweenActors(actorIds: string[], indexId: string): Promise<boolean> {
+    if (actorIds.length === 0) return false;
+    const expired = 'expired';
+    const conditions = [
+      eq(opportunities.indexId, indexId),
+      ne(opportunities.status, expired),
+    ];
+    for (const actorId of actorIds) {
+      conditions.push(
+        sql`${opportunities.actors} @> ${JSON.stringify([{ identityId: actorId }])}::jsonb`
+      );
+    }
+    conditions.push(sql`jsonb_array_length(${opportunities.actors}) = ${actorIds.length}`);
+    const rows = await db
+      .select({ id: opportunities.id })
+      .from(opportunities)
+      .where(and(...conditions))
+      .limit(1);
+    return rows.length > 0;
+  }
+
+  async expireOpportunitiesByIntent(intentId: string): Promise<number> {
+    const rows = await db
+      .select({ id: opportunities.id })
+      .from(opportunities)
+      .where(
+        sql`${opportunities.actors} @> ${JSON.stringify([{ intents: [intentId] }])}::jsonb`
+      );
+    if (rows.length === 0) return 0;
+    const ids = rows.map((r) => r.id);
+    const updated = await db
+      .update(opportunities)
+      .set({ status: 'expired', updatedAt: new Date() })
+      .where(
+        and(
+          sql`${opportunities.actors} @> ${JSON.stringify([{ intents: [intentId] }])}::jsonb`
+        )
+      )
+      .returning({ id: opportunities.id });
+    return updated.length;
+  }
+
+  async expireOpportunitiesForRemovedMember(indexId: string, userId: string): Promise<number> {
+    const updated = await db
+      .update(opportunities)
+      .set({ status: 'expired', updatedAt: new Date() })
+      .where(
+        and(
+          eq(opportunities.indexId, indexId),
+          sql`${opportunities.actors} @> ${JSON.stringify([{ identityId: userId }])}::jsonb`
+        )
+      )
+      .returning({ id: opportunities.id });
+    return updated.length;
   }
 }
 

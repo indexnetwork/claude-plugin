@@ -645,6 +645,15 @@ export interface Database {
   isIndexOwner(indexId: string, userId: string): Promise<boolean>;
 
   /**
+   * Check if user is a member of a specific index.
+   *
+   * @param indexId - The index to check
+   * @param userId - The user to verify membership for
+   * @returns True if user is a member
+   */
+  isIndexMember(indexId: string, userId: string): Promise<boolean>;
+
+  /**
    * Get all members of an index with their details.
    * **OWNER ONLY** - throws if user is not an owner.
    *
@@ -786,6 +795,94 @@ export interface Database {
    * @returns Array of stale HyDE documents
    */
   getStaleHydeDocuments(threshold: Date): Promise<HydeDocument[]>;
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Opportunity Operations (Opportunity Redesign)
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Create a new opportunity.
+   *
+   * @param data - Opportunity creation data
+   * @returns The created opportunity
+   */
+  createOpportunity(data: CreateOpportunityData): Promise<Opportunity>;
+
+  /**
+   * Get a single opportunity by ID.
+   *
+   * @param id - Opportunity ID
+   * @returns The opportunity or null if not found
+   */
+  getOpportunity(id: string): Promise<Opportunity | null>;
+
+  /**
+   * Get opportunities for a user (as any actor role).
+   *
+   * @param userId - User ID (actor identityId)
+   * @param options - Optional filters and pagination
+   * @returns Array of opportunities
+   */
+  getOpportunitiesForUser(
+    userId: string,
+    options?: OpportunityQueryOptions
+  ): Promise<Opportunity[]>;
+
+  /**
+   * Get opportunities in an index (for index admins).
+   *
+   * @param indexId - Index ID
+   * @param options - Optional filters and pagination
+   * @returns Array of opportunities
+   */
+  getOpportunitiesForIndex(
+    indexId: string,
+    options?: OpportunityQueryOptions
+  ): Promise<Opportunity[]>;
+
+  /**
+   * Update an opportunity's status.
+   *
+   * @param id - Opportunity ID
+   * @param status - New status
+   * @returns The updated opportunity or null if not found
+   */
+  updateOpportunityStatus(
+    id: string,
+    status: OpportunityStatus
+  ): Promise<Opportunity | null>;
+
+  /**
+   * Check if an opportunity already exists between the given actors in the index (deduplication).
+   *
+   * @param actorIds - Array of user IDs (identityIds) that would be actors
+   * @param indexId - Index ID
+   * @returns True if a non-expired opportunity exists with exactly these actors in this index
+   */
+  opportunityExistsBetweenActors(
+    actorIds: string[],
+    indexId: string
+  ): Promise<boolean>;
+
+  /**
+   * Expire opportunities referencing an intent (e.g. when intent is archived).
+   *
+   * @param intentId - Intent ID to match in opportunity actors
+   * @returns Number of opportunities updated to expired
+   */
+  expireOpportunitiesByIntent(intentId: string): Promise<number>;
+
+  /**
+   * Expire opportunities for a user removed from an index.
+   *
+   * @param indexId - Index ID
+   * @param userId - User ID that was removed
+   * @returns Number of opportunities updated to expired
+   */
+  expireOpportunitiesForRemovedMember(
+    indexId: string,
+    userId: string
+  ): Promise<number>;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -853,11 +950,39 @@ export type ChatGraphCompositeDatabase = Pick<
 
 /**
  * Database interface narrowed for Opportunity Graph operations.
- * Minimal profile lookup for opportunity evaluation.
+ * Profile lookup plus opportunity create and deduplication check.
  */
 export type OpportunityGraphDatabase = Pick<
   Database,
-  'getProfile'
+  'getProfile' | 'createOpportunity' | 'opportunityExistsBetweenActors'
+>;
+
+/**
+ * Database interface for opportunity maintenance jobs.
+ */
+export type OpportunityMaintenanceDatabase = Pick<
+  Database,
+  | 'deleteExpiredHydeDocuments'
+  | 'getStaleHydeDocuments'
+  | 'deleteHydeDocumentsForSource'
+  | 'expireOpportunitiesByIntent'
+  | 'expireOpportunitiesForRemovedMember'
+  | 'getIntent'
+>;
+
+/**
+ * Database interface for opportunity controller (API).
+ */
+export type OpportunityControllerDatabase = Pick<
+  Database,
+  | 'getOpportunity'
+  | 'getOpportunitiesForUser'
+  | 'getOpportunitiesForIndex'
+  | 'updateOpportunityStatus'
+  | 'createOpportunity'
+  | 'opportunityExistsBetweenActors'
+  | 'isIndexOwner'
+  | 'isIndexMember'
 >;
 
 /**
