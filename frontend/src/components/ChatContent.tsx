@@ -278,7 +278,13 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
   const [discoveryLoading, setDiscoveryLoading] = useState(true);
   const fetchedSynthesesRef = useRef<Set<string>>(new Set());
   const navigatingToHomeRef = useRef(false);
+  const sessionIdRef = useRef(sessionId);
   const [isIndexDropdownOpen, setIsIndexDropdownOpen] = useState(false);
+
+  // Keep ref in sync with sessionId
+  useEffect(() => {
+    sessionIdRef.current = sessionId;
+  }, [sessionId]);
 
   const connectionsService = useConnections();
   const synthesisService = useSynthesis();
@@ -318,6 +324,11 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
 
   useEffect(() => {
     if (sessionIdFromUrl) {
+      // Skip loading if we already have this session in memory (e.g., we just created it)
+      if (sessionIdRef.current === sessionIdFromUrl) {
+        setSessionLoaded(true);
+        return;
+      }
       loadSession(sessionIdFromUrl).finally(() => setSessionLoaded(true));
     } else {
       navigatingToHomeRef.current = true;
