@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Send, Loader2, Sparkles, Pencil, Paperclip, X, Globe, Zap, Type, ChevronDown } from 'lucide-react';
+import { Send, Loader2, Sparkles, Pencil, Paperclip, X, Globe, Zap, Type, ChevronDown, Lock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useAIChat } from '@/contexts/AIChatContext';
@@ -509,7 +509,7 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
                   onClick={() => setIsIndexDropdownOpen(!isIndexDropdownOpen)}
                   className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-gray-200 hover:bg-gray-300 rounded-full text-sm font-ibm-plex-mono text-gray-700 transition-colors"
                 >
-                  <Globe className="w-4 h-4" />
+                  {selectedIndex ? <Lock className="w-4 h-4" /> : <Globe className="w-4 h-4" />}
                   <span className="max-w-[100px] truncate">{selectedIndex?.title || 'Everywhere'}</span>
                   <ChevronDown className={cn("w-4 h-4 transition-transform", isIndexDropdownOpen && "rotate-180")} />
                 </button>
@@ -535,11 +535,12 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
                           type="button"
                           onClick={() => { handleIndexSelect(index.id); setIsIndexDropdownOpen(false); }}
                           className={cn(
-                            "w-full px-3 py-2 text-left text-sm font-ibm-plex-mono text-gray-700 hover:bg-gray-50 truncate",
+                            "w-full px-3 py-2 text-left text-sm font-ibm-plex-mono text-gray-700 hover:bg-gray-50 flex items-center gap-2",
                             selectedIndexIds.includes(index.id) && "text-gray-900 font-medium"
                           )}
                         >
-                          {index.title}
+                          <Lock className="w-4 h-4 flex-shrink-0" />
+                          <span className="truncate">{index.title}</span>
                         </button>
                       ))}
                     </div>
