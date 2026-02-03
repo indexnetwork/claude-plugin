@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Send, Loader2, Sparkles, Pencil, Paperclip, X, Globe, Zap, Type, ChevronDown, Lock, ChevronLeft } from 'lucide-react';
+import { Send, Loader2, Pencil, Paperclip, X, Globe, Zap, Type, ChevronDown, Lock, ChevronLeft } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useAIChat } from '@/contexts/AIChatContext';
@@ -1022,7 +1022,6 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
         >
           <ChevronLeft className="h-5 w-5" />
         </button>
-        <Sparkles className="h-5 w-5 shrink-0 text-[#007EFF]" aria-hidden />
         {isEditingTitle ? (
           <input
             ref={titleInputRef}
