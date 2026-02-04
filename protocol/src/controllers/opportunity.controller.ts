@@ -1,3 +1,4 @@
+import type { Id } from '../types/common';
 import type {
   OpportunityControllerDatabase,
   OpportunityGraphDatabase,
@@ -230,7 +231,7 @@ export class OpportunityController {
     const indexScope = memberships.map((m) => m.indexId);
     if (indexScope.length === 0) {
       return Response.json({
-        sourceUserId: user.id,
+        sourceUserId: user.id as Id<'users'>,
         options: { hydeDescription: query, limit },
         indexScope: [],
         candidates: [],
@@ -239,9 +240,9 @@ export class OpportunityController {
     }
 
     const result = await this.graph.invoke({
-      sourceUserId: user.id,
+      sourceUserId: user.id as Id<'users'>,
       sourceText: query,
-      indexScope,
+      indexScope: indexScope as Id<'indexes'>[],
       options: { hydeDescription: query, limit },
     });
 

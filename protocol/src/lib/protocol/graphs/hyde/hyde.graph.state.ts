@@ -4,6 +4,7 @@
  */
 
 import { Annotation } from '@langchain/langgraph';
+import type { Id } from '../../../../types/common';
 import type {
   HydeStrategy,
   HydeTargetCorpus,
@@ -26,7 +27,7 @@ export const HydeGraphState = Annotation.Root({
   sourceType: Annotation<'intent' | 'profile' | 'query'>,
 
   /** Source entity ID (e.g. intent ID, user ID). Omitted for ad-hoc query. */
-  sourceId: Annotation<string | undefined>({
+  sourceId: Annotation<Id<'intents'> | Id<'users'> | undefined>({
     reducer: (curr, next) => next ?? curr,
     default: () => undefined,
   }),

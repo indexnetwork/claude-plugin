@@ -14,6 +14,7 @@ import { describe, test, expect, spyOn, beforeAll } from 'bun:test';
 import { z } from 'zod';
 import { runScenario, defineScenario, expectSmartest } from '../../../smartest';
 import { OpportunityGraph, type CompiledHydeGraph } from './opportunity.graph';
+import type { Id } from '../../../../types/common';
 import type {
   OpportunityGraphDatabase,
   OpportunityActor,
@@ -174,7 +175,7 @@ describe('Opportunity Graph', () => {
           fixtures: {
             sourceProfileContext:
               'User is an experienced Rust developer building a decentralized exchange.',
-            sourceUserId: 'user-source',
+            sourceUserId: 'user-source' as Id<'users'>,
             candidates: defaultCandidates,
           },
           sut: {
@@ -188,7 +189,7 @@ describe('Opportunity Graph', () => {
               };
               return await (instance as ReturnType<OpportunityGraph['compile']>).invoke({
                 sourceProfileContext: input.sourceProfileContext,
-                sourceUserId: input.sourceUserId,
+                sourceUserId: input.sourceUserId as Id<'users'>,
                 candidates: input.candidates,
                 indexScope: [],
                 options: { minScore: 50 },
@@ -258,8 +259,8 @@ describe('Opportunity Graph', () => {
             sourceProfileContext:
               'Experienced backend engineer looking for a technical co-founder.',
             discoveryQuery: 'Find me a technical co-founder for an early-stage startup.',
-            sourceUserId: 'user-source',
-            indexScope: ['idx-1'],
+            sourceUserId: 'user-source' as Id<'users'>,
+            indexScope: ['idx-1'] as Id<'indexes'>[],
           },
           sut: {
             type: 'graph',
@@ -273,9 +274,9 @@ describe('Opportunity Graph', () => {
               };
               return await (instance as ReturnType<OpportunityGraph['compile']>).invoke({
                 sourceProfileContext: input.sourceProfileContext,
-                sourceUserId: input.sourceUserId,
+                sourceUserId: input.sourceUserId as Id<'users'>,
                 sourceText: input.discoveryQuery,
-                indexScope: input.indexScope,
+                indexScope: input.indexScope as Id<'indexes'>[],
                 candidates: [],
                 options: { hydeDescription: input.discoveryQuery, limit: 5, minScore: 70 },
                 opportunities: [],
@@ -336,9 +337,9 @@ describe('Opportunity Graph', () => {
             'When DB reports an opportunity already exists between source and candidate, deduplicate node filters them out; final opportunities are empty.',
           fixtures: {
             sourceProfileContext: 'Rust developer seeking mentor.',
-            sourceUserId: 'user-source',
+            sourceUserId: 'user-source' as Id<'users'>,
             sourceText: 'Find Rust mentors',
-            indexScope: ['idx-1'],
+            indexScope: ['idx-1'] as Id<'indexes'>[],
           },
           sut: {
             type: 'graph',
@@ -352,9 +353,9 @@ describe('Opportunity Graph', () => {
               };
               return await (instance as ReturnType<OpportunityGraph['compile']>).invoke({
                 sourceProfileContext: input.sourceProfileContext,
-                sourceUserId: input.sourceUserId,
+                sourceUserId: input.sourceUserId as Id<'users'>,
                 sourceText: input.sourceText,
-                indexScope: input.indexScope,
+                indexScope: input.indexScope as Id<'indexes'>[],
                 candidates: [],
                 options: { hydeDescription: input.sourceText },
                 opportunities: [],
@@ -416,7 +417,7 @@ describe('Opportunity Graph', () => {
           description:
             'Empty sourceProfileContext with sourceUserId: graph resolves profile from DB, then evaluates candidates and persists opportunities.',
           fixtures: {
-            sourceUserId: 'user-source-resolved',
+            sourceUserId: 'user-source-resolved' as Id<'users'>,
             candidates: defaultCandidates,
           },
           sut: {
@@ -426,7 +427,7 @@ describe('Opportunity Graph', () => {
               const input = resolvedInput as { sourceUserId: string; candidates: CandidateProfile[] };
               return await (instance as ReturnType<OpportunityGraph['compile']>).invoke({
                 sourceProfileContext: '',
-                sourceUserId: input.sourceUserId,
+                sourceUserId: input.sourceUserId as Id<'users'>,
                 candidates: input.candidates,
                 indexScope: [],
                 options: { minScore: 50 },
@@ -468,7 +469,7 @@ describe('Opportunity Graph', () => {
           description:
             'No sourceText and no indexScope: graph exits after resolve_source_profile without calling HyDE or search.',
           fixtures: {
-            sourceUserId: 'user-source',
+            sourceUserId: 'user-source' as Id<'users'>,
             sourceProfileContext: 'Some profile',
           },
           sut: {
@@ -478,7 +479,7 @@ describe('Opportunity Graph', () => {
               const input = resolvedInput as { sourceUserId: string; sourceProfileContext: string };
               return await (instance as ReturnType<OpportunityGraph['compile']>).invoke({
                 sourceProfileContext: input.sourceProfileContext,
-                sourceUserId: input.sourceUserId,
+                sourceUserId: input.sourceUserId as Id<'users'>,
                 sourceText: undefined,
                 indexScope: [],
                 candidates: [],
@@ -544,10 +545,10 @@ describe('Opportunity Graph', () => {
           description:
             'Intent-triggered flow: intentId and sourceText set; output opportunity has detection.triggeredBy and context.triggeringIntentId.',
           fixtures: {
-            sourceUserId: 'user-source',
+            sourceUserId: 'user-source' as Id<'users'>,
             sourceText: 'Looking for a React developer',
-            intentId,
-            indexScope: ['idx-1'],
+            intentId: intentId as Id<'intents'>,
+            indexScope: ['idx-1'] as Id<'indexes'>[],
           },
           sut: {
             type: 'graph',
@@ -561,10 +562,10 @@ describe('Opportunity Graph', () => {
               };
               return await (instance as ReturnType<OpportunityGraph['compile']>).invoke({
                 sourceProfileContext: 'Product lead.',
-                sourceUserId: input.sourceUserId,
+                sourceUserId: input.sourceUserId as Id<'users'>,
                 sourceText: input.sourceText,
-                intentId: input.intentId,
-                indexScope: input.indexScope,
+                intentId: input.intentId as Id<'intents'> | undefined,
+                indexScope: input.indexScope as Id<'indexes'>[],
                 candidates: [],
                 options: { hydeDescription: input.sourceText },
                 opportunities: [],
@@ -625,9 +626,9 @@ describe('Opportunity Graph', () => {
 
       const result = (await compiledGraph.invoke({
         sourceProfileContext: 'Seeking mentor.',
-        sourceUserId: 'user-source',
+        sourceUserId: 'user-source' as Id<'users'>,
         sourceText: 'Find a mentor',
-        indexScope: ['idx-1'],
+        indexScope: ['idx-1'] as Id<'indexes'>[],
         candidates: [],
         options: { hydeDescription: 'Find a mentor' },
         opportunities: [],
@@ -668,9 +669,9 @@ describe('Opportunity Graph', () => {
 
       const result = (await compiledGraph.invoke({
         sourceProfileContext: 'Offering dev services.',
-        sourceUserId: 'user-source',
+        sourceUserId: 'user-source' as Id<'users'>,
         sourceText: 'Who needs a developer',
-        indexScope: ['idx-1'],
+        indexScope: ['idx-1'] as Id<'indexes'>[],
         candidates: [],
         options: { hydeDescription: 'Who needs a developer' },
         opportunities: [],
@@ -710,9 +711,9 @@ describe('Opportunity Graph', () => {
 
       const result = (await compiledGraph.invoke({
         sourceProfileContext: 'Looking for co-founder.',
-        sourceUserId: 'user-source',
+        sourceUserId: 'user-source' as Id<'users'>,
         sourceText: 'Find co-founder',
-        indexScope: ['idx-1'],
+        indexScope: ['idx-1'] as Id<'indexes'>[],
         candidates: [],
         options: { hydeDescription: 'Find co-founder' },
         opportunities: [],
@@ -752,9 +753,9 @@ describe('Opportunity Graph', () => {
 
       const result = (await compiledGraph.invoke({
         sourceProfileContext: 'Hiring a designer.',
-        sourceUserId: 'user-source',
+        sourceUserId: 'user-source' as Id<'users'>,
         sourceText: 'We are hiring a designer',
-        indexScope: ['idx-1'],
+        indexScope: ['idx-1'] as Id<'indexes'>[],
         candidates: [],
         options: { hydeDescription: 'We are hiring a designer' },
         opportunities: [],
@@ -785,9 +786,9 @@ describe('Opportunity Graph', () => {
           description: 'HyDE runs, search returns no candidates; evaluate and persist produce empty opportunities.',
           fixtures: {
             sourceProfileContext: 'Backend engineer.',
-            sourceUserId: 'user-source',
+            sourceUserId: 'user-source' as Id<'users'>,
             sourceText: 'Find ML engineers',
-            indexScope: ['idx-1'],
+            indexScope: ['idx-1'] as Id<'indexes'>[],
           },
           sut: {
             type: 'graph',
@@ -801,9 +802,9 @@ describe('Opportunity Graph', () => {
               };
               return await (instance as ReturnType<OpportunityGraph['compile']>).invoke({
                 sourceProfileContext: input.sourceProfileContext,
-                sourceUserId: input.sourceUserId,
+                sourceUserId: input.sourceUserId as Id<'users'>,
                 sourceText: input.sourceText,
-                indexScope: input.indexScope,
+                indexScope: input.indexScope as Id<'indexes'>[],
                 candidates: [],
                 options: { hydeDescription: input.sourceText },
                 opportunities: [],
@@ -851,9 +852,9 @@ describe('Opportunity Graph', () => {
 
       const result = (await compiledGraph.invoke({
         sourceProfileContext: 'Rust developer.',
-        sourceUserId: 'user-source',
+        sourceUserId: 'user-source' as Id<'users'>,
         sourceText: 'Find Rust devs',
-        indexScope: ['idx-1'],
+        indexScope: ['idx-1'] as Id<'indexes'>[],
         candidates: [],
         options: { hydeDescription: 'Find Rust devs', minScore: 80 },
         opportunities: [],
@@ -883,7 +884,7 @@ describe('Opportunity Graph', () => {
 
       const result = (await compiledGraph.invoke({
         sourceProfileContext: 'Profile.',
-        sourceUserId: 'user-source',
+        sourceUserId: 'user-source' as Id<'users'>,
         candidates: defaultCandidates,
         indexScope: [],
         options: { minScore: 50 },
@@ -925,7 +926,7 @@ describe('Opportunity Graph', () => {
 
       const result = (await compiledGraph.invoke({
         sourceProfileContext: '',
-        sourceUserId: 'user-source',
+        sourceUserId: 'user-source' as Id<'users'>,
         candidates: defaultCandidates,
         indexScope: [],
         options: { minScore: 50 },
@@ -956,7 +957,7 @@ describe('Opportunity Graph', () => {
 
       const result = (await compiledGraph.invoke({
         sourceProfileContext: 'Mentor.',
-        sourceUserId: 'user-source',
+        sourceUserId: 'user-source' as Id<'users'>,
         candidates: defaultCandidates,
         indexScope: [],
         options: { minScore: 70 },
@@ -1007,9 +1008,9 @@ describe('Opportunity Graph', () => {
 
       const result = (await compiledGraph.invoke({
         sourceProfileContext: 'Seeking help.',
-        sourceUserId: 'user-source',
+        sourceUserId: 'user-source' as Id<'users'>,
         sourceText: 'Find experts',
-        indexScope: ['idx-1'],
+        indexScope: ['idx-1'] as Id<'indexes'>[],
         candidates: [],
         options: { hydeDescription: 'Find experts', minScore: 70 },
         opportunities: [],

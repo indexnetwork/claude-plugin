@@ -8,6 +8,7 @@
  */
 
 import { StateGraph, END, START } from '@langchain/langgraph';
+import type { Id } from '../../../../types/common';
 import { OpportunityGraphState, createInitialState } from './opportunity.state';
 import { OpportunityEvaluator, type CandidateProfile } from '../../agents/opportunity/opportunity.evaluator';
 import type { OpportunityGraphDatabase } from '../../interfaces/database.interface';
@@ -69,10 +70,10 @@ export class OpportunityGraph {
       channels: {
         options: { value: (a, b) => b ?? a, default: () => ({}) },
         sourceProfileContext: { value: (a, b) => b ?? a, default: () => '' },
-        sourceUserId: { value: (a, b) => b ?? a, default: () => '' },
+        sourceUserId: { value: (a, b) => b ?? a, default: (): Id<'users'> => '' as Id<'users'> },
         sourceText: { value: (a, b) => b ?? a, default: () => undefined },
         intentId: { value: (a, b) => b ?? a, default: () => undefined },
-        indexScope: { value: (a, b) => b ?? a, default: () => [] },
+        indexScope: { value: (a, b) => b ?? a, default: (): Id<'indexes'>[] => [] },
         hydeEmbeddings: { value: (a, b) => (b && Object.keys(b).length) ? b : a, default: () => ({}) },
         candidates: { value: (a, b) => b ?? a, default: () => [] },
         opportunities: { value: (a, b) => b ?? a, default: () => [] },
