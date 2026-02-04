@@ -45,7 +45,6 @@ interface ChatViewProps {
 interface ChannelPendingState {
   isPending: boolean;
   isRequester: boolean;
-  awaitingAdminApproval: boolean;
 }
 
 export default function ChatView({ userId, userName, userAvatar, userTitle, onClose, onBack }: ChatViewProps) {
@@ -55,7 +54,7 @@ export default function ChatView({ userId, userName, userAvatar, userTitle, onCl
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [messageText, setMessageText] = useState('');
   const [loading, setLoading] = useState(true);
-  const [pendingState, setPendingState] = useState<ChannelPendingState>({ isPending: false, isRequester: false, awaitingAdminApproval: false });
+  const [pendingState, setPendingState] = useState<ChannelPendingState>({ isPending: false, isRequester: false });
   const [respondingAction, setRespondingAction] = useState<string | null>(null);
   const [isNewConversation, setIsNewConversation] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -108,11 +107,11 @@ export default function ChatView({ userId, userName, userAvatar, userTitle, onCl
           await ch.watch();
           setChannel(ch);
 
-          const channelData = ch.data as { pending?: boolean; requestedBy?: string; awaitingAdminApproval?: boolean };
+          const channelData = ch.data as { pending?: boolean; requestedBy?: string };
           if (channelData?.pending) {
-            setPendingState({ isPending: true, isRequester: channelData.requestedBy === client?.userID, awaitingAdminApproval: channelData.awaitingAdminApproval || false });
+            setPendingState({ isPending: true, isRequester: channelData.requestedBy === client?.userID });
           } else {
-            setPendingState({ isPending: false, isRequester: false, awaitingAdminApproval: false });
+            setPendingState({ isPending: false, isRequester: false });
           }
           
           if (!canMessageDirectly && ch.state.messages.length === 0 && !channelData?.pending) setIsNewConversation(true);
@@ -169,7 +168,7 @@ export default function ChatView({ userId, userName, userAvatar, userTitle, onCl
       if (isNewConversation) {
         const response = await sendMessageRequest(userId, text, userName, userAvatar);
         setIsNewConversation(false);
-        setPendingState({ isPending: true, isRequester: true, awaitingAdminApproval: response.awaitingAdminApproval || false });
+        setPendingState({ isPending: true, isRequester: true });
         setMessages((prev) => prev.map((m) => m.id === tempId ? { ...m, status: 'sent' } : m));
         success('Message request sent', `${userName} will see this in their message requests.`);
         setSendingMessageId(null);
@@ -222,7 +221,7 @@ export default function ChatView({ userId, userName, userAvatar, userTitle, onCl
     setRespondingAction(action);
     try {
       await respondToMessageRequest(channel.id, action);
-      if (action === 'ACCEPT') { setPendingState({ isPending: false, isRequester: false, awaitingAdminApproval: false }); success('Request accepted', `You can now chat with ${userName}`); }
+      if (action === 'ACCEPT') { setPendingState({ isPending: false, isRequester: false }); success('Request accepted', `You can now chat with ${userName}`); }
       else { success(action === 'DECLINE' ? 'Request declined' : 'Request skipped', action === 'DECLINE' ? 'The message request has been declined.' : 'You can revisit this later.'); onClose(); }
       await refreshMessageRequests();
     } catch (err) { console.error('Failed to respond to request:', err); showError('Failed', err instanceof Error ? err.message : 'Please try again later.'); }
@@ -304,10 +303,8 @@ export default function ChatView({ userId, userName, userAvatar, userTitle, onCl
         <ContentContainer>
           {/* Pending state banners */}
           {pendingState.isPending && (
-            <div className={`px-4 py-3 rounded-lg mb-4 ${pendingState.awaitingAdminApproval ? 'bg-amber-50 border border-amber-200' : pendingState.isRequester ? 'bg-blue-50 border border-blue-200' : 'bg-green-50 border border-green-200'}`}>
-              {pendingState.awaitingAdminApproval ? (
-                <div className="flex items-center gap-2"><Clock className="w-4 h-4 text-amber-600" /><span className="text-sm text-amber-800 ">Awaiting admin approval before {userName} can see your message</span></div>
-              ) : pendingState.isRequester ? (
+            <div className={`px-4 py-3 rounded-lg mb-4 ${pendingState.isRequester ? 'bg-blue-50 border border-blue-200' : 'bg-green-50 border border-green-200'}`}>
+              {pendingState.isRequester ? (
                 <div className="flex items-center gap-2"><Clock className="w-4 h-4 text-blue-600" /><span className="text-sm text-blue-800 ">Message request pending. {userName} hasn't responded yet.</span></div>
               ) : (
                 <div className="space-y-2">

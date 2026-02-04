@@ -9,7 +9,7 @@ import { Index } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { useIndexes, useAdmin, useSynthesis } from '@/contexts/APIContext';
+import { useIndexes } from '@/contexts/APIContext';
 import { useIndexesState } from '@/contexts/IndexesContext';
 import { useNotifications } from '@/contexts/NotificationContext';
 import { useAuthContext } from '@/contexts/AuthContext';
@@ -20,7 +20,6 @@ import { Member } from '@/services/indexes';
 import { INTEGRATIONS } from '@/config/integrations';
 import DirectoryConfigModal from '@/components/modals/DirectoryConfigModal';
 import SlackChannelModal from '@/components/modals/SlackChannelModal';
-import ConnectionRequestCard from '@/components/ConnectionRequestCard';
 
 interface IntegrationItem {
   id: string | null;
@@ -29,13 +28,6 @@ interface IntegrationItem {
   connected: boolean;
   connectedAt?: string | null;
   lastSyncAt?: string | null;
-}
-
-interface PendingConnection {
-  id: string;
-  initiator: { id: string; name: string; avatar: string | null };
-  receiver: { id: string; name: string; avatar: string | null };
-  createdAt: string;
 }
 
 const SUPPORTED_INTEGRATIONS = [
@@ -52,8 +44,6 @@ interface IndexOwnerModalProps {
 
 export default function IndexOwnerModal({ open, onOpenChange, index }: IndexOwnerModalProps) {
   const indexesService = useIndexes();
-  const adminService = useAdmin();
-  const synthesisService = useSynthesis();
   const { indexes, updateIndex, removeIndex } = useIndexesState();
   const { success, error } = useNotifications();
   const { user } = useAuthContext();
@@ -63,7 +53,7 @@ export default function IndexOwnerModal({ open, onOpenChange, index }: IndexOwne
   const currentIndex = indexes?.find(idx => idx.id === index.id) || index;
 
   // Tab management
-  const [activeTab, setActiveTab] = useState<'settings' | 'access' | 'integrations' | 'approvals'>('settings');
+  const [activeTab, setActiveTab] = useState<'settings' | 'access' | 'integrations'>('settings');
 
   // Settings state
   const [title, setTitle] = useState(currentIndex.title || '');
@@ -78,7 +68,6 @@ export default function IndexOwnerModal({ open, onOpenChange, index }: IndexOwne
 
   // Access state
   const [anyoneCanJoin, setAnyoneCanJoin] = useState(currentIndex.permissions?.joinPolicy === 'anyone');
-  const [requireApproval, setRequireApproval] = useState(currentIndex.permissions?.requireApproval || false);
   const [members, setMembers] = useState<Member[]>([]);
   const [memberFilterQuery, setMemberFilterQuery] = useState('');
   const [memberSearchQuery, setMemberSearchQuery] = useState('');
@@ -100,13 +89,6 @@ export default function IndexOwnerModal({ open, onOpenChange, index }: IndexOwne
   const [slackChannelModalOpen, setSlackChannelModalOpen] = useState(false);
   const [selectedSlackIntegration, setSelectedSlackIntegration] = useState<IntegrationItem | null>(null);
 
-  // Approvals state
-  const [pendingConnections, setPendingConnections] = useState<PendingConnection[]>([]);
-  const [approvalsLoading, setApprovalsLoading] = useState(false);
-  const [processingIds, setProcessingIds] = useState<Set<string>>(new Set());
-  const [syntheses, setSyntheses] = useState<Record<string, string>>({});
-  const [synthesisLoading, setSynthesisLoading] = useState<Record<string, boolean>>({});
-
   // Reset state when modal opens
   useEffect(() => {
     if (open) {
@@ -115,7 +97,6 @@ export default function IndexOwnerModal({ open, onOpenChange, index }: IndexOwne
       setOriginalTitle(currentIndex.title);
       setOriginalPrompt(currentIndex.prompt || '');
       setAnyoneCanJoin(currentIndex.permissions?.joinPolicy === 'anyone');
-      setRequireApproval(currentIndex.permissions?.requireApproval || false);
       if (currentIndex.permissions?.invitationLink?.code && currentIndex.permissions.joinPolicy === 'invite_only') {
         setInvitationLink({ code: currentIndex.permissions.invitationLink.code });
       }
@@ -214,40 +195,6 @@ export default function IndexOwnerModal({ open, onOpenChange, index }: IndexOwne
     }
   }, [open, activeTab, loadIntegrations]);
 
-  // Load pending approvals
-  const loadPendingConnections = useCallback(async () => {
-    setApprovalsLoading(true);
-    try {
-      const response = await adminService.getPendingConnections(index.id);
-      setPendingConnections(response.connections);
-      response.connections.forEach(connection => {
-        const cacheKey = `${connection.initiator.id}-${connection.receiver.id}`;
-        setSynthesisLoading(prev => ({ ...prev, [cacheKey]: true }));
-        synthesisService.generateVibeCheck({
-          targetUserId: connection.receiver.id,
-          initiatorId: connection.initiator.id,
-          indexIds: [index.id]
-        }).then(res => {
-          setSyntheses(prev => ({ ...prev, [cacheKey]: res.synthesis }));
-        }).catch(() => {
-          setSyntheses(prev => ({ ...prev, [cacheKey]: "" }));
-        }).finally(() => {
-          setSynthesisLoading(prev => ({ ...prev, [cacheKey]: false }));
-        });
-      });
-    } catch (err) {
-      console.error('Failed to load pending connections:', err);
-    } finally {
-      setApprovalsLoading(false);
-    }
-  }, [index.id, adminService, synthesisService]);
-
-  useEffect(() => {
-    if (open && activeTab === 'approvals') {
-      loadPendingConnections();
-    }
-  }, [open, activeTab, loadPendingConnections]);
-
   // Handlers
   const handleSaveSettings = async () => {
     if (!title.trim()) {
@@ -288,12 +235,11 @@ export default function IndexOwnerModal({ open, onOpenChange, index }: IndexOwne
     }
   };
 
-  const handleUpdatePermissions = async (joinPolicy: boolean, reqApproval?: boolean) => {
+  const handleUpdatePermissions = async (joinPolicy: boolean) => {
     try {
-      const updates: { joinPolicy: 'anyone' | 'invite_only'; requireApproval?: boolean } = {
+      const updates: { joinPolicy: 'anyone' | 'invite_only' } = {
         joinPolicy: joinPolicy ? 'anyone' : 'invite_only',
       };
-      if (reqApproval !== undefined) updates.requireApproval = reqApproval;
       await indexesService.updatePermissions(index.id, updates);
       const updatedIndex = await indexesService.getIndex(index.id);
       updateIndex(updatedIndex);
@@ -395,32 +341,6 @@ export default function IndexOwnerModal({ open, onOpenChange, index }: IndexOwne
     }
   };
 
-  const handleApproveConnection = async (connection: PendingConnection) => {
-    setProcessingIds(prev => new Set(prev).add(connection.id));
-    try {
-      await adminService.approveConnection(index.id, connection.initiator.id, connection.receiver.id);
-      setPendingConnections(prev => prev.filter(c => c.id !== connection.id));
-      success('Connection approved');
-    } catch {
-      error('Failed to approve connection');
-    } finally {
-      setProcessingIds(prev => { const n = new Set(prev); n.delete(connection.id); return n; });
-    }
-  };
-
-  const handleDenyConnection = async (connection: PendingConnection) => {
-    setProcessingIds(prev => new Set(prev).add(connection.id));
-    try {
-      await adminService.denyConnection(index.id, connection.initiator.id, connection.receiver.id);
-      setPendingConnections(prev => prev.filter(c => c.id !== connection.id));
-      success('Connection denied');
-    } catch {
-      error('Failed to deny connection');
-    } finally {
-      setProcessingIds(prev => { const n = new Set(prev); n.delete(connection.id); return n; });
-    }
-  };
-
   const hasSettingsChanged = title !== originalTitle || prompt !== originalPrompt;
   const isDeleteConfirmationValid = deleteConfirmationText === currentIndex.title;
   const filteredSuggestions = suggestedUsers.filter(u => !members.find(m => m.id === u.id));
@@ -453,14 +373,6 @@ export default function IndexOwnerModal({ open, onOpenChange, index }: IndexOwne
               </Tabs.Trigger>
               <Tabs.Trigger value="integrations" className="px-4 py-2 text-sm font-ibm-plex-mono text-gray-600 border-b-2 border-transparent data-[state=active]:border-black data-[state=active]:text-black">
                 Integrations
-              </Tabs.Trigger>
-              <Tabs.Trigger value="approvals" className="px-4 py-2 text-sm font-ibm-plex-mono text-gray-600 border-b-2 border-transparent data-[state=active]:border-black data-[state=active]:text-black">
-                Approvals
-                {pendingConnections.length > 0 && (
-                  <span className="ml-2 bg-red-100 text-red-600 text-xs px-1.5 py-0.5 rounded-full">
-                    {pendingConnections.length}
-                  </span>
-                )}
               </Tabs.Trigger>
             </Tabs.List>
 
@@ -527,17 +439,6 @@ export default function IndexOwnerModal({ open, onOpenChange, index }: IndexOwne
                       <p className="text-xs text-gray-600">Only invited people can join.</p>
                     </button>
                   </div>
-                </div>
-
-                <div className="flex items-center justify-between py-4 border-t border-gray-200">
-                  <div>
-                    <h4 className="text-sm font-medium font-ibm-plex-mono">Approve connection requests</h4>
-                    <p className="text-xs text-gray-600 mt-1">Members need approval for connections.</p>
-                  </div>
-                  <label className="relative inline-flex cursor-pointer">
-                    <input type="checkbox" checked={requireApproval} onChange={(e) => { setRequireApproval(e.target.checked); handleUpdatePermissions(anyoneCanJoin, e.target.checked); }} className="sr-only peer" />
-                    <div className="w-11 h-6 bg-gray-200 peer-focus:ring-4 peer-focus:ring-blue-100 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-500" />
-                  </label>
                 </div>
 
                 {/* Link Section */}
@@ -664,34 +565,6 @@ export default function IndexOwnerModal({ open, onOpenChange, index }: IndexOwne
                     );
                   })}
                 </div>
-              </Tabs.Content>
-
-              {/* Approvals Tab */}
-              <Tabs.Content value="approvals">
-                {approvalsLoading ? (
-                  <div className="flex justify-center py-12"><div className="h-8 w-8 border-4 border-gray-300 border-t-blue-600 rounded-full animate-spin" /></div>
-                ) : pendingConnections.length === 0 ? (
-                  <div className="text-center py-12"><p className="text-gray-500 font-ibm-plex-mono">No pending connection requests</p></div>
-                ) : (
-                  <div className="space-y-3">
-                    {pendingConnections.map((connection) => {
-                      const cacheKey = `${connection.initiator.id}-${connection.receiver.id}`;
-                      return (
-                        <ConnectionRequestCard
-                          key={connection.id}
-                          initiator={connection.initiator}
-                          receiver={connection.receiver}
-                          createdAt={connection.createdAt}
-                          synthesis={syntheses[cacheKey]}
-                          synthesisLoading={synthesisLoading[cacheKey]}
-                          onApprove={() => handleApproveConnection(connection)}
-                          onDeny={() => handleDenyConnection(connection)}
-                          isProcessing={processingIds.has(connection.id)}
-                        />
-                      );
-                    })}
-                  </div>
-                )}
               </Tabs.Content>
             </div>
           </Tabs.Root>

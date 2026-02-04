@@ -165,7 +165,6 @@ export interface OwnedIndex {
   permissions: {
     joinPolicy: 'anyone' | 'invite_only';
     allowGuestVibeCheck: boolean;
-    requireApproval: boolean;
     invitationLink: { code: string } | null;
   };
   /** When the index was created */
@@ -230,8 +229,6 @@ export interface UpdateIndexSettingsData {
   joinPolicy?: 'anyone' | 'invite_only';
   /** Allow guest vibe check (optional) */
   allowGuestVibeCheck?: boolean;
-  /** Require approval for new members (optional) */
-  requireApproval?: boolean;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════

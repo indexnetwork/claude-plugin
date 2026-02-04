@@ -536,7 +536,7 @@ export class ChatDatabaseAdapter {
           db.select({ count: count() }).from(indexMembers).where(eq(indexMembers.indexId, row.indexId)),
           db.select({ count: count() }).from(intentIndexes).where(eq(intentIndexes.indexId, row.indexId)),
         ]);
-        const perms = row.permissions as { joinPolicy: string; invitationLink: { code: string } | null; allowGuestVibeCheck: boolean; requireApproval: boolean } | null;
+        const perms = row.permissions as { joinPolicy: string; invitationLink: { code: string } | null; allowGuestVibeCheck: boolean } | null;
         return {
           id: row.indexId,
           title: row.title,
@@ -544,7 +544,6 @@ export class ChatDatabaseAdapter {
           permissions: {
             joinPolicy: (perms?.joinPolicy ?? 'invite_only') as 'anyone' | 'invite_only',
             allowGuestVibeCheck: perms?.allowGuestVibeCheck ?? false,
-            requireApproval: perms?.requireApproval ?? false,
             invitationLink: perms?.invitationLink ?? null,
           },
           createdAt: row.createdAt,
@@ -658,7 +657,7 @@ export class ChatDatabaseAdapter {
   async updateIndexSettings(
     indexId: string,
     requestingUserId: string,
-    data: { title?: string; prompt?: string | null; joinPolicy?: 'anyone' | 'invite_only'; allowGuestVibeCheck?: boolean; requireApproval?: boolean }
+    data: { title?: string; prompt?: string | null; joinPolicy?: 'anyone' | 'invite_only'; allowGuestVibeCheck?: boolean }
   ) {
     const isOwner = await this.isIndexOwner(indexId, requestingUserId);
     if (!isOwner) {
@@ -673,13 +672,12 @@ export class ChatDatabaseAdapter {
     const updateData: Record<string, unknown> = { updatedAt: new Date() };
     if (data.title !== undefined) updateData.title = data.title;
     if (data.prompt !== undefined) updateData.prompt = data.prompt;
-    if (data.joinPolicy !== undefined || data.allowGuestVibeCheck !== undefined || data.requireApproval !== undefined) {
-      const currentPerms = (existing.permissions as { joinPolicy: string; invitationLink: { code: string } | null; allowGuestVibeCheck: boolean; requireApproval: boolean }) ?? {};
+    if (data.joinPolicy !== undefined || data.allowGuestVibeCheck !== undefined) {
+      const currentPerms = (existing.permissions as { joinPolicy: string; invitationLink: { code: string } | null; allowGuestVibeCheck: boolean }) ?? {};
       updateData.permissions = {
         joinPolicy: data.joinPolicy ?? currentPerms.joinPolicy ?? 'invite_only',
         invitationLink: currentPerms.invitationLink ?? null,
         allowGuestVibeCheck: data.allowGuestVibeCheck ?? currentPerms.allowGuestVibeCheck ?? false,
-        requireApproval: data.requireApproval ?? currentPerms.requireApproval ?? false,
       };
     }
 
@@ -693,7 +691,7 @@ export class ChatDatabaseAdapter {
       db.select({ count: count() }).from(indexMembers).where(eq(indexMembers.indexId, indexId)),
       db.select({ count: count() }).from(intentIndexes).where(eq(intentIndexes.indexId, indexId)),
     ]);
-    const perms = (updatedRow.permissions as { joinPolicy: string; invitationLink: { code: string } | null; allowGuestVibeCheck: boolean; requireApproval: boolean }) ?? {};
+    const perms = (updatedRow.permissions as { joinPolicy: string; invitationLink: { code: string } | null; allowGuestVibeCheck: boolean }) ?? {};
     return {
       id: updatedRow.id,
       title: updatedRow.title,
@@ -701,7 +699,6 @@ export class ChatDatabaseAdapter {
       permissions: {
         joinPolicy: (perms.joinPolicy ?? 'invite_only') as 'anyone' | 'invite_only',
         allowGuestVibeCheck: perms.allowGuestVibeCheck ?? false,
-        requireApproval: perms.requireApproval ?? false,
         invitationLink: perms.invitationLink ?? null,
       },
       createdAt: updatedRow.createdAt,
