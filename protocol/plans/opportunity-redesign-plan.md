@@ -3166,23 +3166,23 @@ GET /api/opportunities?role=agent
 ### Step 8: Opportunity Graph Refactor
 **Goal**: Refactor opportunity detection to use HyDE graph and new interfaces.
 
-- [ ] Create `lib/protocol/graphs/opportunity/opportunity.utils.ts`:
-  - [ ] `selectStrategies(intent, context)` — choose HyDE strategies
-  - [ ] `deriveRolesFromStrategy(strategy)` — map strategy to actor roles
-- [ ] Update `lib/protocol/graphs/opportunity/opportunity.state.ts`:
-  - [ ] Add `hydeEmbeddings`, `candidates`, `opportunities` to state
-- [ ] Refactor `lib/protocol/graphs/opportunity/opportunity.graph.ts`:
-  - [ ] Constructor injects `Database`, `Embedder`, `Cache`, compiled `HydeGraph`
-  - [ ] Add `invoke_hyde` node — call HyDE subgraph
-  - [ ] Add `search_candidates` node — use `searchWithHydeEmbeddings`
-  - [ ] Add `deduplicate` node — filter existing opportunities
-  - [ ] Add `evaluate_candidates` node — score/filter (optional LLM)
-  - [ ] Add `persist_opportunities` node — save to DB
+- [x] Create `lib/protocol/graphs/opportunity/opportunity.utils.ts`:
+  - [x] `selectStrategies(intent, context)` — choose HyDE strategies
+  - [x] `deriveRolesFromStrategy(strategy)` — map strategy to actor roles
+- [x] Update `lib/protocol/graphs/opportunity/opportunity.state.ts`:
+  - [x] Add `hydeEmbeddings`, `candidates`, `opportunities` to state
+- [x] Refactor `lib/protocol/graphs/opportunity/opportunity.graph.ts`:
+  - [x] Constructor injects `Database`, `Embedder`, `Cache`, compiled `HydeGraph`
+  - [x] Add `invoke_hyde` node — call HyDE subgraph
+  - [x] Add `search_candidates` node — use `searchWithHydeEmbeddings`
+  - [x] Add `deduplicate` node — filter existing opportunities
+  - [x] Add `evaluate_candidates` node — score/filter (optional LLM)
+  - [x] Add `persist_opportunities` node — save to DB
 
 **Test**:
-- E2E test: Given intent with embedding → finds candidate opportunities
-- E2E test: Deduplication prevents duplicate opportunities
-- E2E test: Roles correctly derived from strategies
+- [x] E2E test: Given intent with embedding → finds candidate opportunities
+- [x] E2E test: Deduplication prevents duplicate opportunities
+- [x] E2E test: Roles correctly derived from strategies
 - If you add the optional LLM in `evaluate_candidates`, add [Smartest](../src/lib/smartest/README.md) scenarios (spec-driven, LLM-verified tests).
 
 ---

@@ -36,6 +36,24 @@ flowchart LR
 
 This replaces the previous 17-node conditional routing architecture with a flexible, LLM-driven approach that handles multi-step reasoning and self-correction naturally.
 
+### Quick start: input and output
+
+**Input** (when streaming with context):
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `userId` | string | Authenticated user ID (required) |
+| `message` | string | User message (e.g. "Show my profile and create an intent to learn Rust") |
+| `sessionId` | string | Chat session ID for loading history |
+| `maxContextMessages?` | number | Max messages to load (default: 20) |
+
+**Output**: Async iterator of stream events: `tool_start`, `tool_end`, `agent_thinking`, `token`, `error`, `status`.
+
+**Alternative** (invoke with raw messages, no session context):
+
+- **Input**: `{ userId: string; messages: BaseMessage[] }` plus `sessionId` and optional checkpointer.
+- **Output**: Same event stream; final response is in the streamed tokens.
+
 ---
 
 ## Architecture
