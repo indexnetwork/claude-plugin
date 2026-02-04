@@ -23,8 +23,7 @@ import { addMemberToIndex } from '../lib/index-members';
 // Removed intent-filtering import - using existing suggestions system
 import crypto from 'crypto';
 import { Index, CreateIndexRequest, UpdateIndexRequest, PaginatedResponse, APIResponse } from '../types';
-
-
+import { log } from '../lib/log';
 
 const router = Router();
 
@@ -762,8 +761,13 @@ router.delete('/:id/members/:userId',
       await db.delete(indexMembers)
         .where(and(eq(indexMembers.indexId, id), eq(indexMembers.userId, userId)));
 
-      const opportunityDb = new ChatDatabaseAdapter();
-      await opportunityDb.expireOpportunitiesForRemovedMember(id, userId);
+      // Best-effort: ChatDatabaseAdapter.expireOpportunitiesForRemovedMember; failures are logged and do not affect the response.
+      try {
+        const opportunityDb = new ChatDatabaseAdapter();
+        await opportunityDb.expireOpportunitiesForRemovedMember(id, userId);
+      } catch (err) {
+        log.route.warn('expireOpportunitiesForRemovedMember failed after member removal', { indexId: id, userId, err });
+      }
 
       return res.json({ message: 'Member removed successfully' });
     } catch (error) {
@@ -806,8 +810,13 @@ router.post('/:id/leave',
       await db.delete(indexMembers)
         .where(and(eq(indexMembers.indexId, id), eq(indexMembers.userId, req.user!.id)));
 
-      const opportunityDb = new ChatDatabaseAdapter();
-      await opportunityDb.expireOpportunitiesForRemovedMember(id, req.user!.id);
+      // Best-effort: ChatDatabaseAdapter.expireOpportunitiesForRemovedMember; failures are logged and do not affect the response.
+      try {
+        const opportunityDb = new ChatDatabaseAdapter();
+        await opportunityDb.expireOpportunitiesForRemovedMember(id, req.user!.id);
+      } catch (err) {
+        log.route.warn('expireOpportunitiesForRemovedMember failed after leave index', { indexId: id, userId: req.user!.id, err });
+      }
 
       return res.json({ message: 'Successfully left the index' });
     } catch (error) {
