@@ -3217,24 +3217,25 @@ GET /api/opportunities?role=agent
 ### Step 10: Background Jobs
 **Goal**: Automated opportunity detection and maintenance.
 
-- [ ] Create `src/jobs/hyde.job.ts`:
-  - [ ] `cleanupExpiredHyde()` — daily cron
-  - [ ] `refreshStaleHyde()` — weekly cron
-- [ ] Update `src/queues/intent.queue.ts`:
-  - [ ] Add job to pre-generate HyDE on intent creation
-  - [ ] Add job to refresh HyDE on intent update
-- [ ] Update `src/jobs/opportunity.job.ts`:
-  - [ ] `expireStaleOpportunities()` — cron
-  - [ ] Add handler for `onIntentCreated` → trigger opportunity graph
-  - [ ] Add handler for `onIntentUpdated` → re-evaluate opportunities
-- [ ] Add event handlers:
-  - [ ] `onIntentArchived` → expire related opportunities, delete HyDE
+- [x] Create `src/jobs/hyde.job.ts`:
+  - [x] `cleanupExpiredHyde()` — daily cron
+  - [x] `refreshStaleHyde()` — weekly cron
+- [x] Update `src/queues/intent.queue.ts`:
+  - [x] Add job to pre-generate HyDE on intent creation (`generate_hyde`; triggered from `IntentEvents.onCreated`)
+  - [x] Add job to refresh HyDE on intent update (`refresh_hyde`; triggered from `IntentEvents.onUpdated`)
+- [x] Update `src/jobs/opportunity.job.ts`:
+  - [x] `expireStaleOpportunities()` — cron
+  - [x] Add handler for `onIntentCreated` → trigger opportunity graph
+  - [x] Add handler for `onIntentUpdated` → re-evaluate opportunities
+- [x] Add event handlers:
+  - [x] `onIntentArchived` → expire related opportunities, delete HyDE (`IntentEvents.onArchived` in `src/events/intent.event.ts`)
   - [ ] `onMemberRemoved` → expire related opportunities
 
 **Test**:
-- Job test: Intent created → HyDE documents generated
-- Job test: Expired HyDE cleanup removes old records
-- Job test: Intent archived → opportunities expired
+- [x] Job test: Expired HyDE cleanup (`hyde.job.spec.ts`: cleanupExpiredHyde, refreshStaleHyde)
+- [x] Job test: Intent archived → opportunities expired + HyDE deleted (`intent.event.spec.ts`: onArchived)
+- [x] Job test: onIntentCreated/onIntentUpdated enqueue process_opportunities (`opportunity.job.spec.ts`)
+- Job test: Intent created → HyDE documents generated (integration: intent queue `generate_hyde` handler; optional E2E)
 
 ---
 
