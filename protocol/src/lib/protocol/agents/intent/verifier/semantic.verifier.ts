@@ -111,7 +111,7 @@ export type SemanticVerifierOutput = z.infer<typeof responseFormat>;
 // 4. CLASS DEFINITION
 // ──────────────────────────────────────────────────────────────
 
-export class SemanticVerifierAgent {
+export class SemanticVerifier {
   private model: any;
 
   constructor() {
@@ -161,7 +161,7 @@ export class SemanticVerifierAgent {
   public static asTool() {
     return tool(
       async (args: { content: string; context: string }) => {
-        const agent = new SemanticVerifierAgent();
+        const agent = new SemanticVerifier();
         return await agent.invoke(args.content, args.context);
       },
       {

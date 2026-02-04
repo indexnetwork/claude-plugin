@@ -115,7 +115,7 @@ export type IntentReconcilerOutput = z.infer<typeof responseFormat>;
 // 4. CLASS DEFINITION
 // ──────────────────────────────────────────────────────────────
 
-export class IntentReconcilerAgent {
+export class IntentReconciler {
   private model: any;
 
   constructor() {
@@ -168,7 +168,7 @@ export class IntentReconcilerAgent {
   public static asTool() {
     return tool(
       async (args: { inferredIntents: string; activeIntents: string }) => {
-        const agent = new IntentReconcilerAgent();
+        const agent = new IntentReconciler();
         return await agent.invoke(args.inferredIntents, args.activeIntents);
       },
       {

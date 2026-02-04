@@ -2,10 +2,10 @@ import { config } from "dotenv";
 config({ path: 'protocol/.env.development', override: true });
 
 import { describe, expect, it } from "bun:test";
-import { SemanticVerifierAgent } from "./semantic.verifier";
+import { SemanticVerifier } from "./semantic.verifier";
 
-describe('SemanticVerifierAgent', () => {
-  const verifier = new SemanticVerifierAgent();
+describe('SemanticVerifier', () => {
+  const verifier = new SemanticVerifier();
   const context = "User is a Junior Developer. Skills: JavaScript, HTML.";
 
   it('should verify a high-quality commissive intent', async () => {

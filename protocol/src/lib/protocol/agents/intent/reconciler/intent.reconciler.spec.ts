@@ -2,10 +2,10 @@ import { config } from "dotenv";
 config({ path: 'protocol/.env.development', override: true });
 
 import { describe, expect, it } from "bun:test";
-import { IntentReconcilerAgent } from "./intent.reconciler";
+import { IntentReconciler } from "./intent.reconciler";
 
-describe('IntentReconcilerAgent', () => {
-  const reconciler = new IntentReconcilerAgent();
+describe('IntentReconciler', () => {
+  const reconciler = new IntentReconciler();
 
   it('should create a new intent if no match found', async () => {
     const inferred = `- [GOAL] "Learn Rust" (Confidence: high, Score: 85) \n Reasoning: Explicit statement.`;

@@ -1,8 +1,8 @@
 import { StateGraph, START, END } from "@langchain/langgraph";
 import { IntentGraphState, VerifiedIntent, ExecutionResult } from "./intent.graph.state";
 import { ExplicitIntentInferrer } from "../../agents/intent/inferrer/explicit.inferrer";
-import { SemanticVerifierAgent } from "../../agents/intent/verifier/semantic.verifier";
-import { IntentReconcilerAgent } from "../../agents/intent/reconciler/intent.reconciler";
+import { SemanticVerifier } from "../../agents/intent/verifier/semantic.verifier";
+import { IntentReconciler } from "../../agents/intent/reconciler/intent.reconciler";
 import { IntentGraphDatabase } from "../../interfaces/database.interface";
 import { log } from "../../../log";
 
@@ -17,8 +17,8 @@ export class IntentGraphFactory {
   public createGraph() {
     // Instantiate Agents (Nodes)
     const inferrer = new ExplicitIntentInferrer();
-    const verifier = new SemanticVerifierAgent();
-    const reconciler = new IntentReconcilerAgent();
+    const verifier = new SemanticVerifier();
+    const reconciler = new IntentReconciler();
 
     // --- NODE DEFINITIONS ---
 

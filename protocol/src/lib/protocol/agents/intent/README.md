@@ -10,7 +10,7 @@ This directory contains the core agents responsible for the **Intent Lifecycle**
 - **Output:** A list of `InferredIntent` objects.
 
 ### 2. Verifier (`/verifier`)
-**Agent:** `SemanticVerifierAgent`
+**Agent:** `SemanticVerifier`
 - **Purpose:** Validates the semantic quality of an intent using **Searle's Felicity Conditions**:
   - **Clarity:** Is the intent specific and actionable?
   - **Authority:** Does the user have the skills/right to perform it?
@@ -18,7 +18,7 @@ This directory contains the core agents responsible for the **Intent Lifecycle**
 - **Output:** A verification verdict (`COMMISSIVE`, `DIRECTIVE`, etc.) and felicity scores.
 
 ### 3. Reconciler (`/reconciler`)
-**Agent:** `IntentReconcilerAgent`
+**Agent:** `IntentReconciler`
 - **Purpose:** The final decision maker. Compares verified "candidate" intents against the user's **Active Intents** to determine the necessary database actions.
 - **Actions:**
   - `CREATE`: New valid goal.

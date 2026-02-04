@@ -14,8 +14,8 @@ The Intent graph extracts intents from raw content, verifies them with a semanti
 
 1. **prep**: Load active intents for the user (for reconciler context).
 2. **inference**: `ExplicitIntentInferrer` extracts intents from `inputContent` (and optional conversation context).
-3. **verification**: `SemanticVerifierAgent` checks each intent (felicity conditions); invalid types are dropped.
-4. **reconciler**: `IntentReconcilerAgent` decides actions: create, update, expire.
+3. **verification**: `SemanticVerifier` checks each intent (felicity conditions); invalid types are dropped.
+4. **reconciler**: `IntentReconciler` decides actions: create, update, expire.
 5. **executor**: Runs actions against the DB (createIntent, updateIntent, archiveIntent).
 
 ## When to use
@@ -145,5 +145,5 @@ graphs/intent/
 
 - **Chat tools**: `graphs/chat/chat.tools.ts` — create_intent, update_intent, delete_intent call this graph.
 - **ExplicitIntentInferrer**: `agents/intent/inferrer/explicit.inferrer.ts`
-- **SemanticVerifierAgent**: `agents/intent/verifier/semantic.verifier.ts`
-- **IntentReconcilerAgent**: `agents/intent/reconciler/intent.reconciler.ts`
+- **SemanticVerifier**: `agents/intent/verifier/semantic.verifier.ts`
+- **IntentReconciler**: `agents/intent/reconciler/intent.reconciler.ts`
