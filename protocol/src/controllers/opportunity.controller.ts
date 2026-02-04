@@ -1,100 +1,65 @@
-import { eq, and, isNotNull, ne, sql } from 'drizzle-orm';
-import * as schema from '../schemas/database.schema';
-import db from '../lib/drizzle/drizzle';
-import type { OpportunityGraphDatabase } from '../lib/protocol/interfaces/database.interface';
+import type {
+  OpportunityGraphDatabase,
+  HydeGraphDatabase,
+} from '../lib/protocol/interfaces/database.interface';
 import type { Embedder } from '../lib/protocol/interfaces/embedder.interface';
 import { OpportunityGraph } from '../lib/protocol/graphs/opportunity/opportunity.graph';
-import { IndexEmbedder } from '../lib/embedder';
-import type { VectorSearchResult, VectorStoreOption } from '../lib/embedder/embedder.types';
-import { OpportunityDatabaseAdapter } from '../adapters/database.adapter';
-
-/**
- * Vector search function for profiles collection.
- * Injected into IndexEmbedder to enable semantic search during opportunity discovery.
- *
- * @param vector - Query vector for similarity search
- * @param collection - Must be 'profiles' for this adapter
- * @param options - Search options (limit, filter)
- * @returns Array of profiles with similarity scores
- */
-async function searchProfiles<T>(
-  vector: number[],
-  collection: string,
-  options?: VectorStoreOption<T>
-): Promise<VectorSearchResult<T>[]> {
-  if (collection !== 'profiles') {
-    throw new Error(`OpportunityController searcher only supports 'profiles' collection, got '${collection}'`);
-  }
-
-  const limit = options?.limit || 10;
-  const filter = options?.filter;
-  const vectorString = JSON.stringify(vector);
-
-  // Build conditions
-  const conditions = [isNotNull(schema.userProfiles.embedding)];
-
-  if (filter) {
-    // Handle userId exclusion filter (ne = not equal)
-    if (filter.userId && typeof filter.userId === 'object' && (filter.userId as any).ne) {
-      conditions.push(ne(schema.userProfiles.userId, (filter.userId as any).ne));
-    }
-  }
-
-  const whereClause = and(...conditions);
-
-  const resultsWithDistance = await db.select({
-    item: schema.userProfiles,
-    distance: sql<number>`${schema.userProfiles.embedding} <=> ${vectorString}`
-  })
-    .from(schema.userProfiles)
-    .where(whereClause)
-    .orderBy(sql`${schema.userProfiles.embedding} <=> ${vectorString}`)
-    .limit(limit);
-
-  return resultsWithDistance.map((r: any) => ({
-    item: r.item as unknown as T,
-    score: 1 - r.distance // Convert distance to similarity score
-  }));
-}
-
-// --- Controller ---
+import { HydeGraphFactory } from '../lib/protocol/graphs/hyde/hyde.graph';
+import { HydeGenerator } from '../lib/protocol/agents/hyde/hyde.generator';
+import type { HydeCache } from '../lib/protocol/interfaces/cache.interface';
+import { ChatDatabaseAdapter } from '../adapters/database.adapter';
+import { EmbedderAdapter } from '../adapters/embedder.adapter';
+import { RedisCacheAdapter } from '../adapters/cache.adapter';
 
 import { Controller, Post, UseGuards } from '../lib/router/router.decorators';
 import { AuthGuard } from '../guards/auth.guard';
 import type { AuthenticatedUser } from '../guards/auth.guard';
 
+/** DB type for opportunity controller: graph needs + getIndexMemberships for indexScope. */
+type OpportunityControllerDb = OpportunityGraphDatabase & {
+  getIndexMemberships(userId: string): Promise<{ indexId: string }[]>;
+};
+
 /**
  * OpportunityController handles opportunity discovery for users.
- * Uses the OpportunityGraph to find matching candidates based on profile similarity.
+ * Uses the OpportunityGraph with HyDE subgraph to find matching candidates.
  */
 @Controller('/opportunities')
 export class OpportunityController {
-  private db: OpportunityGraphDatabase;
+  private db: OpportunityControllerDb;
   private embedder: Embedder;
   private graph: ReturnType<OpportunityGraph['compile']>;
 
   constructor() {
-    this.db = new OpportunityDatabaseAdapter();
-    // IndexEmbedder with injected profile search strategy
-    this.embedder = new IndexEmbedder({
-      searcher: searchProfiles
-    });
-    
-    // Compile the graph once during initialization
-    const opportunityGraph = new OpportunityGraph(this.db, this.embedder);
+    const chatDb = new ChatDatabaseAdapter();
+    this.db = chatDb as OpportunityControllerDb;
+    this.embedder = new EmbedderAdapter();
+    const cache: HydeCache = new RedisCacheAdapter();
+    const generator = new HydeGenerator();
+    const compiledHydeGraph = new HydeGraphFactory(
+      chatDb as unknown as HydeGraphDatabase,
+      this.embedder,
+      cache,
+      generator
+    ).createGraph();
+    const opportunityGraph = new OpportunityGraph(
+      this.db,
+      this.embedder,
+      cache,
+      compiledHydeGraph
+    );
     this.graph = opportunityGraph.compile();
   }
 
   /**
    * Discover opportunities for the authenticated user based on a query.
-   * 
-   * The query is used as a HyDE (Hypothetical Document Embedding) description
-   * to find candidates whose profiles semantically match what the user is looking for.
-   * 
+   * Uses HyDE graph to generate hypothetical documents, then searches profiles/intents
+   * scoped to the user's index memberships.
+   *
    * @param req - The HTTP request object (body contains query and optional limit)
    * @param user - The authenticated user from AuthGuard
    * @returns JSON response with discovered opportunities
-   * 
+   *
    * @example
    * POST /opportunities/discover
    * Body: { "query": "Looking for AI/ML engineers", "limit": 5 }
@@ -102,8 +67,7 @@ export class OpportunityController {
   @Post('/discover')
   @UseGuards(AuthGuard)
   async discover(req: Request, user: AuthenticatedUser) {
-    // Parse request body
-    const body = await req.json() as { query: string; limit?: number };
+    const body = (await req.json()) as { query: string; limit?: number };
     const { query, limit = 5 } = body;
 
     if (!query || typeof query !== 'string') {
@@ -113,16 +77,26 @@ export class OpportunityController {
       );
     }
 
-    // Invoke the graph with user context and search options
+    const memberships = await this.db.getIndexMemberships(user.id);
+    const indexScope = memberships.map((m) => m.indexId);
+    if (indexScope.length === 0) {
+      return Response.json({
+        sourceUserId: user.id,
+        options: { hydeDescription: query, limit },
+        indexScope: [],
+        candidates: [],
+        opportunities: [],
+      });
+    }
+
     const result = await this.graph.invoke({
       sourceUserId: user.id,
+      sourceText: query,
+      indexScope,
       options: {
         hydeDescription: query,
         limit,
-        filter: {
-          userId: { ne: user.id } // Exclude the requesting user from results
-        }
-      }
+      },
     });
 
     return Response.json(result);

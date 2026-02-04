@@ -930,6 +930,13 @@ export type ChatGraphCompositeDatabase = Pick<
   | 'updateIntent'
   | 'archiveIntent'
   // OpportunityGraph subgraph requirements (getProfile already included)
+  | 'createOpportunity'
+  | 'opportunityExistsBetweenActors'
+  // HyDE graph (used by OpportunityGraph)
+  | 'getHydeDocument'
+  | 'getHydeDocumentsForSource'
+  | 'saveHydeDocument'
+  | 'getIntent'
   // IndexGraph subgraph requirements (index created intents in user's indexes)
   | 'getUserIndexIds'
   | 'getIndexMemberships'

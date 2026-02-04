@@ -1,12 +1,20 @@
 import { tool } from "@langchain/core/tools";
 import { z } from "zod";
-import type { ChatGraphCompositeDatabase } from "../../interfaces/database.interface";
+import type {
+  ChatGraphCompositeDatabase,
+  HydeGraphDatabase,
+  Opportunity,
+} from "../../interfaces/database.interface";
 import type { Embedder } from "../../interfaces/embedder.interface";
 import type { Scraper } from "../../interfaces/scraper.interface";
+import type { HydeCache } from "../../interfaces/cache.interface";
 import { IntentGraphFactory } from "../intent/intent.graph";
 import { ProfileGraphFactory } from "../profile/profile.graph";
 import { OpportunityGraph } from "../opportunity/opportunity.graph";
+import { HydeGraphFactory } from "../hyde/hyde.graph";
+import { HydeGenerator } from "../../agents/hyde/hyde.generator";
 import { IndexGraphFactory } from "../index/index.graph";
+import { RedisCacheAdapter } from "../../../../adapters/cache.adapter";
 import { log } from "../../../log";
 
 const logger = log.graph.from("chat.tools.ts");
@@ -88,7 +96,20 @@ export function createChatTools(context: ToolContext) {
   // Pre-compile subgraphs
   const intentGraph = new IntentGraphFactory(database).createGraph();
   const profileGraph = new ProfileGraphFactory(database, embedder, scraper).createGraph();
-  const opportunityGraph = new OpportunityGraph(database, embedder).compile();
+  const hydeCache: HydeCache = new RedisCacheAdapter();
+  const hydeGenerator = new HydeGenerator();
+  const compiledHydeGraph = new HydeGraphFactory(
+    database as unknown as HydeGraphDatabase,
+    embedder,
+    hydeCache,
+    hydeGenerator
+  ).createGraph();
+  const opportunityGraph = new OpportunityGraph(
+    database,
+    embedder,
+    hydeCache,
+    compiledHydeGraph
+  ).compile();
 
   // ─────────────────────────────────────────────────────────────────────────────
   // PROFILE TOOLS
@@ -718,45 +739,64 @@ export function createChatTools(context: ToolContext) {
   const findOpportunities = tool(
     async (args: { searchQuery: string }) => {
       logger.info("Tool: find_opportunities", { userId, query: args.searchQuery.substring(0, 50) });
-      
+
       try {
-        const profile = await database.getProfile(userId);
-        
-        const opportunityInput = {
+        const memberships = await database.getIndexMemberships(userId);
+        const indexScope = memberships.map((m) => m.indexId);
+        if (indexScope.length === 0) {
+          return success({
+            found: false,
+            count: 0,
+            message:
+              "You need to join at least one index (community) to discover opportunities. Use get_index_memberships to see available indexes, or create one.",
+          });
+        }
+
+        const result = await opportunityGraph.invoke({
+          sourceUserId: userId,
+          sourceText: args.searchQuery,
+          indexScope,
           options: {
             hydeDescription: args.searchQuery,
-            limit: 5
+            limit: 5,
           },
-          sourceUserId: userId,
-          sourceProfileContext: profile
-            ? `${profile.identity.name}: ${profile.identity.bio}`
-            : "",
-          candidates: [],
-          opportunities: []
-        };
-
-        const result = await opportunityGraph.invoke(opportunityInput);
+        });
         logger.debug("Opportunity graph response", { result: JSON.stringify(result) });
-        const opportunities = Array.isArray(result.opportunities) ? result.opportunities : [];
+        const opportunities: Opportunity[] = Array.isArray(result.opportunities)
+          ? result.opportunities
+          : [];
 
         if (opportunities.length === 0) {
           return success({
             found: false,
             count: 0,
-            message: "No matching opportunities found. Try a different search or create intents to improve matching."
+            message:
+              "No matching opportunities found. Try a different search or create intents to improve matching.",
           });
         }
 
+        const enriched = await Promise.all(
+          opportunities.map(async (opp) => {
+            const candidateActor = opp.actors.find((a) => a.identityId !== userId);
+            const candidateUserId = candidateActor?.identityId ?? "";
+            const profile = candidateUserId ? await database.getProfile(candidateUserId) : null;
+            return {
+              opportunityId: opp.id,
+              userId: candidateUserId,
+              name: profile?.identity?.name ?? undefined,
+              bio: profile?.identity?.bio ?? undefined,
+              matchReason: opp.interpretation.summary,
+              score: typeof opp.interpretation.confidence === "number"
+                ? opp.interpretation.confidence
+                : parseFloat(String(opp.interpretation.confidence)) || 0,
+            };
+          })
+        );
+
         return success({
           found: true,
-          count: opportunities.length,
-          opportunities: opportunities.map((o: any) => ({
-            userId: o.userId,
-            name: o.name,
-            bio: o.bio,
-            matchReason: o.matchReason,
-            score: o.score
-          }))
+          count: enriched.length,
+          opportunities: enriched,
         });
       } catch (err) {
         logger.error("find_opportunities failed", { error: err });

@@ -1,7 +1,6 @@
 import { ChatOpenAI } from "@langchain/openai";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { tool } from "@langchain/core/tools";
-import { Runnable } from "@langchain/core/runnables";
 import { z } from "zod";
 import { log } from "../../../log";
 
@@ -153,7 +152,9 @@ export class OpportunityEvaluator {
     });
 
     // Sort by score and take top 1
-    return opportunities.sort((a, b) => b.score - a.score).slice(0, 1);
+    const out = opportunities.sort((a, b) => b.score - a.score).slice(0, 1);
+    log.info('[OpportunityEvaluator.invoke] Done', { accepted: out.length });
+    return out;
   }
 
   /**
