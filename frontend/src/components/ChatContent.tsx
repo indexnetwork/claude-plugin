@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowUp, Loader2, Pencil, Paperclip, X, Globe, Zap, Type, ChevronDown, Lock, ChevronLeft, Bot } from 'lucide-react';
+import { ArrowUp, Loader2, Pencil, Paperclip, X, Globe, Zap, Type, ChevronDown, Lock, ChevronLeft, Bot, Hourglass, Telescope, Route } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useAIChat } from '@/contexts/AIChatContext';
@@ -278,7 +278,13 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
   const [discoveryLoading, setDiscoveryLoading] = useState(true);
   const fetchedSynthesesRef = useRef<Set<string>>(new Set());
   const navigatingToHomeRef = useRef(false);
+  const sessionIdRef = useRef(sessionId);
   const [isIndexDropdownOpen, setIsIndexDropdownOpen] = useState(false);
+
+  // Keep ref in sync with sessionId
+  useEffect(() => {
+    sessionIdRef.current = sessionId;
+  }, [sessionId]);
 
   const connectionsService = useConnections();
   const synthesisService = useSynthesis();
@@ -318,6 +324,11 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
 
   useEffect(() => {
     if (sessionIdFromUrl) {
+      // Skip loading if we already have this session in memory (e.g., we just created it)
+      if (sessionIdRef.current === sessionIdFromUrl) {
+        setSessionLoaded(true);
+        return;
+      }
       loadSession(sessionIdFromUrl).finally(() => setSessionLoaded(true));
     } else {
       navigatingToHomeRef.current = true;
@@ -676,7 +687,7 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
                   className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium text-black transition-colors hover:bg-gray-100"
                 >
                   {selectedIndex ? <Lock className="w-4 h-4" /> : <Globe className="w-4 h-4" />}
-                  <span className="max-w-[100px] truncate">{selectedIndex?.title || 'Everywhere'}</span>
+                  <span>{selectedIndex?.title || 'Everywhere'}</span>
                   <ChevronDown className={cn("w-4 h-4 transition-transform", isIndexDropdownOpen && "rotate-180")} />
                 </button>
                 
@@ -748,7 +759,8 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
 
           {/* Section 1: Opportunities waiting for action */}
           <div className="mt-12">
-            <h3 className="text-xs font-semibold text-[#3D3D3D] uppercase tracking-wider mb-3 font-ibm-plex-mono text-left">
+            <h3 className="text-xs font-semibold text-[#3D3D3D] uppercase tracking-wider mb-3 font-ibm-plex-mono text-left flex items-center gap-2">
+              <Hourglass className="w-3.5 h-3.5 shrink-0" />
               Opportunities waiting for action
             </h3>
             <div className="space-y-3">
@@ -807,7 +819,8 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
 
           {/* Section 2: Your perspective is crucial */}
           <div className="mt-6">
-            <h3 className="text-xs font-semibold text-[#3D3D3D] uppercase tracking-wider mb-3 font-ibm-plex-mono text-left">
+            <h3 className="text-xs font-semibold text-[#3D3D3D] uppercase tracking-wider mb-3 font-ibm-plex-mono text-left flex items-center gap-2">
+              <Telescope className="w-3.5 h-3.5 shrink-0" />
               Your perspective is crucial
             </h3>
             <div className="space-y-3">
@@ -862,7 +875,8 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
 
           {/* Section: You're the connector they need (bridge) */}
           <div className="mt-6">
-            <h3 className="text-xs font-semibold text-[#3D3D3D] uppercase tracking-wider mb-3 font-ibm-plex-mono text-left">
+            <h3 className="text-xs font-semibold text-[#3D3D3D] uppercase tracking-wider mb-3 font-ibm-plex-mono text-left flex items-center gap-2">
+              <Route className="w-3.5 h-3.5 shrink-0" aria-hidden />
               You&apos;re the connector they need
             </h3>
             <div className="space-y-3">
@@ -1111,7 +1125,7 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
                     >
                       {msg.role === 'assistant' && (
                         <span className="text-[10px] uppercase tracking-wider text-[#007EFF]/70 mb-1 block">
-                          AI Assistant
+                          Index
                         </span>
                       )}
                       <article className={cn(
