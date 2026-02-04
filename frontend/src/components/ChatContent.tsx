@@ -687,7 +687,7 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
                   className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium text-black transition-colors hover:bg-gray-100"
                 >
                   {selectedIndex ? <Lock className="w-4 h-4" /> : <Globe className="w-4 h-4" />}
-                  <span className="max-w-[100px] truncate">{selectedIndex?.title || 'Everywhere'}</span>
+                  <span>{selectedIndex?.title || 'Everywhere'}</span>
                   <ChevronDown className={cn("w-4 h-4 transition-transform", isIndexDropdownOpen && "rotate-180")} />
                 </button>
                 
