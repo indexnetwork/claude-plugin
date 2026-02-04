@@ -803,7 +803,7 @@ export function createChatTools(context: ToolContext) {
         };
         const enriched = await Promise.all(
           list.map(async (opp) => {
-            const otherParties = opp.actors.filter((a) => a.identityId !== userId && a.role === "party");
+            const otherParties = opp.actors.filter((a) => a.identityId !== userId && a.role !== "introducer");
             const introducer = opp.actors.find((a) => a.role === "introducer");
             const partyIds = otherParties.map((a) => a.identityId);
             const idsToResolve = introducer ? [...partyIds, introducer.identityId] : partyIds;
@@ -842,7 +842,7 @@ export function createChatTools(context: ToolContext) {
     {
       name: "list_my_opportunities",
       description:
-        "Lists the current user's opportunities (suggested connections). Use when the user asks to see their opportunities. Returns for each: id, indexName, connectedWith (names of the people you're matched with, role party), suggestedBy (name of who suggested it if role introducer, else null), summary, status, category, confidence (0-1 match strength), source (e.g. Suggested in chat, System match). Present all of these fields in your reply so the user gets a full picture.",
+        "Lists the current user's opportunities (suggested connections). Use when the user asks to see their opportunities. Returns for each: id, indexName, connectedWith (names of the people you're matched with, i.e. non-introducer actors), suggestedBy (name of who suggested it if role introducer, else null), summary, status, category, confidence (0-1 match strength), source (e.g. Suggested in chat, System match). Present all of these fields in your reply so the user gets a full picture.",
       schema: z.object({})
     }
   );
