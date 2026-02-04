@@ -62,7 +62,7 @@ export class OpportunityController {
   @Get('')
   @UseGuards(AuthGuard)
   async listOpportunities(req: Request, user: AuthenticatedUser, _params?: RouteParams) {
-    const url = new URL(req.url);
+    const url = new URL(req.url, `http://${req.headers.get('host') || 'localhost'}`);
     const status = url.searchParams.get('status') ?? undefined;
     const indexId = url.searchParams.get('indexId') ?? undefined;
     const limit = url.searchParams.get('limit');
@@ -105,35 +105,31 @@ export class OpportunityController {
       });
     }
     const myActor = opp.actors.find((a) => a.identityId === user.id)!;
-    const otherActors = opp.actors.filter((a) => a.identityId !== user.id);
     const introducer = opp.actors.find((a) => a.role === 'introducer');
-    const otherPartyIds = otherActors.map((a) => a.identityId);
     const introducerId = introducer?.identityId;
+    const nonIntroducerActors = opp.actors.filter((a) => a.role !== 'introducer' && a.identityId !== user.id);
+    const otherPartyIds = nonIntroducerActors.map((a) => a.identityId);
 
     const [indexRecord, ...userRecords] = await Promise.all([
       this.db.getIndex(opp.indexId),
       ...otherPartyIds.map((uid) => this.db.getUser(uid)),
-      introducerId ? this.db.getUser(introducerId) : Promise.resolve(null),
     ]);
+    const introducerRecord = introducerId ? await this.db.getUser(introducerId) : null;
+    const introducerInfo: UserInfo | null = introducerRecord
+      ? { id: introducerRecord.id, name: introducerRecord.name ?? 'Unknown', avatar: introducerRecord.avatar ?? null }
+      : null;
+
     const userMap = new Map<string | null, UserInfo>();
     otherPartyIds.forEach((uid, i) => {
       const u = userRecords[i];
       userMap.set(uid, u ? { id: u.id, name: u.name ?? 'Unknown', avatar: u.avatar ?? null } : { id: uid, name: 'Unknown', avatar: null });
     });
-    const introducerInfo: UserInfo | null =
-      introducerId && userRecords[otherPartyIds.length]
-        ? {
-            id: (userRecords[otherPartyIds.length] as { id: string }).id,
-            name: (userRecords[otherPartyIds.length] as { name?: string }).name ?? 'Unknown',
-            avatar: (userRecords[otherPartyIds.length] as { avatar?: string | null })?.avatar ?? null,
-          }
-        : null;
 
-    // For multiple other parties we use the first for presentation title; all are in otherParties.
+    // For multiple other parties we use the first for presentation title; all are in otherParties (excludes introducer).
     const otherPartyInfo = otherPartyIds[0] ? userMap.get(otherPartyIds[0])! : { id: '', name: 'Unknown', avatar: null as string | null };
     const presentation = presentOpportunity(opp, user.id, otherPartyInfo, introducerInfo, 'card');
 
-    const otherParties = otherActors.map((a) => {
+    const otherParties = nonIntroducerActors.map((a) => {
       const info = userMap.get(a.identityId) ?? { id: a.identityId, name: 'Unknown', avatar: null as string | null };
       return { id: info.id, name: info.name, avatar: info.avatar, role: a.role };
     });
@@ -279,7 +275,7 @@ export class IndexOpportunityController {
         headers: { 'Content-Type': 'application/json' },
       });
     }
-    const url = new URL(req.url);
+    const url = new URL(req.url, `http://${req.headers.get('host') || 'localhost'}`);
     const status = url.searchParams.get('status') ?? undefined;
     const limit = url.searchParams.get('limit');
     const offset = url.searchParams.get('offset');

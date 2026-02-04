@@ -163,8 +163,9 @@ export const hydeDocuments = pgTable('hyde_documents', {
 // Opportunity redesign: JSON types for extensible opportunity model
 export interface OpportunityDetection {
   source: 'opportunity_graph' | 'chat' | 'manual' | 'cron' | 'member_added';
-  createdBy?: Id<'users'>;
-  triggeredBy?: Id<'users'>;
+  /** User id who created, or system label (e.g. 'agent-opportunity-finder'). */
+  createdBy?: Id<'users'> | string;
+  triggeredBy?: Id<'intents'>;
   timestamp: string;
 }
 
