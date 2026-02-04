@@ -182,7 +182,7 @@ export interface OwnedIndex {
 }
 
 /**
- * Member details visible to index owners.
+ * Member details visible to index owners (and optionally to members with privacy rules).
  */
 export interface IndexMemberDetails {
   /** User ID */
@@ -191,8 +191,8 @@ export interface IndexMemberDetails {
   name: string;
   /** User's avatar URL */
   avatar: string | null;
-  /** User's email */
-  email: string;
+  /** User's email; only present when viewer is owner/admin or the member themselves (privacy-safe) */
+  email?: string | null;
   /** Member's permissions in this index */
   permissions: string[];
   /** Member's custom prompt */

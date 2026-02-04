@@ -651,7 +651,6 @@ export class ChatDatabaseAdapter {
         userId: indexMembers.userId,
         name: users.name,
         avatar: users.avatar,
-        email: users.email,
         permissions: indexMembers.permissions,
         memberPrompt: indexMembers.prompt,
         autoAssign: indexMembers.autoAssign,
@@ -661,6 +660,12 @@ export class ChatDatabaseAdapter {
       .innerJoin(users, eq(indexMembers.userId, users.id))
       .where(eq(indexMembers.indexId, indexId));
 
+    const [requestingUserEmailRow] = await db
+      .select({ email: users.email })
+      .from(users)
+      .where(eq(users.id, requestingUserId))
+      .limit(1);
+
     const result = await Promise.all(
       members.map(async (m) => {
         const [intentCountRow] = await db
@@ -668,11 +673,12 @@ export class ChatDatabaseAdapter {
           .from(intentIndexes)
           .innerJoin(intents, eq(intentIndexes.intentId, intents.id))
           .where(and(eq(intentIndexes.indexId, indexId), eq(intents.userId, m.userId), isNull(intents.archivedAt)));
+        const email = m.userId === requestingUserId ? (requestingUserEmailRow?.email ?? undefined) : undefined;
         return {
           userId: m.userId,
           name: m.name,
           avatar: m.avatar,
-          email: m.email,
+          email,
           permissions: m.permissions ?? [],
           memberPrompt: m.memberPrompt,
           autoAssign: m.autoAssign,
