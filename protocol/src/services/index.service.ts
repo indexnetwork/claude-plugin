@@ -4,7 +4,7 @@ import { log } from '../lib/log';
 import { indexes, indexMembers, intents, intentIndexes } from '../schemas/database.schema';
 import { eq, and, isNull } from 'drizzle-orm';
 
-const PERSONAL_INDEX_TITLE = 'Everything';
+const PERSONAL_INDEX_TITLE = 'My Own Private Index';
 
 /** Default permissions for personal index: private, no invitation link. */
 const PERSONAL_INDEX_PERMISSIONS = {
@@ -80,7 +80,7 @@ export class IndexService {
   }
 
   /**
-   * Ensures the user has a personal index ("Everything"). Creates one if missing.
+   * Ensures the user has a personal index ("My Own Private Index"). Creates one if missing.
    * Personal index is the default write location for intents; private by design.
    * @returns The personal index id (existing or newly created)
    */

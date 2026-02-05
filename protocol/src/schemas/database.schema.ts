@@ -243,7 +243,7 @@ export const indexes = pgTable('indexes', {
   id: uuid('id').primaryKey().defaultRandom(),
   title: text('title').notNull(),
   prompt: text('prompt'), // Defines what people can share in this index
-  /** Personal index = "Everything" in Frontend; default write location; private; one per user. */
+  /** Personal index = "My Own Private Index"; default write location; private; one per user. */
   isPersonal: boolean('is_personal').default(false).notNull(),
   permissions: json('permissions').$type<{
     joinPolicy: 'anyone' | 'invite_only';

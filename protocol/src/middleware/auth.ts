@@ -169,7 +169,7 @@ export const authenticatePrivy = async (req: AuthRequest, res: Response, next: N
       return res.status(401).json({ error: 'Account deactivated' });
     }
 
-    // Ensure user has a personal index ("Everything") - create if missing
+    // Ensure user has a personal index ("My Own Private Index") - create if missing
     try {
       await indexService.ensurePersonalIndex(userData.id);
     } catch (err) {

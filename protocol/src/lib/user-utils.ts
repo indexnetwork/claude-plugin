@@ -83,7 +83,7 @@ export async function saveUser(extractedUser: ExtractedUser): Promise<CreatedUse
       provider: extractedUser.provider 
     });
 
-    // Ensure personal index ("Everything") exists for new user
+    // Ensure personal index ("My Own Private Index") exists for new user
     try {
       const { indexService } = await import('../services/index.service');
       await indexService.ensurePersonalIndex(user.id);
