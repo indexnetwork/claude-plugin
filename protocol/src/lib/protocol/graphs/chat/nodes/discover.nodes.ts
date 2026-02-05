@@ -13,7 +13,7 @@ import type { ChatGraphCompositeDatabase } from "../../../interfaces/database.in
 import { selectStrategiesFromQuery } from "../chat.utils";
 import { log } from "../../../../log";
 
-const logger = log.lib.from("lib/protocol/graphs/chat/nodes/discover.nodes.ts");
+const logger = log.protocol.from("DiscoverNodes");
 
 /** Compiled opportunity graph (from OpportunityGraph.compile()). */
 export type CompiledOpportunityGraph = ReturnType<

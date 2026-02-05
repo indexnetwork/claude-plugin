@@ -11,7 +11,7 @@ import { userService } from '../services/user.service';
 
 import { stakeService } from '../services/stake.service';
 
-const logger = log.queue.from("queues/newsletter.queue.ts");
+const logger = log.queue.from("NewsletterQueue");
 
 export const NEWSLETTER_QUEUE_NAME = 'weekly-newsletter-queue';
 

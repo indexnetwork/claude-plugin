@@ -11,7 +11,7 @@ import type { SlackMessage } from '../lib/integrations/providers/slack';
 import { log, setLevel } from '../lib/log';
 import { getIntegrationById } from '../lib/integrations/integration-utils';
 
-const logger = log.service.from("cli/import-slack-export.ts");
+const logger = log.cli.from("cli/import-slack-export.ts");
 import { analyzeObjects } from '../agents/core/intent_inferrer';
 import { intentService } from '../services/intent.service';
 import { resolveIntegrationUser } from '../lib/user-utils';

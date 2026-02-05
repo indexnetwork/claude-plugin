@@ -79,7 +79,7 @@ import { getConnectingStakes, stakeBuildPairs, stakeUserItems } from '../lib/sta
 import { cache } from '../lib/redis';
 import { log } from '../lib/log';
 
-const logger = log.service.from("services/stake.service.ts");
+const logger = log.service.from("[DEPRECATED] StakeService");
 
 /**
  * StakeService

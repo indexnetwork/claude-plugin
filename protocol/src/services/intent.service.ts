@@ -11,7 +11,7 @@ import { log } from '../lib/log';
 import { getDisplayName } from '../lib/integrations/config';
 import { IntentManager } from '../agents/intent/manager/intent.manager';
 
-const logger = log.service.from("services/intent.service.ts");
+const logger = log.service.from("IntentService");
 
 export interface CreateIntentOptions {
   payload: string;

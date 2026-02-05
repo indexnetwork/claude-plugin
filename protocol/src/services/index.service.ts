@@ -4,7 +4,7 @@ import { log } from '../lib/log';
 import { indexes, indexMembers, intents, intentIndexes } from '../schemas/database.schema';
 import { eq, and, isNull } from 'drizzle-orm';
 
-const logger = log.service.from("services/index.service.ts");
+const logger = log.service.from("IndexService");
 
 const PERSONAL_INDEX_TITLE = 'My Own Private Index';
 

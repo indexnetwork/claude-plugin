@@ -3,7 +3,7 @@ import { userNotificationSettings, OnboardingState } from '../schemas/database.s
 import { privyClient } from '../lib/privy';
 import { log } from '../lib/log';
 
-const logger = log.service.from("services/auth.service.ts");
+const logger = log.service.from("AuthService");
 
 /**
  * AuthService

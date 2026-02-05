@@ -3,8 +3,6 @@ import db from '../lib/drizzle/drizzle';
 import { intents, intentIndexes, intentStakes, intentStakeItems, userProfiles } from '../schemas/database.schema';
 import { log } from '../lib/log';
 import { getUserAccessibleIndexIds } from '../lib/index-access';
-
-const logger = log.service.from("services/opportunity.service.ts");
 import { summarizeIntent } from '../agents/core/intent_summarizer';
 import { IndexEmbedder } from '../lib/embedder';
 import { VectorSearchResult, VectorStoreOption } from '../agents/common/types';
@@ -16,6 +14,8 @@ import { json2md } from '../lib/json2md/json2md';
 import fs from 'fs/promises';
 import path from 'path';
 
+
+const logger = log.service.from("OpportunityService");
 /**
  * Options for creating an intent within the opportunity service.
  * Mirrors the structure from IntentService but is self-contained.

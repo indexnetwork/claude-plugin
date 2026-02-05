@@ -3,7 +3,6 @@ import { QueueFactory } from '../lib/bullmq/bullmq';
 import { log } from '../lib/log';
 import type { NotificationJobData, NotificationPriority } from './notification.types';
 
-const logger = log.queue.from("queues/notification.queue.ts");
 import { processOpportunityNotification } from '../jobs/notification.job';
 
 export const QUEUE_NAME = 'notification-queue';
@@ -12,12 +11,13 @@ export type { NotificationJobData, NotificationPriority } from './notification.t
 
 /**
  * Notification Queue.
- *
- * RESPONSIBILITIES:
- * 1. `process_opportunity_notification`: Send alert for a new opportunity to a recipient.
- */
+*
+* RESPONSIBILITIES:
+* 1. `process_opportunity_notification`: Send alert for a new opportunity to a recipient.
+*/
 export const notificationQueue = QueueFactory.createQueue<NotificationJobData>(QUEUE_NAME);
 
+const logger = log.queue.from("NotificationQueue");
 /**
  * Processor function. Routes to notification job handler.
  */

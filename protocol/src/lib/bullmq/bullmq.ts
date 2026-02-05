@@ -2,7 +2,7 @@ import { Queue, Worker, QueueEvents, Job, Processor, WorkerOptions, QueueOptions
 import { getRedisClient } from '../redis';
 import { log } from '../log';
 
-const logger = log.lib.from("lib/bullmq/bullmq.ts");
+const logger = log.lib.from("bullmq");
 const redisClient = getRedisClient();
 
 const SHARED_REDIS_OPTS = {

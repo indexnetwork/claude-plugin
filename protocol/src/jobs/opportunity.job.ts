@@ -14,7 +14,7 @@ import { HydeGraphFactory } from '../lib/protocol/graphs/hyde/hyde.graph';
 import { HydeGenerator } from '../lib/protocol/agents/hyde/hyde.generator';
 import { log } from '../lib/log';
 
-const logger = log.queue.from("jobs/opportunity.job.ts");
+const logger = log.job.from("opportunity");
 const database = new ChatDatabaseAdapter();
 
 export type OpportunityJobDeps = {

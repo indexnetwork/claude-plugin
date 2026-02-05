@@ -24,7 +24,7 @@ import { ChatTitleGenerator } from '../lib/protocol/agents/chat/title.generator'
 import { ChatDatabaseAdapter } from '../adapters/database.adapter';
 import { ScraperAdapter } from '../adapters/scraper.adapter';
 
-const logger = log.controller.from("controllers/chat.controller.ts");
+const logger = log.controller.from("chat");
 
 import { Controller, Post, Get, UseGuards } from '../lib/router/router.decorators';
 import { AuthGuard } from '../guards/auth.guard';

@@ -19,6 +19,9 @@ import { Controller, Get, Post, Patch, UseGuards } from '../lib/router/router.de
 import { AuthGuard } from '../guards/auth.guard';
 import type { AuthenticatedUser } from '../guards/auth.guard';
 import { queueOpportunityNotification } from '../queues/notification.queue';
+import { log } from '../lib/log';
+
+const logger = log.controller.from('opportunity');
 
 /** Route params when path has :id or :indexId */
 type RouteParams = Record<string, string>;
@@ -73,6 +76,7 @@ export class OpportunityController {
       offset: offset ? parseInt(offset, 10) : undefined,
     };
     const list = await this.db.getOpportunitiesForUser(user.id, options);
+    logger.info('Opportunities listed', { userId: user.id, count: list.length });
     return Response.json({ opportunities: list });
   }
 
@@ -84,6 +88,7 @@ export class OpportunityController {
   async getOpportunity(req: Request, user: AuthenticatedUser, params?: RouteParams) {
     const id = params?.id;
     if (!id) {
+      logger.warn('Get opportunity missing id', { userId: user.id });
       return new Response(JSON.stringify({ error: 'Missing opportunity id' }), {
         status: 400,
         headers: { 'Content-Type': 'application/json' },
@@ -91,6 +96,7 @@ export class OpportunityController {
     }
     const opp = await this.db.getOpportunity(id);
     if (!opp) {
+      logger.info('Opportunity not found', { userId: user.id, opportunityId: id });
       return new Response(JSON.stringify({ error: 'Opportunity not found' }), {
         status: 404,
         headers: { 'Content-Type': 'application/json' },
@@ -98,6 +104,7 @@ export class OpportunityController {
     }
     const isActor = opp.actors.some((a) => a.identityId === user.id);
     if (!isActor) {
+      logger.warn('Get opportunity not authorized', { userId: user.id, opportunityId: id });
       return new Response(JSON.stringify({ error: 'Not authorized to view this opportunity' }), {
         status: 403,
         headers: { 'Content-Type': 'application/json' },

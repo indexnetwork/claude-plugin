@@ -3,7 +3,7 @@ import { BaseMessage, SystemMessage, ToolMessage } from "@langchain/core/message
 import { createChatTools, ToolContext } from "./chat.tools";
 import { log } from "../../../log";
 
-const logger = log.lib.from("lib/protocol/graphs/chat/chat.agent.ts");
+const logger = log.protocol.from("ChatAgent");
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // CONFIGURATION

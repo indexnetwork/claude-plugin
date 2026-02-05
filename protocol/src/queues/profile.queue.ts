@@ -5,7 +5,7 @@ import { log } from '../lib/log';
 import { profileService } from '../services/profile.service';
 import { opportunityService } from '../services/opportunity.service';
 
-const logger = log.queue.from("queues/profile.queue.ts");
+const logger = log.queue.from("ProfileQueue");
 
 export const PROFILE_QUEUE_NAME = 'profile-update';
 

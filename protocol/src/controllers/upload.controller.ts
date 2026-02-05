@@ -25,7 +25,7 @@ import { log } from '../lib/log';
 import { validateFileByMetadata, FILE_SIZE_LIMITS } from '../lib/uploads.config';
 import type { FileRecord } from '../types';
 
-const logger = log.controller.from("controllers/upload.controller.ts");
+const logger = log.controller.from("upload");
 
 type ParsedFile = { filename: string; mimeType: string; buffer: Buffer };
 

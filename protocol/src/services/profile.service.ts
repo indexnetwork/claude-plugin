@@ -9,9 +9,9 @@ import { checkAndTriggerSocialSync } from '../lib/integrations/social-sync';
 import { json2md } from '../lib/json2md/json2md';
 import { log } from '../lib/log';
 import { searchUser } from '../lib/parallel/parallel';
-
-const logger = log.service.from("services/profile.service.ts");
 import { NotificationPreferences, User, UserSocials, userNotificationSettings, userProfiles, users } from '../schemas/database.schema';
+
+const logger = log.service.from("ProfileService");
 
 export interface UpdateProfileDto {
   name?: string;

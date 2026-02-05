@@ -11,7 +11,7 @@ import { chatSessionService } from "../../../../services/chat-session.service";
 import { truncateToTokenLimit, MAX_CONTEXT_TOKENS } from "./chat.utils";
 import { ChatGraphStreamingService } from "./streaming";
 
-const logger = log.lib.from("lib/protocol/graphs/chat/chat.graph.ts");
+const logger = log.protocol.from("ChatGraphFactory");
 
 // ══════════════════════════════════════════════════════════════════════════════
 // CHAT GRAPH FACTORY (Agent Loop Architecture)

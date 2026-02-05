@@ -2,7 +2,7 @@ import { ChatOpenAI } from "@langchain/openai";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { log } from "../../../log";
 
-const logger = log.lib.from("lib/protocol/agents/chat/title.generator.ts");
+const logger = log.lib.from("ChatTitleGenerator");
 
 const SYSTEM_PROMPT = `You suggest a very short title for a chat conversation.
 

@@ -3,7 +3,7 @@ import { users, userNotificationSettings, userProfiles, User, userConnectionEven
 import { eq, inArray, or, and } from 'drizzle-orm';
 import { log } from '../lib/log';
 
-const logger = log.service.from("services/user.service.ts");
+const logger = log.service.from("UserService");
 
 /**
  * UserService

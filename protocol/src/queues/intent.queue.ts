@@ -13,7 +13,7 @@ import { HydeGraphFactory } from '../lib/protocol/graphs/hyde/hyde.graph';
 import { HydeGenerator } from '../lib/protocol/agents/hyde/hyde.generator';
 import { log } from '../lib/log';
 
-const logger = log.queue.from("queues/intent.queue.ts");
+const logger = log.queue.from("IntentQueue");
 
 /** Persisted HyDE strategies to pre-generate on intent create/update. */
 const PERSISTED_HYDE_STRATEGIES = ['mirror', 'reciprocal'] as const;

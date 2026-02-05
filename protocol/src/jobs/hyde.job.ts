@@ -7,7 +7,7 @@ import { HydeGraphFactory } from '../lib/protocol/graphs/hyde/hyde.graph';
 import { HydeGenerator } from '../lib/protocol/agents/hyde/hyde.generator';
 import { log } from '../lib/log';
 
-const logger = log.queue.from("jobs/hyde.job.ts");
+const logger = log.job.from("hyde");
 const database = new ChatDatabaseAdapter();
 const hydeDb = database as unknown as HydeGraphDatabase;
 

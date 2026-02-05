@@ -5,7 +5,7 @@ import { z } from "zod";
 import { log } from "../../../log";
 import { IntentIndexerOutputSchema, type IntentIndexerOutput } from "./intent.indexer.types";
 
-const logger = log.lib.from("lib/protocol/agents/index/intent.indexer.ts");
+const logger = log.lib.from("IntentIndexer");
 
 /**
  * Config

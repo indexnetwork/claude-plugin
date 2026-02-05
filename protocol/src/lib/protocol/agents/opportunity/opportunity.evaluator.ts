@@ -5,7 +5,7 @@ import { z } from "zod";
 import { log } from "../../../log";
 import type { HydeStrategy } from "../hyde/hyde.strategies";
 
-const logger = log.lib.from("lib/protocol/agents/opportunity/opportunity.evaluator.ts");
+const logger = log.protocol.from("OpportunityEvaluator");
 
 /**
  * Config

@@ -7,7 +7,7 @@ import { getRedisClient } from '../lib/redis';
 import { log } from '../lib/log';
 import type { NotificationJobData } from '../queues/notification.types';
 
-const logger = log.queue.from("jobs/notification.job.ts");
+const logger = log.job.from("notification");
 
 const API_URL = process.env.API_URL || 'https://index.network';
 const FRONTEND_URL = process.env.FRONTEND_URL || 'https://index.network';

@@ -4,7 +4,7 @@ import { tool } from "@langchain/core/tools";
 import { z } from "zod";
 import { log } from "../../../../log";
 
-const logger = log.lib.from("lib/protocol/agents/intent/reconciler/intent.reconciler.ts");
+const logger = log.protocol.from("IntentReconciler");
 
 /**
  * Config

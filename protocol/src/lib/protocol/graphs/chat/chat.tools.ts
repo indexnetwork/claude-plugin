@@ -21,7 +21,7 @@ import { queueOpportunityNotification } from "../../../../queues/notification.qu
 import { log } from "../../../log";
 import type { PendingConfirmation, ConfirmationPayload } from "./chat.graph.state";
 
-const logger = log.lib.from("lib/protocol/graphs/chat/chat.tools.ts");
+const logger = log.protocol.from("ChatTools");
 
 /** Five minutes in ms for confirmation expiry. */
 const CONFIRMATION_EXPIRY_MS = 5 * 60 * 1000;

@@ -11,7 +11,7 @@ import { UserMemoryProfile } from '../intent/manager/intent.manager.types';
 import { log } from '../../lib/log';
 import { json2md } from '../../lib/json2md/json2md';
 
-const logger = log.service.from("agents/opportunity/opportunity.evaluator.spec.ts");
+const logger = log.service.from("opportunity");
 
 // Mock Embedder that uses MemorySearcher
 class MockMemoryEmbedder implements Embedder {

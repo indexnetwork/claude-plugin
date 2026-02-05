@@ -13,7 +13,7 @@ import {
 } from "../../../../../types/chat-streaming";
 import { log } from "../../../../log";
 
-const logger = log.lib.from("lib/protocol/graphs/chat/streaming/chat.streaming.ts");
+const logger = log.protocol.from("ChatGraphStreamingService");
 
 // ══════════════════════════════════════════════════════════════════════════════
 // TOOL DESCRIPTIONS (for user-friendly display)

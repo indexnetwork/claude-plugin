@@ -2,7 +2,7 @@ import cron from 'node-cron';
 import { addJob } from '../queues/newsletter.queue';
 import { log } from '../lib/log';
 
-const logger = log.queue.from("jobs/newsletter.job.ts");
+const logger = log.job.from("newsletter");
 
 // Helper to parse cron string "m h dom mon dow"
 function parseNewsletterSchedule() {

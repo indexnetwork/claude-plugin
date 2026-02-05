@@ -5,7 +5,7 @@ import { log } from '../lib/log';
 import { opportunityService } from '../services/opportunity.service';
 import { runIntentOpportunityGraph } from '../jobs/opportunity.job';
 
-const logger = log.queue.from("queues/opportunity.queue.ts");
+const logger = log.queue.from("OpportunityQueue");
 
 export const QUEUE_NAME = 'opportunity-processing-queue';
 
@@ -13,7 +13,7 @@ export const QUEUE_NAME = 'opportunity-processing-queue';
  * Job payload for the Opportunity Queue.
  * - process_opportunities: timestamp, force (legacy full cycle).
  * - process_intent_opportunities: intentId, userId (new graph per intent).
- */
+*/
 export interface OpportunityJobData extends Record<string, unknown> {
   timestamp?: number;
   force?: boolean;
