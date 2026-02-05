@@ -872,7 +872,7 @@ export function createChatTools(context: ToolContext) {
     {
       name: "find_opportunities",
       description:
-        "Searches for relevant connections and opportunities. When the chat is scoped to an index, search is limited to that index unless you pass a different index or omit index scope.",
+        "Searches for relevant connections and opportunities. Returns concise summaries (name, short bio, match reason, score). For full details use list_my_opportunities. When the chat is scoped to an index, search is limited to that index unless you pass a different index or omit index scope.",
       schema: z.object({
         searchQuery: z.string().describe("What kind of connections or opportunities to search for"),
         indexNameOrId: z.string().optional().describe("Limit search to this index; optional when chat is index-scoped (uses current index)."),

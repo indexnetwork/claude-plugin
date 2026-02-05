@@ -31,6 +31,16 @@ export interface DiscoverInput {
   limit?: number;
 }
 
+/** Max chars for bio and matchReason in chat tool results to keep context manageable. */
+const MAX_FIELD_CHARS = 100;
+
+function truncateForChat(s: string | undefined, max = MAX_FIELD_CHARS): string | undefined {
+  if (s == null || s === "") return undefined;
+  const trimmed = s.trim();
+  if (trimmed.length <= max) return trimmed;
+  return trimmed.slice(0, max) + "...";
+}
+
 /** One formatted opportunity for chat (candidate-facing). */
 export interface FormattedDiscoveryCandidate {
   opportunityId: string;
@@ -129,8 +139,8 @@ export async function runDiscoverFromQuery(
           opportunityId: opp.id,
           userId: candidateUserId,
           name: profile?.identity?.name ?? undefined,
-          bio: profile?.identity?.bio ?? undefined,
-          matchReason: opp.interpretation?.summary ?? "",
+          bio: truncateForChat(profile?.identity?.bio),
+          matchReason: truncateForChat(opp.interpretation?.summary ?? "") ?? "",
           score: confidence,
         };
       })
