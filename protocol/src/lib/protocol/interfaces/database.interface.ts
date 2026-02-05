@@ -732,6 +732,22 @@ export interface Database {
     data: UpdateIndexSettingsData
   ): Promise<OwnedIndex>;
 
+  /**
+   * Soft-delete an index (set deletedAt).
+   * Caller must ensure index is not personal and has no other members.
+   *
+   * @param indexId - The index to soft-delete
+   */
+  softDeleteIndex(indexId: string): Promise<void>;
+
+  /**
+   * Delete a user's profile (removes profile row).
+   * Used after confirmation in chat tools.
+   *
+   * @param userId - User whose profile to delete
+   */
+  deleteProfile(userId: string): Promise<void>;
+
   // ─────────────────────────────────────────────────────────────────────────────
   // HyDE Document Operations (Opportunity Redesign)
   // ─────────────────────────────────────────────────────────────────────────────
@@ -942,6 +958,7 @@ export type ChatGraphCompositeDatabase = Pick<
   | 'createOpportunity'
   | 'opportunityExistsBetweenActors'
   | 'getOpportunitiesForUser'
+  | 'updateOpportunityStatus'
   // HyDE graph (used by OpportunityGraph)
   | 'getHydeDocument'
   | 'getHydeDocumentsForSource'
@@ -964,6 +981,8 @@ export type ChatGraphCompositeDatabase = Pick<
   | 'getIndexIntentsForOwner'
   | 'getIndexIntentsForMember'
   | 'updateIndexSettings'
+  | 'softDeleteIndex'
+  | 'deleteProfile'
 >;
 
 /**

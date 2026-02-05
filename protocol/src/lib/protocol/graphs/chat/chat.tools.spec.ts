@@ -55,6 +55,9 @@ function createMockDatabase(
     getIndexIntentsForOwner: noopArray,
     getIndexIntentsForMember: noopArray,
     updateIndexSettings: async () => ({ id: "", title: "", prompt: null, permissions: {} as any, createdAt: new Date(), updatedAt: new Date(), deletedAt: null, memberCount: 0, intentCount: 0 }),
+    softDeleteIndex: noop,
+    deleteProfile: noop,
+    updateOpportunityStatus: noopNull,
   };
   return { ...base, ...overrides } as unknown as ChatGraphCompositeDatabase;
 }

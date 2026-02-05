@@ -19,8 +19,12 @@ import { RedisCacheAdapter } from "../../../../adapters/cache.adapter";
 import { runDiscoverFromQuery } from "./nodes/discover.nodes";
 import { queueOpportunityNotification } from "../../../../queues/notification.queue";
 import { log } from "../../../log";
+import type { PendingConfirmation, ConfirmationPayload } from "./chat.graph.state";
 
 const logger = log.graph.from("chat.tools.ts");
+
+/** Five minutes in ms for confirmation expiry. */
+const CONFIRMATION_EXPIRY_MS = 5 * 60 * 1000;
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // TOOL CONTEXT TYPE
@@ -37,6 +41,10 @@ export interface ToolContext {
   scraper: Scraper;
   /** When set, chat is scoped to this index; tools use it as default for get_intents_in_index and create_intent. */
   indexId?: string;
+  /** Read pending confirmation (for confirm_action / cancel_action). */
+  getPendingConfirmation?: () => PendingConfirmation | undefined;
+  /** Set pending confirmation (for tools that require user confirm before update/delete). */
+  setPendingConfirmation?: (p: PendingConfirmation | undefined) => void;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -59,6 +67,32 @@ function success<T>(data: T): string {
 
 function error(message: string): string {
   return JSON.stringify({ success: false, error: message });
+}
+
+/** Return needsConfirmation so the agent asks the user before calling confirm_action. */
+function needsConfirmation(params: {
+  confirmationId: string;
+  action: string;
+  resource: string;
+  summary: string;
+}): string {
+  return JSON.stringify({
+    success: false,
+    needsConfirmation: true,
+    ...params,
+  });
+}
+
+/** Return needsClarification for missing required fields. */
+function needsClarification(params: {
+  missingFields: string[];
+  message: string;
+}): string {
+  return JSON.stringify({
+    success: false,
+    needsClarification: true,
+    ...params,
+  });
 }
 
 /** Matches http/https URLs in text; captures full URL. */
@@ -159,68 +193,33 @@ export function createChatTools(context: ToolContext) {
   const updateUserProfile = tool(
     async (args: { action: string; details?: string }) => {
       logger.info("Tool: update_user_profile", { userId, action: args.action });
-      
-      try {
-        // Use action + details as-is. The agent must call scrape_url first for any URLs and pass
-        // the scraped content in details to avoid duplicate scraping and to support login-walled
-        // sites (e.g. LinkedIn) via Parallel search in scrape_url.
-        const inputForProfile = [args.action, args.details].filter(Boolean).join("\n") || (args.details ?? args.action);
 
-        // Get existing profile for context
-        const existingProfile = await database.getProfile(userId);
-        
-        // Map action to profile graph input
-        const profileInput = {
-          userId,
-          operationMode: 'write' as const,
-          input: inputForProfile,
-          profile: existingProfile ?? undefined,
-          forceUpdate: !!existingProfile
-        };
-
-        const result = await profileGraph.invoke(profileInput);
-        logger.debug("Profile graph response", { result });
-
-        // Check if profile graph needs more info
-        if (result.needsUserInfo && result.missingUserInfo?.length > 0) {
-          const missingFields = result.missingUserInfo as string[];
-          let message = "To create your profile, I need more information:\n";
-          
-          if (missingFields.includes('social_urls')) {
-            message += "- A social media profile (LinkedIn, GitHub, X/Twitter, or personal website)\n";
-          }
-          if (missingFields.includes('full_name')) {
-            message += "- Your full name (first and last)\n";
-          }
-          if (missingFields.includes('location')) {
-            message += "- Your location (city and country) - optional but helpful\n";
-          }
-          
-          return success({
-            updated: false,
-            needsMoreInfo: true,
-            message
-          });
-        }
-
-        if (result.profile) {
-          const p = result.profile;
-          const name = p.identity?.name ?? "—";
-          const bio = (p.identity?.bio ?? "").slice(0, 120);
-          const skills = (p.attributes?.skills ?? []).slice(0, 8).join(", ") || "—";
-          const interests = (p.attributes?.interests ?? []).slice(0, 8).join(", ") || "—";
-          return success({
-            updated: true,
-            profileSummary: { name, bio: bio + (bio.length >= 120 ? "…" : ""), skills, interests },
-            operationsPerformed: result.operationsPerformed || {}
-          });
-        }
-
-        return error("Profile update failed. Please try again with more details.");
-      } catch (err) {
-        logger.error("update_user_profile failed", { error: err });
-        return error("Failed to update profile. Please try again.");
+      const setPending = context.setPendingConfirmation;
+      if (!setPending || !context.getPendingConfirmation) {
+        return error("Confirmation is not available in this context.");
       }
+
+      const inputForProfile = [args.action, args.details].filter(Boolean).join("\n") || (args.details ?? args.action);
+      if (!inputForProfile.trim()) {
+        return error("Please specify what to update (e.g. action: 'update bio to X').");
+      }
+
+      const confirmationId = crypto.randomUUID();
+      const summary = `Update your profile: ${args.action.slice(0, 80)}${args.action.length > 80 ? "…" : ""}`;
+      const payload: ConfirmationPayload = {
+        resource: "profile",
+        action: "update",
+        updates: { input: inputForProfile },
+      };
+      setPending({
+        id: confirmationId,
+        action: "update",
+        resource: "profile",
+        summary,
+        payload,
+        createdAt: Date.now(),
+      });
+      return needsConfirmation({ confirmationId, action: "update", resource: "profile", summary });
     },
     {
       name: "update_user_profile",
@@ -336,8 +335,14 @@ export function createChatTools(context: ToolContext) {
 
   const createIntent = tool(
     async (args: { description: string; indexId?: string }) => {
+      if (!args.description?.trim()) {
+        return needsClarification({
+          missingFields: ["description"],
+          message: "Please provide a description of what you're looking for (e.g. your goal, want, or need).",
+        });
+      }
       logger.info("Tool: create_intent", { userId, description: args.description.substring(0, 50), indexId: args.indexId });
-      
+
       try {
         let inputContent = args.description;
         const urls = extractUrls(args.description);
@@ -466,12 +471,15 @@ export function createChatTools(context: ToolContext) {
         }
       }
 
-      try {
-        const updated = await database.updateIntent(intentId, {
-          payload: args.newDescription
-        });
+      const setPending = context.setPendingConfirmation;
+      const getPending = context.getPendingConfirmation;
+      if (!setPending || !getPending) {
+        return error("Confirmation is not available in this context.");
+      }
 
-        if (!updated) {
+      try {
+        const intent = await database.getIntent(intentId);
+        if (!intent) {
           const currentIntents = await database.getActiveIntents(userId);
           return error(
             currentIntents.length === 0
@@ -480,20 +488,29 @@ export function createChatTools(context: ToolContext) {
                 JSON.stringify(currentIntents.map((i) => ({ id: i.id, payload: i.payload, summary: i.summary })))
           );
         }
-
-        return success({
-          updated: true,
-          intent: {
-            id: updated.id,
-            description: updated.payload,
-            summary: updated.summary
-          }
-        });
-      } catch (err) {
-        logger.error("update_intent failed", { error: err });
-        if (err instanceof Error && err.message === 'Access denied') {
+        if (intent.userId !== userId) {
           return error("You can only update your own intents.");
         }
+
+        const confirmationId = crypto.randomUUID();
+        const summary = `Update intent from "${(intent.summary || intent.payload || "").slice(0, 80)}${(intent.summary || intent.payload || "").length > 80 ? "…" : ""}" to "${args.newDescription.slice(0, 80)}${args.newDescription.length > 80 ? "…" : ""}"`;
+        const payload: ConfirmationPayload = {
+          resource: "intent",
+          action: "update",
+          intentId,
+          newDescription: args.newDescription,
+        };
+        setPending({
+          id: confirmationId,
+          action: "update",
+          resource: "intent",
+          summary,
+          payload,
+          createdAt: Date.now(),
+        });
+        return needsConfirmation({ confirmationId, action: "update", resource: "intent", summary });
+      } catch (err) {
+        logger.error("update_intent failed", { error: err });
         return error("Failed to update intent. Please try again.");
       }
     },
@@ -527,10 +544,14 @@ export function createChatTools(context: ToolContext) {
         }
       }
 
-      try {
-        const result = await database.archiveIntent(intentId);
+      const setPending = context.setPendingConfirmation;
+      if (!setPending || !context.getPendingConfirmation) {
+        return error("Confirmation is not available in this context.");
+      }
 
-        if (!result.success) {
+      try {
+        const intent = await database.getIntent(intentId);
+        if (!intent) {
           const currentIntents = await database.getActiveIntents(userId);
           return error(
             currentIntents.length === 0
@@ -539,11 +560,22 @@ export function createChatTools(context: ToolContext) {
                 JSON.stringify(currentIntents.map((i) => ({ id: i.id, payload: i.payload, summary: i.summary })))
           );
         }
+        if (intent.userId !== userId) {
+          return error("You can only delete your own intents.");
+        }
 
-        return success({
-          deleted: true,
-          message: "Intent has been removed."
+        const confirmationId = crypto.randomUUID();
+        const summary = `Delete intent: "${(intent.summary || intent.payload || "").slice(0, 100)}${(intent.summary || intent.payload || "").length > 100 ? "…" : ""}"`;
+        const payload: ConfirmationPayload = { resource: "intent", action: "delete", intentId };
+        setPending({
+          id: confirmationId,
+          action: "delete",
+          resource: "intent",
+          summary,
+          payload,
+          createdAt: Date.now(),
         });
+        return needsConfirmation({ confirmationId, action: "delete", resource: "intent", summary });
       } catch (err) {
         logger.error("delete_intent failed", { error: err });
         return error("Failed to delete intent. Please try again.");
@@ -770,40 +802,44 @@ export function createChatTools(context: ToolContext) {
       }
       logger.info("Tool: update_index_settings", { userId, indexId: effectiveIndexId });
 
+      const setPending = context.setPendingConfirmation;
+      if (!setPending || !context.getPendingConfirmation) {
+        return error("Confirmation is not available in this context.");
+      }
+
       try {
-        // Verify ownership first
         const isOwner = await database.isIndexOwner(effectiveIndexId, userId);
         if (!isOwner) {
           return error("You can only modify indexes you own. Use get_index_memberships to see your owned indexes.");
         }
 
-        // Map settings to UpdateIndexSettingsData
-        const settingsData: any = {};
-        
-        if ('title' in args.settings) settingsData.title = args.settings.title;
-        if ('prompt' in args.settings) settingsData.prompt = args.settings.prompt;
-        if ('joinPolicy' in args.settings) settingsData.joinPolicy = args.settings.joinPolicy;
-        if ('allowGuestVibeCheck' in args.settings) settingsData.allowGuestVibeCheck = args.settings.allowGuestVibeCheck;
-        
-        // Handle common natural language settings
-        if ('private' in args.settings && args.settings.private) {
-          settingsData.joinPolicy = 'invite_only';
-        }
-        if ('public' in args.settings && args.settings.public) {
-          settingsData.joinPolicy = 'anyone';
-        }
+        const settingsData: Record<string, unknown> = {};
+        if ("title" in args.settings) settingsData.title = args.settings.title;
+        if ("prompt" in args.settings) settingsData.prompt = args.settings.prompt;
+        if ("joinPolicy" in args.settings) settingsData.joinPolicy = args.settings.joinPolicy;
+        if ("allowGuestVibeCheck" in args.settings) settingsData.allowGuestVibeCheck = args.settings.allowGuestVibeCheck;
+        if ("private" in args.settings && args.settings.private) settingsData.joinPolicy = "invite_only";
+        if ("public" in args.settings && args.settings.public) settingsData.joinPolicy = "anyone";
 
-        const updated = await database.updateIndexSettings(effectiveIndexId, userId, settingsData);
-
-        return success({
-          updated: true,
-          index: {
-            id: updated.id,
-            title: updated.title,
-            joinPolicy: updated.permissions.joinPolicy,
-            memberCount: updated.memberCount
-          }
+        const indexMeta = await database.getIndex(effectiveIndexId);
+        const title = (indexMeta?.title ?? "this index").slice(0, 60);
+        const confirmationId = crypto.randomUUID();
+        const summary = `Update index "${title}" settings: ${Object.keys(settingsData).join(", ")}`;
+        const payload: ConfirmationPayload = {
+          resource: "index",
+          action: "update",
+          indexId: effectiveIndexId,
+          updates: settingsData,
+        };
+        setPending({
+          id: confirmationId,
+          action: "update",
+          resource: "index",
+          summary,
+          payload,
+          createdAt: Date.now(),
         });
+        return needsConfirmation({ confirmationId, action: "update", resource: "index", summary });
       } catch (err) {
         logger.error("update_index_settings failed", { error: err });
         return error("Failed to update index settings. Please try again.");
@@ -1132,10 +1168,111 @@ export function createChatTools(context: ToolContext) {
   );
 
   // ─────────────────────────────────────────────────────────────────────────────
+  // CONFIRMATION TOOLS (Phase 4a)
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  const confirmAction = tool(
+    async (args: { confirmationId: string }) => {
+      const getPending = context.getPendingConfirmation;
+      const setPending = context.setPendingConfirmation;
+      if (!getPending || !setPending) {
+        return error("Confirmation not available in this context.");
+      }
+      const pending = getPending();
+      if (!pending) {
+        return error("There is no pending action to confirm.");
+      }
+      if (pending.id !== args.confirmationId) {
+        return error("Confirmation ID does not match the pending action.");
+      }
+      const now = Date.now();
+      if (now - pending.createdAt > CONFIRMATION_EXPIRY_MS) {
+        setPending(undefined);
+        return error("The pending confirmation has expired. Please start the action again.");
+      }
+      const payload = pending.payload;
+      try {
+        if (payload.resource === "intent" && payload.action === "update") {
+          await database.updateIntent(payload.intentId, { payload: payload.newDescription });
+        } else if (payload.resource === "intent" && payload.action === "delete") {
+          await database.archiveIntent(payload.intentId);
+        } else if (payload.resource === "profile" && payload.action === "update") {
+          const profileGraphInstance = new ProfileGraphFactory(database as any, embedder, scraper).createGraph();
+          const profileInput = (payload.updates as { input?: string }).input ?? JSON.stringify(payload.updates);
+          await profileGraphInstance.invoke({
+            userId,
+            operationMode: "write",
+            input: profileInput,
+            forceUpdate: true,
+          });
+        } else if (payload.resource === "profile" && payload.action === "delete") {
+          await database.deleteProfile(userId);
+        } else if (payload.resource === "index" && payload.action === "update") {
+          await database.updateIndexSettings(payload.indexId, userId, payload.updates as any);
+        } else if (payload.resource === "index" && payload.action === "delete") {
+          await database.softDeleteIndex(payload.indexId);
+        } else if (payload.resource === "opportunity" && payload.action === "update") {
+          const status = (payload.updates as { status?: string })?.status;
+          if (status && ["accepted", "rejected", "expired"].includes(status)) {
+            await database.updateOpportunityStatus(payload.opportunityId, status as "accepted" | "rejected" | "expired");
+          } else {
+            return error("Opportunity update requires status.");
+          }
+        } else if (payload.resource === "opportunity" && payload.action === "delete") {
+          await database.updateOpportunityStatus(payload.opportunityId, "expired");
+        } else {
+          return error("Unknown confirmation payload.");
+        }
+        setPending(undefined);
+        return success({ confirmed: true, message: "Action completed." });
+      } catch (err) {
+        logger.error("confirm_action execution failed", { payload, error: err });
+        return error(err instanceof Error ? err.message : "Failed to execute action.");
+      }
+    },
+    {
+      name: "confirm_action",
+      description: "Confirm and execute a pending destructive action (update or delete). Call this ONLY after the user has explicitly said yes to the summary you showed them. Do not call without user confirmation.",
+      schema: z.object({
+        confirmationId: z.string().describe("The confirmation ID from the needsConfirmation response."),
+      }),
+    }
+  );
+
+  const cancelAction = tool(
+    async (args: { confirmationId: string }) => {
+      const getPending = context.getPendingConfirmation;
+      const setPending = context.setPendingConfirmation;
+      if (!getPending || !setPending) {
+        return error("Confirmation not available in this context.");
+      }
+      const pending = getPending();
+      if (!pending) {
+        return success({ cancelled: true, message: "No pending action." });
+      }
+      if (pending.id !== args.confirmationId) {
+        return error("Confirmation ID does not match the pending action.");
+      }
+      setPending(undefined);
+      return success({ cancelled: true, message: "Action cancelled." });
+    },
+    {
+      name: "cancel_action",
+      description: "Cancel a pending destructive action without executing it. Call when the user says no or cancel.",
+      schema: z.object({
+        confirmationId: z.string().describe("The confirmation ID from the needsConfirmation response."),
+      }),
+    }
+  );
+
+  // ─────────────────────────────────────────────────────────────────────────────
   // RETURN ALL TOOLS
   // ─────────────────────────────────────────────────────────────────────────────
 
   return [
+    // Confirmation tools (Phase 4a)
+    confirmAction,
+    cancelAction,
     // Profile tools
     getUserProfile,
     updateUserProfile,

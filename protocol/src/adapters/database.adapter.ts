@@ -944,6 +944,14 @@ export class ChatDatabaseAdapter {
     };
   }
 
+  async softDeleteIndex(indexId: string): Promise<void> {
+    await db.update(indexes).set({ deletedAt: new Date(), updatedAt: new Date() }).where(eq(indexes.id, indexId));
+  }
+
+  async deleteProfile(userId: string): Promise<void> {
+    await db.delete(schema.userProfiles).where(eq(schema.userProfiles.userId, userId));
+  }
+
   // Opportunity operations (delegate to OpportunityDatabaseAdapter)
   async createOpportunity(data: CreateOpportunityInput): Promise<OpportunityRow> {
     return this.opportunityAdapter.createOpportunity(data);
