@@ -1,5 +1,11 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Suggestion } from '@/components/DiscoveryForm';
+
+export interface Suggestion {
+  label: string;
+  type: 'direct' | 'prompt';
+  followupText?: string;
+  prefill?: string;
+}
 
 // Static starter suggestions - shown on focus when no intent context
 const STATIC_SUGGESTIONS: Suggestion[] = [
