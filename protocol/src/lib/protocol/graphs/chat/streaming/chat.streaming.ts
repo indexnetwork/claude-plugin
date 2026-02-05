@@ -261,19 +261,31 @@ export class ChatGraphStreamingService {
         // ─────────────────────────────────────────────────────────────────────
 
         if (event.event === "on_chain_end" && event.name === "agent_loop") {
-          const output = event.data?.output;
+          const output = event.data?.output as { responseText?: string; error?: string } | undefined;
           const responseText = typeof output?.responseText === "string" ? output.responseText : "";
+          const agentError = typeof output?.error === "string" ? output.error : undefined;
           // #region agent log
           fetch('http://127.0.0.1:7242/ingest/9e8c82c7-69e7-439d-9a66-0d60a0032c44',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chat.streaming.ts:emit_token',message:'H4: Emitting token from on_chain_end',data:{responsePreview:responseText.substring(0,400),hasClassification:responseText.includes('"classification"'),willEmit:!!responseText},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H4'})}).catch(()=>{});
           // #endregion
-          logger.debug("Agent loop output", { output, responseText });
+          logger.debug("Agent loop output", { output, responseText, agentError });
+          if (agentError) {
+            logger.warn("Agent loop returned error", { agentError });
+            yield createErrorEvent(
+              sessionId,
+              agentError === "JSON error injected into SSE stream"
+                ? "The response could not be sent correctly. Please try again."
+                : agentError,
+              "AGENT_ERROR"
+            );
+          }
           if (responseText) {
             yield createTokenEvent(sessionId, responseText);
           }
           logger.info("Agent loop complete", {
             iterations: currentIteration,
             totalTools: toolsInCurrentIteration.length,
-            responseLength: responseText.length
+            responseLength: responseText.length,
+            hadError: !!agentError
           });
         }
       }
