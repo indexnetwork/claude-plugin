@@ -5,6 +5,8 @@ import { log } from '../lib/log';
 import { opportunityService } from '../services/opportunity.service';
 import { runIntentOpportunityGraph } from '../jobs/opportunity.job';
 
+const logger = log.queue.from("queues/opportunity.queue.ts");
+
 export const QUEUE_NAME = 'opportunity-processing-queue';
 
 /**
@@ -43,10 +45,10 @@ async function opportunityProcessor(job: Job<OpportunityJobData>) {
     if (intentId && userId) {
       await runIntentOpportunityGraph(intentId, userId);
     } else {
-      log.warn('[OpportunityProcessor] process_intent_opportunities missing intentId or userId', job.data);
+      logger.warn('[OpportunityProcessor] process_intent_opportunities missing intentId or userId', job.data);
     }
   } else {
-    log.warn(`[OpportunityProcessor] Unknown job name: ${job.name}`);
+    logger.warn(`[OpportunityProcessor] Unknown job name: ${job.name}`);
   }
 }
 

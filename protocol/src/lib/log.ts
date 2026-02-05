@@ -8,7 +8,8 @@ export type LogContext =
   | 'graph'
   | 'queue'
   | 'route'
-  | 'server';
+  | 'server'
+  | 'lib';
 
 const order: Record<LogLevel, number> = { debug: 10, info: 20, warn: 30, error: 40 };
 
@@ -38,6 +39,7 @@ const CONTEXT_STYLES: Record<LogContext, { emoji: string; color: string }> = {
   queue: { emoji: '📬', color: '#fd7e14' },
   route: { emoji: '🛤️', color: '#e83e8c' },
   server: { emoji: '🌐', color: '#6c757d' },
+  lib: { emoji: '📚', color: '#0d6efd' },
 };
 
 function envLevel(): LogLevel {
@@ -87,7 +89,24 @@ function fmt(message: string, meta?: Record<string, unknown>) {
   }
 }
 
-/** Wrap line with emoji + source + optional color. Format: "emoji source: message" (source required for consistency). */
+/**
+ * Source path is relative to src/ (e.g. "controllers/chat.controller.ts").
+ * Non-deprecated: lib/*, controllers/, adapters/, jobs/, queues/, and root main.ts only.
+ * index.ts at root is deprecated. All other paths (routes/, services/, agents/, etc.) are deprecated.
+ */
+export function isDeprecatedSource(sourcePath: string): boolean {
+  const normalized = sourcePath.replace(/\\/g, '/');
+  if (normalized === 'index.ts') return true;
+  if (normalized === 'main.ts') return false;
+  if (normalized.startsWith('lib/')) return false;
+  if (normalized.startsWith('controllers/')) return false;
+  if (normalized.startsWith('adapters/')) return false;
+  if (normalized.startsWith('jobs/')) return false;
+  if (normalized.startsWith('queues/')) return false;
+  return true;
+}
+
+/** Wrap line with emoji + source + optional color. Format: "emoji source: message" (source required for consistency). Adds [DEPRECATED] for non-blessed paths. */
 function wrapWithContext(
   context: LogContext | undefined,
   source: string | undefined,
@@ -99,7 +118,8 @@ function wrapWithContext(
   const colorOn = useColor() && color;
   const ansi = colorOn ? hexToAnsi(color) : '';
   const reset = colorOn ? RESET : '';
-  const prefix = source ? `${emoji} ${source}: ` : `${emoji} `;
+  const deprecatedTag = source && isDeprecatedSource(source) ? '[DEPRECATED] ' : '';
+  const prefix = source ? `${emoji} ${deprecatedTag}${source}: ` : `${emoji} `;
   return { start: ansi ? `${ansi}${prefix}` : prefix, end: reset };
 }
 
@@ -158,7 +178,7 @@ export const log = {
   withContext(context: LogContext, source?: string) {
     return source ? createLogger(context, source) : addFrom(context);
   },
-  /** Pre-bound logger for v2 controllers. Use log.controller.from('upload.controller.ts'). */
+  /** Pre-bound logger. Pass path relative to src/ (e.g. "controllers/chat.controller.ts"). Non-blessed paths get [DEPRECATED] in output. */
   controller: addFrom('controller'),
   service: addFrom('service'),
   agent: addFrom('agent'),
@@ -166,6 +186,7 @@ export const log = {
   queue: addFrom('queue'),
   route: addFrom('route'),
   server: addFrom('server'),
+  lib: addFrom('lib'),
 };
 
 /** Sanitize an object for logging: redact embedding/vector arrays. Use before logging objects that may contain embeddings. */

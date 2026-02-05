@@ -6,7 +6,7 @@ import { IntentReconciler } from "../../agents/intent/reconciler/intent.reconcil
 import { IntentGraphDatabase } from "../../interfaces/database.interface";
 import { log } from "../../../log";
 
-const logger = log.graph.from("intent.graph.ts");
+const logger = log.lib.from("lib/protocol/graphs/intent/intent.graph.ts");
 
 /**
  * Factory class to build and compile the Intent Processing Graph.

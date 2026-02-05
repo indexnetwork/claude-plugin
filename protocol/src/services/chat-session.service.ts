@@ -3,7 +3,7 @@ import { chatSessions, chatMessages } from '../schemas/database.schema';
 import { eq, desc } from 'drizzle-orm';
 import { log } from '../lib/log';
 
-const logger = log.service.from('chat-session.service.ts');
+const logger = log.service.from("services/chat-session.service.ts");
 
 /**
  * Generates a Snowflake-like ID for chat messages.

@@ -13,7 +13,7 @@ import type { ChatGraphCompositeDatabase } from "../../../interfaces/database.in
 import { selectStrategiesFromQuery } from "../chat.utils";
 import { log } from "../../../../log";
 
-const logger = log.graph?.from?.("discover.nodes") ?? console;
+const logger = log.lib.from("lib/protocol/graphs/chat/nodes/discover.nodes.ts");
 
 /** Compiled opportunity graph (from OpportunityGraph.compile()). */
 export type CompiledOpportunityGraph = ReturnType<
@@ -93,7 +93,7 @@ export async function runDiscoverFromQuery(
   }
 
   const strategies = selectStrategiesFromQuery(query);
-  logger.info?.("[Discover] Running discovery from query", {
+  logger.info("[Discover] Running discovery from query", {
     userId,
     queryPreview: query.substring(0, 50),
     strategies,
@@ -155,7 +155,7 @@ export async function runDiscoverFromQuery(
     const errMessage = err instanceof Error ? err.message : String(err);
     const errCause = err instanceof Error && err.cause ? String(err.cause) : undefined;
     const errStack = err instanceof Error ? err.stack : undefined;
-    logger.error?.("[Discover] Discovery failed", {
+    logger.error("[Discover] Discovery failed", {
       userId,
       error: err,
       message: errMessage,

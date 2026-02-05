@@ -2,6 +2,8 @@ import { Job } from 'bullmq';
 import { QueueFactory } from '../lib/bullmq/bullmq';
 import { log } from '../lib/log';
 import type { NotificationJobData, NotificationPriority } from './notification.types';
+
+const logger = log.queue.from("queues/notification.queue.ts");
 import { processOpportunityNotification } from '../jobs/notification.job';
 
 export const QUEUE_NAME = 'notification-queue';
@@ -23,7 +25,7 @@ async function notificationProcessor(job: Job<NotificationJobData>) {
   if (job.name === 'process_opportunity_notification') {
     await processOpportunityNotification(job.data);
   } else {
-    log.warn(`[NotificationProcessor] Unknown job name: ${job.name}`);
+    logger.warn(`[NotificationProcessor] Unknown job name: ${job.name}`);
   }
 }
 

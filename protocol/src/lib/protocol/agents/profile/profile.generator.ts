@@ -7,7 +7,7 @@ import { config } from "dotenv";
 
 config({ path: '.env.development', override: true });
 
-const logger = log.agent.from("profile.generator.ts");
+const logger = log.lib.from("lib/protocol/agents/profile/profile.generator.ts");
 
 const model = new ChatOpenAI({
   model: 'google/gemini-2.5-flash',

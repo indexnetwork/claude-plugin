@@ -9,7 +9,7 @@ import { IntentIndexer } from "../../agents/index/intent.indexer";
 import { IndexGraphDatabase } from "../../interfaces/database.interface";
 import { log } from "../../../log";
 
-const logger = log.graph.from("index.graph.ts");
+const logger = log.lib.from("lib/protocol/graphs/index/index.graph.ts");
 const QUALIFICATION_THRESHOLD = 0.7;
 
 /**

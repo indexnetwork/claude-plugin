@@ -4,7 +4,7 @@ import { tool } from "@langchain/core/tools";
 import { z } from "zod";
 import { log } from "../../../../log";
 
-const logger = log.agent.from("ExplicitIntentInferrer");
+const logger = log.lib.from("lib/protocol/agents/intent/inferrer/explicit.inferrer.ts");
 
 /**
  * Config

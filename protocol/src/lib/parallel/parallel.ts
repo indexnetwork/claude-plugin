@@ -1,5 +1,6 @@
 import Parallel from 'parallel-web';
 import { log } from '../log';
+const logger = log.lib.from("lib/parallel/parallel.ts");
 
 const PARALLEL_API_URL = 'https://api.parallel.ai/v1beta/search';
 const PARALLELS_API_KEY = process.env.PARALLELS_API_KEY || '';
@@ -104,7 +105,7 @@ export async function extractUrlContent(url: string, options?: ExtractUrlContent
   const objective = options?.objective?.trim() || 'all';
 
   try {
-    log.info('Extracting URL content', { url, hasObjective: !!options?.objective });
+    logger.info('Extracting URL content', { url, hasObjective: !!options?.objective });
     
     const extract = await parallelClient.beta.extract({
       urls: [url],
@@ -118,17 +119,17 @@ export async function extractUrlContent(url: string, options?: ExtractUrlContent
       },
     });
     
-    log.info('Parallel extract response received', { url, resultsCount: extract.results?.length || 0 });
+    logger.info('Parallel extract response received', { url, resultsCount: extract.results?.length || 0 });
     
     if (extract.results && extract.results.length > 0) {
       const result = extract.results[0];
       // Access content from result - check common property names
       const content = (result as any).content || (result as any).excerpts?.[0] || (result as any).excerpt || (result as any).markdown || null;
-      log.info('Extracted content', { url, contentLength: content?.length || 0, resultKeys: Object.keys(result) });
+      logger.info('Extracted content', { url, contentLength: content?.length || 0, resultKeys: Object.keys(result) });
       return content;
     }
 
-    log.warn('No results in extract response', { url, extract });
+    logger.warn('No results in extract response', { url, extract });
     return null;
   } catch (error) {
     const errorDetails = error instanceof Error ? {
@@ -136,7 +137,7 @@ export async function extractUrlContent(url: string, options?: ExtractUrlContent
       name: error.name,
       stack: error.stack,
     } : { error };
-    log.error('Failed to extract URL content', { url, error: errorDetails });
+    logger.error('Failed to extract URL content', { url, error: errorDetails });
     return null;
   }
 }

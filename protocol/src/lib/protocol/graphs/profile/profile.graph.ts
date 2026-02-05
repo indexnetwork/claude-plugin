@@ -7,7 +7,7 @@ import { Embedder } from "../../interfaces/embedder.interface";
 import { Scraper } from "../../interfaces/scraper.interface";
 import { log } from "../../../log";
 
-const logger = log.graph.from("profile.graph.ts");
+const logger = log.lib.from("lib/protocol/graphs/profile/profile.graph.ts");
 
 /** Minimum length for input to be considered meaningful (e.g. not just "Yes") */
 const MIN_MEANINGFUL_INPUT_LENGTH = 20;

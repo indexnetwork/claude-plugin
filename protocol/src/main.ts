@@ -11,7 +11,7 @@ import { log } from './lib/log';
 const PORT = 3003;
 const GLOBAL_PREFIX = '/v2';
 
-const logger = log.server.from('main.ts');
+const logger = log.server.from("main.ts");
 
 /** Match pathname against a route pattern with :param placeholders; returns params or null. */
 function matchPath(pattern: string, pathname: string): Record<string, string> | null {

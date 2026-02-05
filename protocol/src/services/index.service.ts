@@ -4,6 +4,8 @@ import { log } from '../lib/log';
 import { indexes, indexMembers, intents, intentIndexes } from '../schemas/database.schema';
 import { eq, and, isNull } from 'drizzle-orm';
 
+const logger = log.service.from("services/index.service.ts");
+
 const PERSONAL_INDEX_TITLE = 'My Own Private Index';
 
 /** Default permissions for personal index: private, no invitation link. */
@@ -33,7 +35,7 @@ export class IndexService {
    * @returns List of Index IDs.
    */
   async getEligibleIndexesForUser(userId: string) {
-    log.info('[IndexService] Getting eligible indexes for user', { userId });
+    logger.info('[IndexService] Getting eligible indexes for user', { userId });
     return await db
       .select({ id: indexes.id })
       .from(indexes)
@@ -55,7 +57,7 @@ export class IndexService {
    * @returns List of { intentId, userId }.
    */
   async getIntentsForIndexMembers(indexId: string) {
-    log.info('[IndexService] Getting intents for index members', { indexId });
+    logger.info('[IndexService] Getting intents for index members', { indexId });
     return await db
       .select({ intentId: intents.id, userId: intents.userId })
       .from(intents)
@@ -117,11 +119,11 @@ export class IndexService {
     });
 
     if (!result.success) {
-      log.error('Failed to add owner to personal index', { userId, indexId: newIndex.id, error: result.error });
+      logger.error('Failed to add owner to personal index', { userId, indexId: newIndex.id, error: result.error });
       throw new Error(result.error ?? 'Failed to add owner to personal index');
     }
 
-    log.info('Created personal index for user', { userId, indexId: newIndex.id });
+    logger.info('Created personal index for user', { userId, indexId: newIndex.id });
     return newIndex.id;
   }
 
