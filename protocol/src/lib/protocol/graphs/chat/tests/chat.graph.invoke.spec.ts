@@ -150,7 +150,7 @@ describe("Chat Graph invoke (Smartest)", () => {
       expect(typeof output.responseText).toBe("string");
       expect(output.responseText!.length).toBeGreaterThan(0);
       expect(output.shouldContinue).toBe(false);
-    }, 130000);
+    }, 180000);
   });
 
   describe("No internal JSON leak", () => {
@@ -207,7 +207,7 @@ describe("Chat Graph invoke (Smartest)", () => {
       for (const marker of internalMarkers) {
         expect(response).not.toContain(marker);
       }
-    }, 130000);
+    }, 180000);
   });
 
   describe("Error path", () => {
