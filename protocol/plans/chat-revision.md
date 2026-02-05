@@ -909,7 +909,12 @@ if (state.pendingConfirmation && !input.confirmed) {
 
 **Problem:** No analysis of performance impact.
 
-**Expected impact:**
+**Implemented on branch (test stability / context size):**
+- **Chat agent:** `maxTokens: 4096` on the chat model to avoid `LengthFinishReasonError` when the model exceeds output limits.
+- **Discover (find_opportunities):** `runDiscoverFromQuery` truncates `bio` and `matchReason` to 100 chars per field in returned candidates so tool results do not bloat the agent context; tool description notes concise summaries and points to `list_my_opportunities` for full details.
+- **Smartest E2E:** Verifier default model set to Flash; chat-graph output passed to verifier as `responseText`/`error` only (messages omitted) so the judge evaluates the final reply; verifier `maxTokens` increased to 1024.
+
+**Expected impact (phases):**
 - **Phase 2:** +1 DB query per `create_intent` when index-scoped (fetch intents in index). Query is indexed on `(user_id, index_id)`. Negligible latency.
 - **Phase 3:** No additional queries (index passed through state).
 - **Phase 4:** Confirmation adds 1 extra roundtrip per update/delete. Acceptable for destructive actions that require user consent.
