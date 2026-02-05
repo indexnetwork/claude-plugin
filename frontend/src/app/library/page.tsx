@@ -414,8 +414,8 @@ export default function LibraryPage() {
                 <Loader2 className="h-6 w-6 animate-spin text-gray-400" />
               </div>
             ) : integrations.length === 0 ? (
-              <div className="text-sm text-gray-500 py-4 text-center">
-                No integrations available
+              <div className="text-sm text-gray-500 font-ibm-plex-mono py-12 text-center border border-dashed border-gray-200 rounded-lg">
+                <p>No integrations available</p>
               </div>
             ) : (
               <div className="space-y-2 w-full">
@@ -482,8 +482,8 @@ export default function LibraryPage() {
                 <Loader2 className="h-6 w-6 animate-spin text-gray-400" />
               </div>
             ) : files.length === 0 ? (
-              <div className="text-sm text-gray-500 py-4 text-center">
-                No files yet
+              <div className="text-sm text-gray-500 font-ibm-plex-mono py-12 text-center border border-dashed border-gray-200 rounded-lg">
+                <p>No files yet</p>
               </div>
             ) : (
               <div className="space-y-2 w-full">
@@ -525,8 +525,8 @@ export default function LibraryPage() {
                 <Loader2 className="h-6 w-6 animate-spin text-gray-400" />
               </div>
             ) : links.length === 0 ? (
-              <div className="text-sm text-gray-500 py-4 text-center">
-                No links yet
+              <div className="text-sm text-gray-500 font-ibm-plex-mono py-12 text-center border border-dashed border-gray-200 rounded-lg">
+                <p>No links yet</p>
               </div>
             ) : (
               <div className="space-y-2 w-full">

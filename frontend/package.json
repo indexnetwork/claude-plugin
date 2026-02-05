@@ -9,6 +9,7 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.939.0",
     "@assistant-ui/react": "^0.11.53",
     "@heroicons/react": "^2.2.0",
     "@lobehub/icons": "^2.45.0",
@@ -36,6 +37,7 @@
     "react-dropzone": "^14.3.8",
     "react-layout-kit": "^1.9.1",
     "react-markdown": "^10.1.0",
+    "react-mentions": "^4.4.10",
     "react-syntax-highlighter": "^16.1.0",
     "react-typed": "^2.0.12",
     "remark-gfm": "^4.0.1",
@@ -51,6 +53,7 @@
     "@types/node": "^20.17.44",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@types/react-mentions": "^4.1.13",
     "eslint": "^9.39.1",
     "eslint-config-next": "15.5.9",
     "tailwindcss": "^4.1.18",

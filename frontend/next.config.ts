@@ -31,19 +31,19 @@ const nextConfig: NextConfig = {
         protocol: 'https',
         hostname: 'index.network',
         port: '',
-        pathname: '/uploads/**',
+        pathname: '/**',
       },
       {
         protocol: 'https',
         hostname: 'dev.index.network',
         port: '',
-        pathname: '/uploads/**',
+        pathname: '/**',
       },
       {
         protocol: 'http',
         hostname: 'localhost',
         port: '3001',
-        pathname: '/uploads/**',
+        pathname: '/**',
       },
       {
         protocol: 'https',
@@ -55,6 +55,11 @@ const nextConfig: NextConfig = {
         protocol: 'https',
         hostname: 'avatars.slack-edge.com',
         port: '',
+        pathname: '/**',
+      },
+      {
+        protocol: 'https',
+        hostname: '**.storageapi.dev',
         pathname: '/**',
       }
     ],

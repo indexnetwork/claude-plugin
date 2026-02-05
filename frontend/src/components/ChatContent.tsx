@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ArrowUp, Loader2, Pencil, Paperclip, X, Globe, Zap, Type, ChevronDown, Lock, ChevronLeft, Bot, Hourglass, Telescope, Route } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { MentionsTextInput } from '@/components/MentionsInput';
 import { useAIChat } from '@/contexts/AIChatContext';
 import { useUploadServiceV2 } from '@/services/v2/upload.service';
 import { useNotifications } from '@/contexts/NotificationContext';
@@ -24,6 +24,7 @@ import { useIndexesState } from '@/contexts/IndexesContext';
 import { useSuggestions } from '@/hooks/useSuggestions';
 import Image from 'next/image';
 import { getAvatarUrl } from '@/lib/file-utils';
+import { mentionsToMarkdownLinks } from '@/lib/mentions';
 
 /**
  * Static home discovery data (no remote calls). Realistic placeholder names and avatars.
@@ -564,14 +565,13 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
         >
           <Paperclip className="h-4 w-4" />
         </Button>
-        <Input
-          ref={inputRef}
+        <MentionsTextInput
           value={input}
-          onChange={(e) => setInput(e.target.value)}
+          onChange={setInput}
           placeholder="What are you looking for?"
           disabled={isBusy}
           autoFocus
-          className="flex-1 border-0 bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0 placeholder:text-[#3D3D3D]"
+          inputRef={inputRef}
         />
         <Button
           type="submit"
@@ -668,14 +668,13 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
             >
               <Paperclip className="h-4 w-4" />
             </Button>
-            <Input
-              ref={inputRef}
+            <MentionsTextInput
               value={input}
-              onChange={(e) => setInput(e.target.value)}
+              onChange={setInput}
               placeholder="What are you looking for?"
               disabled={isBusy}
               autoFocus
-              className="flex-1 border-0 bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0 placeholder:text-[#3D3D3D]"
+              inputRef={inputRef}
             />
             
             {/* Index dropdown - left of submit */}
@@ -1167,7 +1166,7 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
                         msg.role === 'user' && 'chat-markdown-invert'
                       )}>
                         <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                          {msg.content}
+                          {mentionsToMarkdownLinks(msg.content)}
                         </ReactMarkdown>
                       </article>
                       {msg.role === 'user' && msg.attachmentNames && msg.attachmentNames.length > 0 && (
