@@ -80,23 +80,37 @@ export async function searchUser(request: ParallelSearchRequest): Promise<Parall
 }
 
 /**
+ * Options for URL content extraction (objective-aware scraping).
+ */
+export interface ExtractUrlContentOptions {
+  /**
+   * Optional natural-language objective (e.g. "create an intent from this project/repo",
+   * "update my profile from this page"). When provided, the extract API may tailor content.
+   */
+  objective?: string;
+}
+
+/**
  * Extracts content from a URL using Parallel.ai API.
  * @param url The URL to extract content from
+ * @param options Optional. Pass objective to get content tailored for intent or profile use.
  * @returns The extracted content as a string, or null if extraction failed
  */
-export async function extractUrlContent(url: string): Promise<string | null> {
+export async function extractUrlContent(url: string, options?: ExtractUrlContentOptions): Promise<string | null> {
   if (!PARALLELS_API_KEY) {
     throw new Error('PARALLELS_API_KEY not configured');
   }
 
+  const objective = options?.objective?.trim() || 'all';
+
   try {
-    log.info('Extracting URL content', { url });
+    log.info('Extracting URL content', { url, hasObjective: !!options?.objective });
     
     const extract = await parallelClient.beta.extract({
       urls: [url],
       excerpts: true,
       full_content: true,
-      objective: 'all',
+      objective,
       fetch_policy: {
         disable_cache_fallback: false,
         max_age_seconds: 5184000, // 60 days
