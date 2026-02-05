@@ -185,14 +185,11 @@ export class ChatController {
     const useCheckpointer = body.useCheckpointer ?? false;
     const indexIdForStream = effectiveIndexId;
 
-    // 3. Save user message
-    await chatSessionService.addMessage({
-      sessionId,
-      role: 'user',
-      content: messageContent,
-    });
+    // User message is persisted after the stream completes (with the assistant response) so that
+    // loadSessionContext during streaming does not include it and the current message is not
+    // duplicated in the conversation context (which caused "You've listed the same project twice!").
 
-    // 4. Get checkpointer if requested
+    // 3. Get checkpointer if requested
     let checkpointer: PostgresSaver | undefined;
     if (useCheckpointer) {
       try {
@@ -206,7 +203,7 @@ export class ChatController {
       }
     }
 
-    // 5. Create SSE stream
+    // 4. Create SSE stream
     const encoder = new TextEncoder();
     
     const stream = new ReadableStream({
@@ -247,7 +244,12 @@ export class ChatController {
             }
           }
 
-          // Save assistant response
+          // Persist user message and assistant response so loadSessionContext on the next turn sees them
+          await chatSessionService.addMessage({
+            sessionId,
+            role: 'user',
+            content: messageContent,
+          });
           await chatSessionService.addMessage({
             sessionId,
             role: 'assistant',
