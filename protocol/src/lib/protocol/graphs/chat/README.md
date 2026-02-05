@@ -182,7 +182,7 @@ The agent has access to 15 tools, organized by domain:
 |------|---------|-------------|
 | `get_active_intents` | List user's goals/wants | "What are my intents?", "Show my goals" |
 | `get_intents_in_index` | List intents in an index | "What intents are in this community?" |
-| `create_intent` | Create new intent | "I want to learn Rust", "Looking for a co-founder" |
+| `create_intent` | Create new intent | "I want to learn Rust", "Looking for a co-founder". Optional `indexId`: when the user is acting in a specific index (e.g. "add my intent in YC Founders"), pass the index ID so reconciliation is index-scoped (Phase 2). |
 | `update_intent` | Modify existing intent | "Change that goal to...", "Update my coding intent" |
 | `delete_intent` | Remove an intent | "Delete that goal", "Remove my learning intent" |
 

@@ -1027,11 +1027,12 @@ export type IntentExecutorDatabase = Pick<
 
 /**
  * Database interface narrowed for Intent Graph operations.
- * Provides state population (getActiveIntents) and action execution (create/update/archive).
+ * Provides state population (getActiveIntents or getIntentsInIndexForMember when index-scoped)
+ * and action execution (create/update/archive).
  */
 export type IntentGraphDatabase = Pick<
   Database,
-  'getActiveIntents' | 'createIntent' | 'updateIntent' | 'archiveIntent'
+  'getActiveIntents' | 'getIntentsInIndexForMember' | 'createIntent' | 'updateIntent' | 'archiveIntent'
 >;
 
 /**

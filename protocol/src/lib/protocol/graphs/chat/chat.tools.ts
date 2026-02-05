@@ -35,6 +35,8 @@ export interface ToolContext {
   database: ChatGraphCompositeDatabase;
   embedder: Embedder;
   scraper: Scraper;
+  /** When set, chat is scoped to this index; tools use it as default for get_intents_in_index and create_intent. */
+  indexId?: string;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -236,22 +238,27 @@ export function createChatTools(context: ToolContext) {
 
   const getActiveIntents = tool(
     async () => {
-      logger.info("Tool: get_active_intents", { userId });
-      
+      const scopeIndexId = context.indexId?.trim();
+      logger.info("Tool: get_active_intents", { userId, indexId: scopeIndexId ?? undefined });
+
       try {
-        const intents = await database.getActiveIntents(userId);
-        
+        const intents = scopeIndexId
+          ? await database.getIntentsInIndexForMember(userId, scopeIndexId)
+          : await database.getActiveIntents(userId);
+
         if (intents.length === 0) {
           return success({
             count: 0,
             intents: [],
-            message: "You don't have any active intents yet. Share your goals or what you're looking for, and I'll help track them."
+            message: scopeIndexId
+              ? "You don't have any intents in this index yet. Add one and I'll list it here."
+              : "You don't have any active intents yet. Share your goals or what you're looking for, and I'll help track them."
           });
         }
 
         return success({
           count: intents.length,
-          intents: intents.map(i => ({
+          intents: intents.map((i) => ({
             id: i.id,
             description: i.payload,
             summary: i.summary,
@@ -265,7 +272,8 @@ export function createChatTools(context: ToolContext) {
     },
     {
       name: "get_active_intents",
-      description: "Fetches all of the user's active intents (goals, wants, needs). Returns a list of intents with their descriptions and summaries.",
+      description:
+        "Fetches the user's active intents (goals, wants, needs). When the conversation is scoped to an index, returns only intents in that index; otherwise returns all active intents. Returns a list with id, description, summary, createdAt.",
       schema: z.object({})
     }
   );
@@ -299,8 +307,8 @@ export function createChatTools(context: ToolContext) {
   );
 
   const createIntent = tool(
-    async (args: { description: string }) => {
-      logger.info("Tool: create_intent", { userId, description: args.description.substring(0, 50) });
+    async (args: { description: string; indexId?: string }) => {
+      logger.info("Tool: create_intent", { userId, description: args.description.substring(0, 50), indexId: args.indexId });
       
       try {
         let inputContent = args.description;
@@ -329,11 +337,13 @@ export function createChatTools(context: ToolContext) {
         // Get user profile for context
         const profile = await database.getProfile(userId);
         
+        const effectiveIndexId = args.indexId?.trim() || context.indexId?.trim() || undefined;
         const intentInput = {
           userId,
           userProfile: profile ? JSON.stringify(profile) : "",
           inputContent,
-          operationMode: 'create' as const
+          operationMode: 'create' as const,
+          ...(effectiveIndexId ? { indexId: effectiveIndexId } : {})
         };
 
         const result = await intentGraph.invoke(intentInput);
@@ -347,17 +357,26 @@ export function createChatTools(context: ToolContext) {
             description: r.payload || args.description
           }));
 
-        // Auto-index created intents
+        // Assign created intents to indexes. When the user explicitly chose one index (effectiveIndexId), force-assign
+        // so the intent always appears in that index. When no index is set, run the index graph so the LLM decides
+        // which of the user's indexes each intent qualifies for.
         if (created.length > 0) {
-          const indexIds = await database.getUserIndexIds(userId);
-          if (indexIds.length > 0) {
-            const indexGraph = new IndexGraphFactory(database).createGraph();
+          const scopeIndexIds = effectiveIndexId
+            ? [effectiveIndexId]
+            : await database.getUserIndexIds(userId);
+          if (scopeIndexIds.length > 0) {
+            const forceAssignSingleIndex = scopeIndexIds.length === 1;
+            const indexGraph = forceAssignSingleIndex ? null : new IndexGraphFactory(database).createGraph();
             for (const intent of created) {
-              for (const indexId of indexIds) {
+              for (const indexId of scopeIndexIds) {
                 try {
-                  await indexGraph.invoke({ intentId: intent.id, indexId });
+                  if (forceAssignSingleIndex) {
+                    await database.assignIntentToIndex(intent.id, indexId);
+                  } else {
+                    await indexGraph!.invoke({ intentId: intent.id, indexId });
+                  }
                 } catch (e) {
-                  logger.warn("Auto-indexing failed", { intentId: intent.id, indexId });
+                  logger.warn("Index assignment failed", { intentId: intent.id, indexId });
                 }
               }
             }
@@ -365,15 +384,11 @@ export function createChatTools(context: ToolContext) {
         }
 
         if (created.length > 0) {
-          const toolResult = success({
+          return success({
             created: true,
             intents: created,
             message: `Created ${created.length} intent(s)`
           });
-          // #region agent log
-          fetch('http://127.0.0.1:7242/ingest/9e8c82c7-69e7-439d-9a66-0d60a0032c44',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chat.tools.ts:create_intent:return',message:'H1: create_intent tool return value',data:{resultPreview:toolResult.substring(0,500),hasClassification:toolResult.includes('"classification"'),hasIndexScore:toolResult.includes('"indexScore"')},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1'})}).catch(()=>{});
-          // #endregion
-          return toolResult;
         }
 
         // Check if intents were inferred but not created (e.g., duplicates)
@@ -393,9 +408,10 @@ export function createChatTools(context: ToolContext) {
     },
     {
       name: "create_intent",
-      description: "Creates a new intent (goal, want, or need) for the user. Pass a concept-based description: what they want to achieve or find, in human-readable terms. If the user includes URLs (e.g. a repo or project link), include them in the description—the tool will scrape those URLs for context so the intent can be inferred from the actual project/content. Do not embed only raw URLs; describe the goal (e.g. 'Hiring developers for an open-source intent-driven discovery protocol' rather than just 'Hire developers for https://...').",
+      description: "Creates a new intent (goal, want, or need) for the user. Pass a concept-based description: what they want to achieve or find, in human-readable terms. If the user includes URLs (e.g. a repo or project link), include them in the description—the tool will scrape those URLs for context so the intent can be inferred from the actual project/content. Do not embed only raw URLs; describe the goal (e.g. 'Hiring developers for an open-source intent-driven discovery protocol' rather than just 'Hire developers for https://...'). When the user is clearly acting in a specific index/community (e.g. 'add my intent in YC Founders', 'my intents in Open Mock Network'), pass indexId so reconciliation is scoped to that index—use get_intents_in_index first if needed to get the index ID.",
       schema: z.object({
-        description: z.string().describe("The intent/goal in conceptual terms; may include URLs—they will be scraped for context")
+        description: z.string().describe("The intent/goal in conceptual terms; may include URLs—they will be scraped for context"),
+        indexId: z.string().optional().describe("Optional index (community) ID when the user is creating the intent in a specific index; enables index-scoped reconciliation")
       })
     }
   );

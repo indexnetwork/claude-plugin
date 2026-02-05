@@ -176,12 +176,14 @@ export class ChatGraphFactory {
       });
 
       try {
-        // Create agent with current user context
+        // Create agent with current user context (include indexId when chat is index-scoped)
+        const indexId = state.indexId;
         const agent = new ChatAgent({
           userId: state.userId,
           database,
           embedder,
-          scraper
+          scraper,
+          indexId,
         });
 
         // Run the agent loop

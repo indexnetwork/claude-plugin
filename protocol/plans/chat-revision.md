@@ -154,7 +154,7 @@ The chat agent can **read** intents by index (`get_intents_in_index`, `list_inde
 ### Goals for Phase 2
 
 1. **Centralize context and scope in the chat layer** — The chat agent owns "which index (if any) the user is acting in" and uses existing tools (`get_intents_in_index`, `get_active_intents`) to see current intents in scope before choosing create vs update.
-2. **Pass index into create_intent when relevant** — The chat tool `create_intent` accepts an optional **index** (e.g. `indexNameOrId?: string`). When the user is clearly in an index, the agent calls `create_intent(description, indexNameOrId)`.
+2. **Pass index into create_intent when relevant** — The chat tool `create_intent` accepts an optional **index** (e.g. `indexId?: string`). When the user is clearly in an index, the agent calls `create_intent(description, indexId)`.
 3. **Intent graph receives scope** — The intent graph accepts optional **index** (e.g. in state or invoke input). When index is provided, **prep** loads active intents **in that index** (e.g. `getIntentsInIndexForMember(userId, indexId)`) instead of `getActiveIntents(userId)`. Reconciliation then compares inferred intents to **index-scoped** intents, so update vs create is correct per index.
 4. **Single place for reconciliation logic** — Keep inference + reconciliation + execution in the intent graph; feed it the right scope from the chat layer so we don’t duplicate "same intent?" logic.
 
@@ -169,20 +169,20 @@ The chat agent can **read** intents by index (`get_intents_in_index`, `list_inde
 #### 1. Chat agent (orchestration)
 
 - **Prompt**: Instruct the agent to infer **index context** when the user refers to a community (e.g. "in YC Founders", "my intents in Open Mock Network"). When creating/updating intents, the agent should:
-  - If the user is clearly in an index: call `get_intents_in_index(indexNameOrId)` first to see intents in that index, then call `create_intent(description, indexNameOrId)` so the backend can scope reconciliation to that index.
+  - If the user is clearly in an index: call `get_intents_in_index(indexNameOrId)` first to see intents in that index, then call `create_intent(description, indexId)` so the backend can scope reconciliation to that index (pass the index ID from the context or from get_intents_in_index).
   - Optionally use `get_active_intents` when no index is implied (global scope).
 - No change to **who** decides create vs update: the **reconciler** still decides. The agent’s job is to pass the right **scope** (index when relevant) so the reconciler sees the right active-intent list.
 
 #### 2. Chat tool `create_intent`
 
-- **Signature**: Add optional `indexNameOrId?: string`.
+- **Signature**: Add optional `indexId?: string`.
 - **Behavior**: When invoking the intent graph, pass the optional index through (e.g. in the invoke payload). When absent, preserve current behavior (global active intents in prep).
 - **Auto-indexing**: Keep existing behavior: after create, add new intent(s) to user’s indexes as today. The index parameter is used for **reconciliation scope**, not only for "add to this index."
 
 #### 3. Intent graph (state and prep)
 
-- **State**: Add optional `indexId?: string` or `indexNameOrId?: string` to `IntentGraphState` (or equivalent in invoke input). Optional; default undefined = global.
-- **Prep node**: When `indexId` / `indexNameOrId` is set, load active intents **in that index** (e.g. use database method that returns intents for the user in that index, such as `getIntentsInIndexForMember(userId, indexNameOrId)`). When not set, keep `getActiveIntents(userId)`.
+- **State**: Add optional `indexId?: string` to `IntentGraphState` (or equivalent in invoke input). Optional; default undefined = global.
+- **Prep node**: When `indexId` is set, load active intents **in that index** (e.g. use database method that returns intents for the user in that index, such as `getIntentsInIndexForMember(userId, indexId)`). When not set, keep `getActiveIntents(userId)`.
 - **Interface**: `IntentGraphDatabase` (or the composite used by the chat tool) must expose a way to get "active intents for user in this index"; `getIntentsInIndexForMember` already exists for the chat tools and can be reused or mirrored for the graph’s database abstraction.
 - **Reconciler**: No schema change; it still receives `activeIntents` (formatted string). The only change is that `activeIntents` is now index-scoped when index was provided.
 
@@ -194,24 +194,24 @@ The chat agent can **read** intents by index (`get_intents_in_index`, `list_inde
 
 #### Step 1: Intent graph state and prep
 
-- [ ] **2.1** Add optional `indexNameOrId?: string` (or `indexId`) to intent graph input/state in `intent.graph.state.ts`.
-- [ ] **2.2** In `intent.graph.ts`, prep node: when `state.indexNameOrId` (or indexId) is set, call a database method to load active intents **in that index** for the user (e.g. `getIntentsInIndexForMember(userId, indexNameOrId)`). When not set, keep `getActiveIntents(userId)`. Ensure `IntentGraphDatabase` (or the adapter used by the graph) exposes the index-scoped getter if not already available.
+- [x] **2.1** Add optional `indexId?: string` to intent graph input/state in `intent.graph.state.ts`.
+- [x] **2.2** In `intent.graph.ts`, prep node: when `state.indexId` is set, call a database method to load active intents **in that index** for the user (e.g. `getIntentsInIndexForMember(userId, indexId)`). When not set, keep `getActiveIntents(userId)`. Ensure `IntentGraphDatabase` (or the adapter used by the graph) exposes the index-scoped getter if not already available.
 
 #### Step 2: Chat tool and agent
 
-- [ ] **2.3** In `chat.tools.ts`, update `create_intent`: add optional parameter `indexNameOrId?: string` to the tool schema and implementation. When provided, pass it in the payload to `intentGraph.invoke(...)`.
-- [ ] **2.4** In `chat.agent.ts`, update system prompt and tool description: when the user refers to an index (e.g. "add my intent in X", "my intents in Y"), the agent should call `get_intents_in_index` when useful and pass that index to `create_intent(description, indexNameOrId)` so reconciliation is index-scoped.
+- [x] **2.3** In `chat.tools.ts`, update `create_intent`: add optional parameter `indexId?: string` to the tool schema and implementation. When provided, pass it in the payload to `intentGraph.invoke(...)`.
+- [x] **2.4** In `chat.agent.ts`, update system prompt and tool description: when the user refers to an index (e.g. "add my intent in X", "my intents in Y"), the agent should call `get_intents_in_index` when useful and pass that index's ID to `create_intent(description, indexId)` so reconciliation is index-scoped.
 
 #### Step 3: Tests and docs
 
-- [ ] **2.5** Intent graph: test invoke with `indexNameOrId` set and verify prep loads index-scoped intents; test without index and verify global behavior unchanged.
-- [ ] **2.6** Chat tool: test `create_intent(description, indexNameOrId)` and verify intent graph receives index and reconciliation uses index-scoped list.
-- [ ] **2.7** Update `protocol/plans/chat-revision.md` and `protocol/src/lib/protocol/graphs/chat/README.md` (and intent graph README if present) to document index-scoped create flow and centralization of context in the chat layer.
+- [x] **2.5** Intent graph: test invoke with `indexId` set and verify prep loads index-scoped intents; test without index and verify global behavior unchanged.
+- [x] **2.6** Chat tool: test `create_intent(description, indexId)` and verify intent graph receives index and reconciliation uses index-scoped list.
+- [x] **2.7** Update `protocol/plans/chat-revision.md` and `protocol/src/lib/protocol/graphs/chat/README.md` (and intent graph README if present) to document index-scoped create flow and centralization of context in the chat layer.
 
 ### Success Criteria (Phase 2)
 
 - Chat agent prompt instructs passing index to `create_intent` when the user is acting in a specific index.
-- `create_intent` accepts optional `indexNameOrId` and passes it to the intent graph.
+- `create_intent` accepts optional `indexId` and passes it to the intent graph.
 - Intent graph prep loads **index-scoped** active intents when index is provided; reconciler output (create/update/expire) is based on that scope. When index is not provided, behavior remains global (backward compatible).
 - No duplicate reconciliation logic; single place (intent graph reconciler) with correct scope from the chat layer.
 
@@ -219,10 +219,10 @@ The chat agent can **read** intents by index (`get_intents_in_index`, `list_inde
 
 | File | Change |
 |------|--------|
-| `src/lib/protocol/graphs/intent/intent.graph.state.ts` | Add optional `indexNameOrId` (or `indexId`) to state/input. |
-| `src/lib/protocol/graphs/intent/intent.graph.ts` | Prep node: when index set, load intents via index-scoped getter; else `getActiveIntents(userId)`. |
+| `src/lib/protocol/graphs/intent/intent.graph.state.ts` | Add optional `indexId` to state/input. |
+| `src/lib/protocol/graphs/intent/intent.graph.ts` | Prep node: when indexId set, load intents via index-scoped getter; else `getActiveIntents(userId)`. |
 | `src/lib/protocol/interfaces/database.interface.ts` (or intent graph DB interface) | Ensure index-scoped getter for active intents is available to the graph (e.g. `getIntentsInIndexForMember` or equivalent). |
-| `src/lib/protocol/graphs/chat/chat.tools.ts` | Add optional `indexNameOrId` to `create_intent`; pass to intent graph invoke. |
+| `src/lib/protocol/graphs/chat/chat.tools.ts` | Add optional `indexId` to `create_intent`; pass to intent graph invoke. |
 | `src/lib/protocol/graphs/chat/chat.agent.ts` | Prompt and tool description for index context and when to pass index to `create_intent`. |
 | `src/lib/protocol/graphs/chat/README.md` | Document index-scoped create flow. |
 | Intent graph README / docs | Document optional index input and prep behavior. |
@@ -257,7 +257,7 @@ Allow callers to **initialize a chat run with an optional index** (e.g. when the
 
 **Tools that get optional index and default from context**
 
-- **`create_intent`** (Phase 2): If the agent omits `indexNameOrId` and `context.indexId` is set, use `context.indexId`. Otherwise use the value passed by the agent (or global).
+- **`create_intent`** (Phase 2): If the agent omits `indexId` and `context.indexId` is set, use `context.indexId`. Otherwise use the value passed by the agent (or global).
 - **`get_intents_in_index`**, **`list_index_intents`**, **`list_index_members`**, **`create_opportunity_between_members`**: Optional index parameter; when missing and `context.indexId` is set, use `context.indexId`.
 - **`find_opportunities`**: Add optional **`indexNameOrId?: string`**. When provided (or defaulted from `context.indexId`), pass that index as `indexScope` (e.g. `[indexId]`) instead of all memberships. So “find opportunities” in index-scoped chat means “in this index only.”
 - **`list_my_opportunities`**: Add optional **`indexNameOrId?: string`**. When provided (or defaulted from `context.indexId`), return only opportunities in that index (backend must support filtering by index).

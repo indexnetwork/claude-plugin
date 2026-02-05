@@ -68,6 +68,16 @@ export const ChatGraphState = Annotation.Root({
   userId: Annotation<string>,
 
   /**
+   * Optional index (community) ID when chat is scoped to a specific index.
+   * When set, the agent and tools use this as the current index (e.g. get_intents_in_index,
+   * create_intent with indexId, scope index assignment to this index only).
+   */
+  indexId: Annotation<string | undefined>({
+    reducer: (curr, next) => next ?? curr,
+    default: () => undefined,
+  }),
+
+  /**
    * Conversation history using LangGraph's built-in message reducer.
    * Includes: HumanMessage, AIMessage, ToolMessage, SystemMessage
    * Automatically handles message appending, ID management, and ordering.

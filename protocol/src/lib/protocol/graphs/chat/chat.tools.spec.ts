@@ -154,6 +154,59 @@ describe("get_intents_in_index tool", () => {
   });
 });
 
+describe("get_active_intents tool", () => {
+  const globalIntents: ActiveIntent[] = [
+    { id: "g1", payload: "Global intent A", summary: "A", createdAt: new Date("2025-01-01") },
+    { id: "g2", payload: "Global intent B", summary: "B", createdAt: new Date("2025-01-02") },
+  ];
+  const indexScopedIntents: ActiveIntent[] = [
+    { id: "i1", payload: "Intent in index only", summary: "Index", createdAt: new Date("2025-01-03") },
+  ];
+
+  test("without context.indexId calls getActiveIntents and returns all intents", async () => {
+    let getActiveIntentsCalled = false;
+    const mockDb = createMockDatabase(async () => []);
+    const dbWithSpy = {
+      ...mockDb,
+      getActiveIntents: async (uid: string) => {
+        getActiveIntentsCalled = true;
+        expect(uid).toBe(testUserId);
+        return globalIntents;
+      },
+    };
+    const context: ToolContext = { userId: testUserId, database: dbWithSpy, embedder: mockEmbedder, scraper: mockScraper };
+    const tools = createChatTools(context);
+    const tool = tools.find((t: { name: string }) => t.name === "get_active_intents") as { invoke: (args: Record<string, never>) => Promise<string> };
+    const result = await tool.invoke({});
+    expect(getActiveIntentsCalled).toBe(true);
+    const parsed = JSON.parse(result);
+    expect(parsed.success).toBe(true);
+    expect(parsed.data.count).toBe(2);
+    expect(parsed.data.intents).toHaveLength(2);
+    expect(parsed.data.intents[0]).toMatchObject({ id: "g1", description: "Global intent A" });
+  });
+
+  test("with context.indexId calls getIntentsInIndexForMember and returns index-scoped intents", async () => {
+    const indexId = "idx-open-mock";
+    let getIntentsInIndexForMemberCalled = false;
+    const mockDb = createMockDatabase(async (uid, indexNameOrId) => {
+      getIntentsInIndexForMemberCalled = true;
+      expect(uid).toBe(testUserId);
+      expect(indexNameOrId).toBe(indexId);
+      return indexScopedIntents;
+    });
+    const context: ToolContext = { userId: testUserId, database: mockDb, embedder: mockEmbedder, scraper: mockScraper, indexId };
+    const tools = createChatTools(context);
+    const tool = tools.find((t: { name: string }) => t.name === "get_active_intents") as { invoke: (args: Record<string, never>) => Promise<string> };
+    const result = await tool.invoke({});
+    expect(getIntentsInIndexForMemberCalled).toBe(true);
+    const parsed = JSON.parse(result);
+    expect(parsed.success).toBe(true);
+    expect(parsed.data.count).toBe(1);
+    expect(parsed.data.intents[0]).toMatchObject({ id: "i1", description: "Intent in index only" });
+  });
+});
+
 describe("list_index_members tool", () => {
   const memberIndexId = "a1b2c3d4-0000-4000-8000-000000000001";
   const mockMembers: IndexMemberDetails[] = [
@@ -273,6 +326,18 @@ describe("list_index_intents tool", () => {
     expect(capturedOptions).toBeDefined();
     expect(capturedOptions?.limit).toBe(10);
     expect(capturedOptions?.offset).toBe(5);
+  });
+});
+
+describe("create_intent tool (Phase 2 index scope)", () => {
+  test("create_intent tool schema includes optional indexId", () => {
+    const mockDb = createMockDatabase(async () => []);
+    const context: ToolContext = { userId: testUserId, database: mockDb, embedder: mockEmbedder, scraper: mockScraper };
+    const tools = createChatTools(context);
+    const createIntentTool = tools.find((t: { name: string }) => t.name === "create_intent");
+    expect(createIntentTool).toBeDefined();
+    const schema = (createIntentTool as { schema?: { shape?: Record<string, unknown> } }).schema;
+    expect(schema?.shape?.indexId ?? (createIntentTool as { schema?: { schema?: { shape?: Record<string, unknown> } } }).schema?.schema?.shape?.indexId).toBeDefined();
   });
 });
 

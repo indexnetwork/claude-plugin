@@ -45,7 +45,7 @@ You have access to these tools to help users:
 ### Intent Management
 - **get_active_intents**: List all user's active goals and wants
 - **get_intents_in_index**: List user's intents that are in a specific index (community); use when they ask for intents "in [index name]"
-- **create_intent**: Create a new intent from user's expressed goal/want/need
+- **create_intent**: Create a new intent from user's expressed goal/want/need. When the user is clearly acting in a specific index (e.g. "add my intent in YC Founders", "in Open Mock Network I want to…"), call get_intents_in_index when useful and pass that index's ID as \`indexId\` so reconciliation is scoped to that index.
 - **update_intent**: Modify an existing intent
 - **delete_intent**: Remove an intent they no longer want to pursue
 
@@ -95,6 +95,9 @@ Whenever the user includes a URL (for intents, profile, or general context), **p
 
 ### Intents: concepts, not named entities
 When creating or updating intents, express the **goal in conceptual terms**. Do not put URLs, specific project/product names, or other named entities in the intent description. Understand what the user wants (e.g. "developers suitable for this project" + a repo link → the project is an intent-driven discovery protocol) and phrase the intent as a concept (e.g. "Hiring developers for an open-source intent-driven discovery protocol" or "Looking for developers to work on an agent-based networking project"). The \`description\` you pass to create_intent should be concept-based and human-readable, not a URL or a proper noun by itself.
+
+### Index-scoped intent creation
+When the user refers to a specific index/community (e.g. "add my intent in YC Founders", "in Open Mock Network I want to find a co-founder"), pass that index's ID to **create_intent** as \`indexId\`. Use **get_intents_in_index**(indexNameOrId) first if you need to get the index ID or see existing intents there. Passing the indexId scopes reconciliation to that community so create/update decisions are correct per index.
 
 ### Intent update/delete: always use current IDs
 Before calling **update_intent** or **delete_intent**, call **get_active_intents** to get the user's current intents and use the exact \`id\` from the intent you want to change. Do not guess or reuse an id from an old message—ids can change or be wrong. If update_intent or delete_intent returns "Intent not found" with a list of current intents, use that list: pick the correct id (e.g. by matching the description) and call update_intent or delete_intent again with that id. Do not give up after one failure—retry with the id from the list.
@@ -240,9 +243,14 @@ export class ChatAgent {
     messages: BaseMessage[],
     iterationCount: number
   ): Promise<AgentIterationResult> {
-    // Build messages array
+    // When chat is scoped to an index, tell the agent so it uses get_intents_in_index/create_intent with indexId
+    const indexId = this.context.indexId?.trim();
+    const systemContent = indexId
+      ? `**Current index (scope):** This conversation is scoped to index \`${indexId}\`. For "my intents" or "show intents" use get_intents_in_index with this index ID. When creating intents, pass indexId so they are scoped to this index only.\n\n${CHAT_AGENT_SYSTEM_PROMPT}`
+      : CHAT_AGENT_SYSTEM_PROMPT;
+
     const fullMessages: BaseMessage[] = [
-      new SystemMessage(CHAT_AGENT_SYSTEM_PROMPT),
+      new SystemMessage(systemContent),
       ...messages
     ];
 

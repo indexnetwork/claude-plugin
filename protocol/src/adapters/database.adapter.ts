@@ -304,7 +304,9 @@ export class ChatDatabaseAdapter {
       indexId = match?.indexId ?? null;
     }
 
-    if (!indexId) return [];
+    if (!indexId) {
+      return [];
+    }
 
     try {
       const result = await db

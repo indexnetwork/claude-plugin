@@ -131,9 +131,9 @@ export class ChatController {
   @UseGuards(AuthGuard)
   async messageStream(req: Request, user: AuthenticatedUser): Promise<Response> {
     // 1. Parse request body
-    let body: { message?: string; sessionId?: string; useCheckpointer?: boolean; fileIds?: string[] };
+    let body: { message?: string; sessionId?: string; useCheckpointer?: boolean; fileIds?: string[]; indexId?: string };
     try {
-      body = await req.json() as { message?: string; sessionId?: string; useCheckpointer?: boolean; fileIds?: string[] };
+      body = await req.json() as { message?: string; sessionId?: string; useCheckpointer?: boolean; fileIds?: string[]; indexId?: string };
     } catch {
       return Response.json(
         { error: 'Invalid request body. Expected { message: string, sessionId?: string, useCheckpointer?: boolean, fileIds?: string[] }' },
@@ -212,12 +212,14 @@ export class ChatController {
           let subgraphResults: Record<string, unknown> | undefined;
 
           // Use context-aware streaming to load previous messages
+          const indexId = typeof body.indexId === 'string' && body.indexId.trim() ? body.indexId.trim() : undefined;
           for await (const event of factory.streamChatEventsWithContext(
             {
               userId: user.id,
               message: messageContent,
               sessionId,
               maxContextMessages: 20,
+              indexId,
             },
             checkpointer
           )) {
