@@ -22,6 +22,7 @@ const logger = log.graph.from("chat.streaming.ts");
 const TOOL_DESCRIPTIONS: Record<string, string> = {
   get_user_profile: "Checking your profile...",
   update_user_profile: "Updating your profile...",
+  get_intents: "Fetching your intents...",
   get_active_intents: "Fetching your intents...",
   get_intents_in_index: "Fetching intents in that index...",
   create_intent: "Creating new intent...",
