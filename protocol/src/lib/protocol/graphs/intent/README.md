@@ -12,7 +12,7 @@ The Intent graph extracts intents from raw content, verifies them with a semanti
 
 **Nodes:**
 
-1. **prep**: Load active intents for the user (for reconciler context). When `indexId` is set, loads intents in that index via `getIntentsInIndexForMember`; otherwise uses `getActiveIntents` (global).
+1. **prep**: Load active intents for the user (for reconciler context). When `indexId` is set, loads intents in that index via `getIntentsInIndexForMember`; otherwise uses `getActiveIntents` (global scope).
 2. **inference**: `ExplicitIntentInferrer` extracts intents from `inputContent` (and optional conversation context).
 3. **verification**: `SemanticVerifier` checks each intent (felicity conditions); invalid types are dropped.
 4. **reconciler**: `IntentReconciler` decides actions: create, update, expire.
@@ -27,7 +27,7 @@ The Intent graph extracts intents from raw content, verifies them with a semanti
 
 - **database**: `IntentGraphDatabase` with:
   - `getActiveIntents(userId)` — global active intents (used when no index scope)
-  - `getIntentsInIndexForMember(userId, indexNameOrId)` — index-scoped active intents (Phase 2)
+  - `getIntentsInIndexForMember(userId, indexNameOrId)` — index-scoped active intents
   - `createIntent(...)`
   - `updateIntent(intentId, data)`
   - `archiveIntent(intentId)`

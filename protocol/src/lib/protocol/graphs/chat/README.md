@@ -118,6 +118,8 @@ classDiagram
         +list_my_opportunities()
         +create_opportunity_between_members()
         +scrape_url()
+        +confirm_action()
+        +cancel_action()
     }
 
     ChatGraphFactory --> ChatAgent
@@ -204,6 +206,15 @@ The agent has access to 16 tools, organized by domain. When the chat is **index-
 | `list_my_opportunities` | List user's opportunities | When index-scoped, omit `indexNameOrId` to list only opportunities in that index. |
 | `create_opportunity_between_members` | Create opportunity between two members | When index-scoped, omit `indexNameOrId` to use the current index. |
 
+### Confirmation Tools
+
+| Tool | Purpose | When to Use |
+|------|---------|-------------|
+| `confirm_action` | Execute a pending update or delete after the user confirms | Called by the agent when the user confirms (e.g. "yes, delete it"). Requires `confirmationId` from the prior `needsConfirmation` response. |
+| `cancel_action` | Cancel a pending update or delete | Called when the user declines (e.g. "no, keep it"). Requires `confirmationId`. |
+
+Update and delete tools (`update_intent`, `delete_intent`, `update_user_profile`, `update_index_settings`) do **not** perform the action immediately. They set a **pending confirmation** in state and return `needsConfirmation`; the agent asks the user, then calls `confirm_action` or `cancel_action`.
+
 ### Utility Tools
 
 | Tool | Purpose | When to Use |
@@ -223,8 +234,14 @@ All tools return JSON with consistent structure:
 // Success
 { "success": true, "data": { ... } }
 
-// Failure  
+// Failure
 { "success": false, "error": "Error message" }
+
+// Confirmation required (update/delete tools)
+{ "success": true, "needsConfirmation": true, "confirmationId": "...", "action": "update" | "delete", "resource": "...", "summary": "..." }
+
+// Clarification required (create tools when required fields missing)
+{ "success": false, "needsClarification": true, "missingFields": [...], "message": "..." }
 ```
 
 ### Index-Scoped Chat (Phase 3)
@@ -261,6 +278,7 @@ classDiagram
         +boolean shouldContinue
         +string responseText
         +string error
+        +PendingConfirmation pendingConfirmation
     }
 ```
 
@@ -273,6 +291,7 @@ classDiagram
 | `shouldContinue` | boolean | Control flag for loop exit |
 | `responseText` | string | Final response when complete |
 | `error` | string | Error message if something fails |
+| `pendingConfirmation` | PendingConfirmation \| undefined | When set by an update/delete tool, the agent asks the user and then calls `confirm_action` or `cancel_action`; no destructive action runs until confirmation. |
 
 ### Message Flow
 
@@ -287,7 +306,7 @@ sequenceDiagram
     G->>A: invoke(messages)
     A->>T: get_user_profile()
     T-->>A: ToolMessage(profile data)
-    A->>T: get_active_intents()
+    A->>T: get_intents()
     T-->>A: ToolMessage(intents data)
     A-->>G: AIMessage("Here's your profile...")
     G-->>U: Stream response
@@ -345,10 +364,10 @@ classDiagram
 [tool_start] get_user_profile {}
 [thinking] Checking your profile...
 [tool_end] get_user_profile success "Profile: John Doe"
-[tool_start] get_active_intents {}
+[tool_start] get_intents {}
 [thinking] Fetching your intents...
-[tool_end] get_active_intents success "3 intent(s) found"
-[agent_thinking] iteration=1, tools=["get_user_profile", "get_active_intents"]
+[tool_end] get_intents success "3 intent(s) found"
+[agent_thinking] iteration=1, tools=["get_user_profile", "get_intents"]
 [status] Generating response...
 [token] Here
 [token] 's
@@ -366,7 +385,7 @@ graphs/chat/
 ├── chat.graph.ts           # Factory class, single agent_loop node
 ├── chat.graph.state.ts     # Simplified state annotation
 ├── chat.agent.ts           # ChatAgent class with ReAct loop
-├── chat.tools.ts           # 15 tool definitions
+├── chat.tools.ts           # Tool definitions (incl. confirm_action, cancel_action)
 ├── chat.utils.ts           # Token counting & truncation
 ├── chat.checkpointer.ts    # PostgreSQL state persistence
 ├── README.md               # This file
@@ -509,9 +528,10 @@ Previous architecture had fast paths for simple queries (e.g., "show my profile"
 
 Safety is enforced at the **tool level**, not the graph level:
 
-- `update_index_settings` checks ownership before executing
-- `delete_intent` validates the intent exists
-- All tools return errors gracefully instead of throwing
+- **Confirmation**: Update and delete tools (`update_intent`, `delete_intent`, `update_user_profile`, `update_index_settings`) do not perform the action immediately. They set `pendingConfirmation` and return `needsConfirmation`; the agent asks the user, then the user confirms via `confirm_action` or cancels via `cancel_action`.
+- **Clarification**: Create tools return `needsClarification` when required fields are missing so the agent can ask the user for the missing data.
+- `update_index_settings` (and other update/delete tools) validate ownership and resource existence before storing a pending confirmation; execution happens only in `confirm_action`.
+- All tools return errors gracefully instead of throwing.
 
 ---
 
