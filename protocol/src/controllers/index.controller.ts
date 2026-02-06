@@ -1,6 +1,6 @@
 import { AuthGuard, type AuthenticatedUser } from '../guards/auth.guard';
 import { log } from '../lib/log';
-import { Controller, Delete, Get, Patch, Post, UseGuards } from '../lib/router/router.decorators';
+import { Controller, Delete, Get, Patch, Post, Put, UseGuards } from '../lib/router/router.decorators';
 import { indexService } from '../services/index.service';
 
 const logger = log.controller.from('index');
@@ -110,6 +110,33 @@ export class IndexController {
       if (err?.message === 'Cannot remove yourself from the index') {
         return new Response(JSON.stringify({ error: err.message }), {
           status: 400,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * Update an index (title, prompt, permissions). Owner-only.
+   */
+  @Put('/:id')
+  @UseGuards(AuthGuard)
+  async update(req: Request, user: AuthenticatedUser, params: Record<string, string>) {
+    try {
+      const body = await req.json().catch(() => ({})) as {
+        title?: string;
+        prompt?: string | null;
+        joinPolicy?: 'anyone' | 'invite_only';
+        allowGuestVibeCheck?: boolean;
+      };
+      const result = await indexService.updateIndex(params.id, user.id, body);
+      logger.info('Index updated', { indexId: params.id });
+      return Response.json({ index: result });
+    } catch (err: any) {
+      if (err?.message?.includes('Access denied')) {
+        return new Response(JSON.stringify({ error: err.message }), {
+          status: 403,
           headers: { 'Content-Type': 'application/json' },
         });
       }

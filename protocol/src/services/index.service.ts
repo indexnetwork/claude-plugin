@@ -35,6 +35,14 @@ export class IndexService {
   }
 
   /**
+   * Update index settings (title, prompt, permissions). Owner-only.
+   */
+  async updateIndex(indexId: string, userId: string, data: { title?: string; prompt?: string | null; joinPolicy?: 'anyone' | 'invite_only'; allowGuestVibeCheck?: boolean }) {
+    logger.info('[IndexService] Updating index', { indexId, userId });
+    return this.adapter.updateIndexSettings(indexId, userId, data);
+  }
+
+  /**
    * Update index permissions. Owner-only.
    */
   async updatePermissions(indexId: string, userId: string, data: { joinPolicy?: 'anyone' | 'invite_only'; allowGuestVibeCheck?: boolean }) {
