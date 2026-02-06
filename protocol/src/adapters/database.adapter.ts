@@ -3,7 +3,7 @@
  * Postgres implementations; no dependency on lib/protocol.
  */
 
-import { eq, and, isNull, isNotNull, sql, count, desc, lt, lte, ne, inArray } from 'drizzle-orm';
+import { eq, and, or, isNull, isNotNull, sql, count, desc, lt, lte, ne, inArray } from 'drizzle-orm';
 import * as schema from '../schemas/database.schema';
 import db from '../lib/drizzle/drizzle';
 import type { User } from '../schemas/database.schema';
@@ -77,7 +77,7 @@ interface IndexMembershipRow {
   joinedAt: Date;
 }
 
-const { intents, indexes, indexMembers, intentIndexes, users, hydeDocuments, opportunities } = schema;
+const { intents, indexes, indexMembers, intentIndexes, users, hydeDocuments, opportunities, chatSessions, chatMessages, userNotificationSettings, userProfiles, userConnectionEvents, files } = schema;
 
 // HyDE row to document shape (embedding may come as number[] or pg vector)
 type HydeSourceTypeLocal = 'intent' | 'profile' | 'query';
@@ -284,6 +284,44 @@ export class IntentDatabaseAdapter {
 // Chat Graph Database Adapter
 // ═══════════════════════════════════════════════════════════════════════════════
 
+// Chat Session and Message interfaces
+export interface ChatSession {
+  id: string;
+  userId: string;
+  title: string | null;
+  indexId: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface ChatMessage {
+  id: string;
+  sessionId: string;
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+  routingDecision: Record<string, unknown> | null;
+  subgraphResults: Record<string, unknown> | null;
+  tokenCount: number | null;
+  createdAt: Date;
+}
+
+export interface CreateSessionInput {
+  id: string;
+  userId: string;
+  title?: string;
+  indexId?: string;
+}
+
+export interface CreateMessageInput {
+  id: string;
+  sessionId: string;
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+  routingDecision?: Record<string, unknown>;
+  subgraphResults?: Record<string, unknown>;
+  tokenCount?: number;
+}
+
 /**
  * Database adapter for Chat Graph and its subgraphs.
  */
@@ -294,6 +332,125 @@ export class ChatDatabaseAdapter {
     if (!this._opportunityAdapter) this._opportunityAdapter = new OpportunityDatabaseAdapter();
     return this._opportunityAdapter;
   }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Chat Session Methods
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Create a new chat session
+   */
+  async createSession(data: CreateSessionInput): Promise<void> {
+    await db.insert(schema.chatSessions).values({
+      id: data.id,
+      userId: data.userId,
+      title: data.title || null,
+      indexId: data.indexId?.trim() || null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+  }
+
+  /**
+   * Get session by ID
+   */
+  async getSession(sessionId: string): Promise<ChatSession | null> {
+    const [session] = await db.select()
+      .from(schema.chatSessions)
+      .where(eq(schema.chatSessions.id, sessionId))
+      .limit(1);
+    
+    return session || null;
+  }
+
+  /**
+   * Get all sessions for a user
+   */
+  async getUserSessions(userId: string, limit: number): Promise<ChatSession[]> {
+    return db.select()
+      .from(schema.chatSessions)
+      .where(eq(schema.chatSessions.userId, userId))
+      .orderBy(desc(schema.chatSessions.updatedAt))
+      .limit(limit);
+  }
+
+  /**
+   * Update session index
+   */
+  async updateSessionIndex(sessionId: string, indexId: string | null): Promise<void> {
+    await db
+      .update(schema.chatSessions)
+      .set({ indexId, updatedAt: new Date() })
+      .where(eq(schema.chatSessions.id, sessionId));
+  }
+
+  /**
+   * Update session title
+   */
+  async updateSessionTitle(sessionId: string, title: string): Promise<void> {
+    await db.update(schema.chatSessions)
+      .set({ title, updatedAt: new Date() })
+      .where(eq(schema.chatSessions.id, sessionId));
+  }
+
+  /**
+   * Update session timestamp
+   */
+  async updateSessionTimestamp(sessionId: string): Promise<void> {
+    await db.update(schema.chatSessions)
+      .set({ updatedAt: new Date() })
+      .where(eq(schema.chatSessions.id, sessionId));
+  }
+
+  /**
+   * Delete a session
+   */
+  async deleteSession(sessionId: string): Promise<void> {
+    await db.delete(schema.chatSessions)
+      .where(eq(schema.chatSessions.id, sessionId));
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Chat Message Methods
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Create a message
+   */
+  async createMessage(data: CreateMessageInput): Promise<void> {
+    await db.insert(schema.chatMessages).values({
+      id: data.id,
+      sessionId: data.sessionId,
+      role: data.role,
+      content: data.content,
+      routingDecision: data.routingDecision || null,
+      subgraphResults: data.subgraphResults || null,
+      tokenCount: data.tokenCount || null,
+      createdAt: new Date(),
+    });
+  }
+
+  /**
+   * Get messages for a session
+   */
+  async getSessionMessages(sessionId: string, limit: number): Promise<ChatMessage[]> {
+    const messages = await db.select()
+      .from(schema.chatMessages)
+      .where(eq(schema.chatMessages.sessionId, sessionId))
+      .orderBy(schema.chatMessages.createdAt)
+      .limit(limit);
+    
+    // Cast unknown fields to proper types
+    return messages.map(msg => ({
+      ...msg,
+      routingDecision: msg.routingDecision as Record<string, unknown> | null,
+      subgraphResults: msg.subgraphResults as Record<string, unknown> | null,
+    }));
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Chat Graph Methods (Profiles, Intents, Indexes)
+  // ─────────────────────────────────────────────────────────────────────────────
 
   async getProfile(userId: string): Promise<ProfileRow | null> {
     const result = await db.select()
@@ -1741,3 +1898,398 @@ export class HydeDatabaseAdapter {
     return rows.map(toHydeDocument);
   }
 }
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// User Database Adapter
+// ═══════════════════════════════════════════════════════════════════════════════
+
+export interface UserWithGraph {
+  id: string;
+  email: string | null;
+  name: string | null;
+  privyId: string;
+  intro: string | null;
+  location: string | null;
+  socials: unknown;
+  onboarding: unknown;
+  avatar: string | null;
+  timezone: string | null;
+  lastWeeklyEmailSentAt: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+  deletedAt: Date | null;
+  profile: typeof userProfiles.$inferSelect | null;
+  notificationPreferences: {
+    connectionUpdates: boolean;
+    weeklyNewsletter: boolean;
+  };
+}
+
+export interface NewsletterUserData {
+  id: string;
+  email: string | null;
+  name: string | null;
+  intro: string | null;
+  timezone: string | null;
+  lastSent: Date | null;
+  prefs: {
+    connectionUpdates?: boolean;
+    weeklyNewsletter?: boolean;
+  } | null;
+  unsubscribeToken: string | null;
+  onboarding: {
+    completedAt?: string;
+    flow?: 1 | 2 | 3;
+    currentStep?: string;
+  } | null;
+}
+
+export interface BasicUserInfo {
+  id: string;
+  name: string | null;
+  intro: string | null;
+}
+
+/**
+ * UserDatabaseAdapter
+ * 
+ * Wraps all database operations for users table and related tables.
+ */
+export class UserDatabaseAdapter {
+  /**
+   * Find user by ID
+   */
+  async findById(userId: string): Promise<typeof users.$inferSelect | null> {
+    const result = await db.select()
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
+    
+    return result[0] || null;
+  }
+
+  /**
+   * Find user with joined profile and notification settings
+   */
+  async findWithGraph(userId: string): Promise<UserWithGraph | null> {
+    const userResult = await db.select({
+      user: users,
+      settings: userNotificationSettings,
+      profile: userProfiles
+    })
+      .from(users)
+      .leftJoin(userNotificationSettings, eq(users.id, userNotificationSettings.userId))
+      .leftJoin(userProfiles, eq(users.id, userProfiles.userId))
+      .where(eq(users.id, userId))
+      .limit(1);
+
+    if (userResult.length === 0) {
+      return null;
+    }
+
+    const { user, settings, profile } = userResult[0];
+
+    return {
+      ...user,
+      profile,
+      notificationPreferences: settings?.preferences as {
+        connectionUpdates: boolean;
+        weeklyNewsletter: boolean;
+      } || {
+        connectionUpdates: true,
+        weeklyNewsletter: true,
+      }
+    };
+  }
+
+  /**
+   * Update user
+   */
+  async update(userId: string, data: Partial<User>): Promise<typeof users.$inferSelect | null> {
+    const result = await db.update(users)
+      .set({
+        ...data,
+        updatedAt: new Date()
+      })
+      .where(eq(users.id, userId))
+      .returning();
+
+    return result[0] || null;
+  }
+
+  /**
+   * Soft delete user
+   */
+  async softDelete(userId: string): Promise<void> {
+    await db.update(users)
+      .set({ deletedAt: new Date() })
+      .where(eq(users.id, userId));
+  }
+
+  /**
+   * Get user details for newsletter
+   */
+  async getUserForNewsletter(userId: string): Promise<NewsletterUserData | null> {
+    const userRes = await db.select({
+      id: users.id,
+      email: users.email,
+      name: users.name,
+      intro: users.intro,
+      timezone: users.timezone,
+      lastSent: users.lastWeeklyEmailSentAt,
+      prefs: userNotificationSettings.preferences,
+      unsubscribeToken: userNotificationSettings.unsubscribeToken,
+      onboarding: users.onboarding
+    })
+      .from(users)
+      .leftJoin(userNotificationSettings, eq(users.id, userNotificationSettings.userId))
+      .where(eq(users.id, userId))
+      .limit(1);
+
+    return userRes[0] || null;
+  }
+
+  /**
+   * Get basic info for multiple users
+   */
+  async getUsersBasicInfo(userIds: string[]): Promise<BasicUserInfo[]> {
+    if (userIds.length === 0) return [];
+    
+    return db.select({
+      id: users.id,
+      name: users.name,
+      intro: users.intro
+    })
+      .from(users)
+      .where(inArray(users.id, userIds));
+  }
+
+  /**
+   * Update last weekly email sent timestamp
+   */
+  async updateLastWeeklyEmailSent(userId: string): Promise<void> {
+    await db.update(users)
+      .set({ lastWeeklyEmailSentAt: new Date() })
+      .where(eq(users.id, userId));
+  }
+
+  /**
+   * Initialize default notification settings for a new user.
+   * Idempotent - safe to call multiple times (does nothing if settings exist).
+   */
+  async setupDefaultNotificationSettings(userId: string): Promise<void> {
+    await db.insert(userNotificationSettings)
+      .values({
+        userId,
+        preferences: {
+          connectionUpdates: true,
+          weeklyNewsletter: true,
+        }
+      })
+      .onConflictDoNothing();
+  }
+
+  /**
+   * Ensure notification settings exist for a user
+   */
+  async ensureNotificationSettings(userId: string): Promise<{ unsubscribeToken: string | null }> {
+    const [upsertedSettings] = await db.insert(userNotificationSettings)
+      .values({
+        userId,
+        preferences: {
+          connectionUpdates: true,
+          weeklyNewsletter: true,
+        }
+      })
+      .onConflictDoUpdate({
+        target: userNotificationSettings.userId,
+        set: {
+          updatedAt: new Date()
+        }
+      })
+      .returning({
+        unsubscribeToken: userNotificationSettings.unsubscribeToken
+      });
+
+    return upsertedSettings;
+  }
+
+  /**
+   * Check if connection event exists between two users
+   */
+  async checkConnectionEvent(user1Id: string, user2Id: string): Promise<boolean> {
+    const events = await db.select({ id: userConnectionEvents.id })
+      .from(userConnectionEvents)
+      .where(
+        or(
+          and(
+            eq(userConnectionEvents.initiatorUserId, user1Id),
+            eq(userConnectionEvents.receiverUserId, user2Id)
+          ),
+          and(
+            eq(userConnectionEvents.initiatorUserId, user2Id),
+            eq(userConnectionEvents.receiverUserId, user1Id)
+          )
+        )
+      )
+      .limit(1);
+
+    return events.length > 0;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// File Database Adapter
+// ═══════════════════════════════════════════════════════════════════════════════
+
+export interface FileRow {
+  id: string;
+  name: string;
+  type: string;
+  size: bigint;
+  createdAt: Date;
+  userId: string | null;
+}
+
+export interface FileMetadata {
+  id: string;
+  name: string;
+  type: string;
+  size: bigint;
+}
+
+export interface CreateFileInput {
+  id: string;
+  name: string;
+  size: bigint;
+  type: string;
+  userId: string;
+}
+
+export interface FileListResult {
+  files: FileRow[];
+  total: number;
+}
+
+/**
+ * FileDatabaseAdapter
+ * 
+ * Wraps all database operations for files table.
+ */
+export class FileDatabaseAdapter {
+  /**
+   * Get files by IDs for a specific user
+   */
+  async getFilesByIds(userId: string, fileIds: string[]): Promise<FileMetadata[]> {
+    if (!fileIds?.length) return [];
+    
+    return db.select({
+      id: files.id,
+      name: files.name,
+      type: files.type,
+      size: files.size,
+    })
+      .from(files)
+      .where(
+        and(
+          eq(files.userId, userId),
+          inArray(files.id, fileIds),
+          isNull(files.deletedAt)
+        )
+      );
+  }
+
+  /**
+   * Get a single file by ID
+   */
+  async getById(fileId: string, userId: string): Promise<FileRow | null> {
+    const result = await db.select()
+      .from(files)
+      .where(
+        and(
+          eq(files.id, fileId),
+          eq(files.userId, userId),
+          isNull(files.deletedAt)
+        )
+      )
+      .limit(1);
+    
+    return result[0] || null;
+  }
+
+  /**
+   * List files for a user with pagination
+   */
+  async listFiles(
+    userId: string, 
+    options: { skip: number; limit: number }
+  ): Promise<FileListResult> {
+    const where = and(isNull(files.deletedAt), eq(files.userId, userId));
+    
+    const [rows, totalResult] = await Promise.all([
+      db.select({
+        id: files.id,
+        name: files.name,
+        size: files.size,
+        type: files.type,
+        createdAt: files.createdAt,
+        userId: files.userId,
+      })
+        .from(files)
+        .where(where)
+        .orderBy(desc(files.createdAt))
+        .offset(options.skip)
+        .limit(options.limit),
+      db.select({ count: count() }).from(files).where(where),
+    ]);
+    
+    return {
+      files: rows,
+      total: Number(totalResult[0]?.count ?? 0),
+    };
+  }
+
+  /**
+   * Create a new file record
+   */
+  async createFile(data: CreateFileInput): Promise<FileRow> {
+    const [inserted] = await db.insert(files)
+      .values(data)
+      .returning({
+        id: files.id,
+        name: files.name,
+        size: files.size,
+        type: files.type,
+        createdAt: files.createdAt,
+        userId: files.userId,
+      });
+    
+    return inserted;
+  }
+
+  /**
+   * Soft delete a file
+   */
+  async softDelete(fileId: string, userId: string): Promise<boolean> {
+    const result = await db.update(files)
+      .set({ deletedAt: new Date() })
+      .where(
+        and(
+          eq(files.id, fileId),
+          eq(files.userId, userId),
+          isNull(files.deletedAt)
+        )
+      )
+      .returning({ id: files.id });
+    
+    return result.length > 0;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Singleton Exports
+// ═══════════════════════════════════════════════════════════════════════════════
+
+export const chatDatabaseAdapter = new ChatDatabaseAdapter();
+export const userDatabaseAdapter = new UserDatabaseAdapter();
+export const fileDatabaseAdapter = new FileDatabaseAdapter();

@@ -2,7 +2,7 @@ import { log } from '../lib/log';
 import path from 'path';
 import { getUploadsPath } from '../lib/paths';
 import { loadFileContent } from '../lib/uploads';
-import { fileDatabaseAdapter, type CreateFileInput } from '../adapters/file.adapter';
+import { fileDatabaseAdapter, type CreateFileInput } from '../adapters/database.adapter';
 
 const logger = log.service.from("FileService");
 

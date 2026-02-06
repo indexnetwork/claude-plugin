@@ -1,5 +1,5 @@
 import { log } from '../lib/log';
-import { userDatabaseAdapter } from '../adapters/user.adapter';
+import { userDatabaseAdapter } from '../adapters/database.adapter';
 import type { User } from '../schemas/database.schema';
 
 const logger = log.service.from("UserService");

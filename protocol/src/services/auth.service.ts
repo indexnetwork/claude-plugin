@@ -1,4 +1,4 @@
-import { userDatabaseAdapter } from '../adapters/user.adapter';
+import { userDatabaseAdapter } from '../adapters/database.adapter';
 import { OnboardingState } from '../schemas/database.schema';
 import { privyClient } from '../lib/privy';
 import { log } from '../lib/log';

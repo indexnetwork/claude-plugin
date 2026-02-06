@@ -1,6 +1,5 @@
 import { log } from '../lib/log';
-import { chatDatabaseAdapter } from '../adapters/chat.adapter';
-import { ChatDatabaseAdapter } from '../adapters/database.adapter';
+import { chatDatabaseAdapter, ChatDatabaseAdapter } from '../adapters/database.adapter';
 import { EmbedderAdapter } from '../adapters/embedder.adapter';
 import { ScraperAdapter } from '../adapters/scraper.adapter';
 import { ChatGraphFactory } from '../lib/protocol/graphs/chat/chat.graph';
