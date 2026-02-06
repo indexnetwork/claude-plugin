@@ -11,7 +11,7 @@ export const createAuthService = (api: ReturnType<typeof useAuthenticatedAPI>) =
 
   // Update user profile
   updateProfile: async (data: UpdateProfileRequest): Promise<User> => {
-    const response = await api.patch<APIResponse<User>>('/v2/auth/profile/update', data);
+    const response = await api.patch<APIResponse<User>>('/auth/profile/update', data);
     if (!response.user) {
       throw new Error('Failed to update profile');
     }

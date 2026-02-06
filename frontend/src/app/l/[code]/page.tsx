@@ -78,7 +78,7 @@ export default function InvitationPage({ params }: InvitationPageProps) {
 
         // User is authenticated, fetch user data
         try {
-          const response = await api.get<APIResponse<User>>('/v2/auth/me');
+          const response = await api.get<APIResponse<User>>('/auth/me');
           if (response.user) {
             setState(prev => ({ ...prev, user: response.user || null }));
 

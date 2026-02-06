@@ -49,7 +49,7 @@ function AuthProviderInner({ children }: { children: ReactNode }) {
     setUserFetchAttempted(true);
     setError(null);
     try {
-      const response = await api.get<APIResponse<User>>('/v2/auth/me');
+      const response = await api.get<APIResponse<User>>('/auth/me');
       if (response.user) {
         setUser(response.user);
 

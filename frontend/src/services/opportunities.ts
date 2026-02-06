@@ -1,5 +1,5 @@
 /**
- * Opportunities service — fetches user's opportunities from GET /v2/opportunities.
+ * Opportunities service — fetches user's opportunities from GET /opportunities.
  * Used to show "My opportunities" and link to chat with the other party.
  */
 
@@ -41,7 +41,7 @@ export async function fetchMyOpportunities(accessToken: string, options?: { stat
   if (options?.status) params.set('status', options.status);
   if (options?.limit != null) params.set('limit', String(options.limit));
   const qs = params.toString();
-  const url = `${V2_BASE}/v2/opportunities${qs ? `?${qs}` : ''}`;
+  const url = `${V2_BASE}/opportunities${qs ? `?${qs}` : ''}`;
   const res = await fetch(url, {
     method: 'GET',
     headers: {

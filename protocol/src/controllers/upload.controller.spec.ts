@@ -84,7 +84,7 @@ describe("UploadController Integration", () => {
   describe("upload", () => {
     test("should return 400 when no file is uploaded", async () => {
       const formData = new FormData();
-      const req = new Request("http://test/v2/uploads", {
+      const req = new Request("http://test/uploads", {
         method: "POST",
         body: formData,
       });
@@ -101,7 +101,7 @@ describe("UploadController Integration", () => {
     test("should return 400 when file field is a string", async () => {
       const formData = new FormData();
       formData.append("file", "not-a-file");
-      const req = new Request("http://test/v2/uploads", {
+      const req = new Request("http://test/uploads", {
         method: "POST",
         body: formData,
       });
@@ -119,7 +119,7 @@ describe("UploadController Integration", () => {
       const file = new File(["binary content"], "script.exe", { type: "application/x-msdownload" });
       const formData = new FormData();
       formData.append("file", file);
-      const req = new Request("http://test/v2/uploads", {
+      const req = new Request("http://test/uploads", {
         method: "POST",
         body: formData,
       });
@@ -138,7 +138,7 @@ describe("UploadController Integration", () => {
       const file = new File([content], "test-upload.txt", { type: "text/plain" });
       const formData = new FormData();
       formData.append("file", file);
-      const req = new Request("http://test/v2/uploads", {
+      const req = new Request("http://test/uploads", {
         method: "POST",
         body: formData,
       });
@@ -164,7 +164,7 @@ describe("UploadController Integration", () => {
       const file = new File([content], "persist.txt", { type: "text/plain" });
       const formData = new FormData();
       formData.append("file", file);
-      const req = new Request("http://test/v2/uploads", { method: "POST", body: formData });
+      const req = new Request("http://test/uploads", { method: "POST", body: formData });
 
       const result = await controller.upload(req, getMockUser()) as { file: { id: string; name: string } };
       const fileId = result.file.id;
@@ -189,7 +189,7 @@ describe("UploadController Integration", () => {
         email: emptyListEmail,
         name: "Empty List User",
       };
-      const req = new Request("http://test/v2/uploads?page=1&limit=10");
+      const req = new Request("http://test/uploads?page=1&limit=10");
       const result = await controller.list(req, emptyUser);
 
       expect(result).toHaveProperty("files");
@@ -205,10 +205,10 @@ describe("UploadController Integration", () => {
       const file = new File(["list test"], "list-me.txt", { type: "text/plain" });
       const formData = new FormData();
       formData.append("file", file);
-      const uploadReq = new Request("http://test/v2/uploads", { method: "POST", body: formData });
+      const uploadReq = new Request("http://test/uploads", { method: "POST", body: formData });
       await controller.upload(uploadReq, getMockUser());
 
-      const listReq = new Request("http://test/v2/uploads?page=1&limit=10");
+      const listReq = new Request("http://test/uploads?page=1&limit=10");
       const result = await controller.list(listReq, getMockUser());
 
       const data = result as { files: Array<{ id: string; name: string; url: string }>; pagination: { current: number; totalCount: number } };
@@ -221,7 +221,7 @@ describe("UploadController Integration", () => {
     });
 
     test("should respect page and limit query params", async () => {
-      const req = new Request("http://test/v2/uploads?page=2&limit=5");
+      const req = new Request("http://test/uploads?page=2&limit=5");
       const result = await controller.list(req, getMockUser());
 
       const data = result as { pagination: { current: number; total: number; count: number; totalCount: number } };

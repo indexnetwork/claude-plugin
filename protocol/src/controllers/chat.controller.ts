@@ -1,3 +1,4 @@
+import { StreamChat } from 'stream-chat';
 import { AuthGuard, type AuthenticatedUser } from '../guards/auth.guard';
 import { log } from '../lib/log';
 import { Controller, Get, Post, UseGuards } from '../lib/router/router.decorators';
@@ -7,8 +8,23 @@ import { createDoneEvent, createErrorEvent, createStatusEvent, formatSSEEvent } 
 
 const logger = log.controller.from("chat");
 
+const streamServerClient = StreamChat.getInstance(
+  process.env.STREAM_API_KEY!,
+  process.env.STREAM_SECRET!,
+);
+
 @Controller('/chat')
 export class ChatController {
+  /**
+   * Generate a Stream Chat token for the authenticated user.
+   */
+  @Post('/token')
+  @UseGuards(AuthGuard)
+  async token(_req: Request, user: AuthenticatedUser) {
+    const token = streamServerClient.createToken(user.id);
+    return Response.json({ token });
+  }
+
   /**
    * Send a message to the chat graph for processing.
    * The graph routes to appropriate subgraphs based on intent analysis.

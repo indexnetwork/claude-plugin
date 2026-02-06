@@ -284,16 +284,16 @@ return db.select().from(table);
 Before deploying, test the following endpoints:
 
 1. **Chat Controller**:
-   - `POST /v2/chat/stream` - with file attachments
-   - `GET /v2/chat/sessions`
-   - `POST /v2/chat/session`
+   - `POST /chat/stream` - with file attachments
+   - `GET /chat/sessions`
+   - `POST /chat/session`
 
 2. **Intent Controller**:
-   - `POST /v2/intents/process`
+   - `POST /intents/process`
 
 3. **Upload Controller**:
-   - `POST /v2/uploads` - file upload
-   - `GET /v2/uploads` - file listing with pagination
+   - `POST /uploads` - file upload
+   - `GET /uploads` - file listing with pagination
 
 ## Benefits Achieved
 

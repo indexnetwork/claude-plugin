@@ -3199,11 +3199,11 @@ GET /api/opportunities?role=agent
   - [x] `createManual(indexId, actorIds, interpretation)` — curator create (on `IndexOpportunityController`)
   - [x] `listForIndex(indexId, options)` — admin view (on `IndexOpportunityController`)
 - [x] Add routes (via controller decorators + path param matching in `main.ts`):
-  - [x] `GET /v2/opportunities`
-  - [x] `GET /v2/opportunities/:id`
-  - [x] `PATCH /v2/opportunities/:id/status`
-  - [x] `POST /v2/indexes/:indexId/opportunities`
-  - [x] `GET /v2/indexes/:indexId/opportunities`
+  - [x] `GET /opportunities`
+  - [x] `GET /opportunities/:id`
+  - [x] `PATCH /opportunities/:id/status`
+  - [x] `POST /indexes/:indexId/opportunities`
+  - [x] `GET /indexes/:indexId/opportunities`
 - [x] Add permission checks (owner vs member)
 
 **Test**:
