@@ -1209,21 +1209,8 @@ export class ChatDatabaseAdapter {
       autoAssign: true,
     });
 
-    // Dynamic import to avoid circular dependency (user.event → intentService → ... → ChatDatabaseAdapter)
-    import('../events/user.event').then(({ MemberEvents }) =>
-      MemberEvents.onSettingsUpdated({
-        userId,
-        indexId,
-        promptChanged: false,
-        autoAssignChanged: true,
-      })
-    ).catch((err) => {
-      logger.error('Failed to trigger member indexing', {
-        userId,
-        indexId,
-        error: err instanceof Error ? err.message : String(err),
-      });
-    });
+    // TODO: Events system removed - need to implement alternative notification mechanism
+    // for triggering member indexing when settings are updated
 
     return { success: true, alreadyMember: false };
   }
