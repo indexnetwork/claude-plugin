@@ -800,15 +800,32 @@ export function createChatTools(context: ToolContext) {
         return error("Title is required.");
       }
       logger.info("Tool: create_index", { userId, title: args.title });
+      let createdIndexId: string | undefined;
       try {
         const index = await database.createIndex({
           title: args.title.trim(),
           prompt: args.prompt?.trim() || undefined,
           joinPolicy: args.joinPolicy,
         });
+        createdIndexId = index.id;
+        
         const added = await database.addMemberToIndex(index.id, userId, 'owner');
         if (!added.success) {
-          return error("Index was created but adding you as owner failed. Please contact support.");
+          // Cleanup: delete the orphaned index since adding the owner failed
+          logger.error("addMemberToIndex failed after createIndex; cleaning up orphaned index", { 
+            indexId: index.id, 
+            userId 
+          });
+          try {
+            await database.softDeleteIndex(index.id);
+            logger.info("Successfully cleaned up orphaned index", { indexId: index.id });
+          } catch (cleanupErr) {
+            logger.error("Failed to cleanup orphaned index", { 
+              indexId: index.id, 
+              cleanupError: cleanupErr 
+            });
+          }
+          return error("Failed to set you as owner of the index. The index was not created. Please try again.");
         }
         return success({
           created: true,
@@ -818,6 +835,24 @@ export function createChatTools(context: ToolContext) {
         });
       } catch (err) {
         logger.error("create_index failed", { error: err });
+        // If we created an index but an exception occurred, clean it up
+        if (createdIndexId) {
+          logger.error("Exception after createIndex; cleaning up orphaned index", { 
+            indexId: createdIndexId, 
+            userId 
+          });
+          try {
+            await database.softDeleteIndex(createdIndexId);
+            logger.info("Successfully cleaned up orphaned index after exception", { 
+              indexId: createdIndexId 
+            });
+          } catch (cleanupErr) {
+            logger.error("Failed to cleanup orphaned index after exception", { 
+              indexId: createdIndexId, 
+              cleanupError: cleanupErr 
+            });
+          }
+        }
         return error("Failed to create index. Please try again.");
       }
     },
