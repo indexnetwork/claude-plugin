@@ -12,7 +12,7 @@ import type { PostgresSaver } from '@langchain/langgraph-checkpoint-postgres';
 import type { ChatGraphCompositeDatabase } from '../lib/protocol/interfaces/database.interface';
 import type { Scraper } from '../lib/protocol/interfaces/scraper.interface';
 import type { Embedder } from '../lib/protocol/interfaces/embedder.interface';
-import { chatSessionService } from '../services/chat-session.service';
+import { chatSessionService } from '../services/chat.service';
 import {
   formatSSEEvent,
   createStatusEvent,

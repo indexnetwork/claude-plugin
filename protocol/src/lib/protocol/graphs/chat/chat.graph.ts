@@ -7,7 +7,7 @@ import type { ChatGraphCompositeDatabase } from "../../interfaces/database.inter
 import type { Embedder } from "../../interfaces/embedder.interface";
 import type { Scraper } from "../../interfaces/scraper.interface";
 import { log } from "../../../log";
-import { chatSessionService } from "../../../../services/chat-session.service";
+import { chatSessionService } from "../../../../services/chat.service";
 import { truncateToTokenLimit, MAX_CONTEXT_TOKENS } from "./chat.utils";
 import { ChatGraphStreamingService } from "./streaming";
 
