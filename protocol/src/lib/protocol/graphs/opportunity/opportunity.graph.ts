@@ -23,6 +23,22 @@ import {
 } from './opportunity.graph.state';
 import { OpportunityEvaluator, type CandidateProfile } from '../../agents/opportunity/opportunity.evaluator';
 import type { OpportunityGraphDatabase } from '../../interfaces/database.interface';
+
+/** Optional evaluator for testing (avoids LLM calls). */
+export type OpportunityEvaluatorLike = {
+  invoke: (
+    sourceProfileContext: string,
+    candidates: CandidateProfile[],
+    options: { minScore?: number }
+  ) => Promise<Array<{
+    sourceId: string;
+    candidateId: string;
+    score: number;
+    sourceDescription: string;
+    candidateDescription: string;
+    valencyRole: 'Agent' | 'Patient' | 'Peer';
+  }>>;
+};
 import type { Embedder, HydeStrategy } from '../../interfaces/embedder.interface';
 import type {
   CreateOpportunityData,
@@ -53,12 +69,12 @@ export class OpportunityGraphFactory {
     private embedder: Embedder,
     private hydeGenerator: {
       invoke: (input: HydeGeneratorInvokeInput) => Promise<{ hydeEmbeddings: Record<string, number[]> }>;
-    }
+    },
+    private optionalEvaluator?: OpportunityEvaluatorLike
   ) {}
 
   public createGraph() {
-    // Instantiate evaluator agent
-    const evaluatorAgent = new OpportunityEvaluator();
+    const evaluatorAgent = this.optionalEvaluator ?? new OpportunityEvaluator();
 
     // ═══════════════════════════════════════════════════════════════
     // NODE DEFINITIONS
