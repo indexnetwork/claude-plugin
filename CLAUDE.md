@@ -385,6 +385,8 @@ NODE_ENV=development
 
 See `frontend/.env.example` for frontend-specific configuration (Privy app ID, API URL, etc.)
 
+**Privy "Origin not allowed" (`invalid_origin`)**: If login fails with this error, the app’s current origin is not in Privy’s allowed list. In the [Privy Dashboard](https://dashboard.privy.io) go to **Configuration → App settings → Domains**, then under **Allowed origins** (Web & mobile web) add the exact origin(s) you use, e.g. `http://localhost:3000` (port required for localhost). Remove localhost from allowed domains when not developing.
+
 ## Testing
 
 Tests use Vitest framework. Test files are located in:

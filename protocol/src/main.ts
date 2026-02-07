@@ -64,14 +64,25 @@ Bun.serve({
     const url = new URL(req.url);
     const method = req.method;
 
-    // CORS headers for cross-origin requests
-    const corsHeaders = {
-      'Access-Control-Allow-Origin': process.env.FRONTEND_URL || '*',
+    // CORS: allow explicit FRONTEND_URL, or reflect Origin for localhost/127.0.0.1 (so both work), else *
+    const origin = req.headers.get('Origin') ?? '';
+    const allowOrigin =
+      process.env.FRONTEND_URL ||
+      (origin && (origin.startsWith('http://localhost:') || origin.startsWith('http://127.0.0.1:')) ? origin : null) ||
+      '*';
+
+    const corsHeaders: Record<string, string> = {
+      'Access-Control-Allow-Origin': allowOrigin,
       'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Requested-With, Accept',
       'Access-Control-Expose-Headers': 'X-Session-Id',
       'Access-Control-Max-Age': '86400',
     };
+
+    // If we reflected a specific origin, allow credentials (cookies/auth headers)
+    if (allowOrigin !== '*') {
+      corsHeaders['Access-Control-Allow-Credentials'] = 'true';
+    }
 
     logger.info('Request', { method, path: url.pathname });
 
@@ -81,7 +92,7 @@ Bun.serve({
     }
 
     // Iterate over controllers and routes to find a match.
-    // Optimization: could pre-compile regular expressions or a router map.
+    // Optimization: could pre-compile regex or a router map.
     // For now, simple iteration is fine for small number of routes.
 
     for (const [target, controllerDef] of RouteRegistry.getControllers()) {

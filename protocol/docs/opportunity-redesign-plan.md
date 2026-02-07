@@ -2138,7 +2138,7 @@ Manual opportunity creation is handled directly in the controller using the Data
 ```typescript
 // src/controllers/opportunity.controller.ts
 
-import { Request, Response, Router } from 'express';
+// Request, Response, Router from your HTTP server (e.g. Bun.serve or framework types)
 import { authenticatePrivy, AuthRequest } from '../middleware/auth.middleware';
 import { OpportunityControllerDatabase } from '../lib/protocol/interfaces/database.interface';
 import { CreateOpportunityData, OpportunityActor } from '../lib/protocol/interfaces/database.interface';
