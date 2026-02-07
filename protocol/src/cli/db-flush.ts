@@ -35,18 +35,14 @@ function printResult(result: { ok: boolean; error?: string }, opts: GlobalOpts) 
 async function flushDatabase(): Promise<{ ok: boolean; error?: string }> {
   try {
     const tables = [
-      'intent_stake_items',
-      'intent_stakes',
       'intent_indexes',
       'chat_messages',
       'chat_sessions',
-      'elaboration_requests',
       'opportunities',
       'user_connection_events',
       'user_notification_settings',
       'user_profiles',
       'hyde_documents',
-      'agents',
       'intents',
       'files',
       'links',
