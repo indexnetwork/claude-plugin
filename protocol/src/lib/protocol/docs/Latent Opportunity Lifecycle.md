@@ -176,18 +176,29 @@ sequenceDiagram
     C-->>U: "Sent! Alice has been notified."
 ```
 
-### Curator Flow (user suggests two people should meet)
+### Future: Curator Flow (explicit member selection)
+
+**Note**: The separate `create_opportunity_between_members` tool has been removed in favor of a unified approach. When curator mode is needed, it will be handled by extending `create_opportunities` with optional `candidateUserIds` parameter.
 
 ```mermaid
 sequenceDiagram
     participant U as Introducer
     participant C as ChatAgent
+    participant CT as create_opportunities tool
+    participant OG as OpportunityGraph
     participant DB as Database
     participant N as NotificationQueue
 
     U->>C: "I think Alice and Bob should meet"
-    C->>DB: createOpportunity(status: latent, introducer: U)
-    C-->>U: "Draft created. Say 'send it' to notify Alice and Bob."
+    C->>CT: create_opportunities(candidateUserIds=[alice, bob])
+    CT->>OG: invoke({ userId, candidates: [alice, bob], options: { initialStatus: 'latent' } })
+    
+    Note over OG: Skip discovery, go directly to evaluation
+    
+    OG->>DB: createOpportunity(status: latent, introducer: U)
+    OG-->>CT: { opportunities: [...] }
+    CT-->>C: success({ opportunities, count })
+    C-->>U: "Draft created. You can send it when ready."
 
     U->>C: "Send it"
     C->>DB: updateOpportunityStatus(id, pending)
@@ -218,10 +229,9 @@ The `persistOpportunitiesNode` accepts an `initialStatus` option (defaults to `'
 
 | Tool | Behavior | When Agent Uses It |
 |------|----------|-------------------|
-| `create_opportunities` | Invokes opportunity graph with user query and optional indexId. Graph handles all complexity. Returns draft opportunities. | User says "find opportunities", "find me a mentor", "who needs help with X" |
+| `create_opportunities` | Invokes opportunity graph with user query and optional indexId. Graph handles all complexity (discovery or explicit candidates). Returns draft opportunities. | User says "find opportunities", "find me a mentor", "who needs help with X". Future: curator says "Alice and Bob should meet" (with candidate IDs) |
 | `send_opportunity` | Promotes opportunity from `latent` → `pending`. Queues notifications to other party. Simple status update + notification. | User says "send intro to [name]", "send that opportunity", "notify Alice" |
 | `list_my_opportunities` | Queries opportunities for user (all statuses). Simple read operation. | User says "show my opportunities", "what intros are pending" |
-| `create_opportunity_between_members` | Creates opportunity with `status: 'latent'`. No notifications. Introducer-driven. | Curator says "I think Alice and Bob should meet" |
 
 ### Agent System Prompt Guidance
 
@@ -243,6 +253,8 @@ The chat agent's system prompt includes:
      Agent: *Calls `create_opportunities(searchQuery="help with fundraising")`* (searches all user's indexes)
    - User: "Send intro to Alice"
      Agent: *First calls `list_my_opportunities()` to find Alice's opportunity, then `send_opportunity(opportunityId=...)`*
+   - Future - User: "I think Alice and Bob should meet"
+     Agent: *Calls `create_opportunities(candidateUserIds=["<alice-id>", "<bob-id>"])`* (direct creation, skips discovery)
 
 ## Hyde Documents and Semantic Search
 

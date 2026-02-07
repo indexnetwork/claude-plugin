@@ -259,37 +259,33 @@ Also add `sendOpportunity` to the returned tools array in `createChatTools`.
 
 ---
 
-### Step 6: Update `create_opportunity_between_members` — latent + no notifications
+### Step 6: Remove `create_opportunity_between_members` tool
 
-**Goal**: Curator-suggested opportunities also start as drafts.
+**Goal**: Simplify to a single unified `create_opportunities` tool that handles both discovery and curator modes.
+
+**Rationale**: 
+- Both flows result in creating draft opportunities
+- Discovery mode: semantic search across indexed intents
+- Curator mode: explicit member selection (future enhancement)
+- Single tool reduces complexity and maintains CRUD-only principle
 
 **File to change**: `src/lib/protocol/graphs/chat/chat.tools.ts`
 
-1. In the `CreateOpportunityData` object (~line 1199), change:
-   ```typescript
-   status: "pending",
-   ```
-   to:
-   ```typescript
-   status: "latent",
-   ```
+1. Remove the entire `createOpportunityBetweenMembers` tool definition (~lines 1310-1429)
 
-2. Remove the notification loop (~lines 1207-1211):
-   ```typescript
-   // REMOVE:
-   const recipientIds = actors.filter((a) => a.role !== "introducer").map((a) => a.identityId);
-   for (const recipientId of recipientIds) {
-     if (recipientId === userId) continue;
-     await queueOpportunityNotification(opportunity.id, recipientId, "high");
-   }
-   ```
+2. Remove it from the returned tools array at the end of `createChatTools`
 
-3. Update the success message:
-   ```typescript
-   message: "Opportunity created as draft. Say 'send it' to notify both members.",
-   ```
+3. Update agent system prompt to remove references to `create_opportunity_between_members`
 
-**Verification**: Call `create_opportunity_between_members`; confirm opportunity is `latent` in DB and no notifications are queued.
+**Future Enhancement**: When curator mode is needed, extend `create_opportunities` to accept:
+- Optional `candidateUserIds: string[]` parameter
+- If provided, skip discovery and create opportunities directly between users
+- Still creates as `latent` status (same flow)
+
+**Verification**: 
+- Tool is removed from chat tools
+- Agent system prompt no longer references it
+- Code compiles without errors
 
 ---
 
@@ -382,7 +378,7 @@ Also add `sendOpportunity` to the returned tools array in `createChatTools`.
 | 3 | `opportunity.graph.state.ts` (new), `opportunity.graph.ts` (refactor), `opportunity.evaluator.ts` | Refactor opportunity graph to linear multi-step workflow following intent graph pattern |
 | 4 | `chat.tools.ts`, `discover.nodes.ts` | Simplify `create_opportunities` to invoke refactored graph; remove complex logic from tool |
 | 5 | `chat.tools.ts` | New `send_opportunity` tool (simple status update + notification) |
-| 6 | `chat.tools.ts` | Update `create_opportunity_between_members` to latent + no notifications |
+| 6 | `chat.tools.ts`, `chat.agent.ts` | Remove `create_opportunity_between_members` tool (unified in `create_opportunities`) |
 | 7 | `chat.agent.ts`, `chat.streaming.ts` | Comprehensive system prompt guidance for handling complex requests with simple tools |
 | 8 | `opportunity.graph.spec.ts` (new), `opportunity/README.md`, `chat.tools.spec.ts` | Tests for new graph nodes, README documenting architecture |
 
@@ -402,7 +398,7 @@ Also add `sendOpportunity` to the returned tools array in `createChatTools`.
   - [x] Updated tool instantiation to use factory pattern
   - [x] Kept `discover.nodes.ts` as thin wrapper (CRUD principle)
 - [ ] Step 5: `send_opportunity` chat tool implemented
-- [ ] Step 6: `create_opportunity_between_members` creates as latent
+- [x] Step 6: Remove `create_opportunity_between_members` tool (unified approach) *(completed)*
 - [ ] Step 7: System prompt guidance for complex request handling
   - [ ] Update `chat.agent.ts` with comprehensive guidelines
   - [ ] Add index-scoped search constraints explanation

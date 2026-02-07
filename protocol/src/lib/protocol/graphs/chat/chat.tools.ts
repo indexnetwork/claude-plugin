@@ -1306,129 +1306,6 @@ export function createChatTools(context: ToolContext) {
     }
   );
 
-  const createOpportunityBetweenMembers = tool(
-    async (args: {
-      indexId?: string;
-      firstMemberRef: string;
-      secondMemberRef: string;
-      reasoning: string;
-    }) => {
-      const effectiveIndexId = (args.indexId?.trim() || context.indexId?.trim()) ?? null;
-      if (!effectiveIndexId) {
-        return error("Index required. Pass index UUID from read_indexes, or open chat from an index.");
-      }
-      if (!UUID_REGEX.test(effectiveIndexId)) {
-        return error("Invalid index ID format. Use the exact UUID from read_indexes.");
-      }
-      logger.info("Tool: create_opportunity_between_members", {
-        userId,
-        indexId: effectiveIndexId,
-        first: args.firstMemberRef.substring(0, 30),
-        second: args.secondMemberRef.substring(0, 30),
-      });
-
-      try {
-        const isMember = await database.isIndexMember(effectiveIndexId, userId);
-        if (!isMember) {
-          return error("Index not found or you are not a member. Use read_indexes to see indexes you belong to.");
-        }
-
-        const members = await database.getIndexMembersForMember(effectiveIndexId, userId);
-
-        const resolveRef = (ref: string): string | null => {
-          const trimmed = ref.trim();
-          if (UUID_REGEX.test(trimmed)) {
-            const found = members.find((m) => m.userId === trimmed);
-            return found ? trimmed : null;
-          }
-          const needle = trimmed.toLowerCase();
-          const found = members.find(
-            (m) =>
-              (m.name ?? "").toLowerCase() === needle ||
-              (m.name ?? "").toLowerCase().includes(needle) ||
-              needle.includes((m.name ?? "").toLowerCase())
-          );
-          return found?.userId ?? null;
-        };
-
-        const firstUserId = resolveRef(args.firstMemberRef);
-        const secondUserId = resolveRef(args.secondMemberRef);
-
-        if (!firstUserId || !secondUserId) {
-          return error(
-            "Could not resolve one or both members. Use read_users to see names and ensure both people are in that index. firstMemberRef and secondMemberRef can be display names or user IDs."
-          );
-        }
-        if (firstUserId === secondUserId) {
-          return error("The two members must be different people.");
-        }
-
-        const partyIds = [firstUserId, secondUserId];
-        const exists = await database.opportunityExistsBetweenActors(partyIds, effectiveIndexId);
-        if (exists) {
-          return success({
-            created: false,
-            message: "An opportunity already exists between these two members in this index.",
-          });
-        }
-
-        const actors: OpportunityActor[] = [
-          { role: "party", identityId: firstUserId, intents: [], profile: true },
-          { role: "party", identityId: secondUserId, intents: [], profile: true },
-          { role: "introducer", identityId: userId, intents: [], profile: false },
-        ];
-
-        const data: CreateOpportunityData = {
-          detection: {
-            source: "chat",
-            createdBy: userId,
-            timestamp: new Date().toISOString(),
-          },
-          actors,
-          interpretation: {
-            category: "collaboration",
-            summary: args.reasoning.trim() || "Suggested connection by a community member.",
-            confidence: 0.8,
-            signals: [{ type: "curator_judgment", weight: 1, detail: "Suggested via chat" }],
-          },
-          context: { indexId: effectiveIndexId },
-          indexId: effectiveIndexId,
-          confidence: "0.8",
-          status: "pending",
-        };
-
-        const opportunity = await database.createOpportunity(data);
-        const recipientIds = actors.filter((a) => a.role !== "introducer").map((a) => a.identityId);
-        for (const recipientId of recipientIds) {
-          if (recipientId === userId) continue;
-          await queueOpportunityNotification(opportunity.id, recipientId, "high");
-        }
-        return success({
-          created: true,
-          opportunityId: opportunity.id,
-          message: "Opportunity created. Both members can see it in their opportunities list.",
-        });
-      } catch (err) {
-        logger.error("create_opportunity_between_members failed", { error: err });
-        if (err instanceof Error && err.message === "Access denied: Not a member of this index") {
-          return error("You must be a member of that index to suggest a connection. Use read_indexes to see your indexes.");
-        }
-        return error("Failed to create opportunity. Please try again.");
-      }
-    },
-    {
-      name: "create_opportunity_between_members",
-      description:
-        "Creates an opportunity (suggested connection) between two members of an index. Use read_users to get member userId and name, then pass indexId (UUID from read_indexes), firstMemberRef, secondMemberRef (prefer userId from read_users for unambiguous matching; display names also work), and reasoning.",
-      schema: z.object({
-        indexId: z.string().optional().describe("Index UUID from read_indexes; optional when chat is index-scoped."),
-        firstMemberRef: z.string().describe("First person: userId from read_users (preferred) or display name"),
-        secondMemberRef: z.string().describe("Second person: userId from read_users (preferred) or display name"),
-        reasoning: z.string().describe("Brief reason why these two should connect (e.g. complementary intents)"),
-      }),
-    }
-  );
-
   // ─────────────────────────────────────────────────────────────────────────────
   // UTILITY TOOLS
   // ─────────────────────────────────────────────────────────────────────────────
@@ -1601,7 +1478,6 @@ export function createChatTools(context: ToolContext) {
     readUsers,
     createOpportunities,
     listMyOpportunities,
-    createOpportunityBetweenMembers,
     scrapeUrl,
   ];
 }
