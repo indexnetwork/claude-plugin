@@ -390,7 +390,7 @@ export class OpportunityGraph {
         },
         indexId: p.indexId,
         confidence: String(p.score / 100),
-        status: 'pending',
+        status: state.options?.initialStatus ?? 'pending',
       };
       const created = await this.database.createOpportunity(data);
       persisted.push(created);

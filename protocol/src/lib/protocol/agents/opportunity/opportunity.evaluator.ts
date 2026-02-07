@@ -4,6 +4,7 @@ import { tool } from "@langchain/core/tools";
 import { z } from "zod";
 import { log } from "../../../log";
 import type { HydeStrategy } from "../hyde/hyde.strategies";
+import type { OpportunityStatus } from "../../interfaces/database.interface";
 
 const logger = log.protocol.from("OpportunityEvaluator");
 
@@ -103,6 +104,7 @@ export interface OpportunityEvaluatorOptions {
   existingOpportunities?: string;
   candidates?: CandidateProfile[]; // For direct evaluation
   filter?: Record<string, unknown>;
+  initialStatus?: OpportunityStatus;
 }
 
 // ──────────────────────────────────────────────────────────────
