@@ -7,7 +7,7 @@ dotenv.config({ path: path.resolve(process.cwd(), envFile) });
 
 import { eq } from 'drizzle-orm';
 import db, { closeDb } from '../lib/drizzle/drizzle';
-import { indexMembers, indexes, users, agents } from '../schemas/database.schema';
+import { indexMembers, indexes, users } from '../schemas/database.schema';
 import { privyClient } from '../lib/privy';
 import { setLevel } from '../lib/log';
 import { TESTABLE_TEST_ACCOUNTS } from './test-data';
@@ -16,7 +16,6 @@ type SeedType = 'open' | 'restricted' | 'both';
 
 const OPEN_INDEX_ID = '5aff6cd6-d64e-4ef9-8bcf-6c89815f771c';
 const RESTRICTED_INDEX_ID = '99999999-d64e-4ef9-8bcf-6c89815f771c';
-const OPPORTUNITY_AGENT_ID = '028ef80e-9b1c-434b-9296-bb6130509482';
 
 type GlobalOpts = {
   silent?: boolean;
@@ -117,20 +116,6 @@ async function seedDatabase(type: SeedType): Promise<{ ok: boolean; error?: stri
       } catch {
         /* already exists */
       }
-    }
-
-    try {
-      await db
-        .insert(agents)
-        .values({
-          id: OPPORTUNITY_AGENT_ID,
-          name: 'Opportunity Finder',
-          description: 'Matches users based on semantic profile analysis (HyDE)',
-          avatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=opportunity',
-        })
-        .onConflictDoNothing();
-    } catch {
-      /* already exists */
     }
 
     const createdUsers: { id: string }[] = [];
