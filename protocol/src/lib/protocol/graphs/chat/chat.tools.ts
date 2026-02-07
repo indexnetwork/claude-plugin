@@ -11,7 +11,7 @@ import type { Scraper } from "../../interfaces/scraper.interface";
 import type { HydeCache } from "../../interfaces/cache.interface";
 import { IntentGraphFactory } from "../intent/intent.graph";
 import { ProfileGraphFactory } from "../profile/profile.graph";
-import { OpportunityGraph } from "../opportunity/opportunity.graph";
+import { OpportunityGraphFactory } from "../opportunity/opportunity.graph";
 import { HydeGraphFactory } from "../hyde/hyde.graph";
 import { HydeGenerator } from "../../agents/hyde/hyde.generator";
 import { IndexGraphFactory } from "../index/index.graph";
@@ -146,12 +146,11 @@ export function createChatTools(context: ToolContext) {
     hydeCache,
     hydeGenerator
   ).createGraph();
-  const opportunityGraph = new OpportunityGraph(
+  const opportunityGraph = new OpportunityGraphFactory(
     database,
     embedder,
-    hydeCache,
     compiledHydeGraph
-  ).compile();
+  ).createGraph();
 
   // ─────────────────────────────────────────────────────────────────────────────
   // PROFILE TOOLS

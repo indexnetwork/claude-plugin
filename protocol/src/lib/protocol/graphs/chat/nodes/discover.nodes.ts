@@ -15,9 +15,9 @@ import { log } from "../../../../log";
 
 const logger = log.protocol.from("DiscoverNodes");
 
-/** Compiled opportunity graph (from OpportunityGraph.compile()). */
+/** Compiled opportunity graph (from OpportunityGraphFactory.createGraph()). */
 export type CompiledOpportunityGraph = ReturnType<
-  import("../../opportunity/opportunity.graph").OpportunityGraph["compile"]
+  import("../../opportunity/opportunity.graph").OpportunityGraphFactory["createGraph"]
 >;
 
 export interface DiscoverInput {
@@ -97,15 +97,17 @@ export async function runDiscoverFromQuery(
     userId,
     queryPreview: query.substring(0, 50),
     strategies,
+    indexScope: indexScope.length,
   });
 
   try {
+    // New graph signature: userId, searchQuery, indexId (optional), options
+    // If multiple indexes in scope, use first one (or could invoke multiple times)
     const result = await opportunityGraph.invoke({
-      sourceUserId: userId,
-      sourceText: query,
-      indexScope,
+      userId,
+      searchQuery: query,
+      indexId: indexScope.length > 0 ? indexScope[0] : undefined,
       options: {
-        hydeDescription: query,
         strategies,
         limit,
         initialStatus: 'latent',
