@@ -311,7 +311,15 @@ export function createChatTools(context: ToolContext) {
       if (indexId && !UUID_REGEX.test(indexId)) {
         return error("Invalid index ID format. Use the exact UUID from read_indexes.");
       }
-      const effectiveUserId = args.userId?.trim() || userId;
+      // In index-scoped chat, always use the session user for the member path so "my intents" returns the current user's intents. The agent often passes a wrong or unrelated userId (non-UUID or another user's UUID), which causes getIntentsInIndexForMember to return empty.
+      const isIndexScoped = !!(context.indexId?.trim());
+      const rawArgUserId = args.userId?.trim();
+      const effectiveUserId =
+        isIndexScoped
+          ? userId
+          : rawArgUserId && UUID_REGEX.test(rawArgUserId)
+            ? rawArgUserId
+            : userId;
       logger.info("Tool: read_intents", { userId, indexId, effectiveUserId });
 
       try {
@@ -1173,9 +1181,10 @@ export function createChatTools(context: ToolContext) {
   // ─────────────────────────────────────────────────────────────────────────────
 
   const createOpportunities = tool(
-    async (args: { searchQuery: string; indexId?: string }) => {
+    async (args: { searchQuery?: string; indexId?: string }) => {
       const effectiveIndexId = (args.indexId?.trim() || context.indexId?.trim()) ?? null;
-      logger.info("Tool: create_opportunities", { userId, query: args.searchQuery.substring(0, 50), indexScope: effectiveIndexId ?? "all" });
+      const query = args.searchQuery?.trim() ?? "";
+      logger.info("Tool: create_opportunities", { userId, queryPreview: query ? query.substring(0, 50) : "intent-based", indexScope: effectiveIndexId ?? "all" });
 
       try {
         let indexScope: string[];
@@ -1197,7 +1206,7 @@ export function createChatTools(context: ToolContext) {
           opportunityGraph,
           database,
           userId,
-          query: args.searchQuery,
+          query,
           indexScope,
           limit: 5,
         });
@@ -1223,9 +1232,9 @@ export function createChatTools(context: ToolContext) {
     {
       name: "create_opportunities",
       description:
-        "Creates draft (latent) opportunities by searching for relevant connections. Pass searchQuery and optional indexId (UUID). Returns concise summaries (name, short bio, match reason, score). Results are saved as drafts; use send_opportunity to notify the other person when ready. For full details use list_my_opportunities. When the chat is scoped to an index, search is limited to that index unless you pass a different index or omit index scope.",
+        "REQUIRED when user asks to find opportunities, find connections, who can help with X, find a mentor, or similar discovery requests—call this tool; do not answer with text only. Creates draft (latent) opportunities. searchQuery is optional: when omitted or empty, discovery uses the user's existing intents in the current scope (index if chat is index-scoped, otherwise all their indexes). When the user does not specify what they want, do NOT ask—call with no searchQuery so their intents drive the search. Pass indexId when chat is index-scoped or user names an index. Returns concise summaries (name, short bio, match reason, score). Results are saved as drafts; use send_opportunity when ready.",
       schema: z.object({
-        searchQuery: z.string().describe("What kind of connections or opportunities to search for"),
+        searchQuery: z.string().optional().describe("Optional. What kind of connections to search for; when omitted, uses the user's intents in scope (index or all indexes)."),
         indexId: z.string().optional().describe("Index UUID from read_indexes; optional when chat is index-scoped."),
       }),
     }
