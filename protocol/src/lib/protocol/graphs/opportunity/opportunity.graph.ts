@@ -128,7 +128,6 @@ export class OpportunityGraphFactory {
           userIndexesCount: userIndexIds.length,
           intentsCount: intents.length,
         });
-
         return {
           userIndexes: userIndexIds,
           indexedIntents,
@@ -190,7 +189,6 @@ export class OpportunityGraphFactory {
           targetIndexesCount: targetIndexes.length,
           indexes: targetIndexes.map(i => i.title),
         });
-
         return { targetIndexes };
       } catch (error) {
         logger.error('[Graph:Scope] Failed', { error });
@@ -274,23 +272,43 @@ export class OpportunityGraphFactory {
           minScore: 0.5,
         });
 
-        // Map results to CandidateMatch format
-        const candidates: CandidateMatch[] = hydeSearchResults
-          .filter((result) => result.type === 'intent') // Only intent matches for now
-          .map((result) => ({
-            candidateUserId: result.userId as Id<'users'>,
-            candidateIntentId: result.id as Id<'intents'>, // id is intentId for type='intent'
-            indexId: result.indexId as Id<'indexes'>,
-            similarity: result.score,
-            strategy: result.matchedVia as HydeStrategy,
-            candidatePayload: '', // Will be fetched in evaluation
-            candidateSummary: undefined,
-          }));
+        const intentResults = hydeSearchResults.filter((r) => r.type === 'intent');
+        const profileResults = hydeSearchResults.filter((r) => r.type === 'profile');
+
+        // Map intent results to CandidateMatch (with candidateIntentId)
+        const intentCandidates: CandidateMatch[] = intentResults.map((result) => ({
+          candidateUserId: result.userId as Id<'users'>,
+          candidateIntentId: result.id as Id<'intents'>,
+          indexId: result.indexId as Id<'indexes'>,
+          similarity: result.score,
+          strategy: result.matchedVia as HydeStrategy,
+          candidatePayload: '',
+          candidateSummary: undefined,
+        }));
+
+        // Include profile matches (profile-only candidates have no candidateIntentId)
+        const profileCandidates: CandidateMatch[] = profileResults.map((result) => ({
+          candidateUserId: result.userId as Id<'users'>,
+          indexId: result.indexId as Id<'indexes'>,
+          similarity: result.score,
+          strategy: result.matchedVia as HydeStrategy,
+          candidatePayload: '',
+          candidateSummary: undefined,
+        }));
+
+        // Dedupe by candidateUserId (intent match wins if both exist)
+        const byUser = new Map<string, CandidateMatch>();
+        for (const c of [...intentCandidates, ...profileCandidates]) {
+          const key = c.candidateUserId;
+          if (!byUser.has(key) || (byUser.get(key)?.candidateIntentId == null && c.candidateIntentId != null)) {
+            byUser.set(key, c);
+          }
+        }
+        const candidates = Array.from(byUser.values());
 
         logger.info('[Graph:Discovery] Discovery complete', {
           candidatesFound: candidates.length,
         });
-
         return {
           hydeEmbeddings: hydeEmbeddings as Record<HydeStrategy, number[]>,
           candidates,
@@ -368,7 +386,7 @@ export class OpportunityGraphFactory {
           const base: EvaluatedCandidate = {
             sourceUserId: state.userId,
             candidateUserId: result.candidateId as Id<'users'>,
-            candidateIntentId: candidate.candidateIntentId,
+            ...(candidate.candidateIntentId != null && { candidateIntentId: candidate.candidateIntentId }),
             indexId: candidate.indexId,
             score: result.score,
             sourceDescription: result.sourceDescription ?? '',
@@ -389,7 +407,6 @@ export class OpportunityGraphFactory {
           evaluatedCount: evaluatedCandidates.length,
           passed: evaluatedCandidates.filter(c => c.score >= minScore).length,
         });
-
         return { evaluatedCandidates };
       } catch (error) {
         logger.error('[Graph:Evaluation] Failed', { error });
@@ -431,7 +448,6 @@ export class OpportunityGraphFactory {
           afterLimit: ranked.length,
           afterDedup: deduplicated.length,
         });
-
         return { evaluatedCandidates: deduplicated };
       } catch (error) {
         logger.error('[Graph:Ranking] Failed', { error });
@@ -483,7 +499,7 @@ export class OpportunityGraphFactory {
               {
                 role: candidateRole,
                 identityId: evaluated.candidateUserId,
-                intents: [evaluated.candidateIntentId],
+                intents: evaluated.candidateIntentId ? [evaluated.candidateIntentId] : [],
                 profile: true,
               },
             ],
@@ -493,7 +509,7 @@ export class OpportunityGraphFactory {
               confidence: evaluated.score / 100,
               signals: [
                 {
-                  type: 'intent_match',
+                  type: evaluated.candidateIntentId ? 'intent_match' : 'profile_match',
                   weight: evaluated.score / 100,
                   detail: `Matched via ${evaluated.strategy} strategy`,
                 },
@@ -516,7 +532,6 @@ export class OpportunityGraphFactory {
           count: persisted.length,
           status: initialStatus,
         });
-
         return { opportunities: persisted };
       } catch (error) {
         logger.error('[Graph:Persist] Failed', { error });

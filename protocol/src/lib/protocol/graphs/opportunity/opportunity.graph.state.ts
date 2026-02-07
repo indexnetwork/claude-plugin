@@ -33,11 +33,12 @@ export interface TargetIndex {
 }
 
 /**
- * Candidate match from discovery (semantic search)
+ * Candidate match from discovery (semantic search).
+ * candidateIntentId is set for intent matches; omitted for profile-only matches.
  */
 export interface CandidateMatch {
   candidateUserId: Id<'users'>;
-  candidateIntentId: Id<'intents'>;
+  candidateIntentId?: Id<'intents'>;
   indexId: Id<'indexes'>;
   similarity: number;
   strategy: HydeStrategy;
@@ -46,13 +47,14 @@ export interface CandidateMatch {
 }
 
 /**
- * Evaluated candidate with LLM scoring
+ * Evaluated candidate with LLM scoring.
+ * candidateIntentId is set for intent matches; omitted for profile-only matches.
  */
 export interface EvaluatedCandidate {
   sourceUserId: Id<'users'>;
   candidateUserId: Id<'users'>;
   sourceIntentId?: Id<'intents'>;
-  candidateIntentId: Id<'intents'>;
+  candidateIntentId?: Id<'intents'>;
   indexId: Id<'indexes'>;
   score: number; // 0-100
   sourceDescription: string; // Why source should meet candidate
