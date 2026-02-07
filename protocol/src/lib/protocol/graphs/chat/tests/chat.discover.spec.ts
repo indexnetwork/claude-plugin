@@ -1,10 +1,11 @@
 /**
  * Chat discovery: Smartest E2E tests for Step 11 (Chat Integration).
+ * Aligned with plans/chat-graph-testing-plan.md §3.5 Discovery (opportunity).
  *
  * Verifies discovery via chat interface:
- * - Chat query "find me a mentor" → coherent response (mentor/discovery or join index)
- * - Query "who needs a React developer" → coherent response (matches/opportunities or join index)
- * - Results formatted appropriately for chat (no raw JSON; table or list when listing people)
+ * - "find me a mentor" / "who needs a React developer" → coherent response (mentor/opportunities or join index)
+ * - list_my_opportunities / create_opportunities style queries; results as natural language or table
+ * - No raw JSON; Draft/pending wording for latent opportunities; human-readable only
  */
 /** Config */
 import { config } from "dotenv";
@@ -40,6 +41,7 @@ function createMockDatabase(): ChatGraphCompositeDatabase {
 
   return {
     getProfile: noopNull,
+    getProfileByUserId: noopNull,
     getActiveIntents: noopArray,
     getIntentsInIndexForMember: async () => [],
     getUser: noopNull,
@@ -68,6 +70,7 @@ function createMockDatabase(): ChatGraphCompositeDatabase {
     getIndexIdsForIntent: noopArray,
     getOwnedIndexes: noopArray,
     isIndexOwner: noopBool,
+    isIndexMember: async () => true,
     getIndexMembersForOwner: noopArray,
     getIndexMembersForMember: noopArray,
     getIndexIntentsForOwner: noopArray,
@@ -77,13 +80,15 @@ function createMockDatabase(): ChatGraphCompositeDatabase {
         id: "",
         title: "",
         prompt: null,
-        permissions: {} as any,
+        permissions: {
+          joinPolicy: "anyone" as const,
+          allowGuestVibeCheck: false,
+          invitationLink: null,
+        },
         createdAt: new Date(),
-        updatedAt: new Date(),
-        deletedAt: null,
         memberCount: 0,
         intentCount: 0,
-      }) as any,
+      }),
     softDeleteIndex: noop,
     deleteProfile: noop,
     updateOpportunityStatus: noopNull,
@@ -216,6 +221,55 @@ describe("Chat discovery (Step 11 – Smartest E2E)", () => {
       expect(output.responseText).not.toContain("classification");
       expect(output.responseText).not.toContain("indexScore");
       expect(output.responseText).not.toContain('"opportunities"');
+    }, 180000);
+  });
+
+  describe("§3.5 list_my_opportunities (discovery)", () => {
+    test("What opportunities do I have? → list in natural language or table; Draft/pending acceptable", async () => {
+      const compiledGraph = factory.createGraph();
+
+      const result = await runScenario(
+        defineScenario({
+          name: "discover-list-opportunities",
+          description:
+            "User asks what opportunities they have; response must list in natural language or table; Draft or pending status is acceptable; no raw JSON.",
+          fixtures: {
+            userId: testUserId,
+            message: "What opportunities do I have?",
+          },
+          sut: {
+            type: "graph",
+            factory: () => compiledGraph,
+            invoke: async (instance: unknown, resolvedInput: unknown) => {
+              const input = resolvedInput as { userId: string; message: string };
+              return await (
+                instance as ReturnType<ChatGraphFactory["createGraph"]>
+              ).invoke({
+                userId: input.userId,
+                messages: [new HumanMessage(input.message)],
+              });
+            },
+            input: {
+              userId: "@fixtures.userId",
+              message: "@fixtures.message",
+            },
+          },
+          verification: {
+            schema: chatGraphOutputSchema,
+            criteria:
+              "The responseText must be a coherent reply about the user's opportunities (list or none). " +
+              "If listing, use natural language or Markdown table; status like 'Draft' for latent opportunities or 'pending' is acceptable. " +
+              "No raw JSON, no opportunityId or userId columns in user-facing text.",
+            llmVerify: true,
+          },
+        })
+      );
+
+      expectSmartest(result);
+      const output = result.output as { responseText?: string; shouldContinue?: boolean };
+      expect(output.responseText).toBeDefined();
+      expect(output.responseText!.length).toBeGreaterThan(0);
+      expect(output.shouldContinue).toBe(false);
     }, 180000);
   });
 

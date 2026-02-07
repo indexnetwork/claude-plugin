@@ -42,14 +42,21 @@ export class ChatSessionService {
   private graphDb: ChatGraphCompositeDatabase;
   private embedder: Embedder;
   private scraper: Scraper;
-  private factory: ChatGraphFactory;
+  private _factory: ChatGraphFactory | null = null;
 
   constructor(private db = chatDatabaseAdapter) {
     // Initialize protocol adapters for graph processing
     this.graphDb = new ChatDatabaseAdapter();
     this.embedder = new EmbedderAdapter();
     this.scraper = new ScraperAdapter();
-    this.factory = new ChatGraphFactory(this.graphDb, this.embedder, this.scraper);
+    // Factory created lazily to avoid circular dependency: chat.graph imports this service.
+  }
+
+  private get factory(): ChatGraphFactory {
+    if (!this._factory) {
+      this._factory = new ChatGraphFactory(this.graphDb, this.embedder, this.scraper);
+    }
+    return this._factory;
   }
   /**
    * Create a new chat session for a user.

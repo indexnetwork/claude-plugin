@@ -2,6 +2,15 @@
 
 Manual QA for the chat system: **graph**, **agent**, and **tools**. Use the frontend chat (or API); check off each item as you verify it.
 
+**Smartest (automated):** Scenarios in `protocol/src/lib/protocol/graphs/chat/tests/` cover §1.1, §1.4, §2.1–2.3, §3.1, §3.2, §3.5, §4. Run: `bun test protocol/src/lib/protocol/graphs/chat/tests/`.
+
+**Workflow matrix (configurable mocks):**
+- `chat.graph.invoke.spec.ts` – Core invoke + LLM verification (greeting, no JSON leak, error path, confirmation, tools, edge cases).
+- `chat.graph.scope.spec.ts` – **Scope × intents × role:** user-scoped (no intents / has intents), index-scoped member (no intents / has intents), index-scoped owner (all intents), not a member.
+- `chat.graph.profile.spec.ts` – **Profile state × action:** no profile (read, update), has profile (read, create-already-have).
+- `chat.graph.opportunities.spec.ts` – **Opportunities:** list (empty, latent/draft, pending), find with no intents (explain join/add intents), find with intents in index, send intro (no such opportunity).
+- Shared mock builder and fixtures: `chat.graph.mocks.ts` (`createChatGraphMockDb`, `mockOpportunity`, `mockProfile`, `mockActiveIntent`, `mockIndexedIntent`).
+
 **How to run:** Start protocol + frontend, open chat (user or index-scoped), send messages. Or call the chat API with `sessionId` / `indexId`.
 
 **Suggested order (next steps):**

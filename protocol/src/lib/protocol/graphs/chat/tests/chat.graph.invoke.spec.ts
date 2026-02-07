@@ -1,9 +1,15 @@
 /**
  * Chat Graph: Smartest-driven invoke scenarios.
- * Tests graph invocation with schema and LLM verification for:
- * - Simple conversational message (response shape and semantics)
- * - No internal pipeline JSON leak in responseText
- * - Agent error path returns fallback message and error state
+ * Aligned with plans/chat-graph-testing-plan.md (§1 Graph, §2 Agent, §3 Tools, §4 Edge cases).
+ *
+ * Covers:
+ * - §1.1 Basic flow: greeting, profile/intent queries, no raw JSON
+ * - §1.4 Index-scoped chat (indexId in invoke)
+ * - §2.1 Iterations: single round, one-tool, multi-tool summary
+ * - §2.2 No raw JSON in response
+ * - §2.3 Confirmation flow for destructive actions
+ * - §3.1 Profile (read_user_profiles), §3.2 Intent (read_intents), §3.5 Discovery (list_my_opportunities)
+ * - §4 Edge cases: no profile + update, find opportunities with no intents
  */
 /** Config */
 import { config } from "dotenv";
@@ -41,6 +47,7 @@ function createMockDatabase(): ChatGraphCompositeDatabase {
 
   return {
     getProfile: noopNull,
+    getProfileByUserId: noopNull,
     getActiveIntents: noopArray,
     getIntentsInIndexForMember: async () => [],
     getUser: noopNull,
@@ -69,6 +76,7 @@ function createMockDatabase(): ChatGraphCompositeDatabase {
     getIndexIdsForIntent: noopArray,
     getOwnedIndexes: noopArray,
     isIndexOwner: noopBool,
+    isIndexMember: async () => true,
     getIndexMembersForOwner: noopArray,
     getIndexMembersForMember: noopArray,
     getIndexIntentsForOwner: noopArray,
@@ -78,13 +86,15 @@ function createMockDatabase(): ChatGraphCompositeDatabase {
         id: "",
         title: "",
         prompt: null,
-        permissions: {} as any,
+        permissions: {
+          joinPolicy: "anyone" as const,
+          allowGuestVibeCheck: false,
+          invitationLink: null,
+        },
         createdAt: new Date(),
-        updatedAt: new Date(),
-        deletedAt: null,
         memberCount: 0,
         intentCount: 0,
-      }) as any,
+      }),
     softDeleteIndex: noop,
     deleteProfile: noop,
     updateOpportunityStatus: noopNull,
@@ -392,6 +402,270 @@ describe("Chat Graph invoke (Smartest)", () => {
       const output = result.output as { responseText?: string };
       expect(output.responseText).toBeDefined();
       expect(typeof output.responseText).toBe("string");
+    }, 180000);
+  });
+
+  describe("§1.1 / §3.1 Profile query", () => {
+    test("What's my profile? → agent replies with profile summary or no-profile message, no raw JSON", async () => {
+      const compiledGraph = factory.createGraph();
+
+      const result = await runScenario(
+        defineScenario({
+          name: "chat-profile-query",
+          description:
+            "User asks for their profile; agent calls read_user_profiles (or equivalent), then replies in plain language (no profile or name/bio/skills). No raw JSON.",
+          fixtures: {
+            userId: testUserId,
+            message: "What's my profile? Do I have a profile?",
+          },
+          sut: {
+            type: "graph",
+            factory: () => compiledGraph,
+            invoke: async (instance: unknown, resolvedInput: unknown) => {
+              const input = resolvedInput as { userId: string; message: string };
+              return await (instance as ReturnType<ChatGraphFactory["createGraph"]>).invoke({
+                userId: input.userId,
+                messages: [new HumanMessage(input.message)],
+              });
+            },
+            input: {
+              userId: "@fixtures.userId",
+              message: "@fixtures.message",
+            },
+          },
+          verification: {
+            schema: chatGraphOutputSchema,
+            criteria:
+              "The responseText must be a coherent reply about the user's profile: either that they have no profile, or a summary (e.g. name, bio, skills) in natural language. It must NOT contain raw JSON, internal tool payloads, or classification fields.",
+            llmVerify: true,
+          },
+        })
+      );
+
+      expectSmartest(result);
+      const output = result.output as { responseText?: string };
+      expect(output.responseText).toBeDefined();
+      expect(output.shouldContinue).toBe(false);
+    }, 180000);
+  });
+
+  describe("§2.1 Multi-tool iteration", () => {
+    test("Show my profile and my intents and my indexes → one summarizing reply, no raw JSON", async () => {
+      const compiledGraph = factory.createGraph();
+
+      const result = await runScenario(
+        defineScenario({
+          name: "chat-multi-tool-summary",
+          description:
+            "User asks for profile, intents, and indexes in one message; agent may call read_user_profiles, read_intents, read_indexes, then one summarizing reply in natural language.",
+          fixtures: {
+            userId: testUserId,
+            message: "Show my profile and my intents and my indexes.",
+          },
+          sut: {
+            type: "graph",
+            factory: () => compiledGraph,
+            invoke: async (instance: unknown, resolvedInput: unknown) => {
+              const input = resolvedInput as { userId: string; message: string };
+              return await (instance as ReturnType<ChatGraphFactory["createGraph"]>).invoke({
+                userId: input.userId,
+                messages: [new HumanMessage(input.message)],
+              });
+            },
+            input: {
+              userId: "@fixtures.userId",
+              message: "@fixtures.message",
+            },
+          },
+          verification: {
+            schema: chatGraphOutputSchema,
+            criteria:
+              "The responseText must be a single, coherent summary that addresses profile, intents, and indexes (or states none). It must NOT contain raw JSON, internal tool payloads, or ID columns. Data should be in natural language or Markdown table/list.",
+            llmVerify: true,
+          },
+        })
+      );
+
+      expectSmartest(result);
+      const output = result.output as { responseText?: string };
+      expect(output.responseText).toBeDefined();
+      expect(output.shouldContinue).toBe(false);
+    }, 180000);
+  });
+
+  describe("§1.4 Index-scoped chat", () => {
+    test("index-scoped: What are my intents here? → coherent reply for this index, no raw JSON", async () => {
+      const compiledGraph = factory.createGraph();
+      const testIndexId = "00000000-0000-0000-0000-000000000001";
+
+      const result = await runScenario(
+        defineScenario({
+          name: "chat-index-scoped-intents",
+          description:
+            "Index-scoped chat: user asks for intents in this index; response must be coherent for index context (e.g. list or none) and must not contain raw JSON.",
+          fixtures: {
+            userId: testUserId,
+            indexId: testIndexId,
+            message: "What are my intents here?",
+          },
+          sut: {
+            type: "graph",
+            factory: () => compiledGraph,
+            invoke: async (instance: unknown, resolvedInput: unknown) => {
+              const input = resolvedInput as { userId: string; indexId: string; message: string };
+              return await (instance as ReturnType<ChatGraphFactory["createGraph"]>).invoke({
+                userId: input.userId,
+                indexId: input.indexId,
+                messages: [new HumanMessage(input.message)],
+              });
+            },
+            input: {
+              userId: "@fixtures.userId",
+              indexId: "@fixtures.indexId",
+              message: "@fixtures.message",
+            },
+          },
+          verification: {
+            schema: chatGraphOutputSchema,
+            criteria:
+              "The responseText must be a coherent reply about the user's intents in this index/community (e.g. listing them or saying there are none). It must NOT contain raw JSON or internal pipeline fields. Scope must reflect 'here' / this index.",
+            llmVerify: true,
+          },
+        })
+      );
+
+      expectSmartest(result);
+      const output = result.output as { responseText?: string };
+      expect(output.responseText).toBeDefined();
+      expect(output.shouldContinue).toBe(false);
+    }, 180000);
+  });
+
+  describe("§3.5 list_my_opportunities", () => {
+    test("What opportunities do I have? → list in plain language or table; Draft/pending wording acceptable", async () => {
+      const compiledGraph = factory.createGraph();
+
+      const result = await runScenario(
+        defineScenario({
+          name: "chat-list-opportunities",
+          description:
+            "User asks what opportunities they have; response must list opportunities (e.g. Draft, pending) in natural language or table; latent/draft status may be shown as 'Draft'. No raw JSON.",
+          fixtures: {
+            userId: testUserId,
+            message: "What opportunities do I have?",
+          },
+          sut: {
+            type: "graph",
+            factory: () => compiledGraph,
+            invoke: async (instance: unknown, resolvedInput: unknown) => {
+              const input = resolvedInput as { userId: string; message: string };
+              return await (instance as ReturnType<ChatGraphFactory["createGraph"]>).invoke({
+                userId: input.userId,
+                messages: [new HumanMessage(input.message)],
+              });
+            },
+            input: {
+              userId: "@fixtures.userId",
+              message: "@fixtures.message",
+            },
+          },
+          verification: {
+            schema: chatGraphOutputSchema,
+            criteria:
+              "The responseText must be a coherent reply about the user's opportunities: list or state none. If listing, use natural language or Markdown table; status like Draft or pending is acceptable. No raw JSON, no ID columns in user-facing text.",
+            llmVerify: true,
+          },
+        })
+      );
+
+      expectSmartest(result);
+      const output = result.output as { responseText?: string };
+      expect(output.responseText).toBeDefined();
+      expect(output.shouldContinue).toBe(false);
+    }, 180000);
+  });
+
+  describe("§4 Edge cases", () => {
+    test("No profile + Update my profile → suggests creating profile or explains no profile", async () => {
+      const compiledGraph = factory.createGraph();
+
+      const result = await runScenario(
+        defineScenario({
+          name: "chat-edge-update-profile-no-profile",
+          description:
+            "User has no profile and asks to update profile; agent should say they have no profile or suggest creating one, not perform an update.",
+          fixtures: {
+            userId: testUserId,
+            message: "Update my profile: add Python to skills.",
+          },
+          sut: {
+            type: "graph",
+            factory: () => compiledGraph,
+            invoke: async (instance: unknown, resolvedInput: unknown) => {
+              const input = resolvedInput as { userId: string; message: string };
+              return await (instance as ReturnType<ChatGraphFactory["createGraph"]>).invoke({
+                userId: input.userId,
+                messages: [new HumanMessage(input.message)],
+              });
+            },
+            input: {
+              userId: "@fixtures.userId",
+              message: "@fixtures.message",
+            },
+          },
+          verification: {
+            schema: chatGraphOutputSchema,
+            criteria:
+              "The responseText must indicate that the user has no profile to update, or suggest creating a profile first. It must NOT imply that the profile was updated. No raw JSON.",
+            llmVerify: true,
+          },
+        })
+      );
+
+      expectSmartest(result);
+      const output = result.output as { responseText?: string };
+      expect(output.responseText).toBeDefined();
+    }, 180000);
+
+    test("Find opportunities with no intents → explains need to join index and add intents", async () => {
+      const compiledGraph = factory.createGraph();
+
+      const result = await runScenario(
+        defineScenario({
+          name: "chat-edge-find-opportunities-no-intents",
+          description:
+            "User with no intents in any index asks to find opportunities; agent should explain they need to join an index and add intents first.",
+          fixtures: {
+            userId: testUserId,
+            message: "Find me opportunities. Who can help with fundraising?",
+          },
+          sut: {
+            type: "graph",
+            factory: () => compiledGraph,
+            invoke: async (instance: unknown, resolvedInput: unknown) => {
+              const input = resolvedInput as { userId: string; message: string };
+              return await (instance as ReturnType<ChatGraphFactory["createGraph"]>).invoke({
+                userId: input.userId,
+                messages: [new HumanMessage(input.message)],
+              });
+            },
+            input: {
+              userId: "@fixtures.userId",
+              message: "@fixtures.message",
+            },
+          },
+          verification: {
+            schema: chatGraphOutputSchema,
+            criteria:
+              "The responseText must be helpful: either explain that the user needs to join a community/index and add intents before finding opportunities, or report no matches. It must NOT contain raw JSON or internal pipeline data.",
+            llmVerify: true,
+          },
+        })
+      );
+
+      expectSmartest(result);
+      const output = result.output as { responseText?: string };
+      expect(output.responseText).toBeDefined();
     }, 180000);
   });
 });
