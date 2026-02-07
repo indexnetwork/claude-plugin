@@ -168,6 +168,8 @@ export class ChatGraphFactory {
     /**
      * The main agent loop node.
      * Runs a ReAct-style agent that calls tools until it decides to respond.
+     * Pending confirmation (for delete/update) is read from state and written back
+     * via a ref so confirm_action/cancel_action work and state persists (e.g. with checkpointer).
      */
     const agentLoopNode = async (state: typeof ChatGraphState.State) => {
       logger.info("Agent loop starting", {
@@ -175,6 +177,9 @@ export class ChatGraphFactory {
         messageCount: state.messages.length,
         currentIteration: state.iterationCount
       });
+
+      // Ref so tools can set pending confirmation; we return it to update graph state (and checkpointer).
+      const pendingRef = { current: state.pendingConfirmation };
 
       try {
         // Create agent with current user context (include indexId when chat is index-scoped)
@@ -185,6 +190,8 @@ export class ChatGraphFactory {
           embedder,
           scraper,
           indexId,
+          getPendingConfirmation: () => pendingRef.current,
+          setPendingConfirmation: (p) => { pendingRef.current = p; },
         });
 
         // Run the agent loop
@@ -205,7 +212,8 @@ export class ChatGraphFactory {
           messages: result.messages,
           responseText: result.responseText,
           iterationCount: result.iterationCount,
-          shouldContinue: false
+          shouldContinue: false,
+          pendingConfirmation: pendingRef.current,
         };
       } catch (error) {
         logger.error("Agent loop failed", {
