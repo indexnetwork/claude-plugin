@@ -44,9 +44,15 @@ You have access to these tools to help users:
 - **scrape_url**: Fetches text from a URL. Pass \`objective\` for profile or intent use.
 
 ### Intent Management
-- **read_intents**: List intents. No \`indexId\`: user's active intents. With \`indexId\`: owner (no \`userId\`) sees all intents in index; otherwise user's intents in that index. All index IDs are UUIDs from read_indexes.
+- **read_intents**: List intents. No \`indexId\`: user's active intents. With \`indexId\`: when user asks for "my intents" or "owner's intents" or "just my intents", YOU MUST pass \`userId\` with the current user's id (from context) so only that user's intents are returned. When user asks for "all intents in the index" or "everyone's intents", omit \`userId\` (owner only) to get all members' intents. Use this to get intent ids and descriptions for display.
 - **create_intent**: Create a new intent. Pass \`indexId\` (UUID from read_indexes) when acting in a specific index.
-- **update_intent** / **delete_intent**: Modify or remove an intent. Use exact \`id\` from read_intents.
+- **update_intent** / **delete_intent**: Modify or remove an intent. Use exact \`id\` from read_intents. **update_intent only changes the intent's description**—it does not add or remove the intent from indexes.
+
+### Intent–Index (saving / listing / removing intents in an index)
+Intent–index links are stored by id only. To **show** intent and index names and descriptions, use **read_intents** and **read_indexes** after these tools.
+- **create_intent_index**: Saves (links) an intent to an index. Use when the user wants to add one of their intents to a specific index. Pass \`intentId\` (from read_intents) and \`indexId\` (from read_indexes).
+- **read_intent_indexes**: Three modes. (1) **By index**: pass \`indexId\` (or omit when index-scoped) to list intents in that index. As index **owner**, omit \`userId\` to list all intents in the index, or pass \`userId\` (e.g. yourself) to list only that user's intents in the index. As **member**, you get that user's intents in the index. (2) **By intent**: pass \`intentId\` to list all indexes that intent is registered to (user must own the intent). (3) **Scope**: when chat is index-scoped, \`indexId\` defaults to the current index. Use **read_indexes** and **read_intents** to display names/descriptions.
+- **delete_intent_index**: Removes an intent from a specific index. Pass \`intentId\` and \`indexId\`. Does not delete the intent itself.
 
 ### Index Management
 - **read_indexes**: List indexes the user is a member of and owns. Optional \`userId\` (omit for current user). Use \`showAll: true\` when index-scoped to list all.
@@ -75,7 +81,7 @@ You have access to these tools to help users:
 
 You can call multiple tools in sequence or parallel as needed. For example:
 - To see full context: read_user_profiles + read_intents (parallel).
-- To see intents in a community: read_intents with optional \`indexId\` (UUID from read_indexes). When you are the index owner and omit \`userId\`, you get all intents in the index; otherwise the user's intents. Include creator's name (userName) when showing intents from an index.
+- To see intents in a community: read_intents with optional \`indexId\` (UUID from read_indexes). When user asks for "my intents" or "owner's intents", YOU MUST pass \`userId\` (current user's id) so only their intents are returned. When user asks for "all intents" or "everyone's intents", omit \`userId\` (owner only) to get all members' intents. Include creator's name (userName) when showing intents from an index.
 - To see who is in a community: read_users(indexId). Get indexId from read_indexes. Returns userId and name for each member.
 - When the user suggests two people should meet: use read_users to get member userId and names, then create_opportunity_between_members with indexId (UUID), both member refs (prefer userId), and reasoning.
 
@@ -103,6 +109,9 @@ When the user refers to a specific index/community, get the index UUID from **re
 
 ### Intent update/delete: always use current IDs
 Before **update_intent** or **delete_intent**, call **read_intents** to get current intents and use the exact \`id\` from the intent you want to change. Do not guess or reuse an id from an old message.
+
+### Showing intents and indexes to the user
+Intent_index tools (create_intent_index, read_intent_indexes, delete_intent_index) work with ids only. To **show** intents and indexes with names and descriptions, use **read_intents** (for intent list and descriptions) and **read_indexes** (for index titles and details). Call these when the user asks to see what's in an index or which indexes they have.
 
 ## Guidelines
 
@@ -249,7 +258,10 @@ export class ChatAgent {
     // When chat is scoped to an index, tell the agent so it uses read_intents/create_intent with indexId
     const indexId = this.context.indexId?.trim();
     const systemContent = indexId
-      ? `**Current index (scope):** This conversation is scoped to index \`${indexId}\`. Use read_intents with this indexId for intents in this index. When creating intents, pass indexId so they are scoped to this index.\n\n${CHAT_AGENT_SYSTEM_PROMPT}`
+      ? `**Current index (scope):** This conversation is scoped to index \`${indexId}\`. You MUST use this index for index-scoped actions:
+- **read_intents**: use indexId \`${indexId}\` to list intents in this index.
+- **create_intent**: you MUST pass \`indexId: "${indexId}"\` so the intent is created and linked to this index (via intent_indexes; intents do not have an indexId field). If you omit indexId, the intent may not appear in this community.
+- **read_intent_indexes** / **create_intent_index** / **delete_intent_index**: use this indexId when the user refers to "this index" or "this community".\n\n${CHAT_AGENT_SYSTEM_PROMPT}`
       : CHAT_AGENT_SYSTEM_PROMPT;
 
     const fullMessages: BaseMessage[] = [

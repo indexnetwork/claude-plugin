@@ -342,6 +342,9 @@ export function createChatTools(context: ToolContext) {
               indexId,
             });
           }
+          // Include userId and userName for consistency with getIndexIntentsForOwner (so owner viewing a member's intents sees whose they are)
+          const user = await database.getUser(effectiveUserId);
+          const userName = user?.name ?? null;
           return success({
             count: intents.length,
             indexId,
@@ -350,8 +353,10 @@ export function createChatTools(context: ToolContext) {
               description: i.payload,
               summary: i.summary,
               createdAt: i.createdAt,
-          })),
-        });
+              userId: effectiveUserId,
+              userName,
+            })),
+          });
       }
       
       // Global (no-index) path: restrict to session user only
@@ -384,10 +389,10 @@ export function createChatTools(context: ToolContext) {
     {
       name: "read_intents",
       description:
-        "Fetches intents (goals, wants, needs). With no indexId: returns the user's active intents. With indexId: if you are the index owner and omit userId, returns all intents in that index; otherwise returns intents for the given user (or yourself) in that index. indexId must be a UUID from read_indexes.",
+        `Fetches intents (goals, wants, needs). With no indexId: returns the user's active intents. With indexId: if you are the index owner and omit userId, returns all intents in that index (all members); if you pass userId (e.g. the current user's id when they ask 'my intents' or 'owner's intents'), returns only that user's intents in the index. indexId must be a UUID from read_indexes.`,
       schema: z.object({
         indexId: z.string().optional().describe("Index UUID; optional when chat is index-scoped (uses current index)."),
-        userId: z.string().optional().describe("When index-scoped and you are owner, limit to this user's intents; omit to list all intents in the index."),
+        userId: z.string().optional().describe("When index-scoped: pass the current user's id when they ask for their own intents so only their intents are returned; omit to return all intents in the index (owner only). Pass another member's id to return that member's intents."),
       }),
     }
   );
@@ -449,12 +454,13 @@ export function createChatTools(context: ToolContext) {
             description: r.payload || args.description
           }));
 
-        // Assign created intents to indexes. When the user explicitly chose one index (effectiveIndexId), force-assign
-        // so the intent always appears in that index. When no index is set, run the index graph so the LLM decides
-        // which of the user's indexes each intent qualifies for.
+        // Link created intents to indexes via intent_indexes (intents table has no indexId; association is many-to-many).
+        // When the user chose one index or chat is index-scoped, assign so the intent appears in that index.
+        const contextIndexId = context.indexId?.trim() || undefined;
+        const indexForAssignment = effectiveIndexId || contextIndexId;
         if (created.length > 0) {
-          const scopeIndexIds = effectiveIndexId
-            ? [effectiveIndexId]
+          const scopeIndexIds = indexForAssignment
+            ? [indexForAssignment]
             : await database.getUserIndexIds(userId);
           if (scopeIndexIds.length > 0) {
             const forceAssignSingleIndex = scopeIndexIds.length === 1;
@@ -500,14 +506,14 @@ export function createChatTools(context: ToolContext) {
     },
     {
       name: "create_intent",
-      description: "Creates a new intent (goal, want, or need) for the user. Pass a concept-based description. When the user is clearly acting in a specific index, pass indexId (UUID from read_indexes). If the user includes URLs, include them in the description—the tool will scrape for context.",
+      description: "Creates a new intent (goal, want, or need) for the user. Pass a concept-based description. Intents are linked to indexes via intent_indexes (intents have no indexId column). When chat is index-scoped, pass that indexId so the tool creates the intent and adds an intent_indexes row linking it to the active index; if omitted but chat is index-scoped, the link is still created. When the user includes URLs, include them in the description—the tool will scrape for context.",
       schema: z.object({
         description: z.string().describe("The intent/goal in conceptual terms; may include URLs—they will be scraped for context"),
-        indexId: z.string().optional().describe("Optional index UUID from read_indexes when creating in a specific index."),
+        indexId: z.string().optional().describe("Index UUID from read_indexes or the system message. When chat is index-scoped, pass this so the intent is linked to the active index (via intent_indexes)."),
       })
     }
   );
-
+  // TODO: Prevent users from updating intents that are not theirs.
   const updateIntent = tool(
     async (args: { intentId: string; newDescription: string }) => {
       const intentId = args.intentId?.trim() ?? "";
@@ -579,7 +585,7 @@ export function createChatTools(context: ToolContext) {
       })
     }
   );
-
+  // TODO: Prevent users from deleting intents that are not theirs, as long as they are not the owner of the index.
   const deleteIntent = tool(
     async (args: { intentId: string }) => {
       const intentId = args.intentId?.trim() ?? "";
@@ -642,6 +648,199 @@ export function createChatTools(context: ToolContext) {
       description: "Deletes (archives) an existing intent. Requires the intent ID from read_intents. When the chat is index-scoped, only intents in that index can be deleted.",
       schema: z.object({
         intentId: z.string().describe("The ID of the intent to delete")
+      })
+    }
+  );
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // INTENT–INDEX TOOLS (intent_indexes junction: save / list / remove intent in index)
+  // To show intent and index names/descriptions, use read_intents and read_indexes.
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  const createIntentIndex = tool(
+    async (args: { intentId: string; indexId: string }) => {
+      const intentId = args.intentId?.trim() ?? "";
+      const indexId = args.indexId?.trim() ?? "";
+      logger.info("Tool: create_intent_index", { userId, intentId, indexId });
+
+      if (!UUID_REGEX.test(intentId) || !UUID_REGEX.test(indexId)) {
+        return error(
+          "Invalid ID format. intentId and indexId must be UUIDs from read_intents and read_indexes."
+        );
+      }
+
+      try {
+        const intent = await database.getIntent(intentId);
+        if (!intent) {
+          return error("Intent not found. Use read_intents to get the exact intent id.");
+        }
+        if (intent.userId !== userId) {
+          return error("You can only add your own intents to an index.");
+        }
+        const isMember = await database.isIndexMember(indexId, userId);
+        if (!isMember) {
+          return error("You are not a member of that index. Use read_indexes to list indexes you belong to.");
+        }
+        const index = await database.getIndex(indexId);
+        if (!index) {
+          return error("Index not found. Use read_indexes to get valid index ids.");
+        }
+        const alreadyAssigned = await database.isIntentAssignedToIndex(intentId, indexId);
+        if (alreadyAssigned) {
+          return success({ created: true, message: "That intent is already in this index." });
+        }
+        await database.assignIntentToIndex(intentId, indexId);
+        return success({ created: true, message: "Intent saved to the index." });
+      } catch (err) {
+        logger.error("create_intent_index failed", { error: err });
+        return error("Failed to save intent to index. Please try again.");
+      }
+    },
+    {
+      name: "create_intent_index",
+      description: "Saves (links) an intent to an index. Use when the user wants to add one of their intents to a specific index. Requires intentId from read_intents and indexId from read_indexes. Intent_indexes store only id matches; use read_intents and read_indexes to show intent and index names/descriptions.",
+      schema: z.object({
+        intentId: z.string().describe("The ID of the intent (from read_intents)"),
+        indexId: z.string().describe("The ID of the index (from read_indexes)")
+      })
+    }
+  );
+
+  const readIntentIndexes = tool(
+    async (args: { intentId?: string; indexId?: string; userId?: string }) => {
+      const intentId = args.intentId?.trim() || undefined;
+      const indexId = args.indexId?.trim() || context.indexId?.trim() || undefined;
+      const effectiveUserId = args.userId?.trim() || userId;
+      logger.info("Tool: read_intent_indexes", { userId, intentId, indexId, effectiveUserId, contextIndexId: context.indexId });
+
+      try {
+        // Mode 2: Intent owner lists all indexes the intent is registered to
+        if (intentId) {
+          if (!UUID_REGEX.test(intentId)) {
+            return error("Invalid intent ID format. Use the exact UUID from read_intents.");
+          }
+          const intent = await database.getIntent(intentId);
+          if (!intent) {
+            return error("Intent not found. Use read_intents to get the exact intent id.");
+          }
+          if (intent.userId !== userId) {
+            return error("You can only list indexes for your own intents.");
+          }
+          const indexIds = await database.getIndexIdsForIntent(intentId);
+          return success({
+            intentId,
+            count: indexIds.length,
+            indexIds,
+            mode: "indexes_for_intent",
+            note: "To show index titles, use read_indexes (with these indexIds or showAll: true).",
+          });
+        }
+
+        // Mode 1 & 3: By index – list intents in that index (owner can list all or filter by userId; member lists that user's intents)
+        if (!indexId) {
+          return error("Provide indexId (to list intents in an index) or intentId (to list indexes for an intent). When chat is index-scoped, indexId defaults to the current index.");
+        }
+        if (!UUID_REGEX.test(indexId)) {
+          return error("Invalid index ID format. Use the exact UUID from read_indexes.");
+        }
+
+        const isOwner = await database.isIndexOwner(indexId, userId);
+        const isMember = await database.isIndexMember(indexId, userId);
+        if (!isMember) {
+          return error("Index not found or you are not a member. Use read_indexes to see your indexes.");
+        }
+
+        // Index owner: omit userId → all intents in index; pass userId → that user's intents in this index (e.g. "my intents in this index" when userId=self)
+        if (isOwner && !args.userId) {
+          const intents = await database.getIndexIntentsForOwner(indexId, userId, { limit: 50, offset: 0 });
+          return success({
+            indexId,
+            count: intents.length,
+            intents: intents.map((i) => ({
+              id: i.id,
+              description: i.payload,
+              summary: i.summary,
+              createdAt: i.createdAt,
+              userId: i.userId,
+              userName: i.userName,
+            })),
+            mode: "intents_in_index",
+            note: "To show index title and full intent details, use read_indexes and read_intents.",
+          });
+        }
+
+        // Owner with userId filter, or member: intents for effectiveUserId in this index
+        const intents = await database.getIntentsInIndexForMember(effectiveUserId, indexId);
+        return success({
+          indexId,
+          count: intents.length,
+          intents: intents.map((i) => ({
+            id: i.id,
+            description: i.payload,
+            summary: i.summary,
+            createdAt: i.createdAt,
+          })),
+          mode: "intents_in_index",
+          note: "To show index title and full intent details, use read_indexes and read_intents.",
+        });
+      } catch (err) {
+        logger.error("read_intent_indexes failed", { error: err });
+        return error("Failed to fetch intent-index links. Please try again.");
+      }
+    },
+    {
+      name: "read_intent_indexes",
+      description:
+        "Three modes. (1) By index: pass indexId (or omit when index-scoped) to list intents in that index. As index owner, omit userId to see all intents, or pass userId to see that user's intents (e.g. your own). As member, returns that user's intents in the index. (2) By intent: pass intentId to list all indexes that intent is in (you must own the intent). (3) Works with user and index scope: indexId defaults to context when chat is index-scoped. Use read_indexes and read_intents to show names/descriptions.",
+      schema: z.object({
+        intentId: z.string().optional().describe("Intent UUID from read_intents. When set, returns all indexIds the intent is registered to (owner only)."),
+        indexId: z.string().optional().describe("Index UUID from read_indexes. When set, returns intents in that index. Optional when chat is index-scoped."),
+        userId: z.string().optional().describe("When listing by index: as owner, limit to this user's intents (e.g. yourself); omit to list all intents in the index."),
+      }),
+    }
+  );
+
+  const deleteIntentIndex = tool(
+    async (args: { intentId: string; indexId: string }) => {
+      const intentId = args.intentId?.trim() ?? "";
+      const indexId = args.indexId?.trim() ?? "";
+      logger.info("Tool: delete_intent_index", { userId, intentId, indexId });
+
+      if (!UUID_REGEX.test(intentId) || !UUID_REGEX.test(indexId)) {
+        return error(
+          "Invalid ID format. intentId and indexId must be UUIDs from read_intents and read_indexes."
+        );
+      }
+
+      try {
+        const intent = await database.getIntent(intentId);
+        if (!intent) {
+          return error("Intent not found. Use read_intents to get the exact intent id.");
+        }
+        if (intent.userId !== userId) {
+          return error("You can only remove your own intents from an index.");
+        }
+        const isMember = await database.isIndexMember(indexId, userId);
+        if (!isMember) {
+          return error("You are not a member of that index. Use read_indexes to list indexes you belong to.");
+        }
+        const assigned = await database.isIntentAssignedToIndex(intentId, indexId);
+        if (!assigned) {
+          return success({ deleted: true, message: "That intent is not in this index." });
+        }
+        await database.unassignIntentFromIndex(intentId, indexId);
+        return success({ deleted: true, message: "Intent removed from the index." });
+      } catch (err) {
+        logger.error("delete_intent_index failed", { error: err });
+        return error("Failed to remove intent from index. Please try again.");
+      }
+    },
+    {
+      name: "delete_intent_index",
+      description: "Removes an intent from a specific index. Use when the user wants to take one of their intents out of an index. Requires intentId from read_intents and indexId from read_indexes. Does not delete the intent itself—use delete_intent for that.",
+      schema: z.object({
+        intentId: z.string().describe("The ID of the intent to remove (from read_intents)"),
+        indexId: z.string().describe("The ID of the index (from read_indexes)")
       })
     }
   );
@@ -1392,6 +1591,9 @@ export function createChatTools(context: ToolContext) {
     createIntent,
     updateIntent,
     deleteIntent,
+    createIntentIndex,
+    readIntentIndexes,
+    deleteIntentIndex,
     readIndexes,
     createIndex,
     updateIndex,

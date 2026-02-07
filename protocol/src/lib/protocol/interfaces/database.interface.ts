@@ -629,6 +629,11 @@ export interface Database {
    */
   unassignIntentFromIndex(intentId: string, indexId: string): Promise<void>;
 
+  /**
+   * Returns all index IDs that an intent is registered to.
+   */
+  getIndexIdsForIntent(intentId: string): Promise<string[]>;
+
   // ─────────────────────────────────────────────────────────────────────────────
   // Index Ownership Operations (Owner-Only)
   // ─────────────────────────────────────────────────────────────────────────────
@@ -1026,6 +1031,7 @@ export type ChatGraphCompositeDatabase = Pick<
   | 'isIntentAssignedToIndex'
   | 'assignIntentToIndex'
   | 'unassignIntentFromIndex'
+  | 'getIndexIdsForIntent'
   // Index Ownership Operations (owner-only)
   | 'getOwnedIndexes'
   | 'isIndexOwner'

@@ -1106,6 +1106,14 @@ export class ChatDatabaseAdapter {
       );
   }
 
+  async getIndexIdsForIntent(intentId: string): Promise<string[]> {
+    const rows = await db
+      .select({ indexId: intentIndexes.indexId })
+      .from(intentIndexes)
+      .where(eq(intentIndexes.intentId, intentId));
+    return rows.map((r) => r.indexId);
+  }
+
   // HyDE document operations (delegate to HydeDatabaseAdapter)
   async getHydeDocument(
     sourceType: 'intent' | 'profile' | 'query',
@@ -2275,6 +2283,14 @@ export class IndexGraphDatabaseAdapter {
           eq(intentIndexes.indexId, indexId)
         )
       );
+  }
+
+  async getIndexIdsForIntent(intentId: string): Promise<string[]> {
+    const rows = await db
+      .select({ indexId: intentIndexes.indexId })
+      .from(intentIndexes)
+      .where(eq(intentIndexes.intentId, intentId));
+    return rows.map((r) => r.indexId);
   }
 
   /**

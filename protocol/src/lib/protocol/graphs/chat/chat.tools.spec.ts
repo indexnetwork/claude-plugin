@@ -8,7 +8,7 @@ config({ path: '.env.test' });
 import { describe, test, expect, beforeAll } from "bun:test";
 import { createChatTools, type ToolContext } from "./chat.tools";
 import type { ChatGraphCompositeDatabase } from "../../interfaces/database.interface";
-import type { ActiveIntent, IndexMemberDetails, IndexedIntentDetails, OwnedIndex } from "../../interfaces/database.interface";
+import type { ActiveIntent, IndexMemberDetails, IndexedIntentDetails } from "../../interfaces/database.interface";
 import type { Embedder } from "../../interfaces/embedder.interface";
 import type { Scraper } from "../../interfaces/scraper.interface";
 
@@ -16,7 +16,7 @@ const testUserId = "test-user-id-for-tools";
 
 type MockOverrides = Partial<Pick<
   ChatGraphCompositeDatabase,
-  "getOwnedIndexes" | "isIndexOwner" | "isIndexMember" | "getIndexMembersForOwner" | "getIndexMembersForMember" | "getIndexIntentsForOwner" | "getIndexMemberships" | "getIndexIntentsForMember" | "getIndexWithPermissions"
+  "getUser" | "getOwnedIndexes" | "isIndexOwner" | "isIndexMember" | "getIndexMembersForOwner" | "getIndexMembersForMember" | "getIndexIntentsForOwner" | "getIndexMemberships" | "getIndexIntentsForMember" | "getIndexWithPermissions"
 >>;
 
 /**
@@ -51,6 +51,7 @@ function createMockDatabase(
     isIntentAssignedToIndex: noopBool,
     assignIntentToIndex: noop,
     unassignIntentFromIndex: noop,
+    getIndexIdsForIntent: noopArray,
     getOwnedIndexes: noopArray,
     isIndexOwner: noopBool,
     isIndexMember: noopBool,
@@ -186,6 +187,126 @@ describe("read_intents tool", () => {
   });
 });
 
+describe("read_intents tool (index-scoped: owner vs member)", () => {
+  const indexId = testIndexId;
+  const allIndexIntents: IndexedIntentDetails[] = [
+    { id: "ix-1", payload: "Intent from Alice", summary: "Alice", userId: "user-alice", userName: "Alice", createdAt: new Date("2025-01-01") },
+    { id: "ix-2", payload: "Intent from Bob", summary: "Bob", userId: "user-bob", userName: "Bob", createdAt: new Date("2025-01-02") },
+  ];
+  const memberIntents: ActiveIntent[] = [
+    { id: "mine-1", payload: "My intent in index", summary: "Mine", createdAt: new Date("2025-01-03") },
+  ];
+
+  test("when isIndexOwner is true and userId is omitted, getIndexIntentsForOwner is called and returns all intents in index", async () => {
+    let getIndexIntentsForOwnerCalled = false;
+    const mockDb = createMockDatabase(async () => [], {
+      isIndexOwner: async (idx, uid) => idx === indexId && uid === testUserId,
+      isIndexMember: async () => true,
+      getIndexIntentsForOwner: async (idx, uid) => {
+        getIndexIntentsForOwnerCalled = true;
+        expect(idx).toBe(indexId);
+        expect(uid).toBe(testUserId);
+        return allIndexIntents;
+      },
+    });
+    const context: ToolContext = { userId: testUserId, database: mockDb, embedder: mockEmbedder, scraper: mockScraper };
+    const tools = createChatTools(context);
+    const tool = tools.find((t: { name: string }) => t.name === "read_intents") as { invoke: (args: { indexId?: string; userId?: string }) => Promise<string> };
+    const result = await tool.invoke({ indexId });
+    expect(getIndexIntentsForOwnerCalled).toBe(true);
+    const parsed = JSON.parse(result);
+    expect(parsed.success).toBe(true);
+    expect(parsed.data.count).toBe(2);
+    expect(parsed.data.indexId).toBe(indexId);
+    expect(parsed.data.intents).toHaveLength(2);
+    expect(parsed.data.intents[0]).toMatchObject({ id: "ix-1", description: "Intent from Alice", userId: "user-alice", userName: "Alice" });
+    expect(parsed.data.intents[1]).toMatchObject({ id: "ix-2", description: "Intent from Bob", userId: "user-bob", userName: "Bob" });
+  });
+
+  test("when isIndexOwner is true and userId is provided, getIntentsInIndexForMember is called for that user", async () => {
+    const otherUserId = "user-bob";
+    let getIntentsInIndexForMemberCalledWith: { userId: string; indexId: string } | null = null;
+    const mockDb = createMockDatabase(async (uid, idx) => {
+      getIntentsInIndexForMemberCalledWith = { userId: uid, indexId: idx };
+      if (uid === otherUserId && idx === indexId) return [{ id: "bob-1", payload: "Bob intent", summary: "B", createdAt: new Date() }];
+      return [];
+    }, {
+      isIndexOwner: async () => true,
+      isIndexMember: async () => true,
+    });
+    const context: ToolContext = { userId: testUserId, database: mockDb, embedder: mockEmbedder, scraper: mockScraper };
+    const tools = createChatTools(context);
+    const tool = tools.find((t: { name: string }) => t.name === "read_intents") as { invoke: (args: { indexId?: string; userId?: string }) => Promise<string> };
+    const result = await tool.invoke({ indexId, userId: otherUserId });
+    expect(getIntentsInIndexForMemberCalledWith).toEqual({ userId: otherUserId, indexId });
+    const parsed = JSON.parse(result);
+    expect(parsed.success).toBe(true);
+    expect(parsed.data.count).toBe(1);
+    expect(parsed.data.intents[0]).toMatchObject({ id: "bob-1", description: "Bob intent" });
+  });
+
+  test("when isIndexMember is true and isIndexOwner is false, getIntentsInIndexForMember is called (member path)", async () => {
+    let getIntentsInIndexForMemberCalled = false;
+    const mockDb = createMockDatabase(async (uid, idx) => {
+      getIntentsInIndexForMemberCalled = true;
+      expect(uid).toBe(testUserId);
+      expect(idx).toBe(indexId);
+      return memberIntents;
+    }, {
+      isIndexOwner: async () => false,
+      isIndexMember: async () => true,
+    });
+    const context: ToolContext = { userId: testUserId, database: mockDb, embedder: mockEmbedder, scraper: mockScraper };
+    const tools = createChatTools(context);
+    const tool = tools.find((t: { name: string }) => t.name === "read_intents") as { invoke: (args: { indexId?: string }) => Promise<string> };
+    const result = await tool.invoke({ indexId });
+    expect(getIntentsInIndexForMemberCalled).toBe(true);
+    const parsed = JSON.parse(result);
+    expect(parsed.success).toBe(true);
+    expect(parsed.data.count).toBe(1);
+    expect(parsed.data.intents[0]).toMatchObject({ id: "mine-1", description: "My intent in index" });
+  });
+
+  test("when owner requests a specific user's intents (userId), response includes userId and userName for each intent", async () => {
+    const otherUserId = "user-bob";
+    const mockDb = createMockDatabase(async (uid, idx) => {
+      if (uid === otherUserId && idx === indexId) return [{ id: "bob-1", payload: "Bob's goal", summary: "B", createdAt: new Date() }];
+      return [];
+    }, {
+      isIndexOwner: async () => true,
+      isIndexMember: async () => true,
+      getUser: async (uid: string) => (uid === otherUserId ? { id: uid, name: "Bob", email: "bob@example.com" } as any : null),
+    });
+    const context: ToolContext = { userId: testUserId, database: mockDb, embedder: mockEmbedder, scraper: mockScraper };
+    const tools = createChatTools(context);
+    const tool = tools.find((t: { name: string }) => t.name === "read_intents") as { invoke: (args: { indexId?: string; userId?: string }) => Promise<string> };
+    const result = await tool.invoke({ indexId, userId: otherUserId });
+    const parsed = JSON.parse(result);
+    expect(parsed.success).toBe(true);
+    expect(parsed.data.intents).toHaveLength(1);
+    expect(parsed.data.intents[0]).toMatchObject({
+      id: "bob-1",
+      description: "Bob's goal",
+      userId: otherUserId,
+      userName: "Bob",
+    });
+  });
+
+  test("when indexId is set but user is not a member, returns error", async () => {
+    const mockDb = createMockDatabase(async () => [], {
+      isIndexOwner: async () => false,
+      isIndexMember: async () => false,
+    });
+    const context: ToolContext = { userId: testUserId, database: mockDb, embedder: mockEmbedder, scraper: mockScraper };
+    const tools = createChatTools(context);
+    const tool = tools.find((t: { name: string }) => t.name === "read_intents") as { invoke: (args: { indexId?: string }) => Promise<string> };
+    const result = await tool.invoke({ indexId });
+    const parsed = JSON.parse(result);
+    expect(parsed.success).toBe(false);
+    expect(parsed.error).toMatch(/not a member|Index not found/i);
+  });
+});
+
 describe("read_intents tool (no indexId)", () => {
   const globalIntents: ActiveIntent[] = [
     { id: "g1", payload: "Global intent A", summary: "A", createdAt: new Date("2025-01-01") },
@@ -236,6 +357,17 @@ describe("read_intents tool (no indexId)", () => {
     expect(parsed.success).toBe(true);
     expect(parsed.data.count).toBe(1);
     expect(parsed.data.intents[0]).toMatchObject({ id: "i1", description: "Intent in index only" });
+  });
+
+  test("without indexId, when userId arg is another user, returns error (no viewing other users' global intents)", async () => {
+    const mockDb = createMockDatabase(async () => []);
+    const context: ToolContext = { userId: testUserId, database: mockDb, embedder: mockEmbedder, scraper: mockScraper };
+    const tools = createChatTools(context);
+    const tool = tools.find((t: { name: string }) => t.name === "read_intents") as { invoke: (args: { userId?: string }) => Promise<string> };
+    const result = await tool.invoke({ userId: "other-user-id" });
+    const parsed = JSON.parse(result);
+    expect(parsed.success).toBe(false);
+    expect(parsed.error).toMatch(/Not authorized|other users' global intents/i);
   });
 });
 
