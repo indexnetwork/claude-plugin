@@ -9,7 +9,11 @@
 
 ## Overview
 
-When a user says "find opportunities for me," the agent discovers, evaluates, and persists opportunities in a **latent** state — visible only to the requesting user, with no notifications sent. The user then chooses to **send** (promote to pending + notify) or dismiss. Users never directly create opportunities; they only act on agent-created ones.
+When a user says "find opportunities for me," the `create_opportunities` chat tool invokes the **Opportunity Graph** — a linear multi-step workflow (similar to the Intent Graph) that discovers, evaluates, and persists opportunities in a **latent** state. Opportunities are only found between intents that share the same index. Non-indexed intents cannot participate in discovery.
+
+The user then chooses to **send** (promote to pending + notify) or dismiss. Users never directly create opportunities; they only act on agent-created ones.
+
+**Key Architectural Principle**: Chat tools are simple CRUD operations. Complex logic lives in graphs. The chat agent's system prompt guides it to handle complex user requests using these simple tools.
 
 ---
 
@@ -26,6 +30,60 @@ When a user says "find opportunities for me," the agent discovers, evaluates, an
 | `updateOpportunityStatus` | `src/adapters/database.adapter.ts:2121-2131` | Same union as controller |
 | Notifications | `src/queues/notification.queue.ts` | `queueOpportunityNotification(id, recipientId, priority)` |
 | Latest migration | `drizzle/0022_rename_personal_index_to_my_own_private.sql` | — |
+
+---
+
+## Architectural Decisions & Constraints
+
+### Why a Linear Multi-Step Graph?
+
+The opportunity discovery process has inherent complexity that requires orchestration:
+1. **Context gathering**: Need to fetch user's indexed intents with hyde documents
+2. **Scope determination**: Must identify which indexes to search within
+3. **Semantic search**: Vector similarity search across multiple indexes
+4. **Quality evaluation**: LLM-based scoring of candidate matches
+5. **Ranking & limiting**: Sort by confidence and apply reasonable limits
+6. **Persistence**: Batch create opportunities in database
+
+This is conceptually similar to the intent graph's: infer → verify → reconcile → execute flow. Both require state accumulation across multiple steps with potential for conditional routing.
+
+### Why CRUD-Only Chat Tools?
+
+**Constraint**: The chat tools layer (`chat.tools.ts`) must remain simple CRUD operations. Complex multi-step logic should not live in tools.
+
+**Rationale**: 
+- Tools are LangChain tool wrappers exposed to the LLM via function calling
+- The LLM sees tool descriptions and decides when to call them
+- Complex logic in tools makes them harder to test, compose, and reason about
+- Graphs provide better observability, retry logic, and state management
+
+**Solution**: 
+- Tool description and chat agent system prompt provide the intelligence
+- Tools are thin wrappers around graphs or database operations
+- Agent prompt teaches the LLM how to handle complex user requests using simple tools
+
+### Index-Scoped Discovery
+
+**Constraint**: Opportunities only exist between intents that share the same index. Non-indexed intents cannot participate.
+
+**Rationale**:
+- Privacy: Users control what they share by choosing which indexes to join
+- Relevance: Index prompts provide context for appropriate matching
+- Scalability: Bounded search space prevents O(n²) matching across all users
+- Trust: Indexes can have membership criteria, vouch systems, etc.
+
+**Implementation**: The discovery node filters candidates by index membership before performing vector search.
+
+### Hyde Documents for Semantic Search
+
+**Constraint**: Both source and candidate intents must have hyde documents (with embeddings) to participate in opportunity discovery.
+
+**Rationale**:
+- Hyde provides richer semantic representation than raw intent text
+- Better cross-domain matching (finds "need React help" ↔ "offering frontend mentorship")
+- Consistent with existing profile and intent matching infrastructure
+
+**Implementation**: The prep node validates that user's intents have hyde documents. Discovery node performs similarity search on hyde embeddings.
 
 ---
 
@@ -70,56 +128,72 @@ When a user says "find opportunities for me," the agent discovers, evaluates, an
 
 ---
 
-### Step 3: Opportunity graph — support `initialStatus` option
+### Step 3: Refactor Opportunity Graph — Linear Multi-Step Workflow
 
-**Goal**: Let callers control what status persisted opportunities get.
+**Goal**: Restructure the opportunity graph to follow the intent graph pattern: a linear sequence of nodes with proper state management and conditional routing.
 
-**Files to change**:
+**Motivation**: The current graph mixes concerns (HyDE generation, search, evaluation, persistence). We need a cleaner separation aligned with the intent graph architecture.
 
-1. **`src/lib/protocol/agents/opportunity/opportunity.evaluator.ts`** (~line 97-106)
-   - Add to `OpportunityEvaluatorOptions`:
-     ```typescript
-     initialStatus?: OpportunityStatus;
-     ```
-   - Import `OpportunityStatus` from the interfaces.
+**New Graph Structure**:
 
-2. **`src/lib/protocol/graphs/opportunity/opportunity.graph.ts`** (line 393)
-   - Replace:
-     ```typescript
-     status: 'pending',
-     ```
-   - With:
-     ```typescript
-     status: state.options.initialStatus ?? 'pending',
-     ```
+```
+Prep → Scope → Discovery → Evaluation → Ranking → Persist → END
+```
 
-**Verification**: Existing behavior unchanged (defaults to `'pending'`). Unit test (step 8) will confirm `initialStatus` pass-through.
+**Files to create/modify**:
+
+1. **Create `src/lib/protocol/graphs/opportunity/opportunity.graph.state.ts`**
+   - Define state annotation with proper reducers
+   - Input: `userId`, `searchQuery`, `indexId?`, `options`
+   - Intermediate: `indexedIntents`, `targetIndexes`, `candidates`, `evaluatedCandidates`
+   - Output: `opportunities`, `error?`
+
+2. **Refactor `src/lib/protocol/graphs/opportunity/opportunity.graph.ts`**
+   - Convert to factory pattern: `OpportunityGraphFactory` class
+   - Constructor accepts `database`, `embedder`, `hydeCache`
+   - Implement six nodes:
+     - `prepNode`: Fetch user's indexed intents with hyde documents
+     - `scopeNode`: Determine which indexes to search
+     - `discoveryNode`: Vector search within target indexes
+     - `evaluationNode`: Parallel evaluation using OpportunityEvaluator
+     - `rankingNode`: Sort by confidence, apply limit
+     - `persistNode`: Create opportunities with `initialStatus` from options
+   - Add conditional routing: early exit if no indexed intents
+
+3. **Update `src/lib/protocol/agents/opportunity/opportunity.evaluator.ts`**
+   - Ensure it accepts candidate pairs with index context
+   - Add `initialStatus?: OpportunityStatus` to options (for persist node)
+
+**Verification**: 
+- Graph compiles without errors
+- Each node logs entry/exit
+- State flows correctly through all nodes
 
 ---
 
-### Step 4: Discovery — persist as latent (create_opportunities)
+### Step 4: Simplify Chat Tools — CRUD Only
 
-**Goal**: When the chat `create_opportunities` tool runs discovery, opportunities are created with `latent` status. The tool was renamed from `find_opportunities` to `create_opportunities` to reflect the create strategy; discover node passes `initialStatus: 'latent'`. Master prompts (chat.agent.ts, chat.streaming.ts) were updated so the agent uses create_opportunities and describes drafts.
+**Goal**: Simplify `create_opportunities` tool to just invoke the opportunity graph. Remove complex logic from tools; rely on graph and agent prompt to handle complexity.
 
-**Files changed**: `src/lib/protocol/graphs/chat/nodes/discover.nodes.ts`, `chat.tools.ts` (rename find_opportunities → create_opportunities), `chat.agent.ts`, `chat.streaming.ts`
+**Files to change**:
 
-In `runDiscoverFromQuery`, the `opportunityGraph.invoke(...)` call includes:
+1. **`src/lib/protocol/graphs/chat/chat.tools.ts`**
+   - Simplify `create_opportunities` tool:
+     - Accepts `searchQuery` (string) and optional `indexId` (UUID)
+     - Invokes refactored opportunity graph: `opportunityGraph.invoke({ userId, searchQuery, indexId?, options: { initialStatus: 'latent' } })`
+     - Returns formatted result with opportunity count
+   - Keep tool description clear: "Create draft opportunities by searching for relevant connections. Pass searchQuery and optional indexId. Results are saved as drafts (latent)."
 
-```typescript
-const result = await opportunityGraph.invoke({
-  sourceUserId: userId,
-  sourceText: query,
-  indexScope,
-  options: {
-    hydeDescription: query,
-    strategies,
-    limit,
-    initialStatus: 'latent',  // NEW: opportunities start as drafts
-  },
-});
-```
+2. **Remove or simplify `src/lib/protocol/graphs/chat/nodes/discover.nodes.ts`** (if it still exists)
+   - If this file wraps the opportunity graph, consider removing it and calling the graph directly from the tool
+   - Or keep it minimal as a thin adapter layer
 
-**Verification**: Call `create_opportunities` via chat; check DB for `status = 'latent'` on created opportunities.
+**Key Principle**: Tools should be thin wrappers around graphs or database calls. The chat agent's system prompt provides the intelligence to use these tools correctly.
+
+**Verification**: 
+- Call `create_opportunities` via chat
+- Verify it invokes the new opportunity graph
+- Check DB for `status = 'latent'` on created opportunities
 
 ---
 
@@ -219,51 +293,83 @@ Also add `sendOpportunity` to the returned tools array in `createChatTools`.
 
 ---
 
-### Step 7: Agent system prompt and streaming
+### Step 7: Update Agent System Prompt — Guide Complex Request Handling
 
-**Goal**: The agent knows about the new `send_opportunity` tool and guides users through the latent-to-sent flow.
+**Goal**: The chat agent's system prompt provides comprehensive guidance on using simple CRUD tools to handle complex user requests. The agent understands constraints (index-scoped search, hyde requirements) and guides users appropriately.
 
 **Files to change**:
 
 1. **`src/lib/protocol/graphs/chat/chat.agent.ts`**
 
-   - **Discovery tools section** (~lines 61-64): Add:
+   - **Discovery tools section** (~lines 61-68): Update:
+     ```markdown
+     - **create_opportunities**: Invoke opportunity graph to find relevant connections. Pass `searchQuery` (what user is looking for) and optional `indexId` (UUID) to scope search. Results are saved as **drafts** (latent status). The graph handles all complexity: fetching indexed intents, hyde-based semantic search, evaluation, ranking. Use when user says "find opportunities", "find me a mentor", "who needs help with X".
+     - **send_opportunity**: Promote a draft opportunity to pending and notify the other person. Requires `opportunityId` from list_my_opportunities. Use when user says "send intro to [name]", "send that opportunity", "notify Alice".
      ```
-     - **send_opportunity**: Send a draft opportunity to the other person, promoting it to active and triggering a notification. Use when the user says "send intro to X" or "send that opportunity".
-     ```
-   - Discovery tool is **create_opportunities** (already describes drafts; use send_opportunity to notify). Ensure create_opportunities and send_opportunity are both documented in the Discovery section.
-   - **Guidelines** (~line 79-80): Add:
-     ```
-     - After finding opportunities, tell the user they can say "send intro to [name]" to notify the other person. Opportunities start as drafts until explicitly sent.
-     - When creating an opportunity between two members, inform the introducer it's a draft and they need to say "send it" to notify both parties.
-     ```
-   - **Table formatting** (~line 152): Note that `latent` status should display as "Draft" in tables.
 
-2. **`src/lib/protocol/graphs/chat/streaming/chat.streaming.ts`** (~line 33-35)
+   - **Guidelines** (~line 79-95): Add comprehensive guidance:
+     ```markdown
+     ### Opportunity Discovery Constraints
+     - Opportunities are only found between intents that **share the same index**. Non-indexed intents cannot participate.
+     - Both intents must have hyde documents (auto-generated) for semantic matching.
+     - If user has no indexed intents, explain: "You'll need to join an index and add some intents first before finding opportunities."
+     - After calling create_opportunities, tell user how many drafts were created and that they can send intros when ready (e.g., "Found 3 draft opportunities. You can say 'send intro to [name]' when ready.").
+     - When creating opportunity between members (curator flow), inform introducer it's a draft and they need to say "send it" to notify both parties.
+     
+     ### Handling Complex Queries
+     - "Find me a React developer in the AI index" → create_opportunities(searchQuery="React developer", indexId=<ai-index-uuid>)
+     - "Who can help with fundraising?" → create_opportunities(searchQuery="help with fundraising") (searches all user's indexes)
+     - "Send intro to Alice" → list_my_opportunities() first to find opportunityId, then send_opportunity(opportunityId=...)
+     ```
 
-   Add:
+   - **Table formatting** (~line 152): Note that `latent` status displays as "Draft" in tables.
+
+2. **`src/lib/protocol/graphs/chat/streaming/chat.streaming.ts`** (~line 33-39)
+
+   Ensure streaming labels are present:
    ```typescript
+   create_opportunities: "Creating draft opportunities...",
    send_opportunity: "Sending opportunity...",
    ```
 
-**Verification**: Read system prompt in code; confirm `send_opportunity` is documented and latent/draft guidance is present.
+**Verification**: 
+- Read system prompt in code
+- Confirm all guidance is present
+- Test chat flow: "find me opportunities" → agent calls create_opportunities → agent explains drafts
 
 ---
 
-### Step 8: Update tests
+### Step 8: Update Tests and Documentation
 
-**Goal**: Existing tests pass; new behavior is covered.
+**Goal**: Tests pass, new graph structure is validated, and README documents the new architecture.
 
 **Files to change**:
 
-1. **`src/lib/protocol/graphs/opportunity/opportunity.graph.spec.ts`**
-   - Add test: when `options.initialStatus` is `'latent'`, `createOpportunity` is called with `status: 'latent'`.
-   - Add test: when `options.initialStatus` is omitted, `createOpportunity` is called with `status: 'pending'` (backward compat).
+1. **Create `src/lib/protocol/graphs/opportunity/opportunity.graph.spec.ts`**
+   - Test prep node: returns empty if user has no indexed intents
+   - Test scope node: correctly determines target indexes from input
+   - Test discovery node: performs vector search within index scope
+   - Test evaluation node: parallel processing with OpportunityEvaluator
+   - Test ranking node: sorts by confidence and applies limit
+   - Test persist node: when `options.initialStatus` is `'latent'`, opportunities are created with `status: 'latent'`
+   - Test backward compat: when `options.initialStatus` is omitted, defaults to `'pending'`
+   - Test conditional routing: early exit if no indexed intents
 
-2. **`src/lib/protocol/graphs/chat/nodes/discover.nodes.spec.ts`**
-   - Verify that `opportunityGraph.invoke` is called with `options.initialStatus: 'latent'`.
+2. **Update `src/lib/protocol/graphs/opportunity/README.md`**
+   - Document new graph architecture (six nodes)
+   - Explain index-scoped search with hyde documents
+   - Add mermaid diagram showing node flow
+   - Document state structure
+   - Add usage examples
 
-**Verification**: `bun test` passes.
+3. **Update `src/lib/protocol/graphs/chat/chat.tools.spec.ts`** (if exists)
+   - Test `create_opportunities` invokes opportunity graph with correct params
+   - Test `send_opportunity` promotes latent → pending and queues notifications
+
+**Verification**: 
+- `bun test` passes all tests
+- README is comprehensive and up-to-date
+- Mermaid diagrams render correctly
 
 ---
 
@@ -272,23 +378,41 @@ Also add `sendOpportunity` to the returned tools array in `createChatTools`.
 | Step | Files | Description |
 |------|-------|-------------|
 | 1 | `database.schema.ts`, `database.interface.ts`, `database.adapter.ts`, `opportunity.controller.ts` | Add `latent` to status enum, type, adapter, controller |
-| 2 | `drizzle/0023_*.sql` | Database migration |
-| 3 | `opportunity.evaluator.ts`, `opportunity.graph.ts` | Support `initialStatus` option in persist node |
-| 4 | `discover.nodes.ts`, `chat.tools.ts`, `chat.agent.ts`, `chat.streaming.ts` | Pass `initialStatus: 'latent'`; rename find_opportunities → create_opportunities; update prompts |
-| 5 | `chat.tools.ts` | New `send_opportunity` tool |
+| 2 | `drizzle/0024_*.sql` | Database migration (add `latent` to enum) |
+| 3 | `opportunity.graph.state.ts` (new), `opportunity.graph.ts` (refactor), `opportunity.evaluator.ts` | Refactor opportunity graph to linear multi-step workflow following intent graph pattern |
+| 4 | `chat.tools.ts`, `discover.nodes.ts` | Simplify `create_opportunities` to invoke refactored graph; remove complex logic from tool |
+| 5 | `chat.tools.ts` | New `send_opportunity` tool (simple status update + notification) |
 | 6 | `chat.tools.ts` | Update `create_opportunity_between_members` to latent + no notifications |
-| 7 | `chat.agent.ts`, `chat.streaming.ts` | System prompt + streaming label |
-| 8 | `opportunity.graph.spec.ts`, `discover.nodes.spec.ts` | Tests |
+| 7 | `chat.agent.ts`, `chat.streaming.ts` | Comprehensive system prompt guidance for handling complex requests with simple tools |
+| 8 | `opportunity.graph.spec.ts` (new), `opportunity/README.md`, `chat.tools.spec.ts` | Tests for new graph nodes, README documenting architecture |
 
 ## Checklist
 
-- [ ] Step 1: `latent` in schema, interface, adapter, controller
-- [ ] Step 2: Migration generated and applied
-- [ ] Step 3: `initialStatus` option in opportunity graph
-- [ ] Step 4: Discovery passes `initialStatus: 'latent'`
+- [x] Step 1: `latent` in schema, interface, adapter, controller *(completed)*
+- [x] Step 2: Migration generated and applied *(completed)*
+- [x] Step 3: Refactor opportunity graph to linear multi-step workflow *(in progress - core complete)*
+  - [x] Create `opportunity.graph.state.ts` with proper state annotation
+  - [x] Refactor `opportunity.graph.ts` to factory pattern with six nodes
+  - [x] Implement prep, scope, discovery, evaluation, ranking, persist nodes
+  - [x] Add conditional routing (early exit if no indexed intents/indexes)
+  - [ ] Test the refactored graph end-to-end
+  - [ ] Update `opportunity.evaluator.ts` if needed (currently compatible)
+- [x] Step 4: Simplify `create_opportunities` chat tool *(completed)*
+  - [x] Updated to invoke refactored graph with new signature
+  - [x] Updated tool instantiation to use factory pattern
+  - [x] Kept `discover.nodes.ts` as thin wrapper (CRUD principle)
 - [ ] Step 5: `send_opportunity` chat tool implemented
 - [ ] Step 6: `create_opportunity_between_members` creates as latent
-- [ ] Step 7: System prompt and streaming label updated
-- [ ] Step 8: Tests updated and passing
+- [ ] Step 7: System prompt guidance for complex request handling
+  - [ ] Update `chat.agent.ts` with comprehensive guidelines
+  - [ ] Add index-scoped search constraints explanation
+  - [ ] Add complex query handling examples
+  - [ ] Update streaming labels in `chat.streaming.ts`
+- [ ] Step 8: Tests and documentation
+  - [ ] Create `opportunity.graph.spec.ts` with node tests
+  - [ ] Update `opportunity/README.md` with new architecture
+  - [ ] Add mermaid diagrams
+  - [ ] Update `chat.tools.spec.ts` if needed
 - [ ] `bun run lint` clean
 - [ ] `bun test` green
+- [ ] Integration test: full flow from "find opportunities" → create drafts → send intro
