@@ -1,0 +1,32 @@
+export const TESTABLE_TEST_ACCOUNTS = [
+  {
+    name: 'Seren Sandikci',
+    email: 'test-1761@privy.io',
+    phoneNumber: '+1 555 555 5724',
+    otpCode: '888893',
+    linkedin: 'https://www.linkedin.com/in/serensandikci',
+    github: null as string | null,
+    x: 'https://x.com/serensandikci',
+    website: null as string | null,
+  },
+  {
+    name: 'Seref Yarar',
+    email: 'test-9716@privy.io',
+    phoneNumber: '+1 555 555 2920',
+    otpCode: '670543',
+    linkedin: 'https://www.linkedin.com/in/serefyarar',
+    github: 'https://github.com/serefyarar',
+    x: 'https://x.com/hyperseref',
+    website: null as string | null,
+  },
+  {
+    name: 'Yanki Ekin Yüksel',
+    email: 'test-6285@privy.io',
+    phoneNumber: '+1 555 555 1625',
+    otpCode: '607027',
+    linkedin: 'https://linkedin.com/in/yanekyuk',
+    github: 'https://github.com/yanekyuk',
+    x: null as string | null,
+    website: null as string | null,
+  },
+];
