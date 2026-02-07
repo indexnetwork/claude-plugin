@@ -1476,16 +1476,8 @@ export class ChatDatabaseAdapter {
         invitationLink: perms.invitationLink ?? null,
       },
       createdAt: updatedRow.createdAt,
-      updatedAt: updatedRow.updatedAt,
-      user: {
-        id: updatedRow.ownerId,
-        name: updatedRow.userName,
-        avatar: updatedRow.userAvatar,
-      },
-      _count: {
-        members: Number(memberCountResult[0]?.count ?? 0),
-        intents: Number(intentCountResult[0]?.count ?? 0),
-      },
+      memberCount: Number(memberCountResult[0]?.count ?? 0),
+      intentCount: Number(intentCountResult[0]?.count ?? 0),
     };
   }
 
