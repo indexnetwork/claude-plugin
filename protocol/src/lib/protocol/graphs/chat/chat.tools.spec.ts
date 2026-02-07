@@ -473,6 +473,17 @@ describe("create_intent tool (Phase 2 index scope)", () => {
     const schema = (createIntentTool as { schema?: { shape?: Record<string, unknown> } }).schema;
     expect(schema?.shape?.indexId ?? (createIntentTool as { schema?: { schema?: { shape?: Record<string, unknown> } } }).schema?.schema?.shape?.indexId).toBeDefined();
   });
+
+  test("create_intent tool schema includes optional existingIntentsInIndex", () => {
+    const mockDb = createMockDatabase(async () => []);
+    const context: ToolContext = { userId: testUserId, database: mockDb, embedder: mockEmbedder, scraper: mockScraper };
+    const tools = createChatTools(context);
+    const createIntentTool = tools.find((t: { name: string }) => t.name === "create_intent");
+    expect(createIntentTool).toBeDefined();
+    const schemaObj = (createIntentTool as { schema?: { shape?: Record<string, unknown> } }).schema ?? (createIntentTool as { schema?: { schema?: { shape?: Record<string, unknown> } } }).schema?.schema;
+    const shape = schemaObj?.shape as Record<string, unknown> | undefined;
+    expect(shape?.existingIntentsInIndex).toBeDefined();
+  });
 });
 
 describe("scrape_url tool", () => {

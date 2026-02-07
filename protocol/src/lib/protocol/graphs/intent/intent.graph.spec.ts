@@ -218,12 +218,14 @@ describe('IntentGraph - Conditional Flow (Operation Modes)', () => {
 });
 
 describe('IntentGraph - Index-scoped prep (Phase 2)', () => {
-  let graphRunner: any;
+  let graphRunner: ReturnType<IntentGraphFactory['createGraph']>;
   let mockDatabase: IntentGraphDatabase;
   let getIntentsInIndexForMemberCalls: { userId: string; indexId: string }[];
+  let getActiveIntentsCalls: string[];
 
   beforeEach(() => {
     getIntentsInIndexForMemberCalls = [];
+    getActiveIntentsCalls = [];
   });
 
   beforeAll(() => {
@@ -233,13 +235,17 @@ describe('IntentGraph - Index-scoped prep (Phase 2)', () => {
       getIntentsInIndexForMember: async (userId: string, indexId: string) => {
         getIntentsInIndexForMemberCalls.push({ userId, indexId });
         return mockDatabase.getIntentsInIndexForMember(userId, indexId);
+      },
+      getActiveIntents: async (userId: string) => {
+        getActiveIntentsCalls.push(userId);
+        return mockDatabase.getActiveIntents(userId);
       }
     };
     const factory = new IntentGraphFactory(dbWithSpy);
     graphRunner = factory.createGraph();
   });
 
-  it('should load index-scoped intents when indexId is set', async () => {
+  it('should return requiredMessage and not call getIntentsInIndexForMember when indexId is set and activeIntentsPreFetched is not provided', async () => {
     const result = await graphRunner.invoke({
       userId: 'test-user-1',
       userProfile: JSON.stringify({ identity: { name: 'Test' } }),
@@ -248,11 +254,46 @@ describe('IntentGraph - Index-scoped prep (Phase 2)', () => {
       indexId: 'idx-yc-founders'
     });
 
-    expect(getIntentsInIndexForMemberCalls).toHaveLength(1);
-    expect(getIntentsInIndexForMemberCalls[0]).toEqual({ userId: 'test-user-1', indexId: 'idx-yc-founders' });
+    expect(getIntentsInIndexForMemberCalls).toHaveLength(0);
+    expect(result.requiredMessage).toBeDefined();
+    expect(typeof result.requiredMessage).toBe('string');
+    expect(result.requiredMessage).toContain('provide existing intents');
+    expect(result.executionResults).toEqual([]);
+    expect(result.actions).toEqual([]);
+  });
+
+  it('should use pre-fetched intents and not call getIntentsInIndexForMember when activeIntentsPreFetched is provided (empty array)', async () => {
+    const result = await graphRunner.invoke({
+      userId: 'test-user-1',
+      userProfile: JSON.stringify({ identity: { name: 'Test' } }),
+      inputContent: 'I want to learn Rust',
+      operationMode: 'create',
+      indexId: 'idx-yc-founders',
+      activeIntentsPreFetched: []
+    });
+
+    expect(getIntentsInIndexForMemberCalls).toHaveLength(0);
+    expect(result.requiredMessage).toBeUndefined();
     expect(result.activeIntents).toBeDefined();
-    expect(result.inferredIntents).toBeDefined();
-    expect(result.actions).toBeDefined();
+    expect(result.activeIntents).toBe('No active intents.');
+  }, 60000);
+
+  it('should use pre-fetched intents and not call getIntentsInIndexForMember when activeIntentsPreFetched is provided (with intents)', async () => {
+    const result = await graphRunner.invoke({
+      userId: 'test-user-1',
+      userProfile: JSON.stringify({ identity: { name: 'Test' } }),
+      inputContent: 'I want to learn Rust',
+      operationMode: 'create',
+      indexId: 'idx-yc-founders',
+      activeIntentsPreFetched: [
+        { id: 'i1', payload: 'Existing goal', summary: 'Existing', createdAt: new Date() }
+      ]
+    });
+
+    expect(getIntentsInIndexForMemberCalls).toHaveLength(0);
+    expect(result.requiredMessage).toBeUndefined();
+    expect(result.activeIntents).toContain('ID: i1');
+    expect(result.activeIntents).toContain('Existing goal');
   }, 60000);
 
   it('should use global active intents when indexId is not set', async () => {
@@ -264,6 +305,7 @@ describe('IntentGraph - Index-scoped prep (Phase 2)', () => {
     });
 
     expect(getIntentsInIndexForMemberCalls).toHaveLength(0);
+    expect(getActiveIntentsCalls).toContain('test-user-1');
     expect(result.activeIntents).toBeDefined();
     expect(result.inferredIntents).toBeDefined();
   }, 60000);

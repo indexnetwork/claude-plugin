@@ -24,29 +24,46 @@ export class IntentGraphFactory {
 
     /**
      * Node 0: Prep
-     * Fetches active intents from database for reconciliation context.
+     * Uses activeIntentsPreFetched when provided; when index-scoped and not provided,
+     * sets requiredMessage and exits (caller routes to END). When not index-scoped,
+     * loads all active intents of the user from the DB.
      */
     const prepNode = async (state: typeof IntentGraphState.State) => {
       logger.info("Starting preparation phase", {
         operationMode: state.operationMode,
         hasContent: !!state.inputContent,
         targetIntentIds: state.targetIntentIds,
-        indexId: state.indexId
+        indexId: state.indexId,
+        hasPreFetched: state.activeIntentsPreFetched !== undefined
       });
 
-      const activeIntents = state.indexId
-        ? await this.database.getIntentsInIndexForMember(state.userId, state.indexId)
-        : await this.database.getActiveIntents(state.userId);
+      if (state.activeIntentsPreFetched !== undefined) {
+        const formattedActiveIntents = state.activeIntentsPreFetched.length === 0
+          ? "No active intents."
+          : state.activeIntentsPreFetched
+              .map(i => `ID: ${i.id}, Description: ${i.payload}, Summary: ${i.summary || 'N/A'}`)
+              .join('\n');
+        logger.info("Using pre-fetched active intents", {
+          count: state.activeIntentsPreFetched.length,
+          operationMode: state.operationMode
+        });
+        return { activeIntents: formattedActiveIntents };
+      }
 
-      // Format for reconciler agent
+      if (state.indexId) {
+        const requiredMessage = "When creating an intent in an index, please provide existing intents (e.g. from read_intents) so the system can reconcile correctly.";
+        logger.info("Index-scoped but no pre-fetched intents - returning requiredMessage and exiting early");
+        return { requiredMessage };
+      }
+
+      const activeIntents = await this.database.getActiveIntents(state.userId);
       const formattedActiveIntents = activeIntents
         .map(i => `ID: ${i.id}, Description: ${i.payload}, Summary: ${i.summary || 'N/A'}`)
         .join('\n') || "No active intents.";
 
-      logger.info("Fetched active intents", {
+      logger.info("Fetched active intents (global)", {
         count: activeIntents.length,
-        operationMode: state.operationMode,
-        scope: state.indexId ? "index" : "global"
+        operationMode: state.operationMode
       });
 
       return { activeIntents: formattedActiveIntents };
@@ -292,6 +309,18 @@ export class IntentGraphFactory {
     };
 
     // --- CONDITIONAL ROUTING FUNCTIONS ---
+
+    /**
+     * After prep: if requiredMessage is set (index-scoped, intents not provided), go to END;
+     * otherwise decide inference vs reconciler by operation mode.
+     */
+    const afterPrepRoute = (state: typeof IntentGraphState.State): string => {
+      if (state.requiredMessage) {
+        logger.info('Required message set - routing to END');
+        return 'end';
+      }
+      return shouldRunInference(state);
+    };
     
     /**
      * Determines if inference should run based on operation mode.
@@ -352,8 +381,9 @@ export class IntentGraphFactory {
       // - DELETE:  prep → reconciliation → executor → END (skips inference and verification)
       .addEdge(START, "prep")
       
-      // After prep: decide if we need inference (skip for delete)
-      .addConditionalEdges("prep", shouldRunInference, {
+      // After prep: exit early if requiredMessage set (index-scoped, intents not provided); else inference or reconciler
+      .addConditionalEdges("prep", afterPrepRoute, {
+        end: END,
         inference: "inference",
         reconciler: "reconciler"
       })

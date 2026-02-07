@@ -21,6 +21,8 @@ export interface IntentSubgraphResult {
   intents?: unknown[];
   count?: number;
   error?: string;
+  /** When the intent graph exits early (e.g. index-scoped without intents); surface to user. */
+  requiredMessage?: string;
 }
 
 /** Index subgraph result (memberships, ownedIndexes, specificIndexData). */

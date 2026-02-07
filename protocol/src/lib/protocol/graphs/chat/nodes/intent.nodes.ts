@@ -153,6 +153,12 @@ export function createIntentWriteNode(
                      'prep → inference → verification → reconciliation → execution'
       });
       
+      // When index-scoped, fetch intents and pass so the graph does not load from DB
+      let activeIntentsPreFetched: Array<{ id: string; payload: string; summary: string | null; createdAt: Date }> | undefined;
+      if (state.indexId) {
+        activeIntentsPreFetched = await database.getIntentsInIndexForMember(state.userId, state.indexId);
+      }
+
       // Map ChatGraphState to IntentGraphState input
       const intentInput = {
         userId: state.userId,
@@ -163,6 +169,8 @@ export function createIntentWriteNode(
         conversationContext,  // Phase 5: Pass conversation history for anaphoric resolution
         operationMode,  // Phase 4: Pass operation mode to control graph flow
         targetIntentIds: undefined,  // TODO: Extract from routing decision if needed
+        ...(state.indexId ? { indexId: state.indexId } : {}),
+        ...(activeIntentsPreFetched !== undefined ? { activeIntentsPreFetched } : {}),
       };
 
       logger.info("🚀 Invoking intent graph with input", {
@@ -171,10 +179,26 @@ export function createIntentWriteNode(
         inputContentLength: inputContent.length,
         inputContentPreview: `"${inputContent.substring(0, 150)}..."`,
         operationMode,
-        hasConversationContext: !!conversationContext
+        hasConversationContext: !!conversationContext,
+        indexId: state.indexId,
+        preFetchedCount: activeIntentsPreFetched?.length
       });
 
       const result = await intentGraph.invoke(intentInput);
+
+      if (result.requiredMessage) {
+        logger.info("Intent graph returned requiredMessage (early exit)", { requiredMessage: result.requiredMessage });
+        return {
+          subgraphResults: {
+            intent: {
+              actions: [],
+              inferredIntents: [],
+              indexingResults: [],
+              requiredMessage: result.requiredMessage,
+            },
+          },
+        };
+      }
 
       logger.info("✅ Intent graph complete", {
         operationMode,

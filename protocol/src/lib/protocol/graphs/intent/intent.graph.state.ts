@@ -3,6 +3,7 @@ import { BaseMessage } from "@langchain/core/messages";
 import { InferredIntent } from "../../agents/intent/inferrer/explicit.inferrer";
 import { SemanticVerifierOutput } from "../../agents/intent/verifier/semantic.verifier";
 import { IntentReconcilerOutput } from "../../agents/intent/reconciler/intent.reconciler";
+import type { ActiveIntent } from "../../interfaces/database.interface";
 
 /**
  * Extended InferredIntent that includes verification results.
@@ -88,12 +89,22 @@ export const IntentGraphState = Annotation.Root({
   }),
 
   /**
-   * Optional index scope (index ID). When set, prep loads active intents
-   * in that index for the user (getIntentsInIndexForMember); when absent,
-   * prep uses global active intents (getActiveIntents). Enables index-scoped
-   * reconciliation so create/update/expire decisions are per-index.
+   * Optional index scope (index ID). When set, callers must pass activeIntentsPreFetched
+   * (intents in that index for the user); the graph does not load from the DB. When absent,
+   * prep loads all of the user's active intents via getActiveIntents(userId).
    */
   indexId: Annotation<string | undefined>({
+    reducer: (curr, next) => next ?? curr,
+    default: () => undefined,
+  }),
+
+  /**
+   * Optional pre-fetched active intents (e.g. from read_intents). When provided (including
+   * when empty array), prep uses this for reconciliation and does not load from the DB.
+   * Required when indexId is set; when index-scoped and not provided, the graph returns
+   * requiredMessage and exits early.
+   */
+  activeIntentsPreFetched: Annotation<ActiveIntent[] | undefined>({
     reducer: (curr, next) => next ?? curr,
     default: () => undefined,
   }),
@@ -101,9 +112,18 @@ export const IntentGraphState = Annotation.Root({
   // --- Populated by Graph (Prep Node) ---
 
   /**
+   * When set, the graph exits after prep and returns this message (e.g. when index-scoped
+   * and activeIntentsPreFetched was not provided). Callers should surface it to the user.
+   */
+  requiredMessage: Annotation<string | undefined>({
+    reducer: (curr, next) => next ?? curr,
+    default: () => undefined,
+  }),
+
+  /**
    * The formatted string of currently active intents.
-   * Populated by prepNode from getActiveIntents(userId) or, when indexId is set,
-   * from getIntentsInIndexForMember(userId, indexId).
+   * Populated by prep from activeIntentsPreFetched when provided, or from
+   * getActiveIntents(userId) when not index-scoped.
    */
   activeIntents: Annotation<string>({
     reducer: (curr, next) => next,

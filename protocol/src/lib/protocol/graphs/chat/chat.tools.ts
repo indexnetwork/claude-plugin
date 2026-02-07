@@ -406,7 +406,11 @@ export function createChatTools(context: ToolContext) {
   );
 
   const createIntent = tool(
-    async (args: { description: string; indexId?: string }) => {
+    async (args: {
+      description: string;
+      indexId?: string;
+      existingIntentsInIndex?: Array<{ id: string; description: string; summary?: string | null; createdAt?: string }>;
+    }) => {
       if (!args.description?.trim()) {
         return needsClarification({
           missingFields: ["description"],
@@ -445,16 +449,37 @@ export function createChatTools(context: ToolContext) {
         const profile = await database.getProfile(userId);
         
         const effectiveIndexId = args.indexId?.trim() || context.indexId?.trim() || undefined;
+        let activeIntentsPreFetched: Array<{ id: string; payload: string; summary: string | null; createdAt: Date }> | undefined;
+        if (effectiveIndexId) {
+          if (args.existingIntentsInIndex !== undefined) {
+            activeIntentsPreFetched = args.existingIntentsInIndex.map((i) => ({
+              id: i.id,
+              payload: i.description,
+              summary: i.summary ?? null,
+              createdAt: i.createdAt ? new Date(i.createdAt) : new Date(0),
+            }));
+          } else {
+            activeIntentsPreFetched = await database.getIntentsInIndexForMember(userId, effectiveIndexId);
+          }
+        }
         const intentInput = {
           userId,
           userProfile: profile ? JSON.stringify(profile) : "",
           inputContent,
           operationMode: 'create' as const,
-          ...(effectiveIndexId ? { indexId: effectiveIndexId } : {})
+          ...(effectiveIndexId ? { indexId: effectiveIndexId } : {}),
+          ...(activeIntentsPreFetched !== undefined ? { activeIntentsPreFetched } : {}),
         };
 
         const result = await intentGraph.invoke(intentInput);
         logger.debug("Intent graph response", { result });
+
+        if (result.requiredMessage) {
+          return success({
+            created: false,
+            message: result.requiredMessage,
+          });
+        }
 
         // Process execution results
         const created = (result.executionResults || [])
@@ -519,6 +544,12 @@ export function createChatTools(context: ToolContext) {
       schema: z.object({
         description: z.string().describe("The intent/goal in conceptual terms; may include URLs—they will be scraped for context"),
         indexId: z.string().optional().describe("Index UUID from read_indexes or the system message. When chat is index-scoped, pass this so the intent is linked to the active index (via intent_indexes)."),
+        existingIntentsInIndex: z.array(z.object({
+          id: z.string(),
+          description: z.string(),
+          summary: z.string().nullable().optional(),
+          createdAt: z.string().optional(),
+        })).optional().describe("Optional. When creating an intent in an index, pass the result of a previous read_intents(indexId, userId) call so the system can reconcile against your current intents in that index. If omitted but indexId is set, the tool will fetch them."),
       })
     }
   );
