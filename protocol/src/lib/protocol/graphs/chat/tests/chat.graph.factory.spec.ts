@@ -14,7 +14,7 @@ import { ChatGraphFactory } from "../chat.graph";
 import type { ChatGraphCompositeDatabase, CreateIntentData } from "../../../interfaces/database.interface";
 import type { Embedder } from "../../../interfaces/embedder.interface";
 import type { Scraper } from "../../../interfaces/scraper.interface";
-import { chatSessionService } from "../../../../../services/chat-session.service";
+import { chatSessionService } from "../../../../../services/chat.service";
 
 const testUserId = "test-chat-factory-user";
 

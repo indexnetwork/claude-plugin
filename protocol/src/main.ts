@@ -1,16 +1,20 @@
 import { ChatController } from './controllers/chat.controller';
 import { IndexController } from './controllers/index.controller';
 import { IntentController } from './controllers/intent.controller';
+import { FileController } from './controllers/file.controller';
+import { LinkController } from './controllers/link.controller';
 import { OpportunityController, IndexOpportunityController } from './controllers/opportunity.controller';
 import { ChatDatabaseAdapter } from './adapters/database.adapter';
 import type { OpportunityControllerDatabase } from './lib/protocol/interfaces/database.interface';
+import { AuthController } from './controllers/auth.controller';
 import { ProfileController } from './controllers/profile.controller';
 import { UploadController } from './controllers/upload.controller';
+import { UserController } from './controllers/user.controller';
 import { RouteRegistry } from './lib/router/router.decorators';
 import { log } from './lib/log';
 
 const PORT = 3003;
-const GLOBAL_PREFIX = '/v2';
+const GLOBAL_PREFIX = '';
 
 const logger = log.server.from("main");
 
@@ -37,14 +41,18 @@ logger.info('Initializing V2 Server...');
 // The decorators run when the class is defined (imported).
 // However, to invoke methods, we need instances.
 const controllerInstances = new Map();
+controllerInstances.set(AuthController, new AuthController());
 controllerInstances.set(ProfileController, new ProfileController());
 controllerInstances.set(ChatController, new ChatController());
 controllerInstances.set(IndexController, new IndexController());
 controllerInstances.set(IntentController, new IntentController());
+controllerInstances.set(FileController, new FileController());
+controllerInstances.set(LinkController, new LinkController());
 const opportunityDb: OpportunityControllerDatabase = new ChatDatabaseAdapter() as OpportunityControllerDatabase;
-controllerInstances.set(OpportunityController, new OpportunityController(opportunityDb));
-controllerInstances.set(IndexOpportunityController, new IndexOpportunityController(opportunityDb));
+controllerInstances.set(OpportunityController, new OpportunityController());
+controllerInstances.set(IndexOpportunityController, new IndexOpportunityController());
 controllerInstances.set(UploadController, new UploadController());
+controllerInstances.set(UserController, new UserController());
 
 logger.info('Routes registered', { prefix: GLOBAL_PREFIX });
 
@@ -59,7 +67,7 @@ Bun.serve({
     // CORS headers for cross-origin requests
     const corsHeaders = {
       'Access-Control-Allow-Origin': process.env.FRONTEND_URL || '*',
-      'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+      'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
       'Access-Control-Allow-Headers': 'Content-Type, Authorization',
       'Access-Control-Expose-Headers': 'X-Session-Id',
       'Access-Control-Max-Age': '86400',

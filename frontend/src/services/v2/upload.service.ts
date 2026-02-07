@@ -33,7 +33,7 @@ export const createUploadServiceV2 = (getAccessToken: () => Promise<string | nul
     const formData = new FormData();
     formData.append('file', file);
 
-    const res = await v2Fetch('/v2/uploads', {
+    const res = await v2Fetch('/uploads', {
       method: 'POST',
       body: formData,
       accessToken: token,
@@ -59,7 +59,7 @@ export const createUploadServiceV2 = (getAccessToken: () => Promise<string | nul
     if (!token) throw new Error('Not authenticated');
 
     const res = await v2Fetch(
-      `/v2/uploads?page=${page}&limit=${limit}`,
+      `/uploads?page=${page}&limit=${limit}`,
       { method: 'GET', accessToken: token }
     );
 
