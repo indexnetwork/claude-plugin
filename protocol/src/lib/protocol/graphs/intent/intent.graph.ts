@@ -4,9 +4,9 @@ import { ExplicitIntentInferrer } from "../../agents/intent/inferrer/explicit.in
 import { SemanticVerifier } from "../../agents/intent/verifier/semantic.verifier";
 import { IntentReconciler } from "../../agents/intent/reconciler/intent.reconciler";
 import { IntentGraphDatabase } from "../../interfaces/database.interface";
-import { log } from "../../../log";
+import { protocolLogger } from "../../protocol.log";
 
-const logger = log.protocol.from("IntentGraphFactory");
+const logger = protocolLogger("IntentGraphFactory");
 
 /**
  * Factory class to build and compile the Intent Processing Graph.

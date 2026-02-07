@@ -2,9 +2,9 @@ import { ChatOpenAI } from "@langchain/openai";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { tool } from "@langchain/core/tools";
 import { z } from "zod";
-import { log } from "../../../../log";
+import { protocolLogger } from "../../../protocol.log";
 
-const logger = log.protocol.from("IntentReconciler");
+const logger = protocolLogger("IntentReconciler");
 
 /**
  * Config
