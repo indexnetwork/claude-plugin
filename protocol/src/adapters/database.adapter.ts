@@ -357,6 +357,13 @@ export class IntentDatabaseAdapter {
       .limit(1);
     return row.length > 0;
   }
+
+  /**
+   * Delete all intents for a user (for test teardown).
+   */
+  async deleteByUserId(userId: string): Promise<void> {
+    await db.delete(schema.intents).where(eq(schema.intents.userId, userId));
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1476,16 +1483,8 @@ export class ChatDatabaseAdapter {
         invitationLink: perms.invitationLink ?? null,
       },
       createdAt: updatedRow.createdAt,
-      updatedAt: updatedRow.updatedAt,
-      user: {
-        id: updatedRow.ownerId,
-        name: updatedRow.userName,
-        avatar: updatedRow.userAvatar,
-      },
-      _count: {
-        members: Number(memberCountResult[0]?.count ?? 0),
-        intents: Number(intentCountResult[0]?.count ?? 0),
-      },
+      memberCount: Number(memberCountResult[0]?.count ?? 0),
+      intentCount: Number(intentCountResult[0]?.count ?? 0),
     };
   }
 
@@ -1948,6 +1947,47 @@ export class ProfileDatabaseAdapter {
       .limit(1);
     return result[0] ?? null;
   }
+
+  /**
+   * Delete profile by userId (for test teardown).
+   */
+  async deleteProfile(userId: string): Promise<void> {
+    await db.delete(schema.userProfiles).where(eq(schema.userProfiles.userId, userId));
+  }
+
+  /**
+   * Get full profile row by userId (for test assertions, includes hydeDescription, hydeEmbedding).
+   */
+  async getProfileRow(userId: string): Promise<{
+    identity: ProfileIdentity;
+    narrative: ProfileNarrative;
+    attributes: ProfileAttributes;
+    embedding: number[] | number[][] | null;
+    hydeDescription: string | null;
+    hydeEmbedding: number[] | null;
+  } | null> {
+    const result = await db.select({
+      identity: schema.userProfiles.identity,
+      narrative: schema.userProfiles.narrative,
+      attributes: schema.userProfiles.attributes,
+      embedding: schema.userProfiles.embedding,
+      hydeDescription: schema.userProfiles.hydeDescription,
+      hydeEmbedding: schema.userProfiles.hydeEmbedding,
+    })
+      .from(schema.userProfiles)
+      .where(eq(schema.userProfiles.userId, userId))
+      .limit(1);
+    const row = result[0];
+    if (!row) return null;
+    return {
+      identity: row.identity as ProfileIdentity,
+      narrative: row.narrative as ProfileNarrative,
+      attributes: row.attributes as ProfileAttributes,
+      embedding: row.embedding,
+      hydeDescription: row.hydeDescription,
+      hydeEmbedding: row.hydeEmbedding as number[] | null,
+    };
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -2236,6 +2276,22 @@ export class IndexGraphDatabaseAdapter {
         )
       );
   }
+
+  /**
+   * Delete only index_members for an index (releases user FK for teardown).
+   */
+  async deleteMembersForIndex(indexId: string): Promise<void> {
+    await db.delete(indexMembers).where(eq(indexMembers.indexId, indexId));
+  }
+
+  /**
+   * Delete an index and its members/intent-index links (for test teardown).
+   */
+  async deleteIndexAndMembers(indexId: string): Promise<void> {
+    await db.delete(intentIndexes).where(eq(intentIndexes.indexId, indexId));
+    await db.delete(indexMembers).where(eq(indexMembers.indexId, indexId));
+    await db.delete(indexes).where(eq(indexes.id, indexId));
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -2435,8 +2491,59 @@ export class UserDatabaseAdapter {
       .from(users)
       .where(eq(users.id, userId))
       .limit(1);
-    
+
     return result[0] || null;
+  }
+
+  /**
+   * Find user by email (for test setup/teardown).
+   */
+  async findByEmail(email: string): Promise<typeof users.$inferSelect | null> {
+    const result = await db.select()
+      .from(users)
+      .where(eq(users.email, email))
+      .limit(1);
+    return result[0] ?? null;
+  }
+
+  /**
+   * Create a user (for test setup).
+   */
+  async create(data: {
+    email: string;
+    name?: string;
+    privyId: string;
+    intro?: string;
+    location?: string;
+    socials?: Record<string, string>;
+  }): Promise<typeof users.$inferSelect> {
+    const [row] = await db.insert(users)
+      .values({
+        email: data.email,
+        name: data.name ?? data.email.split('@')[0],
+        privyId: data.privyId,
+        intro: data.intro ?? null,
+        location: data.location ?? null,
+        socials: data.socials ?? null,
+      })
+      .returning();
+    if (!row) throw new Error('User insert did not return a row');
+    return row;
+  }
+
+  /**
+   * Delete user by ID (for test teardown). Does not delete related rows; call other adapters first if needed.
+   */
+  async deleteById(userId: string): Promise<void> {
+    await db.delete(users).where(eq(users.id, userId));
+  }
+
+  /**
+   * Delete user by email (for test teardown). Finds by email then deletes.
+   */
+  async deleteByEmail(email: string): Promise<void> {
+    const u = await this.findByEmail(email);
+    if (u) await this.deleteById(u.id);
   }
 
   /**
@@ -2767,8 +2874,33 @@ export class FileDatabaseAdapter {
         )
       )
       .returning({ id: files.id });
-    
+
     return result.length > 0;
+  }
+
+  /**
+   * Delete all file records for a user (for test teardown). Does not remove files from disk.
+   */
+  async deleteByUserId(userId: string): Promise<void> {
+    await db.delete(files).where(eq(files.userId, userId));
+  }
+
+  /**
+   * Get a file by ID only (for test assertions when userId is known in test).
+   */
+  async getByIdUnscoped(fileId: string): Promise<FileRow | null> {
+    const result = await db.select({
+      id: files.id,
+      name: files.name,
+      type: files.type,
+      size: files.size,
+      createdAt: files.createdAt,
+      userId: files.userId,
+    })
+      .from(files)
+      .where(eq(files.id, fileId))
+      .limit(1);
+    return result[0] ?? null;
   }
 }
 

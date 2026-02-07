@@ -9,48 +9,42 @@ config({ path: '.env.test' });
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import { UploadController } from "./upload.controller";
 import type { AuthenticatedUser } from "../guards/auth.guard";
-import db, { closeDb } from '../lib/drizzle/drizzle';
-import * as schema from '../schemas/database.schema';
-import { eq } from 'drizzle-orm';
+import { UserDatabaseAdapter, FileDatabaseAdapter } from "../adapters/database.adapter";
 import { getUploadsPath } from '../lib/paths';
 import * as fs from 'fs';
 
 describe("UploadController Integration", () => {
   const controller = new UploadController();
+  const userAdapter = new UserDatabaseAdapter();
+  const fileAdapter = new FileDatabaseAdapter();
   let testUserId: string;
   let emptyListUserId: string;
   const testEmail = `test-upload-controller-${Date.now()}@example.com`;
   const emptyListEmail = `test-upload-controller-empty-${Date.now()}@example.com`;
 
   beforeAll(async () => {
-    const existingUser = await db.select()
-      .from(schema.users)
-      .where(eq(schema.users.email, testEmail))
-      .limit(1);
-
-    if (existingUser.length > 0) {
-      await db.delete(schema.files).where(eq(schema.files.userId, existingUser[0].id));
-      await db.delete(schema.users).where(eq(schema.users.email, testEmail));
+    const existingUser = await userAdapter.findByEmail(testEmail);
+    if (existingUser) {
+      await fileAdapter.deleteByUserId(existingUser.id);
+      await userAdapter.deleteByEmail(testEmail);
     }
 
-    const [user] = await db.insert(schema.users).values({
+    const user = await userAdapter.create({
       email: testEmail,
       name: "Test Upload User",
       privyId: `privy:upload:${Date.now()}`,
       intro: "Test user for upload controller",
       location: "Test City",
-    }).returning();
-
+    });
     testUserId = user.id;
 
-    const [emptyUser] = await db.insert(schema.users).values({
+    const emptyUser = await userAdapter.create({
       email: emptyListEmail,
       name: "Empty List User",
       privyId: `privy:upload-empty:${Date.now()}`,
       intro: "User with no files",
       location: "Test City",
-    }).returning();
-
+    });
     emptyListUserId = emptyUser.id;
   });
 
@@ -64,14 +58,14 @@ describe("UploadController Integration", () => {
         }
         fs.rmdirSync(userDir);
       }
-      await db.delete(schema.files).where(eq(schema.files.userId, testUserId));
-      await db.delete(schema.users).where(eq(schema.users.id, testUserId));
+      await fileAdapter.deleteByUserId(testUserId);
+      await userAdapter.deleteById(testUserId);
     }
     if (emptyListUserId) {
-      await db.delete(schema.files).where(eq(schema.files.userId, emptyListUserId));
-      await db.delete(schema.users).where(eq(schema.users.id, emptyListUserId));
+      await fileAdapter.deleteByUserId(emptyListUserId);
+      await userAdapter.deleteById(emptyListUserId);
     }
-    await closeDb();
+    // Do not close db: other integration specs may run in the same process.
   });
 
   const getMockUser = (): AuthenticatedUser => ({
@@ -169,10 +163,10 @@ describe("UploadController Integration", () => {
       const result = await controller.upload(req, getMockUser()) as { file: { id: string; name: string } };
       const fileId = result.file.id;
 
-      const rows = await db.select().from(schema.files).where(eq(schema.files.id, fileId));
-      expect(rows.length).toBe(1);
-      expect(rows[0].name).toBe("persist.txt");
-      expect(rows[0].userId).toBe(testUserId);
+      const row = await fileAdapter.getByIdUnscoped(fileId);
+      expect(row).not.toBeNull();
+      expect(row!.name).toBe("persist.txt");
+      expect(row!.userId).toBe(testUserId);
 
       const userDir = getUploadsPath('files', testUserId);
       const pathToFile = `${userDir}/${fileId}.txt`;
