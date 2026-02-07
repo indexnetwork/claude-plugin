@@ -53,7 +53,7 @@ stateDiagram-v2
 
 ### Key Rules
 
-1. **Agent creates, user sends.** The `find_opportunities` tool and `create_opportunity_between_members` tool both create opportunities in `latent` state. No notifications are sent at creation time.
+1. **Agent creates, user sends.** The `create_opportunities` tool and `create_opportunity_between_members` tool both create opportunities in `latent` state. No notifications are sent at creation time.
 2. **Explicit send.** A new `send_opportunity` tool (or UI action) promotes `latent` → `pending` and triggers notifications to the other party.
 3. **No silent sharing.** An opportunity never reaches the candidate until the source/introducer explicitly sends it.
 
@@ -71,7 +71,7 @@ sequenceDiagram
     participant N as NotificationQueue
 
     U->>C: "Find opportunities for me"
-    C->>D: find_opportunities(query)
+    C->>D: create_opportunities(query)
     D->>OG: invoke(initialStatus: latent)
     OG->>DB: createOpportunity(status: latent)
     DB-->>OG: Opportunity[]
@@ -126,7 +126,7 @@ The `persistOpportunitiesNode` accepts an `initialStatus` option (defaults to `'
 
 | Tool | Before | After |
 |------|--------|-------|
-| `find_opportunities` | Persists as `pending` | Persists as `latent` via `initialStatus` option |
+| `create_opportunities` (renamed from find_opportunities) | Persists as `pending` | Persists as `latent` via `initialStatus` option |
 | `create_opportunity_between_members` | Creates as `pending`, sends notifications | Creates as `latent`, no notifications |
 | `send_opportunity` | (new) | Promotes `latent` → `pending`, queues notifications |
 | `list_my_opportunities` | Returns all statuses | Returns all statuses with clear draft/sent distinction |

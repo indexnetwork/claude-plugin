@@ -120,7 +120,7 @@ classDiagram
         +delete_index()
         +create_index_membership()
         +read_users()
-        +find_opportunities()
+        +create_opportunities()
         +list_my_opportunities()
         +create_opportunity_between_members()
         +scrape_url()
@@ -220,7 +220,7 @@ These tools manage the intent–index junction (which intents are in which index
 
 | Tool | Purpose | When to Use |
 |------|---------|-------------|
-| `find_opportunities` | Search for connections | When index-scoped, search is limited to that index. Requires `indexId` (UUID). |
+| `create_opportunities` | Create draft opportunities by searching for connections | Results saved as drafts (latent); use send_opportunity to notify. When index-scoped, search is limited to that index. Optional `indexId` (UUID). |
 | `list_my_opportunities` | List user's opportunities | When index-scoped, omit `indexId` to list only opportunities in that index. |
 | `create_opportunity_between_members` | Create opportunity between two members | Requires `indexId` (UUID). |
 
@@ -268,7 +268,7 @@ When the chat is started with an optional **`indexId`** (e.g. from an index/comm
 
 - Stored in **graph state** and passed to the agent as **tool context** (`context.indexId`).
 - **Persisted on the chat session** so reconnecting to the same session keeps the scope; the request body can override it.
-- Used as the **default** for index-aware tools when the agent omits the index argument: `create_intent`, `read_intents`, `create_opportunity_between_members`, `find_opportunities`, `list_my_opportunities`, `update_index`, `delete_index`.
+- Used as the **default** for index-aware tools when the agent omits the index argument: `create_intent`, `read_intents`, `create_opportunity_between_members`, `create_opportunities`, `list_my_opportunities`, `update_index`, `delete_index`.
 
 **Tool behavior when index-scoped:**
 

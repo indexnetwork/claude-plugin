@@ -20,7 +20,7 @@ When a user says "find opportunities for me," the agent discovers, evaluates, an
 | Status enum | `src/schemas/database.schema.ts:18` | `pending, viewed, accepted, rejected, expired` |
 | `OpportunityStatus` type | `src/lib/protocol/interfaces/database.interface.ts:284` | Mirrors enum |
 | `persistOpportunitiesNode` | `src/lib/protocol/graphs/opportunity/opportunity.graph.ts:393` | Hardcodes `status: 'pending'` |
-| `find_opportunities` tool | `src/lib/protocol/graphs/chat/chat.tools.ts:970-1027` | Calls `runDiscoverFromQuery` → full opportunity graph (persist included) |
+| `create_opportunities` tool | `src/lib/protocol/graphs/chat/chat.tools.ts` | Calls `runDiscoverFromQuery` → full opportunity graph (persist as latent) |
 | `create_opportunity_between_members` | `src/lib/protocol/graphs/chat/chat.tools.ts:1111-1232` | Creates with `status: 'pending'`, immediately queues notifications |
 | `PATCH /:id/status` | `src/controllers/opportunity.controller.ts:78-120` | Accepts `pending, viewed, accepted, rejected, expired` |
 | `updateOpportunityStatus` | `src/adapters/database.adapter.ts:2121-2131` | Same union as controller |
@@ -97,13 +97,13 @@ When a user says "find opportunities for me," the agent discovers, evaluates, an
 
 ---
 
-### Step 4: Discovery — persist as latent
+### Step 4: Discovery — persist as latent (create_opportunities)
 
-**Goal**: When the chat `find_opportunities` tool runs discovery, opportunities are created with `latent` status.
+**Goal**: When the chat `create_opportunities` tool runs discovery, opportunities are created with `latent` status. The tool was renamed from `find_opportunities` to `create_opportunities` to reflect the create strategy; discover node passes `initialStatus: 'latent'`. Master prompts (chat.agent.ts, chat.streaming.ts) were updated so the agent uses create_opportunities and describes drafts.
 
-**File to change**: `src/lib/protocol/graphs/chat/nodes/discover.nodes.ts`
+**Files changed**: `src/lib/protocol/graphs/chat/nodes/discover.nodes.ts`, `chat.tools.ts` (rename find_opportunities → create_opportunities), `chat.agent.ts`, `chat.streaming.ts`
 
-In `runDiscoverFromQuery`, update the `opportunityGraph.invoke(...)` call (~line 107-115):
+In `runDiscoverFromQuery`, the `opportunityGraph.invoke(...)` call includes:
 
 ```typescript
 const result = await opportunityGraph.invoke({
@@ -119,7 +119,7 @@ const result = await opportunityGraph.invoke({
 });
 ```
 
-**Verification**: Call `find_opportunities` via chat; check DB for `status = 'latent'` on created opportunities.
+**Verification**: Call `create_opportunities` via chat; check DB for `status = 'latent'` on created opportunities.
 
 ---
 
@@ -171,9 +171,9 @@ const sendOpportunity = tool(
   {
     name: "send_opportunity",
     description:
-      "Sends a draft (latent) opportunity to the other person, promoting it to pending and triggering a notification. Use after find_opportunities or create_opportunity_between_members when the user wants to send the intro.",
+      "Sends a draft (latent) opportunity to the other person, promoting it to pending and triggering a notification. Use after create_opportunities or create_opportunity_between_members when the user wants to send the intro.",
     schema: z.object({
-      opportunityId: z.string().describe("The opportunity ID to send (from find_opportunities or list_my_opportunities)"),
+      opportunityId: z.string().describe("The opportunity ID to send (from create_opportunities or list_my_opportunities)"),
     }),
   }
 );
@@ -231,7 +231,7 @@ Also add `sendOpportunity` to the returned tools array in `createChatTools`.
      ```
      - **send_opportunity**: Send a draft opportunity to the other person, promoting it to active and triggering a notification. Use when the user says "send intro to X" or "send that opportunity".
      ```
-   - Update `find_opportunities` description to note: "Results are saved as drafts (latent); use send_opportunity to notify the other person."
+   - Discovery tool is **create_opportunities** (already describes drafts; use send_opportunity to notify). Ensure create_opportunities and send_opportunity are both documented in the Discovery section.
    - **Guidelines** (~line 79-80): Add:
      ```
      - After finding opportunities, tell the user they can say "send intro to [name]" to notify the other person. Opportunities start as drafts until explicitly sent.
@@ -274,7 +274,7 @@ Also add `sendOpportunity` to the returned tools array in `createChatTools`.
 | 1 | `database.schema.ts`, `database.interface.ts`, `database.adapter.ts`, `opportunity.controller.ts` | Add `latent` to status enum, type, adapter, controller |
 | 2 | `drizzle/0023_*.sql` | Database migration |
 | 3 | `opportunity.evaluator.ts`, `opportunity.graph.ts` | Support `initialStatus` option in persist node |
-| 4 | `discover.nodes.ts` | Pass `initialStatus: 'latent'` from discovery |
+| 4 | `discover.nodes.ts`, `chat.tools.ts`, `chat.agent.ts`, `chat.streaming.ts` | Pass `initialStatus: 'latent'`; rename find_opportunities → create_opportunities; update prompts |
 | 5 | `chat.tools.ts` | New `send_opportunity` tool |
 | 6 | `chat.tools.ts` | Update `create_opportunity_between_members` to latent + no notifications |
 | 7 | `chat.agent.ts`, `chat.streaming.ts` | System prompt + streaming label |
