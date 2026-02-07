@@ -13,7 +13,7 @@ import { UserController } from './controllers/user.controller';
 import { RouteRegistry } from './lib/router/router.decorators';
 import { log } from './lib/log';
 
-const PORT = 3003;
+const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3001;
 const GLOBAL_PREFIX = '';
 
 const logger = log.server.from("main");

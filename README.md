@@ -152,7 +152,7 @@ cd protocol
 # Start development server with hot reload (Express, default port)
 bun run dev
 
-# Start V2 server (Bun.serve, port 3003)
+# Start V2 server (Bun.serve, port 3001)
 bun run dev:v2
 
 # Build for production

@@ -11,8 +11,8 @@ bun install
 # Development: Express server with hot reload (default)
 bun run dev
 
-# Development: V2 server (Bun.serve, port 3003)
-bun run dev:v2
+# Development: V2 server (Bun.serve, port 3001)
+bun run dev
 
 # Database
 bun run db:generate   # Generate migrations after schema changes
