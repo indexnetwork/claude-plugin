@@ -1875,7 +1875,7 @@ export class ChatDatabaseAdapter {
   }
   async updateOpportunityStatus(
     id: string,
-    status: 'pending' | 'viewed' | 'accepted' | 'rejected' | 'expired'
+    status: 'latent' | 'pending' | 'viewed' | 'accepted' | 'rejected' | 'expired'
   ): Promise<OpportunityRow | null> {
     return this.opportunityAdapter.updateOpportunityStatus(id, status);
   }
@@ -2011,7 +2011,7 @@ interface OpportunityRow {
   context: schema.OpportunityContext;
   indexId: string;
   confidence: string;
-  status: 'pending' | 'viewed' | 'accepted' | 'rejected' | 'expired';
+  status: 'latent' | 'pending' | 'viewed' | 'accepted' | 'rejected' | 'expired';
   createdAt: Date;
   updatedAt: Date;
   expiresAt: Date | null;
@@ -2025,7 +2025,7 @@ interface CreateOpportunityInput {
   context: schema.OpportunityContext;
   indexId: string;
   confidence: string;
-  status?: 'pending' | 'viewed' | 'accepted' | 'rejected' | 'expired';
+  status?: 'latent' | 'pending' | 'viewed' | 'accepted' | 'rejected' | 'expired';
   expiresAt?: Date;
 }
 
@@ -2128,7 +2128,7 @@ export class OpportunityDatabaseAdapter {
 
   async updateOpportunityStatus(
     id: string,
-    status: 'pending' | 'viewed' | 'accepted' | 'rejected' | 'expired'
+    status: 'latent' | 'pending' | 'viewed' | 'accepted' | 'rejected' | 'expired'
   ): Promise<OpportunityRow | null> {
     const [row] = await db
       .update(opportunities)

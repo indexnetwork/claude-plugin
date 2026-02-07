@@ -6,6 +6,7 @@ import type {
   HydeGraphDatabase,
   CreateOpportunityData,
   OpportunityActor,
+  OpportunityStatus,
 } from '../lib/protocol/interfaces/database.interface';
 import type { Embedder } from '../lib/protocol/interfaces/embedder.interface';
 import type { HydeCache } from '../lib/protocol/interfaces/cache.interface';
@@ -161,7 +162,7 @@ export class OpportunityService {
    */
   async updateOpportunityStatus(
     opportunityId: string,
-    status: 'pending' | 'viewed' | 'accepted' | 'rejected' | 'expired',
+    status: OpportunityStatus,
     userId: string
   ) {
     logger.info('[OpportunityService] Updating opportunity status', { opportunityId, status, userId });
