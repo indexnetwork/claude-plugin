@@ -472,12 +472,6 @@ export async function createChatTools(deps: ToolContext) {
     querySchema: z.object({
       description: z.string().describe("The intent/goal in conceptual terms; may include URLs—they will be scraped for context"),
       indexId: z.string().optional().describe("Index UUID from read_indexes or the system message. When chat is index-scoped, pass this so the intent is linked to the active index (via intent_indexes)."),
-      existingIntentsInIndex: z.array(z.object({
-        id: z.string(),
-        description: z.string(),
-        summary: z.string().nullable().optional(),
-        createdAt: z.string().optional(),
-      })).optional().describe("When creating an intent in an index, pass the intents array from read_intents called with no indexId (all of the user's intents) so the system can detect duplicates and modifications. If omitted but indexId is set, the tool fetches intents in that index only."),
     }),
     handler: async ({ context, query }) => {
       if (!query.description?.trim()) {
@@ -515,34 +509,17 @@ export async function createChatTools(deps: ToolContext) {
       const profile = profileResult.profile || null;
 
       const effectiveIndexId = query.indexId?.trim() || context.indexId || undefined;
-      // When index-scoped, use intents the agent passed (from read_intents without indexId = all user intents)
-      // so the reconciler can detect duplicates and modifications; otherwise fall back to intents in this index.
+      // When index-scoped, fetch all user intents so the reconciler can detect
+      // duplicates and modifications across all indexes (not just the current one).
       let activeIntentsPreFetched: Array<{ id: string; payload: string; summary: string | null; createdAt: Date }> | undefined;
       if (effectiveIndexId) {
-        if (query.existingIntentsInIndex !== undefined) {
-          activeIntentsPreFetched = query.existingIntentsInIndex.map((i) => ({
-            id: i.id,
-            payload: i.description,
-            summary: i.summary ?? null,
-            createdAt: i.createdAt ? new Date(i.createdAt) : new Date(0),
-          }));
-        } else {
-          // Use intentIndexGraph to read intents in the index for this user
-          const intentIndexResult = await intentIndexGraph.invoke({
-            userId: context.userId,
-            indexId: effectiveIndexId,
-            queryUserId: context.userId,
-            operationMode: 'read' as const,
-          });
-          if (intentIndexResult.readResult?.links) {
-            activeIntentsPreFetched = intentIndexResult.readResult.links.map((l: { intentId: string; intentTitle?: string; createdAt?: Date }) => ({
-              id: l.intentId,
-              payload: l.intentTitle || "",
-              summary: null,
-              createdAt: l.createdAt || new Date(0),
-            }));
-          }
-        }
+        const allIntents = await database.getActiveIntents(context.userId);
+        activeIntentsPreFetched = allIntents.map((i) => ({
+          id: i.id,
+          payload: i.payload,
+          summary: i.summary ?? null,
+          createdAt: i.createdAt,
+        }));
       }
       const intentInput = {
         userId: context.userId,
