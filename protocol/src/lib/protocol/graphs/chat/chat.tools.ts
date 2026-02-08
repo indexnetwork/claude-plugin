@@ -302,8 +302,11 @@ export function createChatTools(context: ToolContext) {
   // ─────────────────────────────────────────────────────────────────────────────
 
   const readIntents = tool(
-    async (args: { indexId?: string; userId?: string }) => {
-      const indexId = args.indexId?.trim() || context.indexId?.trim() || undefined;
+    async (args: { indexId?: string; userId?: string; allUserIntents?: boolean }) => {
+      // When allUserIntents is true, ignore index scope and return all of the user's intents (for create_intent reconciliation).
+      const indexId = args.allUserIntents
+        ? undefined
+        : (args.indexId?.trim() || context.indexId?.trim() || undefined);
       if (indexId && !UUID_REGEX.test(indexId)) {
         return error("Invalid index ID format. Use the exact UUID from read_indexes.");
       }
@@ -397,10 +400,11 @@ export function createChatTools(context: ToolContext) {
     {
       name: "read_intents",
       description:
-        `Fetches intents (goals, wants, needs). With no indexId: returns the user's active intents. With indexId: omit userId to return all intents in that index (all members—any member can see everyone's intents in a shared network); pass userId (e.g. the current user's id when they ask 'my intents') to return only that user's intents in the index. indexId must be a UUID from read_indexes.`,
+        `Fetches intents (goals, wants, needs). With no indexId: returns the user's active intents. With indexId: omit userId to return all intents in that index (all members); pass userId to return only that user's intents in the index. When chat is index-scoped, the current index is used unless you pass allUserIntents: true to get all of the user's intents (e.g. for create_intent). indexId must be a UUID from read_indexes.`,
       schema: z.object({
-        indexId: z.string().optional().describe("Index UUID; optional when chat is index-scoped (uses current index)."),
+        indexId: z.string().optional().describe("Index UUID; optional when chat is index-scoped (uses current index). Omit and use allUserIntents: true when you need all user intents for create_intent."),
         userId: z.string().optional().describe("When index-scoped: pass the current user's id when they ask for their own intents only; omit to return all intents in the index (any member can see everyone's intents in a shared network)."),
+        allUserIntents: z.boolean().optional().describe("When true, return all of the current user's intents and ignore index scope. Use this before create_intent in an index so the system can detect duplicates and modifications. Required when index-scoped and you are about to call create_intent."),
       }),
     }
   );
@@ -449,6 +453,8 @@ export function createChatTools(context: ToolContext) {
         const profile = await database.getProfile(userId);
         
         const effectiveIndexId = args.indexId?.trim() || context.indexId?.trim() || undefined;
+        // When index-scoped, use intents the agent passed (from read_intents without indexId = all user intents)
+        // so the reconciler can detect duplicates and modifications; otherwise fall back to intents in this index.
         let activeIntentsPreFetched: Array<{ id: string; payload: string; summary: string | null; createdAt: Date }> | undefined;
         if (effectiveIndexId) {
           if (args.existingIntentsInIndex !== undefined) {
@@ -515,16 +521,80 @@ export function createChatTools(context: ToolContext) {
             }
           }
         }
+        // When creating in index scope, also link updated intents to the active index (duplicate = link existing, modification = update then link).
+        const updated = (result.executionResults || [])
+          .filter((r: ExecutionResult): r is ExecutionResult & { intentId: string } => r.actionType === 'update' && r.success && !!r.intentId)
+          .map((r) => r.intentId);
+        if (updated.length > 0 && indexForAssignment) {
+          for (const intentId of updated) {
+            try {
+              await database.assignIntentToIndex(intentId, indexForAssignment);
+            } catch (e) {
+              logger.warn("Index assignment failed for updated intent", { intentId, indexId: indexForAssignment });
+            }
+          }
+        }
 
         if (created.length > 0) {
+          // Auto-trigger discovery (create_opportunities) with the same scope so the user gets draft opportunities for the new intent.
+          let discoveryRan = false;
+          let discoveryCount = 0;
+          let discoveryError = false;
+          let indexScope: string[] = [];
+          const discoveryIndexId = effectiveIndexId || context.indexId?.trim() || undefined;
+          if (discoveryIndexId) {
+            if (UUID_REGEX.test(discoveryIndexId)) {
+              const isMember = await database.isIndexMember(discoveryIndexId, userId);
+              if (isMember) indexScope = [discoveryIndexId];
+            }
+          } else {
+            const memberships = await database.getIndexMemberships(userId);
+            indexScope = memberships.map((m) => m.indexId);
+          }
+          if (indexScope.length > 0) {
+            try {
+              // Use the newly created intent(s) as the query so discovery targets them explicitly.
+              const intentQuery = created.map((c) => c.description).filter(Boolean).join(" ") || "";
+              const discoveryResult = await runDiscoverFromQuery({
+                opportunityGraph,
+                database,
+                userId,
+                query: intentQuery,
+                indexScope,
+                limit: 5,
+              });
+              discoveryRan = true;
+              discoveryCount = discoveryResult.count ?? 0;
+            } catch (err) {
+              logger.warn("create_intent: auto-discovery failed", { error: err });
+              discoveryRan = true;
+              discoveryError = true;
+            }
+          }
           return success({
             created: true,
             intents: created,
-            message: `Created ${created.length} intent(s)`
+            message: `Created ${created.length} intent(s)`,
+            ...(discoveryRan && {
+              discoveryRan: true,
+              discoveryCount,
+              ...(discoveryError && { discoveryError: true }),
+            }),
           });
         }
 
-        // Check if intents were inferred but not created (e.g., duplicates)
+        // Linked existing intent(s) to the index (duplicate or modification)
+        if (updated.length > 0) {
+          return success({
+            created: false,
+            linkedToIndex: true,
+            message: indexForAssignment
+              ? "The intent already existed; it has been added to this index."
+              : "The intent was updated.",
+          });
+        }
+
+        // Check if intents were inferred but not created (e.g., reconciliation returned no actions)
         const inferredCount = result.inferredIntents?.length || 0;
         if (inferredCount > 0) {
           return success({
@@ -549,7 +619,7 @@ export function createChatTools(context: ToolContext) {
           description: z.string(),
           summary: z.string().nullable().optional(),
           createdAt: z.string().optional(),
-        })).optional().describe("Optional. When creating an intent in an index, pass the result of a previous read_intents(indexId, userId) call so the system can reconcile against your current intents in that index. If omitted but indexId is set, the tool will fetch them."),
+        })).optional().describe("When creating an intent in an index, pass the intents array from read_intents called with no indexId (all of the user's intents) so the system can detect duplicates and modifications. If omitted but indexId is set, the tool fetches intents in that index only."),
       })
     }
   );
