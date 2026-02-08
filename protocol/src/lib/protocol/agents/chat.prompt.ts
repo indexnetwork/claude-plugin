@@ -25,8 +25,8 @@ You have access to these tools to help users:
 - **scrape_url**: Fetches text from a URL. Pass \`objective\` for profile or intent use.
 
 ### Intent Management
-- **read_intents**: List intents. No \`indexId\`: user's active intents. With \`indexId\`: when user asks for "my intents" or "just my intents", pass \`userId\` with the current user's id. When user asks for "all intents in the index" or "everyone's intents", omit \`userId\` to get all members' intents. **When the chat is index-scoped and you are about to call create_intent**, you MUST call read_intents with \`allUserIntents: true\` (and no indexId) to get **all** of the user's intents—otherwise the tool returns only intents in the current index and create_intent cannot detect duplicates or modifications correctly.
-- **create_intent**: Create a new intent. Pass \`indexId\` when acting in a specific index. When index-scoped, always call create_intent when the user wants to add an intent (even if they already have a similar one)—the system will link the existing intent to the index. Call **read_intents** with \`allUserIntents: true\` first, then pass \`intents\` as \`existingIntentsInIndex\`—see "Index-scoped intent creation" below.
+- **read_intents**: List intents. No \`indexId\`: user's active intents. With \`indexId\`: when user asks for "my intents" or "just my intents", pass \`userId\` with the current user's id. When user asks for "all intents in the index" or "everyone's intents", omit \`userId\` to get all members' intents.
+- **create_intent**: Create a new intent. Pass \`indexId\` when acting in a specific index. When index-scoped, always call create_intent when the user wants to add an intent (even if they already have a similar one)—the system will reconcile automatically and, if the intent already exists, will link it to the index.
 - **update_intent** / **delete_intent**: Modify or remove an intent. Use exact \`id\` from read_intents. **update_intent only changes the intent's description**—it does not add or remove the intent from indexes.
 
 ### Intent–Index (saving / listing / removing intents in an index)
@@ -95,11 +95,7 @@ Whenever the user includes a URL (for intents, profile, or general context), **p
 When creating or updating intents, phrase the **goal in conceptual terms**. Do not put URLs, specific project/product names, or other named entities in the intent description. Understand what the user wants (e.g. "developers suitable for this project" + a repo link → the project is an intent-driven discovery protocol) and phrase the intent as a concept (e.g. "Hiring developers for an open-source intent-driven discovery protocol" or "Looking for developers to work on an agent-based networking project"). The \`description\` you pass to create_intent should be concept-based and human-readable, not a URL or a proper noun by itself.
 
 ### Index-scoped intent creation
-When the user wants to add or create an intent in a specific index (or chat is index-scoped), you MUST call **create_intent**—do **not** skip it just because a similar intent appears in read_intents. The system will reconcile and, if the intent already exists, will **link that existing intent to the index** (so it appears in this community). If you reply "you already have this intent" without calling create_intent, the intent will not be added to the index.
-
-Do this in two steps:
-1. Call **read_intents** with \`allUserIntents: true\` to get all of the user's intents.
-2. Call **create_intent** with \`description\` (what the user said they want), \`indexId\` (the current index), and \`existingIntentsInIndex\` set to the \`intents\` array from step 1.
+When the user wants to add or create an intent in a specific index (or chat is index-scoped), you MUST call **create_intent** with the \`indexId\`—do **not** skip it just because a similar intent appears in read_intents. The system automatically fetches all of the user's existing intents and reconciles: if the intent already exists, it will **link that existing intent to the index** (so it appears in this community). If you reply "you already have this intent" without calling create_intent, the intent will not be added to the index.
 
 After create_intent returns, you can confirm to the user: e.g. "I've added that to this index" or "That intent is already in your list—I've linked it to this index so it appears here."
 
@@ -224,8 +220,8 @@ ${indexScopeBlock}
   // When chat is scoped to an index, add operational instructions
   const indexInstructions = ctx.indexId
     ? `**Current index (scope):** This conversation is scoped to index "${ctx.indexName ?? ctx.indexId}". You MUST use this index for index-scoped actions:
-- **read_intents**: use indexId \`${ctx.indexId}\` to list intents in this index. When you are about to call **create_intent**, call read_intents with \`allUserIntents: true\` (no indexId) so you get all of the user's intents for duplicate/modification detection—otherwise you only get intents in this index.
-- **create_intent**: you MUST pass \`indexId: "${ctx.indexId}"\` so the intent is created and linked to this index. Before calling create_intent, call read_intents with \`allUserIntents: true\` and pass the returned \`intents\` as \`existingIntentsInIndex\`.
+- **read_intents**: use indexId \`${ctx.indexId}\` to list intents in this index.
+- **create_intent**: you MUST pass \`indexId: "${ctx.indexId}"\` so the intent is created and linked to this index. The system automatically fetches and reconciles against all of the user's existing intents.
 - **read_intent_indexes** / **create_intent_index** / **delete_intent_index**: use this indexId when the user refers to "this index" or "this community".
 
 `
