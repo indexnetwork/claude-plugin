@@ -1,109 +1,101 @@
 import { Annotation } from "@langchain/langgraph";
-import type { IntentIndexerOutput } from "../../agents/index/intent.indexer.types";
-
-/**
- * Intent payload and metadata loaded for index evaluation.
- */
-export interface IntentForIndexing {
-  id: string;
-  payload: string;
-  userId: string;
-  sourceType: string | null;
-  sourceId: string | null;
-}
-
-/**
- * Index and member prompts for a single index (user must be member with autoAssign).
- */
-export interface IndexMemberContext {
-  indexId: string;
-  indexPrompt: string | null;
-  memberPrompt: string | null;
-}
-
-/**
- * Result of executing an assignment decision (assign or unassign).
- */
-export interface AssignmentResult {
-  indexId: string;
-  assigned: boolean;
-  success: boolean;
-  error?: string;
-}
 
 /**
  * Index Graph State.
- * Evaluates intent appropriateness for a single index and applies assignment.
+ * Handles CRUD operations for indexes (communities).
  *
  * Flow:
- * 1. prep – Load intent + index/member context (or skip if not eligible).
- * 2. evaluate – Call IntentIndexer (or auto-assign if no prompts).
- * 3. execute – Assign or unassign intent to index.
+ * START → routerNode → {createNode | readNode | updateNode | deleteNode} → END
  */
 export const IndexGraphState = Annotation.Root({
-  // --- Inputs (Required at start) ---
+  // --- Core Inputs (from ChatGraph via ToolContext) ---
 
-  /** Intent to evaluate. */
-  intentId: Annotation<string>,
+  /** User performing the action. Always required. */
+  userId: Annotation<string>,
 
-  /** Index (community) to evaluate against. */
-  indexId: Annotation<string>,
-
-  // --- Populated by prep node ---
-
-  /** Intent payload and metadata. Null if intent not found. */
-  intent: Annotation<IntentForIndexing | null>({
+  /** Target index ID. Required for read/update/delete. From ChatGraph or tool arg. */
+  indexId: Annotation<string | undefined>({
     reducer: (_, next) => next,
-    default: () => null,
+    default: () => undefined,
   }),
 
-  /** Index + member context. Null if user not eligible (not member or autoAssign false). */
-  indexContext: Annotation<IndexMemberContext | null>({
-    reducer: (_, next) => next,
-    default: () => null,
+  /** Operation mode. */
+  operationMode: Annotation<'create' | 'read' | 'update' | 'delete'>({
+    reducer: (curr, next) => next ?? curr,
+    default: () => 'read' as const,
   }),
 
-  /** Whether intent is currently assigned to this index. */
-  isCurrentlyAssigned: Annotation<boolean>({
+  // --- Mode-Specific Inputs ---
+
+  /** For create mode: index creation data. */
+  createInput: Annotation<{
+    title: string;
+    prompt?: string;
+    joinPolicy?: 'anyone' | 'invite_only';
+  } | undefined>({
     reducer: (_, next) => next,
-    default: () => false,
+    default: () => undefined,
   }),
 
-  /** When true, skip LLM and auto-assign (no prompts). */
-  skipEvaluation: Annotation<boolean>({
+  /** For update mode: fields to update. */
+  updateInput: Annotation<{
+    title?: string;
+    prompt?: string | null;
+    joinPolicy?: 'anyone' | 'invite_only';
+    allowGuestVibeCheck?: boolean;
+  } | undefined>({
     reducer: (_, next) => next,
-    default: () => false,
+    default: () => undefined,
   }),
 
-  // --- Populated by evaluate node ---
-
-  /** LLM evaluation result. Null if skipped or evaluation failed. */
-  evaluation: Annotation<IntentIndexerOutput | null>({
-    reducer: (_, next) => next,
-    default: () => null,
-  }),
-
-  /** Final decision: should intent be in this index? */
-  shouldAssign: Annotation<boolean>({
+  /** When true and index-scoped, read returns all user indexes (not just scoped one). */
+  showAll: Annotation<boolean>({
     reducer: (_, next) => next,
     default: () => false,
   }),
 
-  /** Final score used for decision (0–1). */
-  finalScore: Annotation<number>({
+  // --- Outputs ---
+
+  /** Output for read mode. */
+  readResult: Annotation<{
+    memberOf: Array<{
+      indexId: string;
+      title: string;
+      description: string | null;
+      autoAssign: boolean;
+      joinedAt: Date;
+    }>;
+    owns: Array<{
+      indexId: string;
+      title: string;
+      description: string | null;
+      memberCount: number;
+      intentCount: number;
+      joinPolicy: string;
+    }>;
+    summary: {
+      memberOfCount: number;
+      ownsCount: number;
+      scopeNote?: string;
+    };
+  } | undefined>({
     reducer: (_, next) => next,
-    default: () => 0,
+    default: () => undefined,
   }),
 
-  // --- Output (Populated by execute node) ---
-
-  /** Result of the assignment operation. */
-  assignmentResult: Annotation<AssignmentResult | null>({
+  /** Output for create/update/delete modes. */
+  mutationResult: Annotation<{
+    success: boolean;
+    indexId?: string;
+    title?: string;
+    message?: string;
+    error?: string;
+  } | undefined>({
     reducer: (_, next) => next,
-    default: () => null,
+    default: () => undefined,
   }),
 
-  /** Error message if graph could not complete (e.g. missing intent or context). */
+  /** Error message if graph could not complete. */
   error: Annotation<string | null>({
     reducer: (_, next) => next,
     default: () => null,

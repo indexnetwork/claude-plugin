@@ -1,274 +1,223 @@
 import { StateGraph, START, END } from "@langchain/langgraph";
 
-import { IntentIndexer } from "../../agents/index/intent.indexer";
 import { IndexGraphDatabase } from "../../interfaces/database.interface";
 import { protocolLogger } from "../../protocol.log";
 
-import { IndexGraphState, IntentForIndexing, IndexMemberContext, AssignmentResult } from "./index.graph.state";
+import { IndexGraphState } from "./index.graph.state";
 
 const logger = protocolLogger("IndexGraphFactory");
-const QUALIFICATION_THRESHOLD = 0.7;
 
 /**
- * Factory class to build and compile the Index (Intent–Index Assignment) Graph.
+ * Factory class to build and compile the Index (CRUD) Graph.
+ *
+ * Handles create, read, update, and delete operations for indexes.
+ * Membership and intent-index assignment operations are handled by
+ * separate graphs (IndexMembershipGraph and IntentIndexGraph).
  *
  * Flow:
- * 1. prep – Load intent + index/member context; set skipEvaluation if no prompts.
- * 2. evaluate – Call IntentIndexer (or auto-assign if no prompts).
- * 3. execute – Assign or unassign intent to index.
+ * START → routerNode → {createNode | readNode | updateNode | deleteNode} → END
  */
 export class IndexGraphFactory {
   constructor(private database: IndexGraphDatabase) {}
 
   public createGraph() {
-    const indexer = new IntentIndexer();
-
     // --- NODE DEFINITIONS ---
 
-    const prepNode = async (state: typeof IndexGraphState.State) => {
-      logger.info("Loading intent and index context", {
-        intentId: state.intentId,
-        indexId: state.indexId,
-      });
+    /**
+     * Read Node: List indexes the user belongs to and owns.
+     */
+    const readNode = async (state: typeof IndexGraphState.State) => {
+      logger.info("Read indexes", { userId: state.userId, indexId: state.indexId, showAll: state.showAll });
 
-      const intent = await this.database.getIntentForIndexing(state.intentId);
-      if (!intent) {
-        logger.warn("Intent not found", { intentId: state.intentId });
+      try {
+        const [allMemberships, ownedIndexes] = await Promise.all([
+          this.database.getIndexMemberships(state.userId),
+          this.database.getOwnedIndexes(state.userId),
+        ]);
+
+        // If index-scoped and not showAll, return just that index
+        const scopeToCurrentIndex = state.indexId && !state.showAll;
+        if (scopeToCurrentIndex) {
+          const indexId = state.indexId!;
+          const isMember = await this.database.isIndexMember(indexId, state.userId);
+          if (!isMember) {
+            return {
+              readResult: {
+                memberOf: [],
+                owns: [],
+                summary: { memberOfCount: 0, ownsCount: 0, scopeNote: "Index not found or you are not a member." },
+              },
+            };
+          }
+          const membership = allMemberships.find((m) => m.indexId === indexId);
+          const owned = ownedIndexes.find((o) => o.id === indexId);
+          return {
+            readResult: {
+              memberOf: membership
+                ? [{ indexId: membership.indexId, title: membership.indexTitle, description: membership.indexPrompt, autoAssign: membership.autoAssign, joinedAt: membership.joinedAt }]
+                : [],
+              owns: owned
+                ? [{ indexId: owned.id, title: owned.title, description: owned.prompt, memberCount: owned.memberCount, intentCount: owned.intentCount, joinPolicy: owned.permissions.joinPolicy }]
+                : [],
+              summary: { memberOfCount: membership ? 1 : 0, ownsCount: owned ? 1 : 0, scopeNote: "Showing current index. Use showAll: true for all indexes." },
+            },
+          };
+        }
+
         return {
-          intent: null,
-          indexContext: null,
-          isCurrentlyAssigned: false,
-          skipEvaluation: false,
-          error: "Intent not found",
+          readResult: {
+            memberOf: allMemberships.map((m) => ({ indexId: m.indexId, title: m.indexTitle, description: m.indexPrompt, autoAssign: m.autoAssign, joinedAt: m.joinedAt })),
+            owns: ownedIndexes.map((o) => ({ indexId: o.id, title: o.title, description: o.prompt, memberCount: o.memberCount, intentCount: o.intentCount, joinPolicy: o.permissions.joinPolicy })),
+            summary: { memberOfCount: allMemberships.length, ownsCount: ownedIndexes.length },
+          },
         };
+      } catch (err) {
+        logger.error("Read indexes failed", { error: err });
+        return { error: "Failed to fetch index information." };
       }
-
-      const indexContext = await this.database.getIndexMemberContext(
-        state.indexId,
-        intent.userId
-      );
-      if (!indexContext) {
-        logger.warn("Index context not found (not member or autoAssign false)", {
-          indexId: state.indexId,
-          userId: intent.userId,
-        });
-        return {
-          intent: intent as IntentForIndexing,
-          indexContext: null,
-          isCurrentlyAssigned: false,
-          skipEvaluation: false,
-          error: "Index context not found",
-        };
-      }
-
-      const isCurrentlyAssigned = await this.database.isIntentAssignedToIndex(
-        state.intentId,
-        state.indexId
-      );
-      const hasNoPrompts =
-        !indexContext.indexPrompt?.trim() && !indexContext.memberPrompt?.trim();
-      const skipEvaluation = hasNoPrompts;
-
-      logger.info("Context loaded", {
-        hasIntent: true,
-        hasIndexContext: true,
-        isCurrentlyAssigned,
-        skipEvaluation,
-      });
-
-      return {
-        intent: intent as IntentForIndexing,
-        indexContext: indexContext as IndexMemberContext,
-        isCurrentlyAssigned,
-        skipEvaluation,
-        error: null,
-      };
     };
 
-    const evaluateNode = async (state: typeof IndexGraphState.State) => {
-      if (state.error) {
-        logger.info("Skipping evaluation (error from prep)", {
-          error: state.error,
+    /**
+     * Create Node: Create a new index and add user as owner.
+     */
+    const createNode = async (state: typeof IndexGraphState.State) => {
+      logger.info("Create index", { userId: state.userId, createInput: state.createInput });
+
+      if (!state.createInput?.title?.trim()) {
+        return { mutationResult: { success: false, error: "Title is required." } };
+      }
+
+      let createdIndexId: string | undefined;
+      try {
+        const index = await this.database.createIndex({
+          title: state.createInput.title.trim(),
+          prompt: state.createInput.prompt?.trim() || undefined,
+          joinPolicy: state.createInput.joinPolicy,
         });
-        return {};
-      }
+        createdIndexId = index.id;
 
-      if (state.skipEvaluation) {
-        logger.info("No prompts – auto-assign");
+        const added = await this.database.addMemberToIndex(index.id, state.userId, 'owner');
+        if (!added.success) {
+          logger.error("addMemberToIndex failed; cleaning up orphaned index", { indexId: index.id });
+          try { await this.database.softDeleteIndex(index.id); } catch {}
+          return { mutationResult: { success: false, error: "Failed to set you as owner. Index was not created." } };
+        }
+
         return {
-          evaluation: null,
-          shouldAssign: true,
-          finalScore: 1.0,
+          mutationResult: {
+            success: true,
+            indexId: index.id,
+            title: index.title,
+            message: `Index "${index.title}" created. You are the owner.`,
+          },
         };
-      }
-
-      if (!state.intent || !state.indexContext) {
-        return {};
-      }
-
-      logger.info("Calling IntentIndexer", {
-        intentId: state.intentId,
-        indexId: state.indexId,
-      });
-
-      const sourceName = state.intent.sourceType
-        ? `${state.intent.sourceType}:${state.intent.sourceId ?? ""}`
-        : undefined;
-
-      const result = await indexer.evaluate(
-        state.intent.payload,
-        state.indexContext.indexPrompt,
-        state.indexContext.memberPrompt,
-        sourceName
-      );
-
-      if (!result) {
-        logger.warn("IntentIndexer returned null");
-        return {
-          evaluation: null,
-          shouldAssign: false,
-          finalScore: 0,
-        };
-      }
-
-      const { indexScore, memberScore } = result;
-      const ip = state.indexContext.indexPrompt?.trim();
-      const mp = state.indexContext.memberPrompt?.trim();
-
-      let shouldAssign = false;
-      let finalScore = 0;
-
-      if (ip && mp) {
-        if (
-          indexScore > QUALIFICATION_THRESHOLD &&
-          memberScore > QUALIFICATION_THRESHOLD
-        ) {
-          shouldAssign = true;
-          finalScore = indexScore * 0.6 + memberScore * 0.4;
+      } catch (err) {
+        logger.error("Create index failed", { error: err });
+        if (createdIndexId) {
+          try { await this.database.softDeleteIndex(createdIndexId); } catch {}
         }
-      } else if (ip) {
-        if (indexScore > QUALIFICATION_THRESHOLD) {
-          shouldAssign = true;
-          finalScore = indexScore;
-        }
-      } else if (mp) {
-        if (memberScore > QUALIFICATION_THRESHOLD) {
-          shouldAssign = true;
-          finalScore = memberScore;
-        }
-      } else {
-        shouldAssign = true;
-        finalScore = 1.0;
+        return { mutationResult: { success: false, error: "Failed to create index." } };
       }
-
-      logger.info("Evaluation complete", {
-        indexScore,
-        memberScore,
-        finalScore,
-        shouldAssign,
-      });
-
-      return {
-        evaluation: result,
-        shouldAssign,
-        finalScore,
-      };
     };
 
-    const executeNode = async (state: typeof IndexGraphState.State) => {
-      if (state.error) {
-        logger.info("Skipping execution (error)", { error: state.error });
+    /**
+     * Update Node: Update index settings (owner only).
+     */
+    const updateNode = async (state: typeof IndexGraphState.State) => {
+      const indexId = state.indexId;
+      logger.info("Update index", { userId: state.userId, indexId, updateInput: state.updateInput });
+
+      if (!indexId) {
+        return { mutationResult: { success: false, error: "indexId is required for update." } };
+      }
+
+      try {
+        const isOwner = await this.database.isIndexOwner(indexId, state.userId);
+        if (!isOwner) {
+          return { mutationResult: { success: false, error: "You can only modify indexes you own." } };
+        }
+
+        await this.database.updateIndexSettings(indexId, state.userId, state.updateInput ?? {});
+
         return {
-          assignmentResult: {
-            indexId: state.indexId,
-            assigned: false,
-            success: false,
-            error: state.error,
-          } as AssignmentResult,
+          mutationResult: {
+            success: true,
+            indexId,
+            message: "Index settings updated.",
+          },
         };
+      } catch (err) {
+        logger.error("Update index failed", { error: err });
+        return { mutationResult: { success: false, error: "Failed to update index." } };
+      }
+    };
+
+    /**
+     * Delete Node: Soft-delete an index (owner only, sole member).
+     */
+    const deleteNode = async (state: typeof IndexGraphState.State) => {
+      const indexId = state.indexId;
+      logger.info("Delete index", { userId: state.userId, indexId });
+
+      if (!indexId) {
+        return { mutationResult: { success: false, error: "indexId is required for delete." } };
       }
 
-      const shouldAssign = state.shouldAssign;
-      const isCurrentlyAssigned = state.isCurrentlyAssigned;
-
-      if (shouldAssign && !isCurrentlyAssigned) {
-        try {
-          await this.database.assignIntentToIndex(state.intentId, state.indexId);
-          logger.info("Assigned intent to index", {
-            intentId: state.intentId,
-            indexId: state.indexId,
-            finalScore: state.finalScore,
-          });
-          return {
-            assignmentResult: {
-              indexId: state.indexId,
-              assigned: true,
-              success: true,
-            } as AssignmentResult,
-          };
-        } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
-          logger.error("Assign failed", { error: err });
-          return {
-            assignmentResult: {
-              indexId: state.indexId,
-              assigned: false,
-              success: false,
-              error: message,
-            } as AssignmentResult,
-          };
+      try {
+        const isOwner = await this.database.isIndexOwner(indexId, state.userId);
+        if (!isOwner) {
+          return { mutationResult: { success: false, error: "You can only delete indexes you own." } };
         }
-      }
 
-      if (!shouldAssign && isCurrentlyAssigned) {
-        try {
-          await this.database.unassignIntentFromIndex(state.intentId, state.indexId);
-          logger.info("Unassigned intent from index", {
-            intentId: state.intentId,
-            indexId: state.indexId,
-            finalScore: state.finalScore,
-          });
-          return {
-            assignmentResult: {
-              indexId: state.indexId,
-              assigned: false,
-              success: true,
-            } as AssignmentResult,
-          };
-        } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
-          logger.error("Unassign failed", { error: err });
-          return {
-            assignmentResult: {
-              indexId: state.indexId,
-              assigned: true, // was assigned, unassign failed
-              success: false,
-              error: message,
-            } as AssignmentResult,
-          };
+        const count = await this.database.getIndexMemberCount(indexId);
+        if (count > 1) {
+          return { mutationResult: { success: false, error: "Cannot delete index with other members. Remove members first." } };
         }
-      }
 
-      // No change
-      return {
-        assignmentResult: {
-          indexId: state.indexId,
-          assigned: isCurrentlyAssigned,
-          success: true,
-        } as AssignmentResult,
-      };
+        await this.database.softDeleteIndex(indexId);
+
+        return {
+          mutationResult: {
+            success: true,
+            indexId,
+            message: "Index deleted.",
+          },
+        };
+      } catch (err) {
+        logger.error("Delete index failed", { error: err });
+        return { mutationResult: { success: false, error: "Failed to delete index." } };
+      }
+    };
+
+    // --- CONDITIONAL ROUTING ---
+
+    const routeByMode = (state: typeof IndexGraphState.State): string => {
+      switch (state.operationMode) {
+        case 'create': return 'create';
+        case 'read': return 'read';
+        case 'update': return 'update';
+        case 'delete': return 'delete_idx';
+        default: return 'read';
+      }
     };
 
     // --- GRAPH ASSEMBLY ---
 
     const workflow = new StateGraph(IndexGraphState)
-      .addNode("prep", prepNode)
-      .addNode("evaluate", evaluateNode)
-      .addNode("execute", executeNode)
-      .addEdge(START, "prep")
-      .addEdge("prep", "evaluate")
-      .addEdge("evaluate", "execute")
-      .addEdge("execute", END);
+      .addNode("read", readNode)
+      .addNode("create", createNode)
+      .addNode("update", updateNode)
+      .addNode("delete_idx", deleteNode)
+      .addConditionalEdges(START, routeByMode, {
+        read: "read",
+        create: "create",
+        update: "update",
+        delete_idx: "delete_idx",
+      })
+      .addEdge("read", END)
+      .addEdge("create", END)
+      .addEdge("update", END)
+      .addEdge("delete_idx", END);
 
     return workflow.compile();
   }
