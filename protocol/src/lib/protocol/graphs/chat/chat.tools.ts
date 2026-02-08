@@ -38,6 +38,8 @@ export interface ResolvedToolContext {
   userEmail: string;
   indexId?: string;
   indexName?: string;
+  /** True when chat is index-scoped and the user owns the index. */
+  isOwner?: boolean;
 }
 
 /**
@@ -149,6 +151,7 @@ export async function createChatTools(deps: ToolContext) {
   // ─── Resolve context from DB ───────────────────────────────────────────────
   const user = await database.getUser(deps.userId);
   const indexInfo = deps.indexId ? await database.getIndex(deps.indexId) : null;
+  const isOwner = deps.indexId ? await database.isIndexOwner(deps.indexId, deps.userId) : false;
 
   const resolvedContext: ResolvedToolContext = {
     userId: deps.userId,
@@ -156,6 +159,7 @@ export async function createChatTools(deps: ToolContext) {
     userEmail: user?.email ?? "",
     indexId: deps.indexId,
     indexName: indexInfo?.title,
+    isOwner,
   };
 
   // ─── Tool wrapper ──────────────────────────────────────────────────────────
