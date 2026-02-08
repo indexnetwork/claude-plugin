@@ -71,10 +71,11 @@ export const IntentGraphState = Annotation.Root({
    * - 'create': Full pipeline (prep → inference → verification → reconciliation → execution)
    * - 'update': Skip verification if no new intents (prep → inference → reconciliation → execution)
    * - 'delete': Skip inference and verification (prep → reconciliation → execution)
+   * - 'read': Fast path (prep → queryNode → END) — reads intents without LLM calls
    *
    * Defaults to 'create' for backward compatibility.
    */
-  operationMode: Annotation<'create' | 'update' | 'delete'>({
+  operationMode: Annotation<'create' | 'update' | 'delete' | 'read'>({
     reducer: (curr, next) => next ?? curr,
     default: () => 'create' as const,
   }),
@@ -166,5 +167,45 @@ export const IntentGraphState = Annotation.Root({
   executionResults: Annotation<ExecutionResult[]>({
     reducer: (curr, next) => next,
     default: () => [],
+  }),
+
+  // --- Read Mode Fields ---
+
+  /**
+   * For read mode: filter intents by a specific user when reading in an index.
+   * When omitted and index-scoped, returns all intents in the index.
+   */
+  queryUserId: Annotation<string | undefined>({
+    reducer: (curr, next) => next ?? curr,
+    default: () => undefined,
+  }),
+
+  /**
+   * For read mode: when true, return all of the current user's intents
+   * ignoring index scope. Used before create_intent to detect duplicates.
+   */
+  allUserIntents: Annotation<boolean>({
+    reducer: (curr, next) => next ?? curr,
+    default: () => false,
+  }),
+
+  /**
+   * Output of read mode: queried intents with count and optional metadata.
+   */
+  readResult: Annotation<{
+    count: number;
+    intents: Array<{
+      id: string;
+      description: string;
+      summary: string | null;
+      createdAt: Date;
+      userId?: string;
+      userName?: string | null;
+    }>;
+    message?: string;
+    indexId?: string;
+  } | undefined>({
+    reducer: (curr, next) => next,
+    default: () => undefined,
   }),
 });

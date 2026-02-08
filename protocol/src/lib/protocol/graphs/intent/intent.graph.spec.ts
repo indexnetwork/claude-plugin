@@ -39,6 +39,22 @@ const createMockDatabase = (): IntentGraphDatabase => {
           createdAt: i.createdAt
         }));
     },
+    async getUser(_userId: string) {
+      return { id: _userId, name: 'Test User', email: 'test@example.com' };
+    },
+    async isIndexMember(_indexId: string, _userId: string): Promise<boolean> {
+      return true;
+    },
+    async getIndexIntentsForMember(_indexId: string, _requestingUserId: string, _options?: { limit?: number; offset?: number }) {
+      return intents.map(i => ({
+        id: i.id,
+        payload: i.payload,
+        summary: i.summary,
+        userId: i.userId,
+        userName: 'Test User',
+        createdAt: i.createdAt,
+      }));
+    },
     async createIntent(data: { userId: string; payload: string; confidence: number; inferenceType: 'explicit' | 'implicit'; sourceType?: string }): Promise<CreatedIntent> {
       const newIntent: CreatedIntent = {
         id: `intent-${idCounter++}`,

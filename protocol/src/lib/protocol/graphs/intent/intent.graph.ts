@@ -88,12 +88,14 @@ export class IntentGraphFactory {
       // Only allow for create operations without explicit content
       const allowProfileFallback = state.operationMode === 'create' && !state.inputContent;
       
+      // Cast operationMode to exclude 'read' (inference node is never called in read mode)
+      const inferrerMode = state.operationMode === 'read' ? 'create' : state.operationMode;
       const result = await inferrer.invoke(
         state.inputContent || null,
         state.userProfile,
         {
           allowProfileFallback,
-          operationMode: state.operationMode,
+          operationMode: inferrerMode,
           conversationContext: state.conversationContext  // Phase 5: Pass conversation history
         }
       );
@@ -308,13 +310,157 @@ export class IntentGraphFactory {
       return { executionResults: results };
     };
 
+    // --- QUERY NODE (Read Mode) ---
+
+    /**
+     * Node: Query
+     * Fast-path read node — fetches intents from DB based on scope.
+     * Handles: global user intents, index-scoped (all or filtered by user).
+     * No LLM calls; no inference/verification/reconciliation.
+     */
+    const queryNode = async (state: typeof IntentGraphState.State) => {
+      logger.info("Starting query (read mode)", {
+        userId: state.userId,
+        indexId: state.indexId,
+        queryUserId: state.queryUserId,
+        allUserIntents: state.allUserIntents,
+      });
+
+      try {
+        // When allUserIntents is true, ignore index scope and return all
+        const effectiveIndexId = state.allUserIntents ? undefined : state.indexId;
+
+        if (effectiveIndexId) {
+          // Verify membership
+          const isMember = await this.database.isIndexMember(effectiveIndexId, state.userId);
+          if (!isMember) {
+            return {
+              readResult: {
+                count: 0,
+                intents: [],
+                message: "Index not found or you are not a member.",
+              },
+            };
+          }
+
+          // Index-scoped read
+          if (!state.queryUserId) {
+            // All intents in the index (any member can see)
+            const intents = await this.database.getIndexIntentsForMember(
+              effectiveIndexId,
+              state.userId,
+              { limit: 50, offset: 0 }
+            );
+            if (intents.length === 0) {
+              return {
+                readResult: {
+                  count: 0,
+                  intents: [],
+                  message: "No intents in this index yet.",
+                  indexId: effectiveIndexId,
+                },
+              };
+            }
+            return {
+              readResult: {
+                count: intents.length,
+                indexId: effectiveIndexId,
+                intents: intents.map((i) => ({
+                  id: i.id,
+                  description: i.payload,
+                  summary: i.summary,
+                  createdAt: i.createdAt,
+                  userId: i.userId,
+                  userName: i.userName,
+                })),
+              },
+            };
+          }
+
+          // Specific user's intents in the index
+          const effectiveUserId = state.queryUserId;
+          const intents = await this.database.getIntentsInIndexForMember(
+            effectiveUserId,
+            effectiveIndexId
+          );
+          if (intents.length === 0) {
+            return {
+              readResult: {
+                count: 0,
+                intents: [],
+                message:
+                  effectiveUserId === state.userId
+                    ? "You don't have any intents in this index yet."
+                    : "No intents for that user in this index.",
+                indexId: effectiveIndexId,
+              },
+            };
+          }
+          const user = await this.database.getUser(effectiveUserId);
+          const userName = user?.name ?? null;
+          return {
+            readResult: {
+              count: intents.length,
+              indexId: effectiveIndexId,
+              intents: intents.map((i) => ({
+                id: i.id,
+                description: i.payload,
+                summary: i.summary,
+                createdAt: i.createdAt,
+                userId: effectiveUserId,
+                userName,
+              })),
+            },
+          };
+        }
+
+        // Global (no index scope): return user's own active intents
+        const intents = await this.database.getActiveIntents(state.userId);
+        if (intents.length === 0) {
+          return {
+            readResult: {
+              count: 0,
+              intents: [],
+              message:
+                "You don't have any active intents yet. Share your goals or what you're looking for.",
+            },
+          };
+        }
+        return {
+          readResult: {
+            count: intents.length,
+            intents: intents.map((i) => ({
+              id: i.id,
+              description: i.payload,
+              summary: i.summary,
+              createdAt: i.createdAt,
+            })),
+          },
+        };
+      } catch (err) {
+        logger.error("Query node failed", { error: err });
+        return {
+          readResult: {
+            count: 0,
+            intents: [],
+            message: "Failed to fetch intents. Please try again.",
+          },
+        };
+      }
+    };
+
     // --- CONDITIONAL ROUTING FUNCTIONS ---
 
     /**
      * After prep: if requiredMessage is set (index-scoped, intents not provided), go to END;
+     * if read mode, route to queryNode;
      * otherwise decide inference vs reconciler by operation mode.
      */
     const afterPrepRoute = (state: typeof IntentGraphState.State): string => {
+      if (state.operationMode === 'read') {
+        logger.info('Read mode - routing to query (fast path)');
+        return 'query';
+      }
       if (state.requiredMessage) {
         logger.info('Required message set - routing to END');
         return 'end';
@@ -369,24 +515,29 @@ export class IntentGraphFactory {
 
     const workflow = new StateGraph(IntentGraphState)
       .addNode("prep", prepNode)
+      .addNode("query", queryNode)
       .addNode("inference", inferenceNode)
       .addNode("verification", verificationNode)
       .addNode("reconciler", reconciliationNode)
       .addNode("executor", executorNode)
 
-      // Phase 4: Conditional flow based on operation mode
       // Flow paths:
+      // - READ:    prep → query → END (fast path, no LLM calls)
       // - CREATE:  prep → inference → verification → reconciler → executor → END
       // - UPDATE:  prep → inference → reconciliation → executor → END (skips verification if no new intents)
       // - DELETE:  prep → reconciliation → executor → END (skips inference and verification)
       .addEdge(START, "prep")
       
-      // After prep: exit early if requiredMessage set (index-scoped, intents not provided); else inference or reconciler
+      // After prep: read mode → query; requiredMessage → END; else inference or reconciler
       .addConditionalEdges("prep", afterPrepRoute, {
         end: END,
+        query: "query",
         inference: "inference",
         reconciler: "reconciler"
       })
+
+      // Query (read mode) always ends
+      .addEdge("query", END)
       
       // After inference: decide if we need verification (skip if no intents)
       .addConditionalEdges("inference", shouldRunVerification, {
