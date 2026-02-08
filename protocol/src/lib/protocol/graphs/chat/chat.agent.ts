@@ -113,7 +113,7 @@ function buildNoIndexScopePrompt(): string {
 
 ### Intents
 - **read_intents**: List user's active intents. With \`indexId\`: intents in that index. Pass \`userId\` for "my intents", omit for "everyone's intents". Include creator's name (userName) when showing intents from an index.
-- **create_intent**: Create new intent. Pass \`indexId\` to link to an index. When linking to an index, first call read_intents with \`allUserIntents: true\`, then pass that as \`existingIntentsInIndex\` for duplicate detection.
+- **create_intent**: Create new intent. Pass \`indexId\` to link to an index. The system handles duplicate detection automatically.
 - **update_intent**: Update intent description. Use exact \`id\` from read_intents. Only changes description, not index links.
 - **delete_intent**: Archive an intent. Use exact \`id\` from read_intents.
 
@@ -194,8 +194,8 @@ function buildIndexScopedPrompt(ctx: ResolvedToolContext): string {
 - **update_user_profile**: Update profile; requires \`profileId\` from read_user_profiles. One call with all changes.
 
 ### Intents
-- **read_intents**: With \`indexId\` (this index): list intents. Pass \`userId\` for "my intents", omit for "everyone's intents". Include creator's name (userName) when showing intents. Before calling **create_intent**, call read_intents with \`allUserIntents: true\` (no indexId) to get all user's intents for duplicate detection.
-- **create_intent**: Pass \`indexId: "${ctx.indexId}"\` to link to this index. Pass \`existingIntentsInIndex\` from read_intents. Always call create_intent when the user wants to add an intent — the system reconciles duplicates and links existing intents.
+- **read_intents**: With \`indexId\` (this index): list intents. Pass \`userId\` for "my intents", omit for "everyone's intents". Include creator's name (userName) when showing intents.
+- **create_intent**: Pass \`indexId: "${ctx.indexId}"\` to link to this index. Always call create_intent when the user wants to add an intent — the system reconciles duplicates and links existing intents automatically.
 - **update_intent**: Update description of your own intent only. Use exact \`id\` from read_intents.
 - **delete_intent**: Archive your own intent only. Use exact \`id\` from read_intents.
 
@@ -219,10 +219,8 @@ ${ownerTools}
 
 ## Index-Scoped Intent Creation
 
-When the user wants to add an intent to this index:
-1. Call **read_intents** with \`allUserIntents: true\` (no indexId) to get all of the user's intents.
-2. Call **create_intent** with \`description\`, \`indexId: "${ctx.indexId}"\`, and \`existingIntentsInIndex\` from step 1.
-Do NOT skip create_intent even if a similar intent exists — the system will link the existing intent to this index.
+When the user wants to add an intent to this index, call **create_intent** with \`description\` and \`indexId: "${ctx.indexId}"\`.
+Do NOT skip create_intent even if a similar intent exists — the system will reconcile duplicates and link the existing intent to this index automatically.
 
 ## Discovery Rules
 
