@@ -1,13 +1,10 @@
 import { StateGraph, START, END } from "@langchain/langgraph";
-import {
-  IndexGraphState,
-  IntentForIndexing,
-  IndexMemberContext,
-  AssignmentResult,
-} from "./index.graph.state";
+
 import { IntentIndexer } from "../../agents/index/intent.indexer";
 import { IndexGraphDatabase } from "../../interfaces/database.interface";
 import { protocolLogger } from "../../protocol.log";
+
+import { IndexGraphState, IntentForIndexing, IndexMemberContext, AssignmentResult } from "./index.graph.state";
 
 const logger = protocolLogger("IndexGraphFactory");
 const QUALIFICATION_THRESHOLD = 0.7;
