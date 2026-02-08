@@ -181,9 +181,9 @@ export class ChatGraphFactory {
       const pendingRef = { current: state.pendingConfirmation };
 
       try {
-        // Create agent with current user context (include indexId when chat is index-scoped)
+        // Create agent with current user context (async factory resolves user/index from DB)
         const indexId = state.indexId;
-        const agent = new ChatAgent({
+        const agent = await ChatAgent.create({
           userId: state.userId,
           database,
           embedder,

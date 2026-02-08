@@ -1,6 +1,6 @@
 import { ChatOpenAI } from "@langchain/openai";
 import { BaseMessage, SystemMessage, ToolMessage } from "@langchain/core/messages";
-import { createChatTools, ToolContext } from "./chat.tools";
+import { createChatTools, ToolContext, ResolvedToolContext } from "./chat.tools";
 import { protocolLogger } from "../../protocol.log";
 
 const logger = protocolLogger("ChatAgent");
@@ -38,8 +38,8 @@ You help users:
 You have access to these tools to help users:
 
 ### Profile Management
-- **read_user_profiles**: Check if user has a profile, view their current profile (and profile id for updates).
-- **create_user_profile**: Create a new profile when the user has none. Use scrape_url first for profile URLs, then pass content in details.
+- **read_user_profiles**: In an index-scoped chat, no args returns the current user's profile (with id for updates). Outside an index-scoped chat, you MUST provide \`userId\` or \`indexId\`. Optional \`userId\`: view another user's profile. Optional \`indexId\`: view profiles of all members in that index (returns array with userId, name, hasProfile, and profile data for each member).
+- **create_user_profile**: Auto-generates (or regenerates) a profile from the user's account data (name, email, social links) via web search. Works whether or not the user already has a profile — use it for both first-time creation and recreation. Call with no args first; if it returns missing fields, ask the user conversationally for their full name and/or social URLs (LinkedIn, GitHub, X/Twitter), then call again with those fields filled in (e.g. \`name\`, \`linkedinUrl\`, \`githubUrl\`, \`twitterUrl\`, \`websites\`, \`location\`).
 - **update_user_profile**: Update existing profile; requires \`profileId\` from read_user_profiles. One call per request with all changes in \`action\` and \`details\`.
 - **scrape_url**: Fetches text from a URL. Pass \`objective\` for profile or intent use.
 
@@ -94,10 +94,13 @@ You can call multiple tools in sequence or parallel as needed. For example:
 ### Profile updates: one call per request
 When the user asks to update multiple profile fields (e.g. bio, skills, and interests together), use **one** **update_user_profile** call with all requested changes in \`action\` and \`details\`. Do not call update_user_profile once per field—combine everything into a single call (e.g. action: "Update bio to X, add Python to skills, set interests to A and B", details: optional context).
 
-### Profile from URLs (mandatory)
-When the user provides profile URLs (LinkedIn, GitHub, X/Twitter, personal site, etc.):
-1. Call **scrape_url(url, objective: "User wants to update their profile from this page.")** for each URL first to fetch the real page content. Do not skip this. Using the \`objective\` parameter returns content better suited for profile building.
-2. If the user has no profile, call **create_user_profile** with the scraped content in \`details\`. If they already have a profile, call **update_user_profile** with \`profileId\` from read_user_profiles and the scraped content in \`details\`. Never pass only raw URLs—use actual scraped page content.
+### Profile creation from URLs
+When the user shares a LinkedIn, GitHub, X/Twitter, or personal website URL and has **no profile yet**:
+- Pass the URL directly to **create_user_profile** in the matching field (\`linkedinUrl\`, \`githubUrl\`, \`twitterUrl\`, or \`websites\`). No need to call scrape_url first—the profile generation pipeline handles URL resolution automatically.
+
+When the user already **has a profile** and shares URLs to update it:
+1. Call **scrape_url(url, objective: "User wants to update their profile from this page.")** for each URL first to fetch real page content.
+2. Call **update_user_profile** with \`profileId\` from read_user_profiles and the scraped content in \`details\`.
 
 ### URLs for intents
 When the user provides a URL and wants to create an intent from it (e.g. project, repo, article):
@@ -254,13 +257,21 @@ export interface AgentIterationResult {
  * 2. Decide: call tools OR respond to user
  * 3. If tools called: execute them, add results, loop back
  * 4. If response: return final text
+ * 
+ * Use `ChatAgent.create(context)` to construct (async factory).
  */
 export class ChatAgent {
   private model: ChatOpenAI;
-  private tools: ReturnType<typeof createChatTools>;
+  private tools: Awaited<ReturnType<typeof createChatTools>>;
   private toolsByName: Map<string, any>;
 
-  constructor(private context: ToolContext) {
+  /**
+   * Private constructor — use `ChatAgent.create()` instead.
+   */
+  private constructor(
+    private resolvedContext: ResolvedToolContext,
+    tools: Awaited<ReturnType<typeof createChatTools>>,
+  ) {
     // Create model with tool calling capability
     this.model = new ChatOpenAI({
       model: 'google/gemini-2.5-flash',
@@ -271,10 +282,8 @@ export class ChatAgent {
       maxTokens: 4096,
     });
 
-    // Create tools bound to this user context
-    this.tools = createChatTools(context);
-    
-    // Index tools by name for execution
+    // Store tools and index by name
+    this.tools = tools;
     this.toolsByName = new Map();
     for (const tool of this.tools) {
       this.toolsByName.set(tool.name, tool);
@@ -282,6 +291,27 @@ export class ChatAgent {
 
     // Bind tools to model
     this.model = this.model.bindTools(this.tools) as ChatOpenAI;
+  }
+
+  /**
+   * Async factory: creates a ChatAgent with resolved user/index context.
+   * Resolves user/index identity from DB during tool initialization.
+   */
+  static async create(context: ToolContext): Promise<ChatAgent> {
+    const tools = await createChatTools(context);
+    // Resolve context for system prompt (tools already resolved it internally,
+    // but we need it here for the prompt too)
+    const db = context.database;
+    const user = await db.getUser(context.userId);
+    const indexInfo = context.indexId ? await db.getIndex(context.indexId) : null;
+    const resolved: ResolvedToolContext = {
+      userId: context.userId,
+      userName: user?.name ?? "Unknown",
+      userEmail: user?.email ?? "",
+      indexId: context.indexId,
+      indexName: indexInfo?.title,
+    };
+    return new ChatAgent(resolved, tools);
   }
 
   /**
@@ -295,14 +325,27 @@ export class ChatAgent {
     messages: BaseMessage[],
     iterationCount: number
   ): Promise<AgentIterationResult> {
-    // When chat is scoped to an index, tell the agent so it uses read_intents/create_intent with indexId
-    const indexId = this.context.indexId?.trim();
-    const systemContent = indexId
-      ? `**Current index (scope):** This conversation is scoped to index \`${indexId}\`. You MUST use this index for index-scoped actions:
-- **read_intents**: use indexId \`${indexId}\` to list intents in this index. When you are about to call **create_intent**, call read_intents with \`allUserIntents: true\` (no indexId) so you get all of the user's intents for duplicate/modification detection—otherwise you only get intents in this index.
-- **create_intent**: you MUST pass \`indexId: "${indexId}"\` so the intent is created and linked to this index. Before calling create_intent, call read_intents with \`allUserIntents: true\` and pass the returned \`intents\` as \`existingIntentsInIndex\`.
-- **read_intent_indexes** / **create_intent_index** / **delete_intent_index**: use this indexId when the user refers to "this index" or "this community".\n\n${CHAT_AGENT_SYSTEM_PROMPT}`
-      : CHAT_AGENT_SYSTEM_PROMPT;
+    // Build resolved context preamble for the system prompt
+    const ctx = this.resolvedContext;
+    const indexScopeBlock = ctx.indexId
+      ? `- **Index scope**: ${ctx.indexName ?? "Unknown index"} (indexId: ${ctx.indexId})`
+      : `- **Index scope**: No index scope (general chat)`;
+    const contextPreamble = `## Current Session Context
+- **User**: ${ctx.userName} (${ctx.userEmail}), userId: ${ctx.userId}
+${indexScopeBlock}
+
+`;
+    // When chat is scoped to an index, add operational instructions
+    const indexInstructions = ctx.indexId
+      ? `**Current index (scope):** This conversation is scoped to index "${ctx.indexName ?? ctx.indexId}". You MUST use this index for index-scoped actions:
+- **read_intents**: use indexId \`${ctx.indexId}\` to list intents in this index. When you are about to call **create_intent**, call read_intents with \`allUserIntents: true\` (no indexId) so you get all of the user's intents for duplicate/modification detection—otherwise you only get intents in this index.
+- **create_intent**: you MUST pass \`indexId: "${ctx.indexId}"\` so the intent is created and linked to this index. Before calling create_intent, call read_intents with \`allUserIntents: true\` and pass the returned \`intents\` as \`existingIntentsInIndex\`.
+- **read_intent_indexes** / **create_intent_index** / **delete_intent_index**: use this indexId when the user refers to "this index" or "this community".
+
+`
+      : "";
+
+    const systemContent = contextPreamble + indexInstructions + CHAT_AGENT_SYSTEM_PROMPT;
 
     const fullMessages: BaseMessage[] = [
       new SystemMessage(systemContent),
