@@ -18,7 +18,7 @@ import { HydeGraphFactory } from "../hyde/hyde.graph";
 import { HydeGenerator } from "../../agents/hyde/hyde.generator";
 import { IndexGraphFactory } from "../index/index.graph";
 import { RedisCacheAdapter } from "../../../../adapters/cache.adapter";
-import { runDiscoverFromQuery } from "./nodes/discover.nodes";
+import { runDiscoverFromQuery } from "../opportunity/opportunity.discover";
 import type { ExecutionResult } from "../intent/intent.graph.state";
 import { queueOpportunityNotification } from "../../../../queues/notification.queue";
 import { protocolLogger, withCallLogging } from "../../protocol.log";

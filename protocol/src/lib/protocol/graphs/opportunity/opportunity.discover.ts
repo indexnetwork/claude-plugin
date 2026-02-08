@@ -1,5 +1,5 @@
 /**
- * Discover node: run discovery from an ad-hoc chat query.
+ * Run discovery from an ad-hoc query (e.g. chat "find me a mentor", "who needs a React developer").
  *
  * Uses selectStrategiesFromQuery to pick HyDE strategies, invokes the opportunity
  * graph with the query as sourceText and those strategies, then returns
@@ -8,17 +8,17 @@
  * Used by the create_opportunities chat tool.
  */
 
-import type { Opportunity } from "../../../interfaces/database.interface";
-import type { ChatGraphCompositeDatabase } from "../../../interfaces/database.interface";
-import type { OpportunityGraphOptions } from "../../opportunity/opportunity.graph.state";
-import { selectStrategiesFromQuery } from "../chat.utils";
-import { protocolLogger, withCallLogging } from "../../../protocol.log";
+import type { Opportunity } from "../../interfaces/database.interface";
+import type { ChatGraphCompositeDatabase } from "../../interfaces/database.interface";
+import type { OpportunityGraphOptions } from "./opportunity.graph.state";
+import type { HydeStrategy } from "../../agents/hyde/hyde.strategies";
+import { protocolLogger, withCallLogging } from "../../protocol.log";
 
-const logger = protocolLogger("DiscoverNodes");
+const logger = protocolLogger("OpportunityDiscover");
 
 /** Compiled opportunity graph (from OpportunityGraphFactory.createGraph()). */
 export type CompiledOpportunityGraph = ReturnType<
-  import("../../opportunity/opportunity.graph").OpportunityGraphFactory["createGraph"]
+  import("./opportunity.graph").OpportunityGraphFactory["createGraph"]
 >;
 
 export interface DiscoverInput {
@@ -57,6 +57,50 @@ export interface DiscoverResult {
   count: number;
   message?: string;
   opportunities?: FormattedDiscoveryCandidate[];
+}
+
+/**
+ * Infer HyDE strategies from a free-text discovery query so the opportunity graph
+ * runs the right strategy mix (e.g. mentor vs hiree). Used when chat tools call
+ * runDiscoverFromQuery with a user query like "find me a mentor" or
+ * "who needs a React developer".
+ *
+ * @param query - User's free-text discovery query
+ * @returns Array of HyDE strategy names to run
+ */
+export function selectStrategiesFromQuery(query: string): HydeStrategy[] {
+  const base: HydeStrategy[] = ["mirror", "reciprocal"];
+  const q = (query ?? "").toLowerCase().trim();
+  if (!q) return base;
+
+  if (
+    /mentor|guide|guidance|learn from|advice from|someone to teach|teach me/i.test(q)
+  ) {
+    base.push("mentor");
+  }
+  if (
+    /investor|invest|funding|raise|seed|series|vc|capital|back (us|me|this)/i.test(
+      q
+    )
+  ) {
+    base.push("investor");
+  }
+  if (
+    /co-?founder|collaborator|partner|peer|build together|work together|collaborat/i.test(
+      q
+    )
+  ) {
+    base.push("collaborator");
+  }
+  if (
+    /hire|hiring|who needs|looking for (a |an )?(developer|engineer|designer|react|frontend|backend)|job|role|position|developer needed|engineer needed/i.test(
+      q
+    )
+  ) {
+    base.push("hiree");
+  }
+
+  return [...new Set(base)];
 }
 
 /**
