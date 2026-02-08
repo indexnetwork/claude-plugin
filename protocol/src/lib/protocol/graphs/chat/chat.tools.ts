@@ -517,10 +517,50 @@ export function createChatTools(context: ToolContext) {
         }
 
         if (created.length > 0) {
+          // Auto-trigger discovery (create_opportunities) with the same scope so the user gets draft opportunities for the new intent.
+          let discoveryRan = false;
+          let discoveryCount = 0;
+          let discoveryError = false;
+          let indexScope: string[] = [];
+          const discoveryIndexId = effectiveIndexId || context.indexId?.trim() || undefined;
+          if (discoveryIndexId) {
+            if (UUID_REGEX.test(discoveryIndexId)) {
+              const isMember = await database.isIndexMember(discoveryIndexId, userId);
+              if (isMember) indexScope = [discoveryIndexId];
+            }
+          } else {
+            const memberships = await database.getIndexMemberships(userId);
+            indexScope = memberships.map((m) => m.indexId);
+          }
+          if (indexScope.length > 0) {
+            try {
+              // Use the newly created intent(s) as the query so discovery targets them explicitly.
+              const intentQuery = created.map((c) => c.description).filter(Boolean).join(" ") || "";
+              const discoveryResult = await runDiscoverFromQuery({
+                opportunityGraph,
+                database,
+                userId,
+                query: intentQuery,
+                indexScope,
+                limit: 5,
+              });
+              discoveryRan = true;
+              discoveryCount = discoveryResult.count ?? 0;
+            } catch (err) {
+              logger.warn("create_intent: auto-discovery failed", { error: err });
+              discoveryRan = true;
+              discoveryError = true;
+            }
+          }
           return success({
             created: true,
             intents: created,
-            message: `Created ${created.length} intent(s)`
+            message: `Created ${created.length} intent(s)`,
+            ...(discoveryRan && {
+              discoveryRan: true,
+              discoveryCount,
+              ...(discoveryError && { discoveryError: true }),
+            }),
           });
         }
 
