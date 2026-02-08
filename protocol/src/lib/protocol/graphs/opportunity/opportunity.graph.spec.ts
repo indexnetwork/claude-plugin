@@ -87,6 +87,11 @@ function createMockGraph(deps?: {
         ])),
     getIndex: deps?.getIndex ?? (() => Promise.resolve({ id: 'idx-1', title: 'Test Index' })),
     getIndexMemberCount: deps?.getIndexMemberCount ?? (() => Promise.resolve(2)),
+    getUser: (_userId: string) => Promise.resolve({ id: _userId, name: 'Test User', email: 'test@example.com' }),
+    isIndexMember: () => Promise.resolve(true),
+    getOpportunity: () => Promise.resolve(null),
+    getOpportunitiesForUser: () => Promise.resolve([]),
+    updateOpportunityStatus: () => Promise.resolve(null),
   };
 
   const mockEmbedder: Embedder = {

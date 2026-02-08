@@ -43,8 +43,10 @@ import type { Embedder, HydeStrategy } from '../../interfaces/embedder.interface
 import type {
   CreateOpportunityData,
   Opportunity,
+  OpportunityActor,
   ActiveIntent,
 } from '../../interfaces/database.interface';
+import { queueOpportunityNotification } from '../../../../queues/notification.queue';
 import { selectStrategies, deriveRolesFromStrategy } from './opportunity.utils';
 import { protocolLogger, withCallLogging } from '../../protocol.log';
 
@@ -533,8 +535,251 @@ export class OpportunityGraphFactory {
     };
 
     // ═══════════════════════════════════════════════════════════════
+    // CRUD NODES (read, update, delete, send)
+    // ═══════════════════════════════════════════════════════════════
+
+    /**
+     * Read Node: List opportunities for the user, optionally filtered by indexId.
+     * Fast path — no LLM calls.
+     */
+    const readNode = async (state: typeof OpportunityGraphState.State) => {
+      logger.info('[Graph:Read] Listing opportunities', {
+        userId: state.userId,
+        indexId: state.indexId,
+      });
+
+      try {
+        let indexIdFilter: string | undefined;
+        if (state.indexId) {
+          const isMember = await this.database.isIndexMember(state.indexId, state.userId);
+          if (!isMember) {
+            return {
+              readResult: { count: 0, opportunities: [], message: 'Index not found or you are not a member.' },
+            };
+          }
+          indexIdFilter = state.indexId;
+        }
+
+        const list = await this.database.getOpportunitiesForUser(state.userId, {
+          limit: 30,
+          ...(indexIdFilter ? { indexId: indexIdFilter } : {}),
+        });
+
+        if (list.length === 0) {
+          return {
+            readResult: {
+              count: 0,
+              message: 'You have no opportunities yet. Use create_opportunities to search for connections.',
+              opportunities: [],
+            },
+          };
+        }
+
+        const sourceLabel: Record<string, string> = {
+          chat: 'Suggested in chat',
+          opportunity_graph: 'System match',
+          manual: 'Manual',
+          cron: 'Scheduled',
+          member_added: 'Member added',
+        };
+
+        const enriched = await Promise.all(
+          list.map(async (opp) => {
+            const otherParties = opp.actors.filter((a: OpportunityActor) => a.identityId !== state.userId && a.role === 'party');
+            const introducer = opp.actors.find((a: OpportunityActor) => a.role === 'introducer');
+            const partyIds = otherParties.map((a: OpportunityActor) => a.identityId);
+            const idsToResolve = introducer ? [...partyIds, introducer.identityId] : partyIds;
+            const [indexRecord, ...userRecords] = await Promise.all([
+              this.database.getIndex(opp.indexId),
+              ...idsToResolve.map((uid: string) => this.database.getUser(uid)),
+            ]);
+            const connectedWith = userRecords.slice(0, partyIds.length).map((u) => u?.name ?? 'Unknown');
+            const suggestedBy = introducer ? (userRecords[partyIds.length]?.name ?? 'Unknown') : null;
+            const category = opp.interpretation?.category ?? 'connection';
+            const confidence = opp.interpretation?.confidence ?? (opp.confidence ? Number(opp.confidence) : null);
+            const source = opp.detection?.source ? (sourceLabel[opp.detection.source] ?? opp.detection.source) : null;
+            return {
+              id: opp.id,
+              indexName: indexRecord?.title ?? opp.indexId,
+              connectedWith,
+              suggestedBy,
+              summary: opp.interpretation?.summary ?? 'Connection opportunity',
+              status: opp.status,
+              category,
+              confidence: confidence != null ? confidence : null,
+              source,
+            };
+          })
+        );
+
+        return {
+          readResult: {
+            count: enriched.length,
+            message: `You have ${enriched.length} opportunity(ies).`,
+            opportunities: enriched,
+          },
+        };
+      } catch (err) {
+        logger.error('[Graph:Read] Failed', { error: err });
+        return {
+          readResult: { count: 0, opportunities: [], message: 'Failed to list opportunities.' },
+        };
+      }
+    };
+
+    /**
+     * Update Node: Change opportunity status (accept, reject, etc.).
+     */
+    const updateNode = async (state: typeof OpportunityGraphState.State) => {
+      logger.info('[Graph:Update] Updating opportunity status', {
+        userId: state.userId,
+        opportunityId: state.opportunityId,
+        newStatus: state.newStatus,
+      });
+
+      try {
+        if (!state.opportunityId) {
+          return { mutationResult: { success: false, error: 'opportunityId is required.' } };
+        }
+        if (!state.newStatus || !['accepted', 'rejected', 'expired'].includes(state.newStatus)) {
+          return { mutationResult: { success: false, error: 'newStatus must be one of: accepted, rejected, expired.' } };
+        }
+
+        const opp = await this.database.getOpportunity(state.opportunityId);
+        if (!opp) {
+          return { mutationResult: { success: false, error: 'Opportunity not found.' } };
+        }
+        const isActor = opp.actors.some((a: OpportunityActor) => a.identityId === state.userId);
+        if (!isActor) {
+          return { mutationResult: { success: false, error: 'You are not part of this opportunity.' } };
+        }
+
+        await this.database.updateOpportunityStatus(
+          state.opportunityId,
+          state.newStatus as 'accepted' | 'rejected' | 'expired'
+        );
+
+        return {
+          mutationResult: {
+            success: true,
+            opportunityId: state.opportunityId,
+            message: `Opportunity status updated to ${state.newStatus}.`,
+          },
+        };
+      } catch (err) {
+        logger.error('[Graph:Update] Failed', { error: err });
+        return { mutationResult: { success: false, error: 'Failed to update opportunity.' } };
+      }
+    };
+
+    /**
+     * Delete Node: Expire/archive an opportunity.
+     */
+    const deleteNode = async (state: typeof OpportunityGraphState.State) => {
+      logger.info('[Graph:Delete] Expiring opportunity', {
+        userId: state.userId,
+        opportunityId: state.opportunityId,
+      });
+
+      try {
+        if (!state.opportunityId) {
+          return { mutationResult: { success: false, error: 'opportunityId is required.' } };
+        }
+
+        const opp = await this.database.getOpportunity(state.opportunityId);
+        if (!opp) {
+          return { mutationResult: { success: false, error: 'Opportunity not found.' } };
+        }
+        const isActor = opp.actors.some((a: OpportunityActor) => a.identityId === state.userId);
+        if (!isActor) {
+          return { mutationResult: { success: false, error: 'You are not part of this opportunity.' } };
+        }
+
+        await this.database.updateOpportunityStatus(state.opportunityId, 'expired');
+
+        return {
+          mutationResult: {
+            success: true,
+            opportunityId: state.opportunityId,
+            message: 'Opportunity archived (expired).',
+          },
+        };
+      } catch (err) {
+        logger.error('[Graph:Delete] Failed', { error: err });
+        return { mutationResult: { success: false, error: 'Failed to delete opportunity.' } };
+      }
+    };
+
+    /**
+     * Send Node: Promote latent opportunity to pending + queue notification.
+     */
+    const sendNode = async (state: typeof OpportunityGraphState.State) => {
+      logger.info('[Graph:Send] Sending opportunity', {
+        userId: state.userId,
+        opportunityId: state.opportunityId,
+      });
+
+      try {
+        if (!state.opportunityId) {
+          return { mutationResult: { success: false, error: 'opportunityId is required.' } };
+        }
+
+        const opp = await this.database.getOpportunity(state.opportunityId);
+        if (!opp) {
+          return { mutationResult: { success: false, error: 'Opportunity not found.' } };
+        }
+        if (opp.status !== 'latent') {
+          return {
+            mutationResult: {
+              success: false,
+              error: `Opportunity is already ${opp.status}; only draft (latent) opportunities can be sent.`,
+            },
+          };
+        }
+        const isActor = opp.actors.some((a: OpportunityActor) => a.identityId === state.userId);
+        if (!isActor) {
+          return { mutationResult: { success: false, error: 'You are not part of this opportunity.' } };
+        }
+
+        await this.database.updateOpportunityStatus(state.opportunityId, 'pending');
+
+        // Notify other actors
+        const recipients = opp.actors.filter((a: OpportunityActor) => a.identityId !== state.userId);
+        for (const recipient of recipients) {
+          await queueOpportunityNotification(opp.id, recipient.identityId, 'high');
+        }
+
+        const recipientIds = recipients.map((a: OpportunityActor) => a.identityId);
+        return {
+          mutationResult: {
+            success: true,
+            opportunityId: opp.id,
+            notified: recipientIds,
+            message: 'Opportunity sent. The other person has been notified.',
+          },
+        };
+      } catch (err) {
+        logger.error('[Graph:Send] Failed', { error: err });
+        return { mutationResult: { success: false, error: 'Failed to send opportunity.' } };
+      }
+    };
+
+    // ═══════════════════════════════════════════════════════════════
     // CONDITIONAL ROUTING FUNCTIONS
     // ═══════════════════════════════════════════════════════════════
+
+    /**
+     * Router: Decides which path based on operationMode.
+     */
+    const routeByMode = (state: typeof OpportunityGraphState.State): string => {
+      const mode = state.operationMode ?? 'create';
+      if (mode === 'read') return 'read';
+      if (mode === 'update') return 'update';
+      if (mode === 'delete') return 'delete_opp';
+      if (mode === 'send') return 'send';
+      // 'create' is the default discovery pipeline
+      return 'prep';
+    };
 
     /**
      * After prep: check if user has indexed intents.
@@ -580,9 +825,26 @@ export class OpportunityGraphFactory {
       .addNode('evaluation', evaluationNode)
       .addNode('ranking', rankingNode)
       .addNode('persist', persistNode)
+      // CRUD nodes
+      .addNode('read', readNode)
+      .addNode('update', updateNode)
+      .addNode('delete_opp', deleteNode)
+      .addNode('send', sendNode)
 
-      // Define entry point
-      .addEdge(START, 'prep')
+      // Route by operation mode from START
+      .addConditionalEdges(START, routeByMode, {
+        prep: 'prep',
+        read: 'read',
+        update: 'update',
+        delete_opp: 'delete_opp',
+        send: 'send',
+      })
+
+      // CRUD fast paths -> END
+      .addEdge('read', END)
+      .addEdge('update', END)
+      .addEdge('delete_opp', END)
+      .addEdge('send', END)
 
       // Conditional routing: early exit if no indexed intents
       .addConditionalEdges('prep', shouldContinueAfterPrep, {

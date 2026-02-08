@@ -103,6 +103,33 @@ export const OpportunityGraphState = Annotation.Root({
     reducer: (curr, next) => next ?? curr,
     default: () => ({}),
   }),
+
+  /**
+   * Operation mode controls graph flow:
+   * - 'create': Existing discover pipeline (Prep → Scope → Discovery → Evaluation → Ranking → Persist)
+   * - 'read': List opportunities filtered by userId and optionally indexId (fast path)
+   * - 'update': Change opportunity status (accept, reject, etc.)
+   * - 'delete': Expire/archive an opportunity
+   * - 'send': Promote latent opportunity to pending + queue notification
+   *
+   * Defaults to 'create' for backward compatibility.
+   */
+  operationMode: Annotation<'create' | 'read' | 'update' | 'delete' | 'send'>({
+    reducer: (curr, next) => next ?? curr,
+    default: () => 'create' as const,
+  }),
+
+  /** Target opportunity ID for update/delete/send modes. */
+  opportunityId: Annotation<string | undefined>({
+    reducer: (curr, next) => next ?? curr,
+    default: () => undefined,
+  }),
+
+  /** New status for update mode (e.g. 'accepted', 'rejected'). */
+  newStatus: Annotation<string | undefined>({
+    reducer: (curr, next) => next ?? curr,
+    default: () => undefined,
+  }),
   
   // ─── Intermediate Fields (Accumulated) ───
   
@@ -152,6 +179,38 @@ export const OpportunityGraphState = Annotation.Root({
   
   /** Error message if any step fails */
   error: Annotation<string | undefined>({
+    reducer: (curr, next) => next,
+    default: () => undefined,
+  }),
+
+  /** Output for read mode: enriched list of opportunities. */
+  readResult: Annotation<{
+    count: number;
+    message?: string;
+    opportunities: Array<{
+      id: string;
+      indexName: string;
+      connectedWith: string[];
+      suggestedBy: string | null;
+      summary: string;
+      status: string;
+      category: string;
+      confidence: number | null;
+      source: string | null;
+    }>;
+  } | undefined>({
+    reducer: (curr, next) => next,
+    default: () => undefined,
+  }),
+
+  /** Output for update/delete/send modes. */
+  mutationResult: Annotation<{
+    success: boolean;
+    message?: string;
+    opportunityId?: string;
+    notified?: string[];
+    error?: string;
+  } | undefined>({
     reducer: (curr, next) => next,
     default: () => undefined,
   }),
