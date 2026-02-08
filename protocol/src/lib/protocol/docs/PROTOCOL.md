@@ -72,7 +72,7 @@ So: **index membership** is managed by index/API; **which intents show up in whi
 - **viewed**: Candidate opened it.
 - **accepted** / **rejected** / **expired**: Resolution.
 
-Rules: opportunities are created in **latent** by the agent; the user explicitly **sends** to move to pending. Discovery is **index-scoped**: only intents that share an index can participate. **When do opportunities get created?** Only when users ask for them (e.g. “find me opportunities” → create_opportunities) or create them explicitly in chat (e.g. “introduce Alice and Bob” → create_opportunity_between_members). There is no background or event-driven opportunity discovery (e.g. no trigger on profile update or intent create).
+Rules: opportunities are created in **latent** by the agent; the user explicitly **sends** to move to pending. Discovery is **index-scoped**: only intents that share an index can participate. **When do opportunities get created?** When users ask for them (e.g. “find me opportunities” → create_opportunities); when they create an intent in chat (create_intent automatically runs discovery so the user gets draft opportunities for the new intent); or when they create them explicitly in chat (e.g. “introduce Alice and Bob” → create_opportunity_between_members). There is no background or event-driven discovery on profile update.
 
 **Discovery flow** (Opportunity Graph, see `graphs/opportunity/README.md`):
 
