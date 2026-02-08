@@ -137,6 +137,21 @@ const URL_IN_TEXT_REGEX = /https?:\/\/[^\s"'<>)\]]+/gi;
 export const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
+ * Resolves an array of index IDs to their display titles.
+ * Skips any IDs that don't resolve (deleted or invalid indexes).
+ */
+export async function resolveIndexNames(
+  database: { getIndex(id: string): Promise<{ id: string; title: string } | null> },
+  indexIds: string[]
+): Promise<string[]> {
+  if (indexIds.length === 0) return [];
+  const results = await Promise.all(
+    indexIds.map(id => database.getIndex(id))
+  );
+  return results.filter(Boolean).map(idx => idx!.title);
+}
+
+/**
  * Extract unique, valid URLs from a string (e.g. user message or details).
  */
 export function extractUrls(text: string): string[] {

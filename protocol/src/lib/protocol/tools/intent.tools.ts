@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { DefineTool, ToolDeps } from "./tool.helpers";
-import { success, error, needsConfirmation, needsClarification, UUID_REGEX, extractUrls } from "./tool.helpers";
+import { success, error, needsConfirmation, needsClarification, UUID_REGEX, extractUrls, resolveIndexNames } from "./tool.helpers";
 import type { ConfirmationPayload } from "../states/chat.state";
 import type { ExecutionResult } from "../states/intent.state";
 import { runDiscoverFromQuery } from "../support/opportunity.discover";
@@ -119,6 +119,7 @@ export function createIntentTools(defineTool: DefineTool, deps: ToolDeps) {
 
       // Link created intents to indexes via intent_indexes (intents table has no indexId; association is many-to-many).
       const indexForAssignment = effectiveIndexId || context.indexId || undefined;
+      const assignedIndexIds = new Set<string>();
       if (created.length > 0) {
         let autoAssignIndexIds: string[] = [];
         if (!indexForAssignment) {
@@ -135,13 +136,16 @@ export function createIntentTools(defineTool: DefineTool, deps: ToolDeps) {
           for (const intent of created) {
             for (const idxId of scopeIndexIds) {
               try {
-                await graphs.intentIndex.invoke({
+                const assignResult = await graphs.intentIndex.invoke({
                   userId: context.userId,
                   indexId: idxId,
                   intentId: intent.id,
                   operationMode: 'create' as const,
                   skipEvaluation: forceAssignSingleIndex,
                 });
+                if (assignResult.mutationResult?.success) {
+                  assignedIndexIds.add(idxId);
+                }
               } catch (e) {
                 logger.warn("Index assignment failed", { intentId: intent.id, indexId: idxId });
               }
@@ -156,18 +160,24 @@ export function createIntentTools(defineTool: DefineTool, deps: ToolDeps) {
       if (updated.length > 0 && indexForAssignment) {
         for (const intentId of updated) {
           try {
-            await graphs.intentIndex.invoke({
+            const updateAssignResult = await graphs.intentIndex.invoke({
               userId: context.userId,
               indexId: indexForAssignment,
               intentId,
               operationMode: 'create' as const,
               skipEvaluation: true,
             });
+            if (updateAssignResult.mutationResult?.success) {
+              assignedIndexIds.add(indexForAssignment);
+            }
           } catch (e) {
             logger.warn("Index assignment failed for updated intent", { intentId, indexId: indexForAssignment });
           }
         }
       }
+
+      // Resolve assigned index IDs to display names
+      const assignedToIndexes = await resolveIndexNames(database, [...assignedIndexIds]);
 
       if (created.length > 0) {
         // Auto-trigger discovery
@@ -216,6 +226,7 @@ export function createIntentTools(defineTool: DefineTool, deps: ToolDeps) {
           created: true,
           intents: created,
           message: `Created ${created.length} intent(s)`,
+          ...(assignedToIndexes.length > 0 && { assignedToIndexes }),
           ...(discoveryRan && {
             discoveryRan: true,
             discoveryCount,
@@ -231,6 +242,7 @@ export function createIntentTools(defineTool: DefineTool, deps: ToolDeps) {
           message: indexForAssignment
             ? "The intent already existed; it has been added to this index."
             : "The intent was updated.",
+          ...(assignedToIndexes.length > 0 && { assignedToIndexes }),
         });
       }
 

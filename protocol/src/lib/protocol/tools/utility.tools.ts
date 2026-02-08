@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { DefineTool, ToolDeps } from "./tool.helpers";
-import { success, error, CONFIRMATION_EXPIRY_MS } from "./tool.helpers";
+import { success, error, CONFIRMATION_EXPIRY_MS, resolveIndexNames } from "./tool.helpers";
 import type { ExecutionResult } from "../states/intent.state";
 
 export function createUtilityTools(defineTool: DefineTool, deps: ToolDeps) {
@@ -80,7 +80,15 @@ export function createUtilityTools(defineTool: DefineTool, deps: ToolDeps) {
         if (result.executionResults?.some((r: ExecutionResult) => !r.success)) {
           return error("Failed to update intent through graph.");
         }
+        // Look up which indexes this intent belongs to so the LLM can mention them
+        const indexIds = await database.getIndexIdsForIntent(payload.intentId);
+        const indexedIn = await resolveIndexNames(database, indexIds);
+        setPendingConfirmation(undefined);
+        return success({ confirmed: true, message: "Intent updated.", ...(indexedIn.length > 0 && { indexedIn }) });
       } else if (payload.resource === "intent" && payload.action === "delete") {
+        // Capture which indexes the intent is in *before* archival
+        const indexIds = await database.getIndexIdsForIntent(payload.intentId);
+        const deIndexedFrom = await resolveIndexNames(database, indexIds);
         const profileResult = await graphs.profile.invoke({ userId: context.userId, operationMode: 'query' as const });
         const userProfile = profileResult.profile ? JSON.stringify(profileResult.profile) : "";
         const result = await graphs.intent.invoke({
@@ -92,6 +100,8 @@ export function createUtilityTools(defineTool: DefineTool, deps: ToolDeps) {
         if (result.executionResults?.some((r: ExecutionResult) => !r.success)) {
           return error("Failed to delete intent through graph.");
         }
+        setPendingConfirmation(undefined);
+        return success({ confirmed: true, message: "Intent deleted.", ...(deIndexedFrom.length > 0 && { deIndexedFrom }) });
       } else if (payload.resource === "profile" && payload.action === "update") {
         const profileInput = (payload.updates as { input?: string }).input ?? JSON.stringify(payload.updates);
         await graphs.profile.invoke({
