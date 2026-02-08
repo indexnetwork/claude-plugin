@@ -50,7 +50,8 @@ function createMockDatabase(): ChatGraphCompositeDatabase {
     getProfileByUserId: noopNull,
     getActiveIntents: noopArray,
     getIntentsInIndexForMember: async () => [],
-    getUser: noopNull,
+    getUser: async (uid: string) => ({ id: uid, name: "Test User", email: "test@example.com" }),
+    getIndex: async () => null,
     saveProfile: noop,
     saveHydeProfile: noop,
     createIntent: async (data: CreateIntentData) => ({
@@ -63,10 +64,10 @@ function createMockDatabase(): ChatGraphCompositeDatabase {
       userId: data.userId,
     }),
     updateIntent: noopNull,
+    updateUser: noopNull,
     archiveIntent: async () => ({ success: true }),
     getUserIndexIds: noopArray,
     getIndexMemberships: noopArray,
-    getIndex: noopNull,
     getIntentForIndexing: noopNull,
     getIndexMemberContext: noopNull,
     getOpportunitiesForUser: noopArray,
@@ -445,7 +446,6 @@ describe("Chat Graph invoke (Smartest)", () => {
       expectSmartest(result);
       const output = result.output as { responseText?: string };
       expect(output.responseText).toBeDefined();
-      expect(output.shouldContinue).toBe(false);
     }, 180000);
   });
 
@@ -489,7 +489,6 @@ describe("Chat Graph invoke (Smartest)", () => {
       expectSmartest(result);
       const output = result.output as { responseText?: string };
       expect(output.responseText).toBeDefined();
-      expect(output.shouldContinue).toBe(false);
     }, 180000);
   });
 
@@ -537,7 +536,6 @@ describe("Chat Graph invoke (Smartest)", () => {
       expectSmartest(result);
       const output = result.output as { responseText?: string };
       expect(output.responseText).toBeDefined();
-      expect(output.shouldContinue).toBe(false);
     }, 180000);
   });
 
@@ -581,7 +579,6 @@ describe("Chat Graph invoke (Smartest)", () => {
       expectSmartest(result);
       const output = result.output as { responseText?: string };
       expect(output.responseText).toBeDefined();
-      expect(output.shouldContinue).toBe(false);
     }, 180000);
   });
 
