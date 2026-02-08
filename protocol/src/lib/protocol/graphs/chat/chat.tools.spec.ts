@@ -10,6 +10,19 @@ mock.module("../../../../queues/notification.queue", () => ({
   queueOpportunityNotification: async () =>
     ({ id: "mock-job" } as unknown as Awaited<ReturnType<typeof import("../../../../queues/notification.queue").queueOpportunityNotification>>),
 }));
+mock.module("../intent/intent.graph", () => ({
+  IntentGraphFactory: class {
+    createGraph() {
+      return {
+        invoke: async () => ({
+          executionResults: [],
+          actions: [],
+          inferredIntents: [],
+        }),
+      };
+    }
+  },
+}));
 
 import { describe, test, expect, beforeAll } from "bun:test";
 import { createChatTools, type ToolContext } from "./chat.tools";
@@ -22,7 +35,7 @@ const testUserId = "test-user-id-for-tools";
 
 type MockOverrides = Partial<Pick<
   ChatGraphCompositeDatabase,
-  "getUser" | "getOwnedIndexes" | "isIndexOwner" | "isIndexMember" | "getIndexMembersForOwner" | "getIndexMembersForMember" | "getIndexIntentsForOwner" | "getIndexMemberships" | "getIndexIntentsForMember" | "getIndexWithPermissions" | "getOpportunity" | "updateOpportunityStatus"
+  "getUser" | "getOwnedIndexes" | "isIndexOwner" | "isIndexMember" | "getIndexMembersForOwner" | "getIndexMembersForMember" | "getIndexIntentsForOwner" | "getIndexMemberships" | "getIndexIntentsForMember" | "getIndexWithPermissions" | "getOpportunity" | "updateOpportunityStatus" | "getActiveIntents" | "getIntentsInIndexForMember"
 >>;
 
 /**
@@ -397,6 +410,32 @@ describe("read_intents tool (no indexId)", () => {
     expect(parsed.data.intents[0]).toMatchObject({ id: "i1", description: "Intent in index only" });
   });
 
+  test("with context.indexId, allUserIntents: true returns all user intents (getActiveIntents) and does not use index", async () => {
+    const indexId = testIndexId;
+    let getActiveIntentsCalled = false;
+    let getIntentsInIndexForMemberCalled = false;
+    const mockDb = createMockDatabase(async () => {
+      getIntentsInIndexForMemberCalled = true;
+      return [];
+    }, {
+      isIndexMember: async () => true,
+      getActiveIntents: async (uid: string) => {
+        getActiveIntentsCalled = true;
+        return globalIntents;
+      },
+    });
+    const context: ToolContext = { userId: testUserId, database: mockDb, embedder: mockEmbedder, scraper: mockScraper, indexId };
+    const tools = createChatTools(context);
+    const tool = tools.find((t: { name: string }) => t.name === "read_intents") as { invoke: (args: { allUserIntents?: boolean }) => Promise<string> };
+    const result = await tool.invoke({ allUserIntents: true });
+    expect(getActiveIntentsCalled).toBe(true);
+    expect(getIntentsInIndexForMemberCalled).toBe(false);
+    const parsed = JSON.parse(result);
+    expect(parsed.success).toBe(true);
+    expect(parsed.data.count).toBe(2);
+    expect(parsed.data.intents).toHaveLength(2);
+  });
+
   test("without indexId, when userId arg is another user, returns error (no viewing other users' global intents)", async () => {
     const mockDb = createMockDatabase(async () => []);
     const context: ToolContext = { userId: testUserId, database: mockDb, embedder: mockEmbedder, scraper: mockScraper };
@@ -483,6 +522,26 @@ describe("create_intent tool (Phase 2 index scope)", () => {
     const schemaObj = (createIntentTool as { schema?: { shape?: Record<string, unknown> } }).schema ?? (createIntentTool as { schema?: { schema?: { shape?: Record<string, unknown> } } }).schema?.schema;
     const shape = schemaObj?.shape as Record<string, unknown> | undefined;
     expect(shape?.existingIntentsInIndex).toBeDefined();
+  });
+
+  test("with indexId and existingIntentsInIndex provided, create_intent uses it and does not call getIntentsInIndexForMember", async () => {
+    const indexId = "a1b2c3d4-0000-4000-8000-000000000020";
+    let getIntentsInIndexForMemberCalled = false;
+    const mockDb = createMockDatabase(async () => [], {
+      getIntentsInIndexForMember: async () => {
+        getIntentsInIndexForMemberCalled = true;
+        return [];
+      },
+    });
+    const context: ToolContext = { userId: testUserId, database: mockDb, embedder: mockEmbedder, scraper: mockScraper, indexId };
+    const tools = createChatTools(context);
+    const createIntentTool = tools.find((t: { name: string }) => t.name === "create_intent") as { invoke: (args: { description: string; indexId?: string; existingIntentsInIndex?: Array<{ id: string; description: string }> }) => Promise<string> };
+    await createIntentTool.invoke({
+      description: "New intent",
+      indexId,
+      existingIntentsInIndex: [{ id: "i1", description: "Existing intent" }],
+    });
+    expect(getIntentsInIndexForMemberCalled).toBe(false);
   });
 });
 
