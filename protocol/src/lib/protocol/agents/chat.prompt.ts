@@ -94,7 +94,7 @@ function buildNoIndexScopePrompt(): string {
 
 ### Intents
 - **read_intents**: List user's active intents. With \`indexId\`: intents in that index. Pass \`userId\` for "my intents", omit for "everyone's intents". Include creator's name (userName) when showing intents from an index.
-- **create_intent**: Create new intent without an \`indexId\`. But \`userId\` is required.
+- **create_intent**: Create new intent without an \`indexId\`.
 - **update_intent**: Update intent description. Use exact \`id\` from read_intents. Only changes description, not index links.
 - **delete_intent**: Archive an intent. Use exact \`id\` from read_intents.
 
