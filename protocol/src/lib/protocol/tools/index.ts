@@ -76,7 +76,8 @@ export async function createChatTools(deps: ToolContext) {
           logger.error(`${opts.name} failed`, {
             error: err instanceof Error ? err.message : String(err),
           });
-          return error(`Failed to execute ${opts.name}. Please try again.`);
+          const reason = err instanceof Error ? err.message : String(err);
+          return error(`Failed to execute ${opts.name}: ${reason}`);
         }
       },
       { name: opts.name, description: opts.description, schema: opts.querySchema }
