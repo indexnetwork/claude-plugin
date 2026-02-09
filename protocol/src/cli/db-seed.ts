@@ -11,15 +11,16 @@ import { indexMembers, indexes, users } from '../schemas/database.schema';
 import { privyClient } from '../lib/privy';
 import { setLevel } from '../lib/log';
 import { TESTABLE_TEST_ACCOUNTS } from './test-data';
+import type { Id } from '../types/common.types';
 
 // ── Index definitions ───────────────────────────────────────────────────────
 
-type IndexDef = {
-  id: string;
+interface IndexDef {
+  id: Id<'indexes'>;
   title: string;
   prompt: string | null;
   joinPolicy: 'anyone' | 'invite_only';
-};
+}
 
 const SEED_INDEXES: IndexDef[] = [
   // General-purpose indexes (null prompts = auto-assign, no LLM evaluation)
