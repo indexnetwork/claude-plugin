@@ -4,9 +4,6 @@ import { relations } from 'drizzle-orm';
 import type { Id } from '../types/common.types';
 
 // Enums
-export const connectionAction = pgEnum('connection_action', [
-  'REQUEST', 'SKIP', 'CANCEL', 'ACCEPT', 'DECLINE'
-]);
 // Polymorphic source type for intents
 export const sourceType = pgEnum('source_type', ['file', 'integration', 'link', 'discovery_form', 'enrichment']);
 
@@ -292,21 +289,6 @@ export const intentIndexes = pgTable('intent_indexes', {
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
-export const userConnectionEvents = pgTable('user_connection_events', {
-  id: uuid('id').primaryKey().defaultRandom(),
-
-  initiatorUserId: uuid('initiator_user_id').notNull().references(() => users.id),
-  receiverUserId: uuid('receiver_user_id').notNull().references(() => users.id),
-
-  eventType: connectionAction('connection_action').notNull(),
-
-  createdAt: timestamp('created_at').defaultNow().notNull(),
-}, (table) => ({
-  initiatorIdx: index('user_connection_events_initiator_idx').on(table.initiatorUserId),
-  receiverIdx: index('user_connection_events_receiver_idx').on(table.receiverUserId),
-  // Compound index for optimizing fetch-latest-event query
-  initiatorReceiverCreatedIdx: index('initiator_receiver_created_idx').on(table.initiatorUserId, table.receiverUserId, table.createdAt),
-}));
 
 export const userIntegrations = pgTable('integrations', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -359,8 +341,6 @@ export const usersRelations = relations(users, ({ one, many }) => ({
   intents: many(intents),
   indexes: many(indexes),
   memberOf: many(indexMembers),
-  initiatedConnections: many(userConnectionEvents, { relationName: 'initiatedConnections' }),
-  receivedConnections: many(userConnectionEvents, { relationName: 'receivedConnections' }),
   notificationSettings: one(userNotificationSettings, {
     fields: [users.id],
     references: [userNotificationSettings.userId],
@@ -467,19 +447,6 @@ export const links = linksTable;
 export type IndexLink = typeof linksTable.$inferSelect;
 export type NewIndexLink = typeof linksTable.$inferInsert;
 
-export const userConnectionEventsRelations = relations(userConnectionEvents, ({ one }) => ({
-  initiatorUser: one(users, {
-    fields: [userConnectionEvents.initiatorUserId],
-    references: [users.id],
-    relationName: 'initiatedConnections',
-  }),
-  receiverUser: one(users, {
-    fields: [userConnectionEvents.receiverUserId],
-    references: [users.id],
-    relationName: 'receivedConnections',
-  }),
-}));
-
 export const userIntegrationsRelations = relations(userIntegrations, ({ one }) => ({
   user: one(users, {
     fields: [userIntegrations.userId],
@@ -521,8 +488,6 @@ export type IndexMember = typeof indexMembers.$inferSelect;
 export type NewIndexMember = typeof indexMembers.$inferInsert;
 export type File = typeof files.$inferSelect;
 export type NewFile = typeof files.$inferInsert;
-export type UserConnectionEvent = typeof userConnectionEvents.$inferSelect;
-export type NewUserConnectionEvent = typeof userConnectionEvents.$inferSelect;
 export type UserIntegration = typeof userIntegrations.$inferSelect;
 export type NewUserIntegration = typeof userIntegrations.$inferInsert;
 export type UserNotificationSettings = typeof userNotificationSettings.$inferSelect;

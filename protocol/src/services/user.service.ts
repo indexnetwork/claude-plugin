@@ -81,12 +81,6 @@ export class UserService {
         return this.db.updateNotificationPreferences(userId, preferences as import('../schemas/database.schema').NotificationPreferences);
     }
 
-    /**
-     * Check if there is an existing connection event between two users
-     */
-    async checkConnectionEvent(user1Id: string, user2Id: string) {
-        return this.db.checkConnectionEvent(user1Id, user2Id);
-    }
 }
 
 export const userService = new UserService();

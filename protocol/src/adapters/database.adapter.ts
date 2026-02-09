@@ -88,7 +88,7 @@ interface IndexMembershipRow {
   joinedAt: Date;
 }
 
-const { intents, indexes, indexMembers, intentIndexes, users, hydeDocuments, opportunities, chatSessions, chatMessages, userNotificationSettings, userProfiles, userConnectionEvents, files, links } = schema;
+const { intents, indexes, indexMembers, intentIndexes, users, hydeDocuments, opportunities, chatSessions, chatMessages, userNotificationSettings, userProfiles, files, links } = schema;
 
 // HyDE row to document shape (embedding may come as number[] or pg vector)
 type HydeSourceTypeLocal = 'intent' | 'profile' | 'query';
@@ -1924,42 +1924,6 @@ export class ChatDatabaseAdapter {
     await this.softDeleteIndex(indexId);
   }
 
-  /**
-   * Get pending connection requests where the user is the receiver.
-   * Returns the latest event per (initiator, receiver) pair where eventType is REQUEST.
-   */
-  async getPendingConnectionRequests(userId: string) {
-    const latestEvents = db
-      .select({
-        initiatorUserId: userConnectionEvents.initiatorUserId,
-        receiverUserId: userConnectionEvents.receiverUserId,
-        maxCreatedAt: sql<Date>`max(${userConnectionEvents.createdAt})`.as('max_created_at'),
-      })
-      .from(userConnectionEvents)
-      .where(eq(userConnectionEvents.receiverUserId, userId))
-      .groupBy(userConnectionEvents.initiatorUserId, userConnectionEvents.receiverUserId)
-      .as('latest');
-
-    return db
-      .select({
-        id: userConnectionEvents.id,
-        initiatorUserId: userConnectionEvents.initiatorUserId,
-        eventType: userConnectionEvents.eventType,
-        createdAt: userConnectionEvents.createdAt,
-        initiatorName: users.name,
-        initiatorAvatar: users.avatar,
-      })
-      .from(userConnectionEvents)
-      .innerJoin(latestEvents, and(
-        eq(userConnectionEvents.initiatorUserId, latestEvents.initiatorUserId),
-        eq(userConnectionEvents.receiverUserId, latestEvents.receiverUserId),
-        eq(userConnectionEvents.createdAt, latestEvents.maxCreatedAt),
-      ))
-      .leftJoin(users, eq(userConnectionEvents.initiatorUserId, users.id))
-      .where(eq(userConnectionEvents.eventType, 'REQUEST'))
-      .orderBy(desc(userConnectionEvents.createdAt));
-  }
-
   // Opportunity operations (delegate to OpportunityDatabaseAdapter)
   async createOpportunity(data: CreateOpportunityInput): Promise<OpportunityRow> {
     return this.opportunityAdapter.createOpportunity(data);
@@ -2916,28 +2880,6 @@ export class UserDatabaseAdapter {
     }
   }
 
-  /**
-   * Check if connection event exists between two users
-   */
-  async checkConnectionEvent(user1Id: string, user2Id: string): Promise<boolean> {
-    const events = await db.select({ id: userConnectionEvents.id })
-      .from(userConnectionEvents)
-      .where(
-        or(
-          and(
-            eq(userConnectionEvents.initiatorUserId, user1Id),
-            eq(userConnectionEvents.receiverUserId, user2Id)
-          ),
-          and(
-            eq(userConnectionEvents.initiatorUserId, user2Id),
-            eq(userConnectionEvents.receiverUserId, user1Id)
-          )
-        )
-      )
-      .limit(1);
-
-    return events.length > 0;
-  }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
