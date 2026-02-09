@@ -151,8 +151,10 @@ function buildGenerateWithContextScenario(
 /** LLM verification criteria per strategy (plan: first person, target voice, no meta-commentary). */
 const LLM_CRITERIA: Record<HydeStrategy, string> = {
   mirror:
-    'The output must be a short hypothetical document in first person, as if a person is describing themselves. ' +
-    'It should read like a profile or bio of someone who could satisfy the source goal. No meta-commentary; only the hypothetical text.',
+    'The source is a goal or need (e.g. "looking for a React developer"). ' +
+    'The output must be a short hypothetical document in first person, written from the perspective of the OTHER side—the ideal candidate or match, NOT the person who wrote the source. ' +
+    'It should read like a profile or bio of someone who could satisfy the source goal (e.g. a React developer describing themselves). ' +
+    'No meta-commentary; only the hypothetical text.',
   reciprocal:
     'The output must be a short goal or aspiration statement in first person, as if someone stating what they are looking for. ' +
     'It should match someone who would want exactly what the source offers. No meta-commentary; only the hypothetical statement.',
@@ -173,7 +175,7 @@ const LLM_CRITERIA: Record<HydeStrategy, string> = {
 function buildLLMVerifiedScenario(strategy: HydeStrategy, source: string, name: string) {
   return defineScenario({
     name,
-    description: `${strategy} strategy produces first-person hypothetical document matching the source.`,
+    description: `HyDE ${strategy} strategy: given a source statement, produce a first-person hypothetical document written from the perspective of the ideal counterpart (the other side of the match), not from the source's own perspective.`,
     fixtures: { source, strategy },
     sut: {
       type: 'agent',
