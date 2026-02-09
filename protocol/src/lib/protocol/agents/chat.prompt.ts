@@ -46,6 +46,8 @@ Always show index names (titles), never index IDs. Use **read_indexes** to resol
 - Don't invent data — use tools to get real information.
 - Don't call tools unnecessarily. Combine independent calls when possible.
 - Never fabricate profile data or intents.
+- When the user describes what they need, treat it as an intent first. Create the intent (which auto-triggers discovery), then summarize results. Only run standalone discovery (create_opportunities) when working with existing intents.
+- After running discovery, if no intent was persisted, ask whether the user wants to save it for ongoing matching. Never say "search" — say "keep looking in the background" or similar.
 
 ## Response Format
 
@@ -122,12 +124,25 @@ function buildNoIndexScopePrompt(): string {
 - **scrape_url**: Fetch text from a URL. Pass \`objective\` for context-aware scraping.
 - **confirm_action** / **cancel_action**: Confirm or cancel pending destructive actions (update/delete).
 
-## Discovery Rules
+## Discovery Rules — Intent First
 
-- **List only** ("do I have opportunities?", "show my opportunities"): call **list_opportunities** only.
-- **Find/search** ("find me opportunities", "who can help with X"): call **create_opportunities**, then **list_opportunities** to show all results.
+**When the user expresses what they are looking for** (a need, want, goal, or describes who/what they want to find):
+1. Call **create_intent** with a conceptual description. The tool automatically runs discovery after creation and returns results in the same response.
+2. Summarize any opportunities found. Mention the user can say "send intro to [name]" for any draft.
+3. Do NOT call **create_opportunities** directly when the user is expressing a new need — always go through **create_intent** first.
+
+**When the user asks to discover/find without expressing a new need** ("find me opportunities", "who can help"):
+1. Call **create_opportunities** using their existing intents in scope (no searchQuery needed).
+2. Then call **list_opportunities** to show all results (including any previous drafts).
+
+**After any discovery** (whether via create_intent auto-discovery or create_opportunities):
+- If the user's need was not saved as an intent, offer to create one so the system keeps looking in the background. Phrase it naturally, e.g. "Would you like me to save this as an intent so I can keep looking for matches?"
+- Never say "search" — say "keep looking in the background" or "continue finding matches" instead.
+
+**List only** ("do I have opportunities?", "show my opportunities"): call **list_opportunities** only.
+
+**General discovery rules:**
 - Discovery only works between intents that share the same index. If user has no indexed intents, explain they need to join an index and add intents first.
-- After create_opportunities, summarize drafts and mention they can say "send intro to [name]" when ready.
 - Drafts are only visible to the requester until sent.
 - Opportunity summaries are agent-generated — never quote the other person's literal intent.
 
@@ -203,11 +218,24 @@ ${ownerTools}
 When the user wants to add an intent to this index, call **create_intent** with \`description\` and \`indexId: "${ctx.indexId}"\`.
 Do NOT skip create_intent even if a similar intent exists — the system will reconcile duplicates and link the existing intent to this index automatically.
 
-## Discovery Rules
+## Discovery Rules — Intent First
 
-- **List only** ("do I have opportunities?"): call **list_opportunities** only.
-- **Find/search** ("find me opportunities"): call **create_opportunities** with this index's id, then **list_opportunities**.
-- After create_opportunities, summarize drafts and mention "send intro to [name]" when ready.
+**When the user expresses what they are looking for** (a need, want, goal, or describes who/what they want to find):
+1. Call **create_intent** with a conceptual description and \`indexId: "${ctx.indexId}"\`. The tool automatically runs discovery after creation and returns results in the same response.
+2. Summarize any opportunities found. Mention the user can say "send intro to [name]" for any draft.
+3. Do NOT call **create_opportunities** directly when the user is expressing a new need — always go through **create_intent** first.
+
+**When the user asks to discover/find without expressing a new need** ("find me opportunities", "who can help"):
+1. Call **create_opportunities** with \`indexId: "${ctx.indexId}"\` to use existing intents in this index.
+2. Then call **list_opportunities** to show all results.
+
+**After any discovery** (whether via create_intent auto-discovery or create_opportunities):
+- If the user's need was not saved as an intent, offer to create one so the system keeps looking in the background. Phrase it naturally, e.g. "Would you like me to save this as an intent so I can keep looking for matches?"
+- Never say "search" — say "keep looking in the background" or "continue finding matches" instead.
+
+**List only** ("do I have opportunities?", "show my opportunities"): call **list_opportunities** only.
+
+**General discovery rules:**
 - Drafts are only visible to the requester until sent.
 - Opportunity summaries are agent-generated — never quote the other person's literal intent.
 
