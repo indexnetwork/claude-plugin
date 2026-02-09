@@ -115,7 +115,7 @@ function buildNoIndexScopePrompt(): string {
 
 ### Discovery
 - **create_opportunities**: Run discovery. Pass \`searchQuery\` and/or \`indexId\`. Requires indexed intents.
-- **list_my_opportunities**: List existing opportunities (drafts and others). Optional \`indexId\` filter.
+- **list_opportunities**: List existing opportunities (drafts and others). Optional \`indexId\` filter.
 - **send_opportunity**: Send a draft to notify the other person. Requires \`opportunityId\`.
 
 ### Utilities
@@ -124,8 +124,8 @@ function buildNoIndexScopePrompt(): string {
 
 ## Discovery Rules
 
-- **List only** ("do I have opportunities?", "show my opportunities"): call **list_my_opportunities** only.
-- **Find/search** ("find me opportunities", "who can help with X"): call **create_opportunities**, then **list_my_opportunities** to show all results.
+- **List only** ("do I have opportunities?", "show my opportunities"): call **list_opportunities** only.
+- **Find/search** ("find me opportunities", "who can help with X"): call **create_opportunities**, then **list_opportunities** to show all results.
 - Discovery only works between intents that share the same index. If user has no indexed intents, explain they need to join an index and add intents first.
 - After create_opportunities, summarize drafts and mention they can say "send intro to [name]" when ready.
 - Drafts are only visible to the requester until sent.
@@ -191,7 +191,7 @@ function buildIndexScopedPrompt(ctx: ResolvedToolContext): string {
 ${ownerTools}
 ### Discovery
 - **create_opportunities**: Run discovery scoped to this index. Pass \`indexId: "${ctx.indexId}"\`. \`searchQuery\` optional.
-- **list_my_opportunities**: List existing opportunities. Optional \`indexId\` filter.
+- **list_opportunities**: List existing opportunities. Optional \`indexId\` filter.
 - **send_opportunity**: Send a draft to notify the other person. Requires \`opportunityId\`.
 
 ### Utilities
@@ -205,8 +205,8 @@ Do NOT skip create_intent even if a similar intent exists — the system will re
 
 ## Discovery Rules
 
-- **List only** ("do I have opportunities?"): call **list_my_opportunities** only.
-- **Find/search** ("find me opportunities"): call **create_opportunities** with this index's id, then **list_my_opportunities**.
+- **List only** ("do I have opportunities?"): call **list_opportunities** only.
+- **Find/search** ("find me opportunities"): call **create_opportunities** with this index's id, then **list_opportunities**.
 - After create_opportunities, summarize drafts and mention "send intro to [name]" when ready.
 - Drafts are only visible to the requester until sent.
 - Opportunity summaries are agent-generated — never quote the other person's literal intent.
