@@ -365,6 +365,24 @@ export class IntentDatabaseAdapter {
     await db.delete(schema.intents).where(eq(schema.intents.userId, userId));
   }
 
+  // --- Profile check (required by IntentGraphDatabase for prepNode gate) ---
+
+  async getProfile(userId: string): Promise<ProfileRow | null> {
+    const result = await db.select()
+      .from(schema.userProfiles)
+      .where(eq(schema.userProfiles.userId, userId))
+      .limit(1);
+    const profile = result[0];
+    if (!profile) return null;
+    return {
+      userId: profile.userId,
+      identity: profile.identity as ProfileIdentity,
+      narrative: profile.narrative as ProfileNarrative,
+      attributes: profile.attributes as ProfileAttributes,
+      embedding: profile.embedding,
+    };
+  }
+
   // --- Read mode methods (required by IntentGraphDatabase for queryNode) ---
 
   async getUser(userId: string) {

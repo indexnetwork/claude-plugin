@@ -40,6 +40,16 @@ export class IntentGraphFactory {
         indexId: state.indexId,
       });
 
+      // Gate: write operations require an existing profile
+      if (state.operationMode !== 'read') {
+        const profile = await this.database.getProfile(state.userId);
+        if (!profile) {
+          throw new Error(
+            "You need to create a profile before creating intents. Please set up your profile first."
+          );
+        }
+      }
+
       const activeIntents = await this.database.getActiveIntents(state.userId);
       const formattedActiveIntents = activeIntents
         .map(i => `ID: ${i.id}, Description: ${i.payload}, Summary: ${i.summary || 'N/A'}`)

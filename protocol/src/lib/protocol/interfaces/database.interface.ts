@@ -1163,6 +1163,8 @@ export type IntentGraphDatabase = Pick<
   | 'isIndexMember'
   | 'getIndexIntentsForMember'
   | 'getUser'
+  // Profile check (prepNode gate for write operations)
+  | 'getProfile'
 >;
 
 /**
