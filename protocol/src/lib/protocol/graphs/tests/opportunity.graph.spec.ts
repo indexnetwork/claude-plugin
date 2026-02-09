@@ -230,7 +230,7 @@ describe('Opportunity Graph', () => {
       expect(result.candidates.length).toBeGreaterThanOrEqual(1);
     });
 
-    test('when search returns only profile type (no intent), candidates remain empty', async () => {
+    test('when search returns only profile type (no intent), profile candidates are included', async () => {
       const { compiledGraph, mockEmbedder } = createMockGraph();
       spyOn(mockEmbedder, 'searchWithHydeEmbeddings').mockResolvedValue([
         {
@@ -249,8 +249,10 @@ describe('Opportunity Graph', () => {
         options: {},
       } as OpportunityGraphInvokeInput)) as OpportunityGraphInvokeResult;
 
-      expect(result.candidates).toEqual([]);
-      expect(result.opportunities).toEqual([]);
+      // Profile-only candidates are now valid (no candidateIntentId)
+      expect(result.candidates.length).toBe(1);
+      expect(result.candidates[0].candidateUserId).toBe('user-bob');
+      expect(result.candidates[0].candidateIntentId).toBeUndefined();
     });
   });
 

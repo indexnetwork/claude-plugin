@@ -26,6 +26,8 @@ export interface ResolvedToolContext {
   userEmail: string;
   indexId?: string;
   indexName?: string;
+  /** True when chat is index-scoped and the user owns the index. */
+  isOwner?: boolean;
 }
 
 /**

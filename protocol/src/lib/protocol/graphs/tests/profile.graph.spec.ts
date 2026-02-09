@@ -36,6 +36,7 @@ describe('ProfileGraph', () => {
     // Mock database
     mockDatabase = {
       getProfile: mock(async (userId: string) => null),
+      getProfileByUserId: mock(async (userId: string) => null),
       getUser: mock(async (userId: string) => ({
         id: userId,
         name: 'Test User',
@@ -50,7 +51,8 @@ describe('ProfileGraph', () => {
         location: data.location ?? null,
       })),
       saveProfile: mock(async () => {}),
-      saveHydeProfile: mock(async () => {})
+      saveHydeProfile: mock(async () => {}),
+      saveHydeDocument: mock(async () => ({ id: 'mock-hyde-doc-id' })),
     } as any;
 
     // Mock embedder

@@ -42,6 +42,7 @@ export async function createChatTools(deps: ToolContext) {
   // ─── Resolve context from DB ───────────────────────────────────────────────
   const user = await database.getUser(deps.userId);
   const indexInfo = deps.indexId ? await database.getIndex(deps.indexId) : null;
+  const isOwner = deps.indexId ? await database.isIndexOwner(deps.indexId, deps.userId) : false;
 
   const resolvedContext: ResolvedToolContext = {
     userId: deps.userId,
@@ -49,6 +50,7 @@ export async function createChatTools(deps: ToolContext) {
     userEmail: user?.email ?? "",
     indexId: deps.indexId,
     indexName: indexInfo?.title,
+    isOwner,
   };
 
   // ─── Tool wrapper ──────────────────────────────────────────────────────────
@@ -82,7 +84,7 @@ export async function createChatTools(deps: ToolContext) {
   }
 
   // ─── Compile subgraphs ─────────────────────────────────────────────────────
-  const intentGraph = new IntentGraphFactory(database).createGraph();
+  const intentGraph = new IntentGraphFactory(database, embedder).createGraph();
   const profileGraph = new ProfileGraphFactory(database, embedder, scraper).createGraph();
   const hydeCache: HydeCache = new RedisCacheAdapter();
   const hydeGenerator = new HydeGenerator();

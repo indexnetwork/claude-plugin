@@ -106,12 +106,14 @@ export class ChatAgent {
     const db = context.database;
     const user = await db.getUser(context.userId);
     const indexInfo = context.indexId ? await db.getIndex(context.indexId) : null;
+    const isOwner = context.indexId ? await db.isIndexOwner(context.indexId, context.userId) : false;
     const resolved: ResolvedToolContext = {
       userId: context.userId,
       userName: user?.name ?? "Unknown",
       userEmail: user?.email ?? "",
       indexId: context.indexId,
       indexName: indexInfo?.title,
+      isOwner,
     };
     return new ChatAgent(resolved, tools);
   }

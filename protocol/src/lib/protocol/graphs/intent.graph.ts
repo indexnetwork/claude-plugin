@@ -4,6 +4,7 @@ import { ExplicitIntentInferrer } from "../agents/intent.inferrer";
 import { SemanticVerifier } from "../agents/intent.verifier";
 import { IntentReconciler } from "../agents/intent.reconciler";
 import { IntentGraphDatabase } from "../interfaces/database.interface";
+import type { EmbeddingGenerator } from "../interfaces/embedder.interface";
 import { protocolLogger } from "../support/protocol.logger";
 
 const logger = protocolLogger("IntentGraphFactory");
@@ -12,7 +13,10 @@ const logger = protocolLogger("IntentGraphFactory");
  * Factory class to build and compile the Intent Processing Graph.
  */
 export class IntentGraphFactory {
-  constructor(private database: IntentGraphDatabase) { }
+  constructor(
+    private database: IntentGraphDatabase,
+    private embedder?: EmbeddingGenerator,
+  ) { }
 
   public createGraph() {
     // Instantiate Agents (Nodes)
@@ -35,6 +39,16 @@ export class IntentGraphFactory {
         targetIntentIds: state.targetIntentIds,
         indexId: state.indexId,
       });
+
+      // Gate: write operations require an existing profile
+      if (state.operationMode !== 'read') {
+        const profile = await this.database.getProfile(state.userId);
+        if (!profile) {
+          throw new Error(
+            "You need to create a profile before creating intents. Please set up your profile first."
+          );
+        }
+      }
 
       const activeIntents = await this.database.getActiveIntents(state.userId);
       const formattedActiveIntents = activeIntents
@@ -242,20 +256,53 @@ export class IntentGraphFactory {
         try {
           if (action.type === 'create') {
             const sanitizedPayload = sanitizePayload(action.payload);
+
+            // Generate embedding for the intent payload
+            let flatEmbedding: number[] | undefined;
+            if (this.embedder) {
+              try {
+                const embedding = await this.embedder.generate(sanitizedPayload);
+                flatEmbedding = Array.isArray(embedding?.[0])
+                  ? (embedding as number[][])[0]
+                  : (embedding as number[]);
+                logger.info("Generated embedding for new intent", { dimensions: flatEmbedding?.length });
+              } catch (embErr) {
+                logger.error("Failed to generate embedding for intent (continuing without)", { error: embErr });
+              }
+            }
+
             const created = await this.database.createIntent({
               userId: state.userId,
               payload: sanitizedPayload,
               confidence: action.score ? action.score / 100 : 1.0,
               inferenceType: 'explicit',
-              sourceType: 'discovery_form'
+              sourceType: 'discovery_form',
+              embedding: flatEmbedding,
             });
+
             results.push({ actionType: 'create', success: true, intentId: created.id, payload: sanitizedPayload });
             logger.info(`Created intent: ${created.id}`);
             
           } else if (action.type === 'update') {
             const sanitizedPayload = sanitizePayload(action.payload);
+
+            // Regenerate embedding for the updated payload
+            let flatEmbedding: number[] | undefined;
+            if (this.embedder) {
+              try {
+                const embedding = await this.embedder.generate(sanitizedPayload);
+                flatEmbedding = Array.isArray(embedding?.[0])
+                  ? (embedding as number[][])[0]
+                  : (embedding as number[]);
+                logger.info("Generated embedding for updated intent", { intentId: action.id, dimensions: flatEmbedding?.length });
+              } catch (embErr) {
+                logger.error("Failed to generate embedding for intent update (continuing without)", { error: embErr });
+              }
+            }
+
             const updated = await this.database.updateIntent(action.id, {
-              payload: sanitizedPayload
+              payload: sanitizedPayload,
+              embedding: flatEmbedding,
             });
             results.push({
               actionType: 'update',
