@@ -179,7 +179,7 @@ export interface OpportunitySignal {
 
 export interface OpportunityInterpretation {
   category: string;
-  summary: string;
+  reasoning: string;
   confidence: number;
   signals?: OpportunitySignal[];
 }

@@ -143,7 +143,7 @@ describe("opportunity.discover", () => {
                 { role: "agent", identityId: candidateId, intents: [], profile: true },
               ],
               interpretation: {
-                summary: "Strong match for mentorship.",
+                reasoning: "Strong match for mentorship.",
                 confidence: 0.85,
               },
             },

@@ -185,7 +185,7 @@ export async function runDiscoverFromQuery(
             userId: candidateUserId,
             name: profile?.identity?.name ?? undefined,
             bio: truncateForChat(profile?.identity?.bio),
-            matchReason: truncateForChat(opp.interpretation?.summary ?? "") ?? "",
+            matchReason: truncateForChat(opp.interpretation?.reasoning ?? "") ?? "",
             score: confidence,
           };
         })

@@ -27,8 +27,7 @@ const defaultMockEvaluatorResult = [
     sourceId: 'user-source',
     candidateId: 'user-bob',
     score: 88,
-    sourceDescription: 'Match.',
-    candidateDescription: 'Match.',
+    reasoning: 'The source user is building a DeFi protocol and the candidate has relevant community and marketing expertise in the crypto space.',
     valencyRole: 'Agent' as const,
   },
 ];
@@ -38,8 +37,7 @@ function createMockEvaluator(
     sourceId: string;
     candidateId: string;
     score: number;
-    sourceDescription: string;
-    candidateDescription: string;
+    reasoning: string;
     valencyRole: 'Agent' | 'Patient' | 'Peer';
   }> = defaultMockEvaluatorResult
 ): OpportunityEvaluatorLike {
@@ -54,7 +52,7 @@ function createMockGraph(deps?: {
   getIndex?: (id: string) => Promise<{ id: string; title: string } | null>;
   getIndexMemberCount?: (id: string) => Promise<number>;
   getProfile?: Awaited<ReturnType<OpportunityGraphDatabase['getProfile']>>;
-  evaluatorResult?: Array<{ sourceId: string; candidateId: string; score: number; sourceDescription: string; candidateDescription: string; valencyRole: 'Agent' | 'Patient' | 'Peer' }>;
+  evaluatorResult?: Array<{ sourceId: string; candidateId: string; score: number; reasoning: string; valencyRole: 'Agent' | 'Patient' | 'Peer' }>;
 }) {
   const mockDb: OpportunityGraphDatabase = {
     getProfile: () => Promise.resolve(deps?.getProfile ?? null),
@@ -287,8 +285,8 @@ describe('Opportunity Graph', () => {
     test('sorts by score and applies limit', async () => {
       const { compiledGraph, mockEmbedder } = createMockGraph({
         evaluatorResult: [
-          { sourceId: 'user-source', candidateId: 'user-bob', score: 85, sourceDescription: 'A', candidateDescription: 'B', valencyRole: 'Agent' },
-          { sourceId: 'user-source', candidateId: 'user-alice', score: 92, sourceDescription: 'C', candidateDescription: 'D', valencyRole: 'Peer' },
+          { sourceId: 'user-source', candidateId: 'user-bob', score: 85, reasoning: 'The source user needs technical help and the candidate has relevant engineering skills.', valencyRole: 'Agent' },
+          { sourceId: 'user-source', candidateId: 'user-alice', score: 92, reasoning: 'Both users share complementary interests in building developer tools and could collaborate effectively.', valencyRole: 'Peer' },
         ],
       });
       spyOn(mockEmbedder, 'searchWithHydeEmbeddings').mockResolvedValue([
@@ -423,7 +421,7 @@ describe('Opportunity Graph', () => {
         const opp = result.opportunities[0];
         expect(opp.detection.source).toBe('opportunity_graph');
         expect(opp.detection.createdBy).toBe('agent-opportunity-finder');
-        expect(opp.interpretation.summary).toBeDefined();
+        expect(opp.interpretation.reasoning).toBeDefined();
         expect(opp.context.indexId).toBeDefined();
         expect(opp.status).toBe('latent');
       }

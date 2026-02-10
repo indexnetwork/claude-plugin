@@ -425,7 +425,7 @@ describe('OpportunityDatabaseAdapter', () => {
       ],
       interpretation: {
         category: 'collaboration',
-        summary: 'Test opportunity',
+        reasoning: 'Test opportunity',
         confidence: 0.85,
       },
       context: { indexId: fixture.indexId, triggeringIntentId: fixture.intent1Id },
@@ -443,7 +443,7 @@ describe('OpportunityDatabaseAdapter', () => {
 
     const byId = await adapter.getOpportunity(created.id);
     expect(byId).not.toBeNull();
-    expect(byId!.interpretation.summary).toBe('Test opportunity');
+    expect(byId!.interpretation.reasoning).toBe('Test opportunity');
   });
 
   it('should report deduplication (opportunityExistsBetweenActors)', async () => {

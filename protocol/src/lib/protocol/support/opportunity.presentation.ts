@@ -72,15 +72,15 @@ export function presentOpportunity(
     default:
       if (introducer && introducerInfo) {
         title = `${introducerInfo.name} thinks you should meet ${otherName}`;
-        description = opp.interpretation.summary;
+        description = opp.interpretation.reasoning;
       } else {
         title = `Opportunity with ${otherName}`;
-        description = opp.interpretation.summary;
+        description = opp.interpretation.reasoning;
       }
       break;
   }
 
-  description += `\n\n${opp.interpretation.summary}`;
+  description += `\n\n${opp.interpretation.reasoning}`;
 
   if (format === 'notification') {
     description =

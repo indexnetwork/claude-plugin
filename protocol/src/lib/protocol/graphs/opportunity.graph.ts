@@ -34,8 +34,7 @@ export type OpportunityEvaluatorLike = {
     sourceId: string;
     candidateId: string;
     score: number;
-    sourceDescription: string;
-    candidateDescription: string;
+    reasoning: string;
     valencyRole: 'Agent' | 'Patient' | 'Peer';
   }>>;
 };
@@ -381,8 +380,7 @@ export class OpportunityGraphFactory {
             ...(candidate.candidateIntentId != null && { candidateIntentId: candidate.candidateIntentId }),
             indexId: candidate.indexId,
             score: result.score,
-            sourceDescription: result.sourceDescription ?? '',
-            candidateDescription: result.candidateDescription ?? '',
+            reasoning: result.reasoning ?? '',
             valencyRole: result.valencyRole,
             strategy: candidate.strategy,
           };
@@ -497,7 +495,7 @@ export class OpportunityGraphFactory {
             ],
             interpretation: {
               category: 'collaboration',
-              summary: evaluated.sourceDescription,
+              reasoning: evaluated.reasoning,
               confidence: evaluated.score / 100,
               signals: [
                 {
@@ -589,12 +587,18 @@ export class OpportunityGraphFactory {
             const introducer = opp.actors.find((a: OpportunityActor) => a.role === 'introducer');
             const partyIds = otherParties.map((a: OpportunityActor) => a.identityId);
             const idsToResolve = introducer ? [...partyIds, introducer.identityId] : partyIds;
-            const [indexRecord, ...userRecords] = await Promise.all([
+            const [indexRecord, ...profileAndUserPairs] = await Promise.all([
               this.database.getIndex(opp.indexId),
-              ...idsToResolve.map((uid: string) => this.database.getUser(uid)),
+              ...idsToResolve.map(async (uid: string) => {
+                const [profile, user] = await Promise.all([
+                  this.database.getProfile(uid),
+                  this.database.getUser(uid),
+                ]);
+                return (profile?.identity?.name ?? user?.name ?? 'Unknown') as string;
+              }),
             ]);
-            const connectedWith = userRecords.slice(0, partyIds.length).map((u) => u?.name ?? 'Unknown');
-            const suggestedBy = introducer ? (userRecords[partyIds.length]?.name ?? 'Unknown') : null;
+            const connectedWith = profileAndUserPairs.slice(0, partyIds.length);
+            const suggestedBy = introducer ? profileAndUserPairs[partyIds.length] ?? null : null;
             const category = opp.interpretation?.category ?? 'connection';
             const confidence = opp.interpretation?.confidence ?? (opp.confidence ? Number(opp.confidence) : null);
             const source = opp.detection?.source ? (sourceLabel[opp.detection.source] ?? opp.detection.source) : null;
@@ -603,7 +607,7 @@ export class OpportunityGraphFactory {
               indexName: indexRecord?.title ?? opp.indexId,
               connectedWith,
               suggestedBy,
-              summary: opp.interpretation?.summary ?? 'Connection opportunity',
+              reasoning: opp.interpretation?.reasoning ?? 'Connection opportunity',
               status: opp.status,
               category,
               confidence: confidence != null ? confidence : null,

@@ -100,7 +100,7 @@ export function mockOpportunity(overrides: {
       { role: "party" as const, identityId: currentUserId },
       ...otherIds.map((identityId) => ({ role: "party" as const, identityId })),
     ],
-    interpretation: { category: "connection", summary: "Match", confidence: 0.8 },
+    interpretation: { category: "connection", reasoning: "Match", confidence: 0.8 },
     context: { indexId },
     indexId,
     confidence: "0.8",

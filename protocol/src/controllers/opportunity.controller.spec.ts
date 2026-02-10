@@ -199,7 +199,7 @@ describe("OpportunityController Integration", () => {
       ],
       interpretation: {
         category: "collaboration",
-        summary: "Controller test opportunity",
+        reasoning: "Controller test opportunity",
         confidence: 0.9,
       },
       context: { indexId: testIndexId },

@@ -42,7 +42,7 @@ const systemPrompt = `
       - 70-89: "Should Meet" (Strong overlaps, clear potential).
       - <70: No opportunity (Return empty list).
 
-    **CRITICAL: VALENCY & DUAL DESCRIPTIONS**
+    **CRITICAL: VALENCY & REASONING**
     
     1. **Valency Analysis**:
        - Determine the semantic role of the Candidate relative to the Source's goal.
@@ -50,16 +50,18 @@ const systemPrompt = `
        - "Patient": The Candidate NEEDS something from the Source (e.g., Source is a mentor, Candidate needs mentoring).
        - "Peer": Symmetric collaboration.
 
-    2. **Dual Descriptions (Maxim of Relation)**:
-       - **sourceDescription**: Written for the SOURCE. Why is this valuable *to them*? (e.g., "Alice can build your MVP")
-       - **candidateDescription**: Written for the CANDIDATE. Why is this valuable *to them*? (e.g., "Bob is hiring for the role you want")
-       - NEVER leak intents. Do not say "Bob wants to hire you" if Bob's intent is "Stealth hiring". Say "Bob is working on X".
+    2. **Reasoning (Third-Party Analytical Perspective)**:
+       - **reasoning**: A neutral, third-party explanation of why this opportunity exists. Written for other LLM agents to read and understand.
+       - Mention BOTH users by their roles (e.g. "The source user" and "The candidate") and explain why they are a match.
+       - Do NOT address either user as "you". Write from an objective observer's perspective.
+       - Include what each side brings to the connection and why it is mutually valuable.
+       - NEVER leak private intents. If someone's intent is confidential, describe their relevant attributes instead.
 
     Rules:
     1. SYNTHESIS (CRITICAL): If multiple distinct match angles exist, SYNTHESIZE them into a SINGLE, robust opportunity.
-    2. NEVER use names when addressing a user directly. Use "You" for the person being addressed.
+    2. NEVER address either user directly — always use third-party references ("the source", "the candidate").
     3. COMPREHENSIVE: The single opportunity must capture ALL the value of the connection.
-    4. Be specific about the "Why" for BOTH sides.
+    4. Be specific about the "Why" for BOTH sides in the reasoning.
     5. DEDUPLICATION: Do NOT suggest opportunities that duplicate "Existing Opportunities".
 `;
 
@@ -68,8 +70,7 @@ const systemPrompt = `
 // ──────────────────────────────────────────────────────────────
 
 const OpportunitySchema = z.object({
-  sourceDescription: z.string().describe('Source-facing: Why the SOURCE user should meet the candidate. Address them as "You".'),
-  candidateDescription: z.string().describe('Candidate-facing: Why the CANDIDATE should meet the source. Address them as "You".'),
+  reasoning: z.string().describe('Third-party analytical explanation of why this opportunity exists. Mentions both users by role. Written for other LLM agents to understand the match.'),
   score: z.number().min(0).max(100).describe('Relevance score 0-100'),
   valencyRole: z.enum(['Agent', 'Patient', 'Peer']).describe("The semantic role of the Candidate relative to the Source"),
   sourceId: z.string().describe('The user ID of the source'),
@@ -205,7 +206,6 @@ export class OpportunityEvaluator {
       const mappedOpportunities = output.opportunities.map((op: Opportunity) => ({
         ...op,
         candidateId: candidateUserId,
-        candidateDescription: op.candidateDescription
       }));
 
       return mappedOpportunities;

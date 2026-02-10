@@ -16,7 +16,7 @@ describe('presentOpportunity', () => {
     ],
     interpretation: {
       category: 'collaboration',
-      summary: 'Alice can help Bob with React.',
+      reasoning: 'The source user (Alice) has deep React expertise while the candidate (Bob) is building a frontend-heavy product, making this a strong technical collaboration opportunity.',
       confidence: 0.85,
     },
     context: { indexId: 'idx-1' },
@@ -69,7 +69,7 @@ describe('presentOpportunity', () => {
     const longSummary = 'A'.repeat(150);
     const opp: Opportunity = {
       ...baseOpp,
-      interpretation: { ...baseOpp.interpretation, summary: longSummary },
+      interpretation: { ...baseOpp.interpretation, reasoning: longSummary },
     };
     const result = presentOpportunity(
       opp,

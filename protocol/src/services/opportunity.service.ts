@@ -296,7 +296,7 @@ export class OpportunityService {
       actors,
       interpretation: {
         category: data.category ?? 'collaboration',
-        summary: data.reasoning,
+        reasoning: data.reasoning,
         confidence: conf,
         signals: [{ type: 'curator_judgment', weight: 1, detail: 'Manual match by curator' }],
       },

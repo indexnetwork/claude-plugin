@@ -57,8 +57,7 @@ export interface EvaluatedCandidate {
   candidateIntentId?: Id<'intents'>;
   indexId: Id<'indexes'>;
   score: number; // 0-100
-  sourceDescription: string; // Why source should meet candidate
-  candidateDescription: string; // Why candidate should meet source
+  reasoning: string; // Third-party analytical explanation of the match (for LLM agents)
   valencyRole: 'Agent' | 'Patient' | 'Peer';
   strategy: HydeStrategy;
 }
@@ -192,7 +191,7 @@ export const OpportunityGraphState = Annotation.Root({
       indexName: string;
       connectedWith: string[];
       suggestedBy: string | null;
-      summary: string;
+      reasoning: string;
       status: string;
       category: string;
       confidence: number | null;
