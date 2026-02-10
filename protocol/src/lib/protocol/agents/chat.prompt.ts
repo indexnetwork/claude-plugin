@@ -68,7 +68,7 @@ Use markdown: **Bold** for emphasis, bullet points for lists. Keep responses con
 - No ID columns — never show intent IDs, index IDs, user IDs, or any identifier.
 - Always use index names (titles), never UUIDs.
 - Format dates as human-readable (e.g. "Jan 15, 2025").
-- For opportunities: columns Index name, Connected with, Suggested by, Reasoning, Status, Category, Confidence, Source. Display latent status as "Draft".
+- For opportunities: present in **human-friendly prose** (no table, no raw list of columns). For each opportunity, write a short paragraph or two that includes: who they are connected with, the headline or hook, and why it matters to the user (use \`presentation.personalizedSummary\` when \`presentation\` is present; otherwise \`reasoning\`). Include \`presentation.suggestedAction\` when present. Mention index name, status (use "Draft" for latent), and confidence where it helps. Keep it natural and readable.
 
 ## Iteration Awareness
 
