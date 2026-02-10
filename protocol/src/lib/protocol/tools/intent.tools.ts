@@ -21,7 +21,7 @@ export function createIntentTools(defineTool: DefineTool, deps: ToolDeps) {
     querySchema: z.object({
       indexId: z.string().optional().describe("Index UUID; optional when chat is index-scoped (uses current index). Omit and use allUserIntents: true when you need all user intents for create_intent."),
       userId: z.string().optional().describe("When index-scoped: pass the current user's id when they ask for their own intents only; omit to return all intents in the index (any member can see everyone's intents in a shared network)."),
-      allUserIntents: z.boolean().optional().describe("When true, return all of the current user's intents and ignore index scope. Use this before create_intent in an index so the system can detect duplicates and modifications. Required when index-scoped and you are about to call create_intent."),
+      allUserIntents: z.boolean().optional().describe("When true, return all of the current user's intents and ignore index scope. Use when you need to see every intent the user has across all indexes."),
     }),
     handler: async ({ context, query }) => {
       const effectiveIndexId = query.allUserIntents
@@ -72,6 +72,32 @@ export function createIntentTools(defineTool: DefineTool, deps: ToolDeps) {
         });
       }
 
+      const effectiveIndexId = query.indexId?.trim() || context.indexId || undefined;
+
+      // Fetch all previous intents (and index-scoped intents when applicable) so the tool is self-contained.
+      const allIntentsResult = await graphs.intent.invoke({
+        userId: context.userId,
+        userProfile: "",
+        indexId: undefined,
+        operationMode: 'read' as const,
+        queryUserId: undefined,
+        allUserIntents: true,
+      });
+      const allUserIntents = allIntentsResult.readResult?.intents ?? [];
+
+      let indexIntents: { id: string; description?: string; summary?: string }[] = [];
+      if (effectiveIndexId && UUID_REGEX.test(effectiveIndexId)) {
+        const indexIntentsResult = await graphs.intent.invoke({
+          userId: context.userId,
+          userProfile: "",
+          indexId: effectiveIndexId,
+          operationMode: 'read' as const,
+          queryUserId: context.userId,
+          allUserIntents: false,
+        });
+        indexIntents = indexIntentsResult.readResult?.intents ?? [];
+      }
+
       let inputContent = query.description;
       const urls = extractUrls(query.description);
       if (urls.length > 0) {
@@ -98,8 +124,6 @@ export function createIntentTools(defineTool: DefineTool, deps: ToolDeps) {
       // Get user profile via profileGraph query mode
       const profileResult = await graphs.profile.invoke({ userId: context.userId, operationMode: 'query' as const });
       const profile = profileResult.profile || null;
-
-      const effectiveIndexId = query.indexId?.trim() || context.indexId || undefined;
 
       const intentInput = {
         userId: context.userId,
