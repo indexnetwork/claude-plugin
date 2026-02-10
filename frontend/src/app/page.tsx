@@ -416,6 +416,15 @@ function LandingPage() {
           100% { transform: scaleY(1.6) scaleX(1.2); opacity: 0; }
         }
 
+        @keyframes pulse-shadow {
+          0% { box-shadow: 0 0 0 0 rgba(80, 80, 80, 0.5); }
+          70% { box-shadow: 0 0 0 8px rgba(80, 80, 80, 0); }
+          100% { box-shadow: 0 0 0 0 rgba(80, 80, 80, 0); }
+        }
+        .pulse-btn {
+          animation: pulse-shadow 1.2s infinite;
+        }
+
         /* Button Style */
         .btn-modern {
           background-color: black !important;
@@ -837,7 +846,7 @@ function LandingPage() {
                       <svg className="w-4 h-4 text-[#666]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
                       </svg>
-                      <span className="text-[13px] text-[#666] font-mono">deck.pdf</span>
+                      <span className="text-[13px] text-[#666] font-mono">resume.pdf</span>
                     </div>
                   </div>
                 </div>
@@ -900,7 +909,7 @@ function LandingPage() {
                       <div className="flex gap-2">
                         <button 
                           onClick={() => setIsRetroModalOpen(true)}
-                          className="bg-black text-white px-3 py-1.5 rounded-sm text-[12px] font-medium hover:bg-[#333] transition-colors font-mono"
+                          className="pulse-btn bg-black text-white px-3 py-1.5 rounded-sm text-[12px] font-medium hover:bg-[#333] transition-colors font-mono"
                         >
                           Start a conversation
                         </button>
