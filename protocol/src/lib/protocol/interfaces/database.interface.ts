@@ -1230,3 +1230,17 @@ export type HydeGraphDatabase = Pick<
   Database,
   'getHydeDocument' | 'getHydeDocumentsForSource' | 'saveHydeDocument' | 'getIntent'
 >;
+
+/**
+ * Database interface for Home Graph (opportunity home view).
+ * Load opportunities, enrich with profile/index, and support presenter context.
+ */
+export type HomeGraphDatabase = Pick<
+  Database,
+  | 'getOpportunitiesForUser'
+  | 'getOpportunity'
+  | 'getProfile'
+  | 'getActiveIntents'
+  | 'getIndex'
+  | 'getUser'
+>;
