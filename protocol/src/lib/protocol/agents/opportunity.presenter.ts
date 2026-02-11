@@ -52,6 +52,29 @@ const responseFormat = z.object({
 
 export type OpportunityPresentationResult = z.infer<typeof PresentationSchema>;
 
+/** Input for home-card presenter call; extends PresenterInput with optional mutual intent count. */
+export interface HomeCardPresenterInput extends PresenterInput {
+  /** Number of overlapping intents (for generating mutualIntentsLabel). */
+  mutualIntentCount?: number;
+}
+
+/** Full home-card display contract returned by presentHomeCard. */
+export const HomeCardPresentationSchema = z.object({
+  headline: z.string().describe("Short, compelling headline for this opportunity"),
+  personalizedSummary: z.string().describe("2-3 sentence explanation in 'you' language for the main card body"),
+  suggestedAction: z.string().describe("Brief suggested next step (e.g. CTA line)"),
+  narratorRemark: z.string().max(120).describe("One short sentence for the narrator chip (e.g. who is suggesting and why)"),
+  primaryActionLabel: z.string().max(32).describe("Label for the primary button (accept = start a conversation). Conversation-oriented only, e.g. 'Start Chat', 'Say hello', 'Reply in chat'. Never 'View Project' or 'Review Opportunity'."),
+  secondaryActionLabel: z.string().max(32).describe("Label for the secondary button (reject/dismiss: e.g. 'Skip', 'Not now')"),
+  mutualIntentsLabel: z.string().max(48).describe("Short line for the subtitle under the other party name (e.g. '1 mutual intent', '2 overlapping intents')"),
+});
+
+const homeCardResponseFormat = z.object({
+  presentation: HomeCardPresentationSchema,
+});
+
+export type HomeCardPresentationResult = z.infer<typeof HomeCardPresentationSchema>;
+
 /** Input for a single presenter call (all context pre-assembled). */
 export interface PresenterInput {
   viewerContext: string;
@@ -90,16 +113,38 @@ Rules:
 - If viewer is "peer": mutual opportunity. suggestedAction: "Send an intro to connect" or "Start a conversation".
 `;
 
+const homeCardSystemPrompt = `
+You are an expert at presenting connection opportunities for a home feed card.
+
+Given context about the viewer, the other person, and why they were matched, produce:
+1. headline: one short hook line.
+2. personalizedSummary: 2-3 sentences in "you" language (main body text).
+3. suggestedAction: one brief suggested next step.
+4. narratorRemark: one short sentence for the narrator chip (who is suggesting and why; max ~80 chars).
+5. primaryActionLabel: label for the primary button. Accept means accepting to have a conversation — so this must always be conversation-oriented. Use only labels like "Start Chat", "Have a conversation", "Say hello", "Reply in chat", "Open chat". Never use "View Project", "Review Opportunity", "View details", or similar.
+6. secondaryActionLabel: label for the secondary button (dismiss/skip). Examples: "Skip", "Not now", "Later".
+7. mutualIntentsLabel: short subtitle under the other party's name. Examples: "1 mutual intent", "2 overlapping intents", "Shared interests" — keep it brief. Based on actors field of the opportunity.
+
+Rules:
+- Address the viewer with "you"/"your". Be concise and compelling.
+- primaryActionLabel must always invite starting or having a conversation (e.g. Start Chat, Say hello). Never use viewing/reviewing wording.
+- secondaryActionLabel must be short (under ~20 chars). narratorRemark should feel like a single sentence from the narrator (Index or a person), not meta-commentary.
+`;
+
 // ──────────────────────────────────────────────────────────────
 // CLASS
 // ──────────────────────────────────────────────────────────────
 
 export class OpportunityPresenter {
   private model: Runnable;
+  private homeCardModel: Runnable;
 
   constructor() {
     this.model = model.withStructuredOutput(responseFormat, {
       name: "opportunity_presenter",
+    });
+    this.homeCardModel = model.withStructuredOutput(homeCardResponseFormat, {
+      name: "opportunity_presenter_home_card",
     });
   }
 
@@ -143,6 +188,59 @@ Produce headline, personalizedSummary (2-3 sentences in "you" language), and sug
         headline: "A connection opportunity",
         personalizedSummary: input.matchReasoning.slice(0, 300),
         suggestedAction: "View opportunity and decide whether to reach out.",
+      };
+    }
+  }
+
+  /**
+   * Generate full home-card display contract (headline, body, narrator remark, action labels, mutual-intent label).
+   */
+  public async presentHomeCard(input: HomeCardPresenterInput): Promise<HomeCardPresentationResult> {
+    const mutualHint =
+      input.mutualIntentCount != null
+        ? `There are ${input.mutualIntentCount} overlapping intent(s) between viewer and other party.`
+        : "Match is based on profile and intent alignment.";
+    const humanContent = `
+VIEWER (the person seeing this opportunity):
+${input.viewerContext}
+
+OTHER PARTY:
+${input.otherPartyContext}
+
+MATCH CONTEXT:
+- Category: ${input.category}
+- Confidence: ${input.confidence}
+- Why we matched: ${input.matchReasoning}
+- Signals: ${input.signalsSummary}
+- ${mutualHint}
+
+COMMUNITY: ${input.indexName}
+Viewer's role in this opportunity: ${input.viewerRole}
+
+Produce headline, personalizedSummary, suggestedAction, narratorRemark, primaryActionLabel, secondaryActionLabel, and mutualIntentsLabel.
+`;
+
+    try {
+      const messages = [
+        new SystemMessage(homeCardSystemPrompt),
+        new HumanMessage(humanContent),
+      ];
+      const result = await this.homeCardModel.invoke(messages);
+      const parsed = homeCardResponseFormat.parse(result);
+      return parsed.presentation;
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      logger.warn("[OpportunityPresenter.presentHomeCard] LLM failed, returning fallback", {
+        message,
+      });
+      return {
+        headline: "A connection opportunity",
+        personalizedSummary: input.matchReasoning.slice(0, 300),
+        suggestedAction: "View opportunity and decide whether to reach out.",
+        narratorRemark: "Worth a look.",
+        primaryActionLabel: "Start Chat",
+        secondaryActionLabel: "Skip",
+        mutualIntentsLabel: input.mutualIntentCount != null ? `${input.mutualIntentCount} mutual intent${input.mutualIntentCount !== 1 ? "s" : ""}` : "Shared interests",
       };
     }
   }
