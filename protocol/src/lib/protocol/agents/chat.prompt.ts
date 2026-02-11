@@ -120,8 +120,10 @@ function buildNoIndexScopePrompt(): string {
 ### Users
 - **read_users**: List members of an index with names, permissions, intent counts. Requires \`indexId\`.
 
-### Discovery
-- **create_opportunities**: Run discovery. Pass \`searchQuery\` and/or \`indexId\`. Requires indexed intents.
+### Discovery & Introductions
+- **create_opportunities**: Two modes:
+  - **Discovery**: Pass \`searchQuery\` and/or \`indexId\`. Finds matching people via semantic search using the user's intents.
+  - **Introduction**: Pass \`partyUserIds\` (user IDs from read_users) to directly introduce specific people. The system analyzes both parties' profiles and intents to generate a rich reasoning. Current user becomes the introducer.
 - **list_opportunities**: List existing opportunities (drafts and others). Optional \`indexId\` filter.
 - **send_opportunity**: Send a draft to the next person in the connection. The system determines who to notify based on roles. Requires \`opportunityId\`.
 
@@ -146,6 +148,11 @@ function buildNoIndexScopePrompt(): string {
 **Wording rule**: Never say "search" — say "keep looking in the background" or "continue finding matches" instead.
 
 **List only** ("do I have opportunities?", "show my opportunities"): call **list_opportunities** only.
+
+**Introducing others** ("I think Alice and Bob should meet", "introduce X to Y", "connect these two"):
+1. Call **read_users** with the relevant \`indexId\` to find user IDs for the named people.
+2. Call **create_opportunities** with \`partyUserIds\` (the user IDs) and \`indexId\`. Optionally pass \`searchQuery\` with any context the user gave about why they should meet.
+3. Do NOT try to create an intent — this is a direct introduction, not a personal need.
 
 **General discovery rules:**
 - Discovery only works between intents that share the same index. If user has no indexed intents, explain they need to join an index and add intents first.
@@ -212,8 +219,10 @@ function buildIndexScopedPrompt(ctx: ResolvedToolContext): string {
 - **read_indexes**: List user's indexes. Use \`showAll: true\` to see all indexes beyond the current one.
 - **read_users**: List members of this index with names, permissions, intent counts.
 ${ownerTools}
-### Discovery
-- **create_opportunities**: Run discovery scoped to this index. Pass \`indexId: "${ctx.indexId}"\`. \`searchQuery\` optional.
+### Discovery & Introductions
+- **create_opportunities**: Two modes:
+  - **Discovery**: Pass \`indexId: "${ctx.indexId}"\`. \`searchQuery\` optional. Finds matching people using the user's intents.
+  - **Introduction**: Pass \`partyUserIds\` (user IDs from read_users) and \`indexId: "${ctx.indexId}"\` to directly introduce specific people. The system analyzes both parties' profiles and intents automatically.
 - **list_opportunities**: List existing opportunities. Optional \`indexId\` filter.
 - **send_opportunity**: Send a draft to the next person in the connection. The system determines who to notify based on roles. Requires \`opportunityId\`.
 
@@ -243,6 +252,11 @@ Do NOT skip create_intent even if a similar intent exists — the system will re
 **Wording rule**: Never say "search" — say "keep looking in the background" or "continue finding matches" instead.
 
 **List only** ("do I have opportunities?", "show my opportunities"): call **list_opportunities** only.
+
+**Introducing others** ("I think Alice and Bob should meet", "introduce X to Y", "connect these two"):
+1. Call **read_users** with \`indexId: "${ctx.indexId}"\` to find user IDs for the named people.
+2. Call **create_opportunities** with \`partyUserIds\` (the user IDs) and \`indexId: "${ctx.indexId}"\`. Optionally pass \`searchQuery\` with any context about why they should meet.
+3. Do NOT try to create an intent — this is a direct introduction, not a personal need.
 
 **General discovery rules:**
 - Opportunity visibility is role-based. When you discover opportunities, you may not see all of them — only those where your role grants access at the current status. For example, if you are the "agent" (someone who can help), you will not see the draft until the other person has reached out.

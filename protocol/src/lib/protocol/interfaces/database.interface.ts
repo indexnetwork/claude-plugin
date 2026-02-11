@@ -354,14 +354,6 @@ export interface Database {
   saveProfile(userId: string, profile: ProfileDocument): Promise<void>;
 
   /**
-   * Updates the HyDE (Hypothetical Document Embedding) fields for a user profile.
-   * @param userId - The unique identifier of the user
-   * @param description - The generated HyDE description
-   * @param embedding - The vector embedding of the description
-   */
-  saveHydeProfile(userId: string, description: string, embedding: number[]): Promise<void>;
-
-  /**
    * Retrieves basic user information (name, email, socials) by userId.
    * @param userId - The unique identifier of the user
    * @returns The user record or null if not found
@@ -999,7 +991,7 @@ export interface Database {
  */
 export type ProfileGraphDatabase = Pick<
   Database,
-  'getProfile' | 'getUser' | 'updateUser' | 'saveProfile' | 'saveHydeProfile' | 'getProfileByUserId' | 'saveHydeDocument'
+  'getProfile' | 'getUser' | 'updateUser' | 'saveProfile' | 'getProfileByUserId' | 'getHydeDocument' | 'saveHydeDocument'
 >;
 
 /**
@@ -1029,7 +1021,6 @@ export type ChatGraphCompositeDatabase = Pick<
   | 'getUser'
   | 'updateUser'
   | 'saveProfile'
-  | 'saveHydeProfile'
   // IntentGraph subgraph requirements (getActiveIntents already included)
   | 'createIntent'
   | 'updateIntent'
@@ -1093,6 +1084,8 @@ export type OpportunityGraphDatabase = Pick<
   | 'updateOpportunityStatus'
   | 'isIndexMember'
   | 'getUser'
+  // Load candidate intent payload/summary for evaluator
+  | 'getIntent'
 >;
 
 /**

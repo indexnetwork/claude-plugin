@@ -20,13 +20,20 @@ import {
   type TargetIndex,
   type CandidateMatch,
   type EvaluatedCandidate,
+  type EvaluatedOpportunity,
+  type EvaluatedOpportunityActor,
 } from '../states/opportunity.state';
-import { OpportunityEvaluator, type CandidateProfile } from '../agents/opportunity.evaluator';
+import {
+  OpportunityEvaluator,
+  type CandidateProfile,
+  type EvaluatorEntity,
+  type EvaluatorInput,
+} from '../agents/opportunity.evaluator';
 import type { OpportunityGraphDatabase } from '../interfaces/database.interface';
 
 /** Optional evaluator for testing (avoids LLM calls). */
 export type OpportunityEvaluatorLike = {
-  invoke: (
+  invoke?: (
     sourceProfileContext: string,
     candidates: CandidateProfile[],
     options: { minScore?: number }
@@ -37,6 +44,11 @@ export type OpportunityEvaluatorLike = {
     reasoning: string;
     valencyRole: 'Agent' | 'Patient' | 'Peer';
   }>>;
+  invokeEntityBundle?: (input: EvaluatorInput, options: { minScore?: number }) => Promise<Array<{
+    reasoning: string;
+    score: number;
+    actors: Array<{ userId: string; role: 'agent' | 'patient' | 'peer'; intentId?: string }>;
+  }>>;
 };
 import type { Embedder, HydeStrategy } from '../interfaces/embedder.interface';
 import type {
@@ -46,7 +58,7 @@ import type {
   ActiveIntent,
 } from '../interfaces/database.interface';
 import { queueOpportunityNotification } from '../../../queues/notification.queue';
-import { selectStrategies, deriveRolesFromStrategy } from '../support/opportunity.utils';
+import { selectStrategies } from '../support/opportunity.utils';
 import { protocolLogger, withCallLogging } from '../support/protocol.logger';
 
 const logger = protocolLogger('OpportunityGraph');
@@ -105,8 +117,8 @@ export class OpportunityGraphFactory {
             };
           }
           const intents = await this.database.getActiveIntents(state.userId);
-          if (intents.length === 0) {
-            logger.info('[Graph:Prep] User has no active intents');
+          if (intents.length === 0 && !state.searchQuery) {
+            logger.info('[Graph:Prep] User has no active intents and no searchQuery');
             return {
               userIndexes: userIndexIds,
               error: 'You need to add some intents before finding opportunities.',
@@ -316,8 +328,8 @@ export class OpportunityGraphFactory {
     };
 
     /**
-     * Node 3: Evaluation (Parallel Processing)
-     * Evaluates each candidate match using OpportunityEvaluator agent.
+     * Node 3: Evaluation (Entity bundle)
+     * Builds entity bundle from source + candidates, invokes entity-bundle evaluator, maps to EvaluatedOpportunity with indexId from entities.
      */
     const evaluationNode = async (state: typeof OpportunityGraphState.State) => {
       logger.info('[Graph:Evaluation] Starting evaluation', {
@@ -326,84 +338,106 @@ export class OpportunityGraphFactory {
 
       if (state.candidates.length === 0) {
         logger.info('[Graph:Evaluation] No candidates to evaluate');
-        return { evaluatedCandidates: [] };
+        return { evaluatedOpportunities: [] };
       }
 
       try {
-        // Fetch source profile
         const sourceProfile = await this.database.getProfile(state.userId);
-        const sourceProfileContext = sourceProfile
-          ? [
-              `Name: ${sourceProfile.identity?.name ?? 'Unknown'}`,
-              `Bio: ${sourceProfile.identity?.bio ?? ''}`,
-              `Location: ${sourceProfile.identity?.location ?? ''}`,
-              `Interests: ${sourceProfile.attributes?.interests?.join(', ') ?? ''}`,
-              `Skills: ${sourceProfile.attributes?.skills?.join(', ') ?? ''}`,
-              `Context: ${sourceProfile.narrative?.context ?? ''}`,
-            ].join('\n')
-          : '';
+        const sourceIndexId = state.targetIndexes[0]?.indexId ?? state.userIndexes[0];
+        const sourceEntity: EvaluatorEntity = {
+          userId: state.userId,
+          profile: {
+            name: sourceProfile?.identity?.name,
+            bio: sourceProfile?.identity?.bio,
+            location: sourceProfile?.identity?.location,
+            interests: sourceProfile?.attributes?.interests,
+            skills: sourceProfile?.attributes?.skills,
+            context: sourceProfile?.narrative?.context,
+          },
+          intents: state.indexedIntents.slice(0, 5).map((i) => ({
+            intentId: i.intentId,
+            payload: i.payload,
+            summary: i.summary,
+          })),
+          indexId: sourceIndexId ?? ('' as Id<'indexes'>),
+          ragScore: undefined,
+          matchedVia: undefined,
+        };
 
-        // Fetch candidate profiles
-        const candidateProfiles: CandidateProfile[] = await Promise.all(
+        const candidateEntities: EvaluatorEntity[] = await Promise.all(
           state.candidates.map(async (c) => {
             const profile = await this.database.getProfile(c.candidateUserId);
+            let intentPayload = c.candidatePayload;
+            let intentSummary = c.candidateSummary;
+            if (c.candidateIntentId != null && (!intentPayload || intentPayload === '')) {
+              const intent = await this.database.getIntent(c.candidateIntentId);
+              if (intent) {
+                intentPayload = intent.payload;
+                intentSummary = intent.summary ?? undefined;
+              }
+            }
             return {
               userId: c.candidateUserId,
-              identity: profile?.identity
-                ? {
-                    name: profile.identity.name,
-                    bio: profile.identity.bio,
-                    location: profile.identity.location,
-                  }
-                : undefined,
-              attributes: profile?.attributes,
-              narrative: profile?.narrative,
-              score: c.similarity * 100, // Convert to 0-100
+              profile: {
+                name: profile?.identity?.name,
+                bio: profile?.identity?.bio,
+                location: profile?.identity?.location,
+                interests: profile?.attributes?.interests,
+                skills: profile?.attributes?.skills,
+                context: profile?.narrative?.context,
+              },
+              intents:
+                c.candidateIntentId != null
+                  ? [{ intentId: c.candidateIntentId, payload: intentPayload ?? '', summary: intentSummary }]
+                  : undefined,
+              indexId: c.indexId,
+              ragScore: c.similarity * 100,
+              matchedVia: c.strategy,
             };
           })
         );
 
-        // Invoke evaluator agent
+        const entities: EvaluatorEntity[] = [sourceEntity, ...candidateEntities];
+        const userIdToIndexId = new Map<string, Id<'indexes'>>();
+        for (const e of entities) {
+          if (!userIdToIndexId.has(e.userId)) userIdToIndexId.set(e.userId, e.indexId as Id<'indexes'>);
+        }
+
+        const input: EvaluatorInput = {
+          discovererId: state.userId,
+          entities,
+          existingOpportunities: state.options.existingOpportunities,
+        };
+
         const minScore = state.options.minScore ?? 70;
-        const evaluatorResults = await evaluatorAgent.invoke(
-          sourceProfileContext,
-          candidateProfiles,
-          { minScore }
-        );
+        const opportunitiesWithActors =
+          typeof (evaluatorAgent as OpportunityEvaluator).invokeEntityBundle === 'function'
+            ? await (evaluatorAgent as OpportunityEvaluator).invokeEntityBundle(input, { minScore })
+            : await (async () => {
+                const realEvaluator = new OpportunityEvaluator();
+                return realEvaluator.invokeEntityBundle(input, { minScore });
+              })();
 
-        // Map evaluator results to evaluated candidates (filter out nulls from missing candidates)
-        const withNulls = evaluatorResults.map((result) => {
-          const candidate = state.candidates.find(c => c.candidateUserId === result.candidateId);
-          if (!candidate) return null;
-
-          const base: EvaluatedCandidate = {
-            sourceUserId: state.userId,
-            candidateUserId: result.candidateId as Id<'users'>,
-            ...(candidate.candidateIntentId != null && { candidateIntentId: candidate.candidateIntentId }),
-            indexId: candidate.indexId,
-            score: result.score,
-            reasoning: result.reasoning ?? '',
-            valencyRole: result.valencyRole,
-            strategy: candidate.strategy,
-          };
-          if (state.indexedIntents[0]?.intentId != null) {
-            base.sourceIntentId = state.indexedIntents[0].intentId;
-          }
-          return base;
-        });
-        const evaluatedCandidates: EvaluatedCandidate[] = withNulls.filter(
-          (c): c is EvaluatedCandidate => c !== null
-        );
+        const evaluatedOpportunities: EvaluatedOpportunity[] = opportunitiesWithActors.map((op) => ({
+          reasoning: op.reasoning,
+          score: op.score,
+          actors: op.actors.map((a) => ({
+            userId: a.userId as Id<'users'>,
+            role: a.role,
+            intentId: a.intentId as Id<'intents'> | undefined,
+            indexId: userIdToIndexId.get(a.userId) ?? (entities.find((e) => e.userId === a.userId)?.indexId as Id<'indexes'>),
+          })),
+        }));
 
         logger.info('[Graph:Evaluation] Evaluation complete', {
-          evaluatedCount: evaluatedCandidates.length,
-          passed: evaluatedCandidates.filter(c => c.score >= minScore).length,
+          evaluatedCount: evaluatedOpportunities.length,
+          passed: evaluatedOpportunities.filter((o) => o.score >= minScore).length,
         });
-        return { evaluatedCandidates };
+        return { evaluatedOpportunities };
       } catch (error) {
         logger.error('[Graph:Evaluation] Failed', { error });
         return {
-          evaluatedCandidates: [],
+          evaluatedOpportunities: [],
           error: 'Failed to evaluate candidates.',
         };
       }
@@ -411,25 +445,26 @@ export class OpportunityGraphFactory {
 
     /**
      * Node 4: Ranking
-     * Sorts opportunities by confidence score and applies limit.
+     * Sorts evaluated opportunities by score, applies limit, dedupes by actor-set hash.
      */
     const rankingNode = async (state: typeof OpportunityGraphState.State) => {
       logger.info('[Graph:Ranking] Starting ranking', {
-        evaluatedCount: state.evaluatedCandidates.length,
+        evaluatedCount: state.evaluatedOpportunities.length,
       });
 
       try {
-        // Sort by score descending
-        const sorted = [...state.evaluatedCandidates].sort((a, b) => b.score - a.score);
-
-        // Apply limit
+        const sorted = [...state.evaluatedOpportunities].sort((a, b) => b.score - a.score);
         const limit = state.options.limit ?? 10;
         const ranked = sorted.slice(0, limit);
 
-        // Deduplicate by (sourceUser, candidateUser, index) tuple
+        const actorSetKey = (opp: EvaluatedOpportunity) =>
+          opp.actors
+            .map((a) => `${a.userId}:${a.indexId}`)
+            .sort()
+            .join('|');
         const seen = new Set<string>();
         const deduplicated = ranked.filter((opp) => {
-          const key = `${opp.sourceUserId}-${opp.candidateUserId}-${opp.indexId}`;
+          const key = actorSetKey(opp);
           if (seen.has(key)) return false;
           seen.add(key);
           return true;
@@ -440,7 +475,7 @@ export class OpportunityGraphFactory {
           afterLimit: ranked.length,
           afterDedup: deduplicated.length,
         });
-        return { evaluatedCandidates: deduplicated };
+        return { evaluatedOpportunities: deduplicated };
       } catch (error) {
         logger.error('[Graph:Ranking] Failed', { error });
         return { error: 'Failed to rank opportunities.' };
@@ -449,15 +484,15 @@ export class OpportunityGraphFactory {
 
     /**
      * Node 5: Persist
-     * Creates opportunities in database with initialStatus from options.
+     * Creates opportunities from evaluator-proposed actors (indexId, userId, role, optional intent).
      */
     const persistNode = async (state: typeof OpportunityGraphState.State) => {
       logger.info('[Graph:Persist] Starting persistence', {
-        opportunitiesToCreate: state.evaluatedCandidates.length,
+        opportunitiesToCreate: state.evaluatedOpportunities.length,
         initialStatus: state.options.initialStatus ?? 'pending',
       });
 
-      if (state.evaluatedCandidates.length === 0) {
+      if (state.evaluatedOpportunities.length === 0) {
         logger.info('[Graph:Persist] No opportunities to persist');
         return { opportunities: [] };
       }
@@ -467,43 +502,29 @@ export class OpportunityGraphFactory {
         const now = new Date().toISOString();
         const initialStatus = state.options.initialStatus ?? 'pending';
 
-        for (const evaluated of state.evaluatedCandidates) {
-          // Derive roles from valency
-          const sourceRole = evaluated.valencyRole === 'Agent' ? 'patient' : 
-                             evaluated.valencyRole === 'Patient' ? 'agent' : 'peer';
-          const candidateRole = evaluated.valencyRole === 'Agent' ? 'agent' : 
-                                evaluated.valencyRole === 'Patient' ? 'patient' : 'peer';
-
+        for (const evaluated of state.evaluatedOpportunities) {
           const data: CreateOpportunityData = {
             detection: {
               source: 'opportunity_graph',
               createdBy: 'agent-opportunity-finder',
-              triggeredBy: evaluated.sourceIntentId,
+              triggeredBy: state.indexedIntents[0]?.intentId,
               timestamp: now,
             },
-            actors: [
-              {
-                indexId: evaluated.indexId,
-                userId: evaluated.sourceUserId,
-                role: sourceRole,
-                ...(evaluated.sourceIntentId ? { intent: evaluated.sourceIntentId } : {}),
-              },
-              {
-                indexId: evaluated.indexId,
-                userId: evaluated.candidateUserId,
-                role: candidateRole,
-                ...(evaluated.candidateIntentId ? { intent: evaluated.candidateIntentId } : {}),
-              },
-            ],
+            actors: evaluated.actors.map((a: EvaluatedOpportunityActor) => ({
+              indexId: a.indexId,
+              userId: a.userId,
+              role: a.role,
+              ...(a.intentId ? { intent: a.intentId } : {}),
+            })),
             interpretation: {
               category: 'collaboration',
               reasoning: evaluated.reasoning,
               confidence: evaluated.score / 100,
               signals: [
                 {
-                  type: evaluated.candidateIntentId ? 'intent_match' : 'profile_match',
+                  type: evaluated.actors.some((a) => a.intentId) ? 'intent_match' : 'profile_match',
                   weight: evaluated.score / 100,
-                  detail: `Matched via ${evaluated.strategy} strategy`,
+                  detail: 'Entity-bundle evaluator',
                 },
               ],
             },
@@ -816,8 +837,8 @@ export class OpportunityGraphFactory {
         return END;
       }
 
-      if (state.indexedIntents.length === 0) {
-        logger.info('[Graph:Routing] No indexed intents - ending early');
+      if (state.indexedIntents.length === 0 && !state.searchQuery) {
+        logger.info('[Graph:Routing] No indexed intents and no searchQuery - ending early');
         return END;
       }
 
