@@ -2,7 +2,6 @@ import { z } from "zod";
 import type { DefineTool, ToolDeps } from "./tool.helpers";
 import { success, error, needsClarification, UUID_REGEX, extractUrls, resolveIndexNames } from "./tool.helpers";
 import type { ExecutionResult } from "../states/intent.state";
-import { runDiscoverFromQuery } from "../support/opportunity.discover";
 import { protocolLogger } from "../support/protocol.logger";
 
 const logger = protocolLogger("ChatTools:Intent");
@@ -208,58 +207,12 @@ export function createIntentTools(defineTool: DefineTool, deps: ToolDeps) {
       const assignedToIndexes = await resolveIndexNames(database, [...assignedIndexIds]);
 
       if (created.length > 0) {
-        // Auto-trigger discovery
-        let discoveryRan = false;
-        let discoveryCount = 0;
-        let discoveryError = false;
-        let indexScope: string[] = [];
-        const discoveryIndexId = effectiveIndexId || context.indexId || undefined;
-        if (discoveryIndexId) {
-          if (UUID_REGEX.test(discoveryIndexId)) {
-            const memberResult = await graphs.indexMembership.invoke({
-              userId: context.userId,
-              indexId: discoveryIndexId,
-              operationMode: 'read' as const,
-            });
-            if (!memberResult.error) indexScope = [discoveryIndexId];
-          }
-        } else {
-          const indexResult = await graphs.index.invoke({
-            userId: context.userId,
-            operationMode: 'read' as const,
-            showAll: true,
-          });
-          indexScope = (indexResult.readResult?.memberOf || []).map((m: { indexId: string }) => m.indexId);
-        }
-        if (indexScope.length > 0) {
-          try {
-            const intentQuery = created.map((c: { description: string }) => c.description).filter(Boolean).join(" ") || "";
-            const discoveryResult = await runDiscoverFromQuery({
-              opportunityGraph: graphs.opportunity as any, // eslint-disable-line @typescript-eslint/no-explicit-any
-              database,
-              userId: context.userId,
-              query: intentQuery,
-              indexScope,
-              limit: 5,
-            });
-            discoveryRan = true;
-            discoveryCount = discoveryResult.count ?? 0;
-          } catch (err) {
-            logger.warn("create_intent: auto-discovery failed", { error: err });
-            discoveryRan = true;
-            discoveryError = true;
-          }
-        }
+        // Discovery runs in the background via intent-hyde queue → opportunity-discovery queue
         return success({
           created: true,
           intents: created,
-          message: `Created ${created.length} intent(s)`,
+          message: `Created ${created.length} intent(s). The system will look for opportunities in the background.`,
           ...(assignedToIndexes.length > 0 && { assignedToIndexes }),
-          ...(discoveryRan && {
-            discoveryRan: true,
-            discoveryCount,
-            ...(discoveryError && { discoveryError: true }),
-          }),
         });
       }
 
