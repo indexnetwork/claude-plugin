@@ -112,7 +112,8 @@ export function deriveRolesFromStrategy(strategy: HydeStrategy): DerivedRoles {
  * Role-based visibility (Latent Opportunity Lifecycle).
  * A user can see an opportunity iff they are an actor and the rule below allows it.
  *
- * - Introducer or peer: always see.
+ * - Introducer: see only when status is latent (once sent, they no longer see it in home).
+ * - Peer: always see.
  * - Patient or party: see if (status is not latent, or there is no introducer).
  * - Agent: see if (status is accepted/rejected/expired, or (status is not latent and there is no introducer)).
  */
@@ -125,7 +126,8 @@ export function canUserSeeOpportunity(
   const userRoles = actors.filter((a) => a.userId === userId).map((a) => a.role);
   if (userRoles.length === 0) return false;
 
-  if (userRoles.some((r) => r === 'introducer' || r === 'peer')) return true;
+  if (userRoles.some((r) => r === 'introducer')) return status === 'latent';
+  if (userRoles.some((r) => r === 'peer')) return true;
   if (userRoles.some((r) => r === 'patient' || r === 'party'))
     return status !== 'latent' || !hasIntroducer;
   if (userRoles.some((r) => r === 'agent'))
