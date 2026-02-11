@@ -28,7 +28,7 @@ export function presentOpportunity(
   introducerInfo: UserInfo | null,
   format: 'card' | 'email' | 'notification'
 ): OpportunityPresentation {
-  const myActor = opp.actors.find((a) => a.identityId === viewerId);
+  const myActor = opp.actors.find((a) => a.userId === viewerId);
   const introducer = opp.actors.find((a) => a.role === 'introducer');
 
   if (!myActor) {

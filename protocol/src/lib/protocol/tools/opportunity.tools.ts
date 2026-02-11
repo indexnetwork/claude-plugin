@@ -11,7 +11,7 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
   const createOpportunities = defineTool({
     name: "create_opportunities",
     description:
-      "REQUIRED when user asks to find opportunities, find connections, who can help with X, find a mentor, or similar discovery requests—call this tool; do not answer with text only. Creates draft (latent) opportunities. searchQuery is optional: when omitted or empty, discovery uses the user's existing intents in the current scope (index if chat is index-scoped, otherwise all their indexes). When the user does not specify what they want, do NOT ask—call with no searchQuery so their intents drive the search. Pass indexId when chat is index-scoped or user names an index. Returns concise summaries (name, short bio, match reason, score). Results are saved as drafts; use send_opportunity when ready.",
+      "REQUIRED when user asks to find opportunities, find connections, who can help with X, find a mentor, or similar discovery requests—call this tool; do not answer with text only. Creates draft (latent) opportunities. searchQuery is optional: when omitted or empty, discovery uses the user's existing intents in the current scope (index if chat is index-scoped, otherwise all their indexes). When the user does not specify what they want, do NOT ask—call with no searchQuery so their intents drive the search. Pass indexId when chat is index-scoped or user names an index. Returns concise summaries (name, short bio, match reason, score). Results are saved as drafts; use send_opportunity when ready. Note: discovered opportunities may not all be visible to the user depending on their role in each match (visibility is role-based).",
     querySchema: z.object({
       searchQuery: z.string().optional().describe("Optional. What kind of connections to search for; when omitted, uses the user's intents in scope (index or all indexes)."),
       indexId: z.string().optional().describe("Index UUID from read_indexes; optional when chat is index-scoped."),
@@ -72,7 +72,7 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
   const listOpportunities = defineTool({
     name: "list_opportunities",
     description:
-      "Lists the current user's opportunities (suggested connections). When the chat is scoped to an index, you can omit indexId to list only opportunities in that index.",
+      "Lists the current user's opportunities (suggested connections). Only opportunities the user is allowed to see based on their role and the opportunity status are returned. When the chat is scoped to an index, you can omit indexId to list only opportunities in that index.",
     querySchema: z.object({
       indexId: z.string().optional().describe("Index UUID from read_indexes; optional when chat is index-scoped."),
     }),
@@ -135,7 +135,7 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
   const sendOpportunity = defineTool({
     name: "send_opportunity",
     description:
-      "Sends a draft (latent) opportunity to the other person, promoting it to pending and triggering a notification. Use after create_opportunities or when listing draft opportunities (list_opportunities) when the user wants to send the intro.",
+      "Sends a draft (latent) opportunity, promoting it to pending. The system notifies the appropriate next person based on actor roles (e.g., patient if sent by introducer, agent if sent by patient). Use after create_opportunities or list_opportunities when the user wants to send the intro.",
     querySchema: z.object({
       opportunityId: z.string().describe("The opportunity ID to send (from create_opportunities or list_opportunities)"),
     }),

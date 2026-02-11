@@ -158,7 +158,7 @@ export async function runDiscoverFromQuery(
       const result = await opportunityGraph.invoke({
         userId,
         searchQuery: queryOrEmpty || undefined,
-        indexId: indexScope.length > 0 ? indexScope[0] : undefined,
+        indexId: indexScope.length === 1 ? indexScope[0] : undefined,
         options,
       });
 
@@ -176,8 +176,8 @@ export async function runDiscoverFromQuery(
 
       const baseEnriched = await Promise.all(
         opportunities.map(async (opp) => {
-          const candidateActor = opp.actors.find((a) => a.identityId !== userId);
-          const candidateUserId = candidateActor?.identityId ?? "";
+          const candidateActor = opp.actors.find((a) => a.userId !== userId);
+          const candidateUserId = candidateActor?.userId ?? "";
           const profile = candidateUserId
             ? await database.getProfile(candidateUserId)
             : null;
