@@ -165,10 +165,12 @@ export interface OpportunityDetection {
 }
 
 export interface OpportunityActor {
+  /** The index this actor was matched within. */
+  indexId: Id<'indexes'>;
+  userId: Id<'users'>;
   role: string;
-  identityId: Id<'users'>;
-  intents?: Id<'intents'>[];
-  profile?: boolean;
+  /** Single intent that contributed to this match. Absent = profile-based match. */
+  intent?: Id<'intents'>;
 }
 
 export interface OpportunitySignal {
@@ -185,26 +187,24 @@ export interface OpportunityInterpretation {
 }
 
 export interface OpportunityContext {
-  indexId: Id<'indexes'>;
+  /** Set when user explicitly searched within a specific index; undefined for global search. */
+  indexId?: Id<'indexes'>;
   conversationId?: Id<'chatSessions'>;
-  triggeringIntentId?: Id<'intents'>;
 }
 
-// Opportunities table (redesign: detection, actors, interpretation, context as JSONB)
+// Opportunities table (redesign: detection, actors, interpretation, context as JSONB; indexId lives in context)
 export const opportunities = pgTable('opportunities', {
   id: uuid('id').primaryKey().defaultRandom(),
   detection: jsonb('detection').$type<OpportunityDetection>().notNull(),
   actors: jsonb('actors').$type<OpportunityActor[]>().notNull(),
   interpretation: jsonb('interpretation').$type<OpportunityInterpretation>().notNull(),
   context: jsonb('context').$type<OpportunityContext>().notNull(),
-  indexId: uuid('index_id').notNull().references(() => indexes.id),
   confidence: numeric('confidence').notNull(),
   status: opportunityStatusEnum('status').notNull().default('pending'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   expiresAt: timestamp('expires_at', { withTimezone: true }),
 }, (table) => ({
-  indexIdx: index('opportunities_index_idx').on(table.indexId),
   statusIdx: index('opportunities_status_idx').on(table.status),
 }));
 
@@ -395,14 +395,6 @@ export const indexesRelations = relations(indexes, ({ many }) => ({
   members: many(indexMembers),
   intents: many(intentIndexes),
   integrations: many(userIntegrations),
-  opportunities: many(opportunities),
-}));
-
-export const opportunitiesRelations = relations(opportunities, ({ one }) => ({
-  index: one(indexes, {
-    fields: [opportunities.indexId],
-    references: [indexes.id],
-  }),
 }));
 
 

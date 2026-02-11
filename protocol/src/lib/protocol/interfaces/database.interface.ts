@@ -301,7 +301,6 @@ export interface Opportunity {
   actors: OpportunityActor[];
   interpretation: OpportunityInterpretation;
   context: OpportunityContext;
-  indexId: string;
   confidence: string;
   status: OpportunityStatus;
   createdAt: Date;
@@ -314,7 +313,6 @@ export interface CreateOpportunityData {
   actors: OpportunityActor[];
   interpretation: OpportunityInterpretation;
   context: OpportunityContext;
-  indexId: string;
   confidence: string;
   status?: OpportunityStatus;
   expiresAt?: Date;
@@ -918,7 +916,7 @@ export interface Database {
   /**
    * Get opportunities for a user (as any actor role).
    *
-   * @param userId - User ID (actor identityId)
+   * @param userId - User ID (actor userId)
    * @param options - Optional filters and pagination
    * @returns Array of opportunities
    */
@@ -954,7 +952,7 @@ export interface Database {
   /**
    * Check if an opportunity already exists between the given actors in the index (deduplication).
    *
-   * @param actorIds - Array of user IDs (identityIds) that would be actors
+   * @param actorIds - Array of user IDs that would be actors
    * @param indexId - Index ID
    * @returns True if a non-expired opportunity exists with exactly these actors in this index
    */
