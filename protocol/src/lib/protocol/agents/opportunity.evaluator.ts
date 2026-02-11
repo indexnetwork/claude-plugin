@@ -57,6 +57,15 @@ const systemPrompt = `
        - Include what each side brings to the connection and why it is mutually valuable.
        - NEVER leak private intents. If someone's intent is confidential, describe their relevant attributes instead.
 
+    **VISIBILITY IMPLICATIONS OF ROLE ASSIGNMENT**
+
+    The valency role you assign directly controls who sees the opportunity and when:
+    - "Agent" (helper/provider): LAST to see the opportunity — only after the Patient has committed to reaching out. Agents are protected from noise; they only see high-intent connections.
+    - "Patient" (seeker/requester): Sees the opportunity early and decides whether to reach out.
+    - "Peer" (symmetric): Both parties see the opportunity immediately and either can initiate.
+
+    Choose the role carefully — it determines the entire flow of how the connection unfolds.
+
     Rules:
     1. SYNTHESIS (CRITICAL): If multiple distinct match angles exist, SYNTHESIZE them into a SINGLE, robust opportunity.
     2. NEVER address either user directly — always use third-party references ("the source", "the candidate").

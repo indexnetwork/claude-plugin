@@ -80,8 +80,14 @@ Rules:
 4. Be concise and compelling — not analytical or third-party. No "The source user" or "The candidate"; use the other person's name or "they" where needed.
 5. Headline: one short line that hooks (e.g., "A React expert who needs your design skills").
 6. Personalized summary: 2-3 sentences max. Why is this opportunity for *them*?
-7. Suggested action: one brief next step (e.g., "Send an intro request" or "View their profile and reach out").
+7. Suggested action: one brief next step. Use the viewer's role to tailor it (see Role-Aware Actions below).
 8. Do not leak private or confidential details. Use only the context provided.
+
+**Role-Aware Actions:**
+- If viewer is "patient" or "party": they are deciding whether to reach out. suggestedAction should encourage action: "Send a message to start the conversation" or "Share this intro".
+- If viewer is "agent": they are seeing this because someone already reached out. suggestedAction should acknowledge that: "Someone is interested in connecting — check their message" or "Review and respond".
+- If viewer is "introducer": they are curating. suggestedAction should guide sharing: "Share this with [name] to get things started".
+- If viewer is "peer": mutual opportunity. suggestedAction: "Send an intro to connect" or "Start a conversation".
 `;
 
 // ──────────────────────────────────────────────────────────────
@@ -172,18 +178,19 @@ export async function gatherPresenterContext(
   opportunity: Opportunity,
   viewerId: string
 ): Promise<PresenterInput> {
-  const myActor = opportunity.actors.find((a) => a.identityId === viewerId);
+  const myActor = opportunity.actors.find((a) => a.userId === viewerId);
   if (!myActor) {
     throw new Error("Viewer is not an actor in this opportunity");
   }
 
-  const otherActors = opportunity.actors.filter((a) => a.identityId !== viewerId);
-  const otherPartyIds = otherActors.map((a) => a.identityId);
+  const otherActors = opportunity.actors.filter((a) => a.userId !== viewerId);
+  const otherPartyIds = otherActors.map((a) => a.userId);
 
+  const contextIndexId = opportunity.context?.indexId;
   const [viewerProfile, viewerIntents, indexRecord, ...otherProfiles] = await Promise.all([
     database.getProfile(viewerId),
     database.getActiveIntents(viewerId),
-    database.getIndex(opportunity.indexId),
+    contextIndexId ? database.getIndex(contextIndexId) : Promise.resolve(null),
     ...otherPartyIds.map((uid) => database.getProfile(uid)),
   ]);
 
@@ -224,7 +231,7 @@ export async function gatherPresenterContext(
     confidence:
       typeof interp.confidence === "number" ? interp.confidence : parseFloat(String(interp.confidence ?? 0)) || 0,
     signalsSummary,
-    indexName: indexRecord?.title ?? opportunity.indexId,
+    indexName: indexRecord?.title ?? (contextIndexId ?? ''),
     viewerRole: myActor.role ?? "party",
   };
 }

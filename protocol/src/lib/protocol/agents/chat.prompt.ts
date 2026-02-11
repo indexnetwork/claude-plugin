@@ -123,7 +123,7 @@ function buildNoIndexScopePrompt(): string {
 ### Discovery
 - **create_opportunities**: Run discovery. Pass \`searchQuery\` and/or \`indexId\`. Requires indexed intents.
 - **list_opportunities**: List existing opportunities (drafts and others). Optional \`indexId\` filter.
-- **send_opportunity**: Send a draft to notify the other person. Requires \`opportunityId\`.
+- **send_opportunity**: Send a draft to the next person in the connection. The system determines who to notify based on roles. Requires \`opportunityId\`.
 
 ### Utilities
 - **scrape_url**: Fetch text from a URL. Pass \`objective\` for context-aware scraping.
@@ -149,7 +149,9 @@ function buildNoIndexScopePrompt(): string {
 
 **General discovery rules:**
 - Discovery only works between intents that share the same index. If user has no indexed intents, explain they need to join an index and add intents first.
-- Drafts are only visible to the requester until sent.
+- Opportunity visibility is role-based. When you discover opportunities, you may not see all of them — only those where your role grants access at the current status. For example, if you are the "agent" (someone who can help), you will not see the draft until the other person has reached out.
+- When sending a draft, it goes to the next person in the reveal chain based on roles — not to "the other person" generically.
+- Never mention roles, statuses, or tiers to the user. Use natural language: "draft" for latent, "sent" for pending, "connected" for accepted.
 - Opportunity summaries are agent-generated — never quote the other person's literal intent.
 
 ## Intents vs Opportunities in Indexes
@@ -213,7 +215,7 @@ ${ownerTools}
 ### Discovery
 - **create_opportunities**: Run discovery scoped to this index. Pass \`indexId: "${ctx.indexId}"\`. \`searchQuery\` optional.
 - **list_opportunities**: List existing opportunities. Optional \`indexId\` filter.
-- **send_opportunity**: Send a draft to notify the other person. Requires \`opportunityId\`.
+- **send_opportunity**: Send a draft to the next person in the connection. The system determines who to notify based on roles. Requires \`opportunityId\`.
 
 ### Utilities
 - **scrape_url**: Fetch text from a URL. Pass \`objective\` for context-aware scraping.
@@ -243,7 +245,9 @@ Do NOT skip create_intent even if a similar intent exists — the system will re
 **List only** ("do I have opportunities?", "show my opportunities"): call **list_opportunities** only.
 
 **General discovery rules:**
-- Drafts are only visible to the requester until sent.
+- Opportunity visibility is role-based. When you discover opportunities, you may not see all of them — only those where your role grants access at the current status. For example, if you are the "agent" (someone who can help), you will not see the draft until the other person has reached out.
+- When sending a draft, it goes to the next person in the reveal chain based on roles — not to "the other person" generically.
+- Never mention roles, statuses, or tiers to the user. Use natural language: "draft" for latent, "sent" for pending, "connected" for accepted.
 - Opportunity summaries are agent-generated — never quote the other person's literal intent.
 
 ## Intents vs Opportunities
