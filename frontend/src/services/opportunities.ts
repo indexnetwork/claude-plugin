@@ -37,6 +37,42 @@ export interface GetOpportunitiesOptions {
   offset?: number;
 }
 
+/** Home view card item (from GET /opportunities/home). Presenter-driven display contract. */
+export interface HomeViewCardItem {
+  opportunityId: string;
+  userId: string;
+  name: string;
+  avatar: string | null;
+  mainText: string;
+  cta: string;
+  headline?: string;
+  /** Presenter-generated; primary (accept) and secondary (dismiss) button labels. */
+  primaryActionLabel: string;
+  secondaryActionLabel: string;
+  /** Presenter-generated subtitle under the other party name (e.g. "1 mutual intent"). */
+  mutualIntentsLabel: string;
+  narratorChip?: { name: string; text: string; avatar?: string | null };
+}
+
+/** Home view section (dynamic title, icon, items). */
+export interface HomeViewSection {
+  id: string;
+  title: string;
+  subtitle?: string;
+  iconName: string;
+  items: HomeViewCardItem[];
+}
+
+export interface HomeViewResponse {
+  sections: HomeViewSection[];
+  meta: { totalOpportunities: number; totalSections: number };
+}
+
+export interface GetHomeViewOptions {
+  indexId?: string;
+  limit?: number;
+}
+
 export const createOpportunitiesService = (
   api: ReturnType<typeof import('../lib/api').useAuthenticatedAPI>
 ) => ({
@@ -52,5 +88,17 @@ export const createOpportunitiesService = (
     const url = qs ? `/opportunities?${qs}` : '/opportunities';
     const res = await api.get<{ opportunities: OpportunityListItem[] }>(url);
     return res.opportunities ?? [];
+  },
+
+  getHomeView: async (
+    options?: GetHomeViewOptions
+  ): Promise<HomeViewResponse> => {
+    const params = new URLSearchParams();
+    if (options?.indexId) params.set('indexId', options.indexId);
+    if (options?.limit != null) params.set('limit', String(options.limit));
+    const qs = params.toString();
+    const url = qs ? `/opportunities/home?${qs}` : '/opportunities/home';
+    const res = await api.get<HomeViewResponse>(url);
+    return res;
   },
 });
