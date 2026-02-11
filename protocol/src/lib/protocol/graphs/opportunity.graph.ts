@@ -47,7 +47,7 @@ export type OpportunityEvaluatorLike = {
   invokeEntityBundle?: (input: EvaluatorInput, options: { minScore?: number }) => Promise<Array<{
     reasoning: string;
     score: number;
-    actors: Array<{ userId: string; role: 'agent' | 'patient' | 'peer'; intentId?: string }>;
+    actors: Array<{ userId: string; role: 'agent' | 'patient' | 'peer'; intentId?: string | null }>;
   }>>;
 };
 import type { Embedder, HydeStrategy } from '../interfaces/embedder.interface';

@@ -177,7 +177,7 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
         const best = evaluated[0];
         reasoning = best.reasoning;
         score = best.score;
-        evaluatedActors = best.actors;
+        evaluatedActors = best.actors.map((a) => ({ userId: a.userId, role: a.role, ...(a.intentId != null ? { intentId: a.intentId } : {}) }));
       } else {
         // Evaluator found no strong match; use a basic reasoning from profiles
         const partyNames = await Promise.all(partyUserIds.map(async (uid) => {

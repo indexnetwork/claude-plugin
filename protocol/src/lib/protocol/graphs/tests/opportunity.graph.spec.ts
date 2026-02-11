@@ -27,8 +27,8 @@ const defaultMockEvaluatorResult: EvaluatedOpportunityWithActors[] = [
     reasoning: 'The source user is building a DeFi protocol and the candidate has relevant community and marketing expertise in the crypto space.',
     score: 88,
     actors: [
-      { userId: 'user-source', role: 'patient' as const },
-      { userId: 'user-bob', role: 'agent' as const },
+      { userId: 'user-source', role: 'patient' as const, intentId: null },
+      { userId: 'user-bob', role: 'agent' as const, intentId: null },
     ],
   },
 ];
@@ -84,6 +84,7 @@ function createMockGraph(deps?: {
     getOpportunity: () => Promise.resolve(null),
     getOpportunitiesForUser: () => Promise.resolve([]),
     updateOpportunityStatus: () => Promise.resolve(null),
+    getIntent: () => Promise.resolve(null),
   };
 
   const mockEmbedder: Embedder = {
@@ -279,8 +280,8 @@ describe('Opportunity Graph', () => {
     test('sorts by score and applies limit', async () => {
       const { compiledGraph, mockEmbedder } = createMockGraph({
         evaluatorResult: [
-          { reasoning: 'Technical help match.', score: 85, actors: [{ userId: 'user-source', role: 'patient' }, { userId: 'user-bob', role: 'agent' }] },
-          { reasoning: 'Complementary interests in developer tools.', score: 92, actors: [{ userId: 'user-source', role: 'peer' }, { userId: 'user-alice', role: 'peer' }] },
+          { reasoning: 'Technical help match.', score: 85, actors: [{ userId: 'user-source', role: 'patient', intentId: null }, { userId: 'user-bob', role: 'agent', intentId: null }] },
+          { reasoning: 'Complementary interests in developer tools.', score: 92, actors: [{ userId: 'user-source', role: 'peer', intentId: null }, { userId: 'user-alice', role: 'peer', intentId: null }] },
         ],
       });
       spyOn(mockEmbedder, 'searchWithHydeEmbeddings').mockResolvedValue([
