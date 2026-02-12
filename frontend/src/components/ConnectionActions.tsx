@@ -167,7 +167,7 @@ export default function ConnectionActions({
         <button
           onClick={handleMessage}
           disabled={disabled || connectionStatus === 'pending_sent'}
-          className="justify-center cursor-pointer rounded-[2px] font-medium font-sans ring-offset-white transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 bg-black text-white hover:bg-gray-800 h-7 px-2.5 text-xs flex items-center gap-2"
+          className="justify-center cursor-pointer rounded-[2px] font-medium font-sans ring-offset-white transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 bg-[#041729] text-white hover:bg-[#0a2d4a] h-7 px-2.5 text-xs flex items-center gap-2"
           style={{ borderRadius: '2px' }}
         >
           {getMessageButtonLabel()}

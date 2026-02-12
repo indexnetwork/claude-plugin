@@ -32,8 +32,8 @@ export default function Footer() {
 
   return (
     <footer
-      className="text-white py-8 px-6 lg:px-12 border-t-4 border-black relative overflow-hidden w-full"
-      style={{ backgroundColor: "#0a0a0a" }}
+      className="text-white py-8 px-6 lg:px-12 relative overflow-hidden w-full"
+      style={{ backgroundColor: "#041729" }}
     >
       <div className="max-w-[1200px] mx-auto">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">

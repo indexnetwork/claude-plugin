@@ -77,7 +77,7 @@ export default function Header({ showHeaderButtons = true, forcePublicView = fal
             </Link>
             <button
               onClick={login}
-              className="bg-black text-white rounded-[2px] px-5 py-3 font-semibold text-sm inline-flex items-center gap-2 transition-all hover:bg-[#333] hover:-translate-y-[1px] uppercase tracking-wider cursor-pointer"
+              className="bg-[#041729] text-white rounded-[2px] px-5 py-3 font-semibold text-sm inline-flex items-center gap-2 transition-all hover:bg-[#0a2d4a] hover:-translate-y-[1px] uppercase tracking-wider cursor-pointer"
             >
               Login
               <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} className="w-4 h-4">
@@ -101,7 +101,7 @@ export default function Header({ showHeaderButtons = true, forcePublicView = fal
                   window.open("https://forms.gle/nTNBKYC2gZZMnujh9", "_blank");
                 }
               }}
-              className="bg-black text-white rounded-[2px] px-5 py-3 font-semibold text-sm inline-flex items-center gap-2 transition-all hover:bg-[#333] hover:-translate-y-[1px] uppercase tracking-wider cursor-pointer"
+              className="bg-[#041729] text-white rounded-[2px] px-5 py-3 font-semibold text-sm inline-flex items-center gap-2 transition-all hover:bg-[#0a2d4a] hover:-translate-y-[1px] uppercase tracking-wider cursor-pointer"
             >
               <span className="lg:hidden">Join</span>
               <span className="hidden lg:inline">Join the waitlist</span>
