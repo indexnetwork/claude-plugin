@@ -10,6 +10,7 @@ import type {
   OpportunityActor,
   OpportunityInterpretation,
   OpportunitySignal,
+  OpportunityStatus,
 } from '../interfaces/database.interface';
 import type { Embedder } from '../interfaces/embedder.interface';
 import { protocolLogger } from './protocol.logger';
@@ -28,7 +29,7 @@ export type EnricherDatabase = {
 
 export type EnrichmentResult =
   | { enriched: false; data: CreateOpportunityData }
-  | { enriched: true; data: CreateOpportunityData; expiredIds: string[]; resolvedStatus: string };
+  | { enriched: true; data: CreateOpportunityData; expiredIds: string[]; resolvedStatus: OpportunityStatus };
 
 export type EnrichOrCreateOptions = {
   similarityThreshold?: number;
@@ -57,7 +58,7 @@ function cosineSimilarity(a: number[], b: number[]): number {
  * Resolve enriched opportunity status from related opportunities' statuses.
  * Priority: accepted > pending > rejected > latent (expired and latent both resolve to latent).
  */
-function resolveEnrichedStatus(relatedStatuses: string[]): string {
+function resolveEnrichedStatus(relatedStatuses: string[]): OpportunityStatus {
   if (relatedStatuses.includes('accepted')) return 'accepted';
   if (relatedStatuses.includes('pending')) return 'pending';
   if (relatedStatuses.includes('rejected')) return 'rejected';
