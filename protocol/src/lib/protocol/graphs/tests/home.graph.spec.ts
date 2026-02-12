@@ -209,6 +209,44 @@ describe('HomeGraph', () => {
     expect(totalItems).toBe(1);
     expect(result.sections[0]?.items[0]?.opportunityId).toBe('opp-accepted');
   }, 30000);
+
+  test('shows connector-style card for pending introducer opportunities', async () => {
+    const viewerId = 'intro-1';
+    const memberA = 'member-a';
+    const memberB = 'member-b';
+    const pendingIntroducerOpportunity: Opportunity = {
+      id: 'opp-introducer-pending',
+      detection: { source: 'manual', timestamp: new Date().toISOString() },
+      actors: [
+        { userId: viewerId, role: 'introducer', indexId: 'idx-1' },
+        { userId: memberA, role: 'patient', indexId: 'idx-1' },
+        { userId: memberB, role: 'agent', indexId: 'idx-1' },
+      ],
+      interpretation: {
+        reasoning: 'These two members should meet based on aligned privacy protocol goals.',
+        category: 'connection',
+        confidence: 0.9,
+      },
+      context: { indexId: 'idx-1' },
+      confidence: '0.9',
+      status: 'pending',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      expiresAt: null,
+    };
+    const db = createMockDb([pendingIntroducerOpportunity]);
+    const result = await new HomeGraphFactory(db).createGraph().invoke({ userId: viewerId, limit: 50 });
+
+    expect(result.error).toBeUndefined();
+    expect(result.sections.length).toBeGreaterThanOrEqual(1);
+    const firstItem = result.sections[0]?.items[0];
+    expect(firstItem).toBeDefined();
+    expect(firstItem?.primaryActionLabel).toBe('Good match');
+    expect(firstItem?.secondaryActionLabel).toBe('Pass');
+    expect(firstItem?.name).toContain('↔');
+    expect(firstItem?.mutualIntentsLabel.length ?? 0).toBeGreaterThan(0);
+    expect(firstItem?.narratorChip?.name ?? 'Index').toBe('Index');
+  }, 70000);
 });
 
 describe('Lucide icon catalog', () => {

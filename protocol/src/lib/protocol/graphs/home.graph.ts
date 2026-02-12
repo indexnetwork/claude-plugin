@@ -154,6 +154,17 @@ const pickDisplayCounterpartActor = (
   return sorted[0] ?? null;
 };
 
+const buildIntroducerGroupingKey = (
+  opportunity: typeof HomeGraphState.State['opportunities'][number],
+  viewerId: string
+): string => {
+  const participantIds = opportunity.actors
+    .filter((actor) => actor.userId !== viewerId && actor.role !== 'introducer')
+    .map((actor) => actor.userId)
+    .sort();
+  return `introducer:${participantIds.join('|')}`;
+};
+
 export class HomeGraphFactory {
   constructor(private database: HomeGraphDb) {}
 
@@ -171,9 +182,12 @@ export class HomeGraphFactory {
         };
         if (state.indexId) options.indexId = state.indexId;
         const raw = await this.database.getOpportunitiesForUser(state.userId, options);
-        const visible = raw.filter(
-          (opp) => canUserSeeOpportunity(opp.actors, opp.status, state.userId)
-        );
+        const visible = raw.filter((opp) => {
+          const isPendingIntroducerForViewer =
+            opp.status === 'pending' &&
+            opp.actors.some((actor) => actor.userId === state.userId && actor.role === 'introducer');
+          return isPendingIntroducerForViewer || canUserSeeOpportunity(opp.actors, opp.status, state.userId);
+        });
         const expired = raw.filter(
           (opp) =>
             opp.status === 'expired' && canUserSeeOpportunity(opp.actors, opp.status, state.userId)
@@ -193,8 +207,15 @@ export class HomeGraphFactory {
       const cards: HomeCardItem[] = [];
       const groupedByCounterpartUser = new Map<string, typeof state.opportunities>();
       for (const opportunity of state.opportunities) {
-        const displayCounterpart = pickDisplayCounterpartActor(opportunity, state.userId);
-        const fallbackActorKey = buildActorGroupingKey(opportunity, state.userId);
+        const viewerActor = opportunity.actors.find((actor) => actor.userId === state.userId);
+        const isPendingIntroducer =
+          viewerActor?.role === 'introducer' && opportunity.status === 'pending';
+        const displayCounterpart = isPendingIntroducer
+          ? null
+          : pickDisplayCounterpartActor(opportunity, state.userId);
+        const fallbackActorKey = isPendingIntroducer
+          ? buildIntroducerGroupingKey(opportunity, state.userId)
+          : buildActorGroupingKey(opportunity, state.userId);
         const key = displayCounterpart?.userId
           ? `counterpart:${displayCounterpart.userId}`
           : `fallback:${fallbackActorKey}`;
@@ -215,9 +236,13 @@ export class HomeGraphFactory {
       const relevantActorIds = new Set<string>();
       for (const oppGroup of groupedOpportunities) {
         const opp = oppGroup[0];
-        const otherActor = opp.actors.find((a) => a.userId !== state.userId && a.role !== 'introducer');
+        const counterpartCandidates = opp.actors.filter(
+          (a) => a.userId !== state.userId && a.role !== 'introducer'
+        );
         const introducer = opp.actors.find((a) => a.role === 'introducer');
-        if (otherActor?.userId) relevantActorIds.add(otherActor.userId);
+        for (const actor of counterpartCandidates) {
+          if (actor.userId) relevantActorIds.add(actor.userId);
+        }
         if (introducer?.userId) relevantActorIds.add(introducer.userId);
       }
 
@@ -240,11 +265,29 @@ export class HomeGraphFactory {
             const primaryOpportunity = grouped[0];
             const groupedCount = grouped.length;
             const cardIndex = i + offset;
-            const otherActor = pickDisplayCounterpartActor(primaryOpportunity, state.userId)
+            const viewerActor = primaryOpportunity.actors.find((a) => a.userId === state.userId);
+            const viewerRole = viewerActor?.role ?? 'party';
+            const isPendingIntroducer =
+              viewerRole === 'introducer' && primaryOpportunity.status === 'pending';
+            const preferredActor = pickDisplayCounterpartActor(primaryOpportunity, state.userId)
               ?? primaryOpportunity.actors.find((a) => a.userId !== state.userId && a.role !== 'introducer');
+            const actorWithProfile = primaryOpportunity.actors.find(
+              (a) => a.userId !== state.userId && a.role !== 'introducer' && !!userMap.get(a.userId)
+            );
+            const otherActor = (preferredActor && userMap.get(preferredActor.userId))
+              ? preferredActor
+              : (actorWithProfile ?? preferredActor);
             const introducer = primaryOpportunity.actors.find((a) => a.role === 'introducer');
             const otherUser = otherActor ? userMap.get(otherActor.userId) ?? null : null;
-            const userName = otherUser?.name ?? 'Unknown';
+            const introducerCounterparts = primaryOpportunity.actors.filter(
+              (a) => a.userId !== state.userId && a.role !== 'introducer'
+            );
+            const participantNames = introducerCounterparts
+              .map((actor) => userMap.get(actor.userId)?.name ?? 'Unknown')
+              .sort();
+            const userName = isPendingIntroducer && participantNames.length > 0
+              ? participantNames.join(' ↔ ')
+              : (otherUser?.name ?? 'Unknown');
             const userAvatar = otherUser?.avatar ?? null;
             const groupedReasoning = groupedCount > 1
               ? buildGroupedReasoning(grouped)
@@ -258,10 +301,12 @@ export class HomeGraphFactory {
               mainText: groupedCount > 1
                 ? `Index found ${groupedCount} opportunities between you and ${userName}. ${groupedReasoning}`
                 : groupedReasoning.slice(0, 300),
-              cta: 'View opportunity and decide whether to reach out.',
-              primaryActionLabel: 'Start Chat',
-              secondaryActionLabel: 'Skip',
-              mutualIntentsLabel: 'Shared interests',
+              cta: isPendingIntroducer
+                ? 'Decide whether to introduce these members.'
+                : 'View opportunity and decide whether to reach out.',
+              primaryActionLabel: isPendingIntroducer ? 'Good match' : 'Start Chat',
+              secondaryActionLabel: isPendingIntroducer ? 'Pass' : 'Skip',
+              mutualIntentsLabel: isPendingIntroducer ? 'Connector opportunity' : 'Shared interests',
               narratorChip: { name: 'Index', text: 'Worth a look.' },
               _cardIndex: cardIndex,
             });
@@ -276,10 +321,11 @@ export class HomeGraphFactory {
                 signalsSummary: groupedCount > 1
                   ? `${ctx.signalsSummary}; groupedOpportunities=${groupedCount}`
                   : ctx.signalsSummary,
+                opportunityStatus: primaryOpportunity.status,
               };
               const presentation = await presenter.presentHomeCard(homeInput);
               let narratorChip: { name: string; text: string; avatar?: string | null } | undefined;
-              if (introducer) {
+              if (introducer && introducer.userId !== state.userId) {
                 const introUser = userMap.get(introducer.userId) ?? null;
                 narratorChip = {
                   name: introUser?.name ?? 'Someone',
@@ -329,6 +375,14 @@ export class HomeGraphFactory {
         headline: c.headline,
         mainText: c.mainText,
         name: c.name,
+        viewerRole:
+          c.primaryActionLabel === 'Good match' && c.secondaryActionLabel === 'Pass'
+            ? 'introducer'
+            : undefined,
+        opportunityStatus:
+          c.primaryActionLabel === 'Good match' && c.secondaryActionLabel === 'Pass'
+            ? 'pending'
+            : undefined,
       }));
       const { sections } = await categorizer.categorize(categorizerInput);
       const proposals: HomeSectionProposal[] = sections.map((s) => ({
