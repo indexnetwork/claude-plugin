@@ -14,27 +14,64 @@ import {
 } from "./scenarios";
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// PERSONA MESSAGE GENERATOR
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const PERSONA_STYLES: Record<string, string> = {
+  direct_requester: "direct, brief, action-oriented — gets straight to the point",
+  exploratory_seeker: "curious, asks follow-up questions, explores options",
+  technical_precise: "precise, technical, detailed requirements",
+  vague_requester: "vague, ambiguous, needs clarification",
+};
+
+export async function generatePersonaMessages(
+  question: string,
+  expectation: string
+): Promise<Record<string, string>> {
+  const model = new ChatOpenAI({
+    model: "google/gemini-2.5-flash",
+    configuration: {
+      baseURL: process.env.OPENROUTER_BASE_URL || "https://openrouter.ai/api/v1",
+      apiKey: process.env.OPENROUTER_API_KEY,
+    },
+    temperature: 0.4,
+  });
+
+  const personaList = Object.entries(PERSONA_STYLES)
+    .map(([id, style]) => `- "${id}": ${style}`)
+    .join("\n");
+
+  const prompt = `Rephrase the following user question in 4 different communication styles. Each rephrasing should convey the same underlying intent but match the persona's style.
+
+## Question
+${question}
+
+## Expected outcome
+${expectation}
+
+## Personas
+${personaList}
+
+Return ONLY a JSON object mapping persona id to the rephrased message. Keep messages concise (1-2 sentences max).
+
+{"direct_requester": "...", "exploratory_seeker": "...", "technical_precise": "...", "vague_requester": "..."}`;
+
+  const response = await model.invoke([new HumanMessage(prompt)]);
+  const content = response.content.toString();
+  const jsonMatch = content.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) throw new Error("Failed to generate persona messages");
+  return JSON.parse(jsonMatch[0]);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // GENERATED SCENARIO (for eval pipeline)
 // ═══════════════════════════════════════════════════════════════════════════════
 
-export interface EvaluationCriteria {
-  successSignals: readonly string[];
-  failureSignals: readonly string[];
-  qualityFactors: readonly string[];
-}
-
-const DEFAULT_CRITERIA: EvaluationCriteria = {
-  successSignals: ["task completed", "appropriate response provided"],
-  failureSignals: ["task failed", "incorrect response"],
-  qualityFactors: ["clear communication", "appropriate tone", "efficient interaction"],
-};
-
 export interface GeneratedScenario {
   id: string;
-  need: { id: string; description: string; examples: string[] };
+  need: { id: string; question: string; expectation: string };
   persona: { id: string; description: string; communicationStyle: string };
   generatedMessage: string;
-  evaluationCriteria: EvaluationCriteria;
 }
 
 export function scenarioToGenerated(s: Scenario): GeneratedScenario {
@@ -44,14 +81,13 @@ export function scenarioToGenerated(s: Scenario): GeneratedScenario {
     throw new Error(`Unknown need or persona: ${s.needId}/${s.personaId}`);
   return {
     id: s.id,
-    need: { id: need.id, description: need.description, examples: need.examples },
+    need: { id: need.id, question: need.question, expectation: need.expectation },
     persona: {
       id: persona.id,
       description: persona.description,
       communicationStyle: persona.communicationStyle,
     },
     generatedMessage: s.message,
-    evaluationCriteria: DEFAULT_CRITERIA,
   };
 }
 
@@ -103,7 +139,10 @@ export class ChatSimulatedUser {
     const prompt = `You are simulating a user with a SPECIFIC GOAL. STAY FOCUSED on your original need!
 
 ## YOUR ORIGINAL NEED
-${this.scenario.need.description}
+${this.scenario.need.question}
+
+## What You Expect
+${this.scenario.need.expectation}
 
 ## Your Initial Message
 ${this.scenario.generatedMessage}
@@ -180,8 +219,11 @@ export class NeedFulfillmentEvaluator {
 
     const prompt = `Evaluate this conversation:
 
-## User's Underlying Need
-${scenario.need.description}
+## User's Question
+${scenario.need.question}
+
+## Expected Outcome
+${scenario.need.expectation}
 
 ## User's Initial Request
 ${scenario.generatedMessage}
@@ -193,16 +235,7 @@ Style: ${scenario.persona.communicationStyle}
 ## Conversation
 ${conversationText}
 
-## Success Signals
-${scenario.evaluationCriteria.successSignals.map((s) => `- ${s}`).join("\n")}
-
-## Failure Signals
-${scenario.evaluationCriteria.failureSignals.map((s) => `- ${s}`).join("\n")}
-
-## Quality Factors
-${scenario.evaluationCriteria.qualityFactors.map((q) => `- ${q}`).join("\n")}
-
-Evaluate: needFulfilled, fulfillmentScore 0-1, successSignalsMatched, failureSignalsTriggered, qualityScore 0-1, qualityNotes, overallVerdict (success|partial|failure|blocked), reasoning.
+Evaluate whether the agent fulfilled the user's need based on the expected outcome above.
 
 Respond in JSON:
 {"needFulfilled": boolean, "fulfillmentScore": number, "successSignalsMatched": string[], "failureSignalsTriggered": string[], "qualityScore": number, "qualityNotes": string[], "overallVerdict": "success"|"partial"|"failure"|"blocked", "reasoning": string}`;
