@@ -38,6 +38,7 @@ export function presentOpportunity(
   const otherName = otherPartyInfo.name;
   let title: string;
   let description: string;
+  let descriptionIsReasoning = false;
 
   switch (myActor.role) {
     case 'agent':
@@ -73,14 +74,18 @@ export function presentOpportunity(
       if (introducer && introducerInfo) {
         title = `${introducerInfo.name} thinks you should meet ${otherName}`;
         description = opp.interpretation.reasoning;
+        descriptionIsReasoning = true;
       } else {
         title = `Opportunity with ${otherName}`;
         description = opp.interpretation.reasoning;
+        descriptionIsReasoning = true;
       }
       break;
   }
 
-  description += `\n\n${opp.interpretation.reasoning}`;
+  if (!descriptionIsReasoning) {
+    description += `\n\n${opp.interpretation.reasoning}`;
+  }
 
   if (format === 'notification') {
     description =
