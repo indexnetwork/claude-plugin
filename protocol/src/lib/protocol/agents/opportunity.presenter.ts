@@ -17,9 +17,6 @@ import type { ChatGraphCompositeDatabase } from "../interfaces/database.interfac
 
 const logger = protocolLogger("OpportunityPresenter");
 
-import { config } from "dotenv";
-config({ path: ".env.development" });
-
 const model = new ChatOpenAI({
   model: "google/gemini-2.5-flash",
   configuration: {

@@ -9,8 +9,6 @@
  */
 
 import { StateGraph, START, END } from '@langchain/langgraph';
-import { config } from 'dotenv';
-config({ path: '.env.development' });
 
 import type { HomeGraphDatabase } from '../interfaces/database.interface';
 import {
