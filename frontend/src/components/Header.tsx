@@ -71,7 +71,7 @@ export default function Header({ showHeaderButtons = true, forcePublicView = fal
           <div className="flex items-center gap-12">
             <Link 
               href="/blog" 
-              className="font-hanken text-sm text-black hover:text-gray-600 transition-colors font-medium uppercase"
+              className="font-sans text-sm text-black hover:text-gray-600 transition-colors font-medium uppercase"
             >
               Blog
             </Link>
@@ -89,7 +89,7 @@ export default function Header({ showHeaderButtons = true, forcePublicView = fal
           <div className="flex items-center gap-12">
             <Link 
               href="/blog" 
-              className="font-hanken text-sm text-black hover:text-gray-600 transition-colors font-medium uppercase"
+              className="font-sans text-sm text-black hover:text-gray-600 transition-colors font-medium uppercase"
             >
               Blog
             </Link>

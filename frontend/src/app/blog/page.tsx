@@ -218,13 +218,13 @@ export default function BlogPage() {
         </div>
 
         {posts.length === 0 ? (
-          <p className="text-black font-hanken">No posts yet. Check back soon!</p>
+          <p className="text-black font-sans">No posts yet. Check back soon!</p>
         ) : (
           <div className="space-y-2 mt-8">
             {posts.map((post) => (
               <article key={post.slug}>
                 <div className="flex gap-2 items-center">
-                  <time className="text-black italic shrink-0 w-28 text-base font-hanken">
+                  <time className="text-black italic shrink-0 w-28 text-base font-sans">
                     {new Date(post.date).toLocaleDateString('en-US', {
                       year: 'numeric',
                       month: 'short',

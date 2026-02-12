@@ -271,11 +271,11 @@ function LandingPage() {
     <ClientLayout hideFeedback>
       <style jsx global>{`
         .landing-page {
-          font-family: 'Hanken Grotesk', -apple-system, BlinkMacSystemFont, sans-serif;
+          font-family: 'Public Sans', -apple-system, BlinkMacSystemFont, sans-serif;
         }
 
         .landing-page p.text-lg {
-          font-family: 'Hanken Grotesk', -apple-system, BlinkMacSystemFont, sans-serif;
+          font-family: 'Public Sans', -apple-system, BlinkMacSystemFont, sans-serif;
           font-size: 15px;
         }
 
@@ -434,6 +434,7 @@ function LandingPage() {
           padding: 12px 20px !important;
           font-weight: 600 !important;
           font-size: 14px !important;
+          font-family: 'Public Sans', -apple-system, BlinkMacSystemFont, sans-serif !important;
           display: inline-flex !important;
           align-items: center !important;
           gap: 8px !important;
@@ -468,6 +469,7 @@ function LandingPage() {
           padding: 0 !important;
           font-weight: 600 !important;
           font-size: 14px !important;
+          font-family: 'Public Sans', -apple-system, BlinkMacSystemFont, sans-serif !important;
           display: inline-flex !important;
           align-items: center !important;
           gap: 8px !important;
@@ -768,7 +770,7 @@ function LandingPage() {
 
               <p
                 className="text-[17px] leading-relaxed text-black/80 mb-8 lg:mb-10 max-w-[480px] mx-auto lg:mx-0 font-normal"
-                style={{ fontFamily: "'Hanken Grotesk', -apple-system, BlinkMacSystemFont, sans-serif" }}
+                style={{ fontFamily: "'Public Sans', -apple-system, BlinkMacSystemFont, sans-serif" }}
               >
                 You know that moment when you meet the right person and your next move clicks into place? That sense of magic? You shouldn&apos;t have to wait for luck. Index helps your others find you.
               </p>
@@ -810,7 +812,7 @@ function LandingPage() {
             </h2>
             <p
               className="text-center text-black/80 mb-6 text-[17px] leading-relaxed font-normal max-w-[560px] mx-auto"
-              style={{ fontFamily: "'Hanken Grotesk', -apple-system, BlinkMacSystemFont, sans-serif" }}
+              style={{ fontFamily: "'Public Sans', -apple-system, BlinkMacSystemFont, sans-serif" }}
             >
               Share your intent privately, sit back, fiddle with it, and let people surface when their wavelength aligns with yours. No searching or filtering needed.
             </p>
@@ -909,15 +911,15 @@ function LandingPage() {
                       <div className="flex gap-2">
                         <button 
                           onClick={() => setIsRetroModalOpen(true)}
-                          className="pulse-btn bg-black text-white px-3 py-1.5 rounded-sm text-[12px] font-medium hover:bg-[#333] transition-colors font-mono"
+                          className="pulse-btn bg-black text-white px-3 py-1.5 rounded-sm text-[12px] font-medium hover:bg-[#333] transition-colors font-sans"
                         >
                           Start a conversation
                         </button>
                         <div className="relative group">
-                          <button className="bg-[#F4F7F6] border border-[#E5E5E5] text-black px-3 py-1.5 rounded-sm text-[12px] font-medium hover:bg-[#F5F5F5] transition-colors font-mono">
+                          <button className="bg-[#F4F7F6] border border-[#E5E5E5] text-black px-3 py-1.5 rounded-sm text-[12px] font-medium hover:bg-[#F5F5F5] transition-colors font-sans">
                             Skip
                           </button>
-                          <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-1.5 bg-black text-white text-[11px] rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity duration-150 pointer-events-none font-mono">
+                          <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-1.5 bg-black text-white text-[11px] rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity duration-150 pointer-events-none font-sans">
                             It&apos;s the other button 👀
                             <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-black"></div>
                           </div>
@@ -966,28 +968,28 @@ function LandingPage() {
               <div className="mb-8">
                 <p
                   className="text-[17px] leading-relaxed text-black/80 mb-6 font-normal"
-                  style={{ fontFamily: "'Hanken Grotesk', -apple-system, BlinkMacSystemFont, sans-serif" }}
+                  style={{ fontFamily: "'Public Sans', -apple-system, BlinkMacSystemFont, sans-serif" }}
                 >
                   You&apos;ve been here before. Something new is brewing inside you—maybe it&apos;s just an inkling, maybe it&apos;s a full-fledged idea. Either way, you need others to help it take shape. Others who can be your teammates and patrons, whetstones and cheerleaders.
                 </p>
 
                 <p
                   className="text-[17px] leading-relaxed text-black/80 mb-6 font-normal"
-                  style={{ fontFamily: "'Hanken Grotesk', -apple-system, BlinkMacSystemFont, sans-serif" }}
+                  style={{ fontFamily: "'Public Sans', -apple-system, BlinkMacSystemFont, sans-serif" }}
                 >
                   You&apos;ve got platforms to post, share, search, and shout. But despite the flood of tools, you&apos;re still stuck trying to meet someone who shares your flavor of weird. How is it still this hard to find your others?
                 </p>
 
                 <p
                   className="text-[17px] leading-relaxed text-black/80 font-normal"
-                  style={{ fontFamily: "'Hanken Grotesk', -apple-system, BlinkMacSystemFont, sans-serif" }}
+                  style={{ fontFamily: "'Public Sans', -apple-system, BlinkMacSystemFont, sans-serif" }}
                 >
                   Meet Index. Instead of shouting into the void, now you can just say the word, and LLM-enabled agents will run ambient discovery based on the shape of what you meant. It&apos;s not that the people you&apos;re looking for don&apos;t exist. They do, and they&apos;re closer than you think.
                 </p>
               </div>
 
               <div className="mt-5">
-                <a href="https://index.network/blog/the-shape-of-what-you-meant" target="_blank" rel="noopener noreferrer" className="btn-link uppercase tracking-wider font-mono">
+                <a href="https://index.network/blog/the-shape-of-what-you-meant" target="_blank" rel="noopener noreferrer" className="btn-link uppercase tracking-wider font-sans">
                   Read the story
                 </a>
               </div>
@@ -1009,7 +1011,7 @@ function LandingPage() {
 
                 <p
                   className="text-[17px] leading-relaxed text-black/80 mb-8 font-normal"
-                  style={{ fontFamily: "'Hanken Grotesk', -apple-system, BlinkMacSystemFont, sans-serif" }}
+                  style={{ fontFamily: "'Public Sans', -apple-system, BlinkMacSystemFont, sans-serif" }}
                 >
                   Are you a community or ecosystem leader? We&apos;re opening early access to leaders looking to engineer serendipity.
                 </p>
@@ -1019,7 +1021,7 @@ function LandingPage() {
                     href="https://calendly.com/d/2vj-8d8-skt/call-with-seren-and-seref"
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="btn-modern no-underline uppercase tracking-wider font-mono"
+                    className="btn-modern no-underline uppercase tracking-wider font-sans"
                   >
                     Get in touch
                   </a>
@@ -1061,7 +1063,7 @@ function LandingPage() {
             </h2>
             <p
               className="text-[17px] leading-relaxed text-black/80 mb-8 font-normal max-w-[700px] mx-auto"
-              style={{ fontFamily: "'Hanken Grotesk', -apple-system, BlinkMacSystemFont, sans-serif" }}
+              style={{ fontFamily: "'Public Sans', -apple-system, BlinkMacSystemFont, sans-serif" }}
             >
               Index is an open-source social protocol. No permission required.
             </p>
@@ -1081,7 +1083,7 @@ function LandingPage() {
                 href="https://github.com/indexnetwork/index"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-[#555] hover:text-black transition-colors font-mono text-[13px] uppercase tracking-wider"
+                className="text-[#555] hover:text-black transition-colors font-sans text-[13px] uppercase tracking-wider"
               >
                 Contribute →
               </a>
