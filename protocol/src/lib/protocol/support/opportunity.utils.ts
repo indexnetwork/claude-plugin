@@ -126,14 +126,16 @@ export function canUserSeeOpportunity(
   const userRoles = actors.filter((a) => a.userId === userId).map((a) => a.role);
   if (userRoles.length === 0) return false;
 
-  if (userRoles.some((r) => r === 'introducer')) return status === 'latent';
-  if (userRoles.some((r) => r === 'peer')) return true;
-  if (userRoles.some((r) => r === 'patient' || r === 'party'))
-    return status !== 'latent' || !hasIntroducer;
-  if (userRoles.some((r) => r === 'agent'))
-    return (
-      ['accepted', 'rejected', 'expired'].includes(status) ||
-      (status !== 'latent' && !hasIntroducer)
-    );
-  return false;
+  return userRoles.some((role) => {
+    if (role === 'introducer') return status === 'latent';
+    if (role === 'peer') return true;
+    if (role === 'patient' || role === 'party')
+      return status !== 'latent' || !hasIntroducer;
+    if (role === 'agent')
+      return (
+        ['accepted', 'rejected', 'expired'].includes(status) ||
+        (status !== 'latent' && !hasIntroducer)
+      );
+    return false;
+  });
 }
