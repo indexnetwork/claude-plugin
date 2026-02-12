@@ -83,6 +83,22 @@ export interface OpportunityStatusUpdateResponse {
   };
 }
 
+export interface OpportunityPresentation {
+  title: string;
+  description: string;
+  callToAction: string;
+}
+
+export interface OpportunityDetailResponse {
+  id: string;
+  presentation: OpportunityPresentation;
+  status: OpportunityStatus;
+  category?: string;
+  confidence?: number;
+  index?: { id: string; title: string };
+  introducedBy?: { id: string; name: string; avatar?: string | null };
+}
+
 export const createOpportunitiesService = (
   api: ReturnType<typeof import('../lib/api').useAuthenticatedAPI>
 ) => ({
@@ -120,5 +136,9 @@ export const createOpportunitiesService = (
       `/opportunities/${opportunityId}/status`,
       { status }
     );
+  },
+
+  getOpportunity: async (opportunityId: string): Promise<OpportunityDetailResponse> => {
+    return api.get<OpportunityDetailResponse>(`/opportunities/${opportunityId}`);
   },
 });

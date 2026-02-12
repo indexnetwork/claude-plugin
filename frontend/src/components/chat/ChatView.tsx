@@ -12,6 +12,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { cn } from '@/lib/utils';
 import { ContentContainer } from '@/components/layout';
+import type { OpportunityDetailResponse } from '@/services/opportunities';
 
 interface ChatMessage {
   id: string;
@@ -19,6 +20,7 @@ interface ChatMessage {
   user?: { id: string; name?: string } | null;
   created_at?: Date | string;
   status?: string;
+  type?: string;
 }
 
 const transformMessage = (msg: MessageResponse | LocalMessage): ChatMessage => ({
@@ -27,6 +29,7 @@ const transformMessage = (msg: MessageResponse | LocalMessage): ChatMessage => (
   user: msg.user ? { id: msg.user.id, name: msg.user.name } : null,
   created_at: msg.created_at instanceof Date ? msg.created_at : msg.created_at,
   status: msg.status,
+  type: msg.type,
 });
 
 interface ChannelEvent {
@@ -38,6 +41,7 @@ interface ChatViewProps {
   userName: string;
   userAvatar?: string;
   userTitle?: string;
+  opportunityContext?: OpportunityDetailResponse;
   onClose: () => void;
   onBack?: () => void;
 }
@@ -47,7 +51,12 @@ interface ChannelPendingState {
   isRequester: boolean;
 }
 
-export default function ChatView({ userId, userName, userAvatar, userTitle, onClose, onBack }: ChatViewProps) {
+interface AcceptedOpportunityMeta {
+  opportunityId: string;
+  acceptedAt: string;
+}
+
+export default function ChatView({ userId, userName, userAvatar, userTitle, opportunityContext, onClose, onBack }: ChatViewProps) {
   const { client, isReady, getOrCreateChannel, clearActiveChat, respondToMessageRequest, refreshMessageRequests } = useStreamChat();
   const { success, error: showError } = useNotifications();
   const [channel, setChannel] = useState<Channel | null>(null);
@@ -63,6 +72,7 @@ export default function ChatView({ userId, userName, userAvatar, userTitle, onCl
   const [channelRefreshKey, setChannelRefreshKey] = useState(0);
   const [showMenu, setShowMenu] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [acceptedOpportunities, setAcceptedOpportunities] = useState<AcceptedOpportunityMeta[]>([]);
   const menuRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = useCallback(() => {
@@ -100,17 +110,29 @@ export default function ChatView({ userId, userName, userAvatar, userTitle, onCl
           await ch.watch();
           setChannel(ch);
 
-          const channelData = ch.data as { pending?: boolean; requestedBy?: string };
+          const channelData = ch.data as {
+            pending?: boolean;
+            requestedBy?: string;
+            acceptedOpportunities?: AcceptedOpportunityMeta[];
+          };
           if (channelData?.pending) {
             setPendingState({ isPending: true, isRequester: channelData.requestedBy === client?.userID });
           } else {
             setPendingState({ isPending: false, isRequester: false });
           }
+          setAcceptedOpportunities(Array.isArray(channelData?.acceptedOpportunities) ? channelData.acceptedOpportunities : []);
           
           setMessages(ch.state.messages.map(transformMessage));
           setLoading(false);
 
-          syncMessagesHandler = () => { if (mounted && ch.state.messages) { setMessages(ch.state.messages.map(transformMessage)); scrollToBottom(); } };
+          syncMessagesHandler = () => {
+            if (mounted && ch.state.messages) {
+              setMessages(ch.state.messages.map(transformMessage));
+              const latestChannelData = ch.data as { acceptedOpportunities?: AcceptedOpportunityMeta[] } | undefined;
+              setAcceptedOpportunities(Array.isArray(latestChannelData?.acceptedOpportunities) ? latestChannelData.acceptedOpportunities : []);
+              scrollToBottom();
+            }
+          };
           handleMessage = (event: ChannelEvent) => { if (mounted && event.channel?.id === ch.id) syncMessagesHandler?.(); };
           handleMessageUpdated = (event: ChannelEvent) => { if (mounted && event.channel?.id === ch.id) syncMessagesHandler?.(); };
 
@@ -288,6 +310,30 @@ export default function ChatView({ userId, userName, userAvatar, userTitle, onCl
       <div className="px-6 lg:px-8 py-6 pb-32">
         <ContentContainer>
           {/* Pending state banners */}
+          {opportunityContext && (
+            <div className="px-4 py-3 rounded-lg mb-4 bg-indigo-50 border border-indigo-200">
+              <div className="text-xs text-indigo-700 uppercase tracking-wider mb-1">Opportunity context</div>
+              <div className="text-sm font-semibold text-indigo-900">{opportunityContext.presentation.title}</div>
+              <div className="text-sm text-indigo-900 mt-1">{opportunityContext.presentation.description}</div>
+              <div className="text-xs text-indigo-800 mt-2">
+                Status: {opportunityContext.status}
+                {opportunityContext.index?.title ? ` • Index: ${opportunityContext.index.title}` : ''}
+                {opportunityContext.introducedBy?.name ? ` • Introduced by: ${opportunityContext.introducedBy.name}` : ''}
+              </div>
+              {acceptedOpportunities.length > 0 && (
+                <div className="text-xs text-indigo-800 mt-1">
+                  Accepted opportunities in this conversation: {acceptedOpportunities.length}
+                </div>
+              )}
+            </div>
+          )}
+          {!opportunityContext && acceptedOpportunities.length > 0 && (
+            <div className="px-4 py-3 rounded-lg mb-4 bg-gray-50 border border-gray-200">
+              <div className="text-xs text-gray-600">
+                This conversation is linked to {acceptedOpportunities.length} accepted opportunit{acceptedOpportunities.length === 1 ? 'y' : 'ies'}.
+              </div>
+            </div>
+          )}
           {pendingState.isPending && (
             <div className={`px-4 py-3 rounded-lg mb-4 ${pendingState.isRequester ? 'bg-blue-50 border border-blue-200' : 'bg-green-50 border border-green-200'}`}>
               {pendingState.isRequester ? (
@@ -320,6 +366,7 @@ export default function ChatView({ userId, userName, userAvatar, userTitle, onCl
             <div className="space-y-4">
               {messages.map((message, index) => {
                 const isOwn = message.user?.id === client?.userID;
+                const isIndexIntro = message.type === 'system' || message.user?.id === 'index_bot';
                 const showTimestamp = index === 0 || (messages[index - 1] && new Date(message.created_at || '').getTime() - new Date(messages[index - 1].created_at || '').getTime() > 300000);
 
                 return (
@@ -327,15 +374,23 @@ export default function ChatView({ userId, userName, userAvatar, userTitle, onCl
                     {showTimestamp && message.created_at && (
                       <div className="text-center text-xs text-gray-400  uppercase tracking-wider my-4">Today, {formatTime(message.created_at)}</div>
                     )}
-                    <div className={cn('flex items-end gap-2', isOwn ? 'justify-end' : 'justify-start')}>
-                      {!isOwn && <Image src={avatarUrl} alt={userName} width={32} height={32} className="rounded-full flex-shrink-0" />}
-                      <div className={cn('max-w-[70%] rounded-2xl px-4 py-2', isOwn ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-900')}>
-                        <article className={cn(' text-sm', isOwn && 'text-white')}>
+                    {isIndexIntro ? (
+                      <div className="flex justify-center">
+                        <div className="max-w-[80%] rounded-xl px-3 py-2 bg-gray-100 text-gray-600 text-sm text-center">
                           <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.text || ''}</ReactMarkdown>
-                        </article>
+                        </div>
                       </div>
-                      {isOwn && <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center flex-shrink-0 text-xs  font-bold text-[#3D3D3D]">{client?.user?.name?.charAt(0) || 'U'}</div>}
-                    </div>
+                    ) : (
+                      <div className={cn('flex items-end gap-2', isOwn ? 'justify-end' : 'justify-start')}>
+                        {!isOwn && <Image src={avatarUrl} alt={userName} width={32} height={32} className="rounded-full flex-shrink-0" />}
+                        <div className={cn('max-w-[70%] rounded-2xl px-4 py-2', isOwn ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-900')}>
+                          <article className={cn(' text-sm', isOwn && 'text-white')}>
+                            <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.text || ''}</ReactMarkdown>
+                          </article>
+                        </div>
+                        {isOwn && <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center flex-shrink-0 text-xs  font-bold text-[#3D3D3D]">{client?.user?.name?.charAt(0) || 'U'}</div>}
+                      </div>
+                    )}
                   </div>
                 );
               })}
