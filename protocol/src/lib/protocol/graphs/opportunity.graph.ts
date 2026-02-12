@@ -60,6 +60,7 @@ import type {
 import { queueOpportunityNotification } from '../../../queues/notification.queue';
 import { selectStrategies } from '../support/opportunity.utils';
 import { enrichOrCreate } from '../support/opportunity.enricher';
+import { injectOpportunityIntoExistingChat } from '../support/opportunity.chat-injection';
 import { protocolLogger, withCallLogging } from '../support/protocol.logger';
 
 const logger = protocolLogger('OpportunityGraph');
@@ -549,6 +550,12 @@ export class OpportunityGraphFactory {
               await this.database.updateOpportunityStatus(id, 'expired');
             }
           }
+
+          if (created.status === 'pending') {
+            await injectOpportunityIntoExistingChat(created).catch((err) => {
+              logger.warn('[Graph:Persist] Chat injection failed for opportunity', { opportunityId: created.id, error: err });
+            });
+          }
         }
 
         logger.info('[Graph:Persist] Persistence complete', {
@@ -830,6 +837,10 @@ export class OpportunityGraphFactory {
         for (const recipient of recipients) {
           await queueOpportunityNotification(opp.id, recipient.userId, 'high');
         }
+
+        await injectOpportunityIntoExistingChat({ ...opp, status: 'pending' }).catch((err) => {
+          logger.warn('[Graph:Send] Chat injection failed for opportunity', { opportunityId: opp.id, error: err });
+        });
 
         const recipientIds = recipients.map((a: OpportunityActor) => a.userId);
         return {
