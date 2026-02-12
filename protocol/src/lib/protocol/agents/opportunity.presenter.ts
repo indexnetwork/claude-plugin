@@ -16,6 +16,7 @@ import type { Opportunity } from "../interfaces/database.interface";
 import type { ChatGraphCompositeDatabase } from "../interfaces/database.interface";
 
 const logger = protocolLogger("OpportunityPresenter");
+const LLM_TIMEOUT_MS = 20_000;
 
 const model = new ChatOpenAI({
   model: "google/gemini-2.5-flash",
@@ -145,6 +146,31 @@ export class OpportunityPresenter {
     });
   }
 
+  private async invokeWithTimeout(targetModel: Runnable, messages: (SystemMessage | HumanMessage)[]): Promise<unknown> {
+    const timeoutReason = `LLM invoke timed out after ${LLM_TIMEOUT_MS}ms`;
+    const controller = new AbortController();
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+
+    const invokePromise = targetModel.invoke(messages, {
+      signal: controller.signal,
+    } as Record<string, unknown>);
+
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timeoutId = setTimeout(() => {
+        controller.abort(timeoutReason);
+        reject(new Error(timeoutReason));
+      }, LLM_TIMEOUT_MS);
+    });
+
+    try {
+      return await Promise.race([invokePromise, timeoutPromise]);
+    } finally {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+    }
+  }
+
   /**
    * Generate personalized presentation for a single opportunity.
    */
@@ -173,13 +199,15 @@ Produce headline, personalizedSummary (2-3 sentences in "you" language), and sug
         new SystemMessage(systemPrompt),
         new HumanMessage(humanContent),
       ];
-      const result = await this.model.invoke(messages);
+      const result = await this.invokeWithTimeout(this.model, messages);
       const parsed = responseFormat.parse(result);
       return parsed.presentation;
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
+      const timeoutReason = message.includes("timed out") ? message : undefined;
       logger.warn("[OpportunityPresenter.present] LLM failed, returning fallback", {
         message,
+        timeoutReason,
       });
       return {
         headline: "A connection opportunity",
@@ -222,13 +250,15 @@ Produce headline, personalizedSummary, suggestedAction, narratorRemark, primaryA
         new SystemMessage(homeCardSystemPrompt),
         new HumanMessage(humanContent),
       ];
-      const result = await this.homeCardModel.invoke(messages);
+      const result = await this.invokeWithTimeout(this.homeCardModel, messages);
       const parsed = homeCardResponseFormat.parse(result);
       return parsed.presentation;
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
+      const timeoutReason = message.includes("timed out") ? message : undefined;
       logger.warn("[OpportunityPresenter.presentHomeCard] LLM failed, returning fallback", {
         message,
+        timeoutReason,
       });
       return {
         headline: "A connection opportunity",
