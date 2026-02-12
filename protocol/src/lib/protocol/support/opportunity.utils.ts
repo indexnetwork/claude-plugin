@@ -139,3 +139,38 @@ export function canUserSeeOpportunity(
     return false;
   });
 }
+
+/**
+ * Whether an opportunity should appear on the Home feed for the viewer (actionable = has a pending action).
+ * Encodes the role-visibility matrix from the Latent Opportunity Lifecycle: only show statuses where
+ * the viewer's role has an action (Send, Accept/Reject, or transitional "Go to chat").
+ */
+export function isActionableForViewer(
+  actors: Array<{ userId: string; role: string }>,
+  status: string,
+  viewerId: string
+): boolean {
+  const viewerActor = actors.find((a) => a.userId === viewerId);
+  if (!viewerActor) return false;
+
+  const hasIntroducer = actors.some((a) => a.role === 'introducer');
+  const role = viewerActor.role;
+
+  switch (role) {
+    case 'introducer':
+      return status === 'latent';
+    case 'patient':
+    case 'party':
+      return hasIntroducer
+        ? status === 'pending' || status === 'viewed'
+        : status === 'latent';
+    case 'agent':
+      return hasIntroducer
+        ? status === 'accepted'
+        : status === 'pending' || status === 'viewed';
+    case 'peer':
+      return status === 'latent' || status === 'pending' || status === 'viewed';
+    default:
+      return false;
+  }
+}

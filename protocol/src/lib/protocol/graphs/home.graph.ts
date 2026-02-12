@@ -20,7 +20,7 @@ import {
 } from '../states/home.state';
 import { OpportunityPresenter, gatherPresenterContext, type PresenterDatabase } from '../agents/opportunity.presenter';
 import { HomeCategorizerAgent } from '../agents/home.categorizer';
-import { canUserSeeOpportunity } from '../support/opportunity.utils';
+import { canUserSeeOpportunity, isActionableForViewer } from '../support/opportunity.utils';
 import { resolveHomeSectionIcon, DEFAULT_HOME_SECTION_ICON } from '../support/lucide.icon-catalog';
 import { protocolLogger } from '../support/protocol.logger';
 
@@ -163,28 +163,12 @@ export class HomeGraphFactory {
         };
         if (state.indexId) options.indexId = state.indexId;
         const raw = await this.database.getOpportunitiesForUser(state.userId, options);
-        const visible = raw.filter((opp) => {
-          const isPendingIntroducerForViewer =
-            opp.status === 'pending' &&
-            opp.actors.some((actor) => actor.userId === state.userId && actor.role === 'introducer');
-          return isPendingIntroducerForViewer || canUserSeeOpportunity(opp.actors, opp.status, state.userId);
-        });
-        const visibleForFeed = visible.filter((opp) => opp.status !== 'expired');
-        // #region agent log
-        const rawByStatus: Record<string, number> = {};
-        const visibleByStatus: Record<string, number> = {};
-        const feedByStatus: Record<string, number> = {};
-        for (const opp of raw) {
-          rawByStatus[opp.status] = (rawByStatus[opp.status] ?? 0) + 1;
-        }
-        for (const opp of visible) {
-          visibleByStatus[opp.status] = (visibleByStatus[opp.status] ?? 0) + 1;
-        }
-        for (const opp of visibleForFeed) {
-          feedByStatus[opp.status] = (feedByStatus[opp.status] ?? 0) + 1;
-        }
-        fetch('http://127.0.0.1:7242/ingest/9e8c82c7-69e7-439d-9a66-0d60a0032c44', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'home.graph.ts:loadOpportunitiesNode:afterVisible', message: 'home loadOpportunities status breakdown', data: { userId: state.userId, rawCount: raw.length, rawByStatus, visibleCount: visible.length, visibleByStatus, feedCount: visibleForFeed.length, feedByStatus, expiredInFeed: (feedByStatus.expired ?? 0) > 0 }, timestamp: Date.now() }) }).catch(() => {});
-        // #endregion
+        const visible = raw.filter((opp) =>
+          canUserSeeOpportunity(opp.actors, opp.status, state.userId)
+        );
+        const visibleForFeed = visible.filter((opp) =>
+          isActionableForViewer(opp.actors, opp.status, state.userId)
+        );
         const expired = raw.filter(
           (opp) =>
             opp.status === 'expired' && canUserSeeOpportunity(opp.actors, opp.status, state.userId)
