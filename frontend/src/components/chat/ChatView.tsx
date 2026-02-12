@@ -12,7 +12,6 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { cn } from '@/lib/utils';
 import { ContentContainer } from '@/components/layout';
-import type { OpportunityDetailResponse } from '@/services/opportunities';
 
 interface ChatMessage {
   id: string;
@@ -41,7 +40,6 @@ interface ChatViewProps {
   userName: string;
   userAvatar?: string;
   userTitle?: string;
-  opportunityContext?: OpportunityDetailResponse;
   onClose: () => void;
   onBack?: () => void;
 }
@@ -56,7 +54,7 @@ interface AcceptedOpportunityMeta {
   acceptedAt: string;
 }
 
-export default function ChatView({ userId, userName, userAvatar, userTitle, opportunityContext, onClose, onBack }: ChatViewProps) {
+export default function ChatView({ userId, userName, userAvatar, userTitle, onClose, onBack }: ChatViewProps) {
   const { client, isReady, getOrCreateChannel, clearActiveChat, respondToMessageRequest, refreshMessageRequests } = useStreamChat();
   const { success, error: showError } = useNotifications();
   const [channel, setChannel] = useState<Channel | null>(null);
@@ -310,24 +308,7 @@ export default function ChatView({ userId, userName, userAvatar, userTitle, oppo
       <div className="px-6 lg:px-8 py-6 pb-32">
         <ContentContainer>
           {/* Pending state banners */}
-          {opportunityContext && (
-            <div className="px-4 py-3 rounded-lg mb-4 bg-indigo-50 border border-indigo-200">
-              <div className="text-xs text-indigo-700 uppercase tracking-wider mb-1">Opportunity context</div>
-              <div className="text-sm font-semibold text-indigo-900">{opportunityContext.presentation.title}</div>
-              <div className="text-sm text-indigo-900 mt-1">{opportunityContext.presentation.description}</div>
-              <div className="text-xs text-indigo-800 mt-2">
-                Status: {opportunityContext.status}
-                {opportunityContext.index?.title ? ` • Index: ${opportunityContext.index.title}` : ''}
-                {opportunityContext.introducedBy?.name ? ` • Introduced by: ${opportunityContext.introducedBy.name}` : ''}
-              </div>
-              {acceptedOpportunities.length > 0 && (
-                <div className="text-xs text-indigo-800 mt-1">
-                  Accepted opportunities in this conversation: {acceptedOpportunities.length}
-                </div>
-              )}
-            </div>
-          )}
-          {!opportunityContext && acceptedOpportunities.length > 0 && (
+          {acceptedOpportunities.length > 0 && (
             <div className="px-4 py-3 rounded-lg mb-4 bg-gray-50 border border-gray-200">
               <div className="text-xs text-gray-600">
                 This conversation is linked to {acceptedOpportunities.length} accepted opportunit{acceptedOpportunities.length === 1 ? 'y' : 'ies'}.

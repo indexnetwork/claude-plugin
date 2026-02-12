@@ -435,7 +435,7 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
       const result = await opportunitiesService.updateStatus(opportunityId, action);
       const counterpartUserId = result.chat?.counterpartUserId ?? fallbackUserId;
       if (action === 'accepted' && counterpartUserId) {
-        router.push(`/u/${counterpartUserId}/chat?opportunityId=${encodeURIComponent(opportunityId)}`);
+        router.push(`/u/${counterpartUserId}/chat`);
       }
       setHomeViewData((prev) => {
         if (!prev) return prev;

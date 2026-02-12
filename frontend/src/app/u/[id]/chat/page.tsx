@@ -1,15 +1,14 @@
 "use client";
 
 import { use, useEffect, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
 import { useAuthContext } from "@/contexts/AuthContext";
-import { useOpportunities, useUsers } from "@/contexts/APIContext";
+import { useUsers } from "@/contexts/APIContext";
 import { useStreamChat } from "@/contexts/StreamChatContext";
 import { getAvatarUrl } from "@/lib/file-utils";
 import { User } from "@/lib/types";
 import ChatView from "@/components/chat/ChatView";
-import type { OpportunityDetailResponse } from "@/services/opportunities";
 
 interface ChatPageProps {
   params: Promise<{
@@ -20,15 +19,11 @@ interface ChatPageProps {
 export default function ChatPage({ params }: ChatPageProps) {
   const resolvedParams = use(params);
   const router = useRouter();
-  const searchParams = useSearchParams();
   const { isAuthenticated, isLoading: authLoading } = useAuthContext();
   const usersService = useUsers();
-  const opportunitiesService = useOpportunities();
   const { openChat, closeChat } = useStreamChat();
-  const opportunityId = searchParams.get("opportunityId");
 
   const [profileData, setProfileData] = useState<User | null>(null);
-  const [opportunityContext, setOpportunityContext] = useState<OpportunityDetailResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -45,12 +40,8 @@ export default function ChatPage({ params }: ChatPageProps) {
       try {
         setIsLoading(true);
         setError(null);
-        const [profile, opportunity] = await Promise.all([
-          usersService.getUserProfile(resolvedParams.id),
-          opportunityId ? opportunitiesService.getOpportunity(opportunityId).catch(() => null) : Promise.resolve(null),
-        ]);
+        const profile = await usersService.getUserProfile(resolvedParams.id);
         setProfileData(profile);
-        setOpportunityContext(opportunity);
         openChat(profile.id, profile.name, getAvatarUrl(profile));
       } catch (err) {
         console.error('Failed to fetch profile:', err);
@@ -61,7 +52,7 @@ export default function ChatPage({ params }: ChatPageProps) {
     };
 
     fetchData();
-  }, [resolvedParams.id, isAuthenticated, authLoading, usersService, opportunitiesService, opportunityId, openChat]);
+  }, [resolvedParams.id, isAuthenticated, authLoading, usersService, openChat]);
 
   const handleClose = () => {
     if (profileData) {
@@ -105,7 +96,6 @@ export default function ChatPage({ params }: ChatPageProps) {
       userName={profileData.name}
       userAvatar={getAvatarUrl(profileData)}
       userTitle={profileData.location || undefined}
-      opportunityContext={opportunityContext ?? undefined}
       onClose={handleClose}
       onBack={handleBack}
     />
