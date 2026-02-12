@@ -1134,6 +1134,8 @@ export type OpportunityControllerDatabase = Pick<
   | 'getUser'
   | 'getIndex'
   | 'getIndexMemberships'
+  | 'getProfile'
+  | 'getActiveIntents'
 >;
 
 /**
