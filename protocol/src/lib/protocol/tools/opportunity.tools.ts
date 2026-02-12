@@ -10,6 +10,24 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
   const { database, graphs } = deps;
   const presenter = new OpportunityPresenter();
 
+  async function buildFallbackReasoning(
+    partyUserIds: string[],
+    context: { userId: string },
+    hint?: string,
+  ): Promise<{ reasoning: string; score: number }> {
+    const partyNames = await Promise.all(
+      partyUserIds.map(async (uid) => {
+        const user = await database.getUser(uid);
+        return user?.name ?? "Unknown";
+      })
+    );
+    const introducerUser = await database.getUser(context.userId);
+    const reasoning =
+      `${introducerUser?.name ?? "A member"} believes ${partyNames.join(" and ")} should connect.` +
+      (hint ? ` Context: ${hint}` : "");
+    return { reasoning, score: 70 };
+  }
+
   const createOpportunities = defineTool({
     name: "create_opportunities",
     description:
@@ -179,25 +197,11 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
         score = best.score;
         evaluatedActors = best.actors.map((a) => ({ userId: a.userId, role: a.role, ...(a.intentId != null ? { intentId: a.intentId } : {}) }));
       } else {
-        // Evaluator found no strong match; use a basic reasoning from profiles
-        const partyNames = await Promise.all(partyUserIds.map(async (uid) => {
-          const u = await database.getUser(uid);
-          return u?.name ?? 'Unknown';
-        }));
-        const introducerUser = await database.getUser(context.userId);
-        reasoning = `${introducerUser?.name ?? 'A member'} believes ${partyNames.join(' and ')} should connect.` +
-          (hint ? ` Context: ${hint}` : '');
-        score = 70;
+        // Evaluator found no strong match; use a simple introducer-provided rationale.
+        ({ reasoning, score } = await buildFallbackReasoning(partyUserIds, context, hint));
       }
     } catch (evalErr) {
-      const partyNames = await Promise.all(partyUserIds.map(async (uid) => {
-        const u = await database.getUser(uid);
-        return u?.name ?? 'Unknown';
-      }));
-      const introducerUser = await database.getUser(context.userId);
-      reasoning = `${introducerUser?.name ?? 'A member'} believes ${partyNames.join(' and ')} should connect.` +
-        (hint ? ` Context: ${hint}` : '');
-      score = 70;
+      ({ reasoning, score } = await buildFallbackReasoning(partyUserIds, context, hint));
     }
 
     // Build actors: only use evaluator roles when all required parties are represented.
@@ -297,25 +301,32 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
       const fullOpps = await Promise.all(
         opps.map((o: ReadResultItem) => database.getOpportunity(o.id))
       );
-      const indicesWithFull: number[] = [];
-      const contexts = [];
-      for (let i = 0; i < fullOpps.length; i++) {
-        const full = fullOpps[i];
-        if (full) {
-          indicesWithFull.push(i);
-          contexts.push(
-            await gatherPresenterContext(database, full, context.userId)
-          );
-        }
-      }
+      const fullWithIndices = fullOpps
+        .map((full, index) => ({ full, index }))
+        .filter(
+          (
+            entry
+          ): entry is { full: NonNullable<typeof entry.full>; index: number } =>
+            entry.full != null
+        );
+      const contextsWithIndices = await Promise.all(
+        fullWithIndices.map(async ({ full, index }) => ({
+          index,
+          context: await gatherPresenterContext(database, full, context.userId),
+        }))
+      );
+      const contexts = contextsWithIndices.map(({ context }) => context);
       const presentations =
         contexts.length > 0
           ? await presenter.presentBatch(contexts, { concurrency: 5 })
           : [];
       const presentationByIndex = new Map<number, (typeof presentations)[0]>();
-      indicesWithFull.forEach((idx, j) =>
-        presentationByIndex.set(idx, presentations[j])
-      );
+      for (let i = 0; i < contextsWithIndices.length; i++) {
+        presentationByIndex.set(
+          contextsWithIndices[i].index,
+          presentations[i]
+        );
+      }
       const enriched = opps.map((item: ReadResultItem, i: number) => ({
         ...item,
         presentation: presentationByIndex.get(i),
