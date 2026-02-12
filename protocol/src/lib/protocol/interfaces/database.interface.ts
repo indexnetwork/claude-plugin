@@ -954,6 +954,19 @@ export interface Database {
   ): Promise<boolean>;
 
   /**
+   * Find non-expired opportunities that share at least one non-introducer actor (by userId).
+   * Index-agnostic: opportunities are not scoped to a single index; actors can span indexes.
+   *
+   * @param actorUserIds - Non-introducer user IDs from the new opportunity
+   * @param options - Optional excludeStatuses (default: ['expired', 'rejected'])
+   * @returns Opportunities that overlap by actor userId
+   */
+  findOverlappingOpportunities(
+    actorUserIds: string[],
+    options?: { excludeStatuses?: OpportunityStatus[] }
+  ): Promise<Opportunity[]>;
+
+  /**
    * Expire opportunities referencing an intent (e.g. when intent is archived).
    *
    * @param intentId - Intent ID to match in opportunity actors
@@ -1029,6 +1042,7 @@ export type ChatGraphCompositeDatabase = Pick<
   | 'createOpportunity'
   | 'getOpportunity'
   | 'opportunityExistsBetweenActors'
+  | 'findOverlappingOpportunities'
   | 'getOpportunitiesForUser'
   | 'updateOpportunityStatus'
   // HyDE graph (used by OpportunityGraph)
@@ -1074,6 +1088,7 @@ export type OpportunityGraphDatabase = Pick<
   | 'getProfile'
   | 'createOpportunity'
   | 'opportunityExistsBetweenActors'
+  | 'findOverlappingOpportunities'
   | 'getUserIndexIds'
   | 'getActiveIntents'
   | 'getIndex'
@@ -1113,6 +1128,7 @@ export type OpportunityControllerDatabase = Pick<
   | 'updateOpportunityStatus'
   | 'createOpportunity'
   | 'opportunityExistsBetweenActors'
+  | 'findOverlappingOpportunities'
   | 'isIndexOwner'
   | 'isIndexMember'
   | 'getUser'

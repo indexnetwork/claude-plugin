@@ -1942,6 +1942,12 @@ export class ChatDatabaseAdapter {
   async opportunityExistsBetweenActors(actorIds: string[], indexId: string): Promise<boolean> {
     return this.opportunityAdapter.opportunityExistsBetweenActors(actorIds, indexId);
   }
+  async findOverlappingOpportunities(
+    actorUserIds: string[],
+    options?: { excludeStatuses?: ('latent' | 'pending' | 'viewed' | 'accepted' | 'rejected' | 'expired')[] }
+  ): Promise<OpportunityRow[]> {
+    return this.opportunityAdapter.findOverlappingOpportunities(actorUserIds, options);
+  }
   async expireOpportunitiesByIntent(intentId: string): Promise<number> {
     return this.opportunityAdapter.expireOpportunitiesByIntent(intentId);
   }
@@ -2311,6 +2317,35 @@ export class OpportunityDatabaseAdapter {
       .where(and(...conditions))
       .limit(1);
     return rows.length > 0;
+  }
+
+  async findOverlappingOpportunities(
+    actorUserIds: string[],
+    options?: { excludeStatuses?: ('latent' | 'pending' | 'viewed' | 'accepted' | 'rejected' | 'expired')[] }
+  ): Promise<OpportunityRow[]> {
+    if (actorUserIds.length === 0) return [];
+    const excludeStatuses = options?.excludeStatuses ?? [];
+    const statusCondition =
+      excludeStatuses.length > 0
+        ? notInArray(opportunities.status, excludeStatuses)
+        : sql`true`;
+    // Exact match: opportunity's set of non-introducer userIds must equal actorUserIds (same people only)
+    const sortedActorUserIds = [...actorUserIds].sort();
+    const overlapCondition = sql`(
+      SELECT array_agg(uid ORDER BY uid)
+      FROM (
+        SELECT elem->>'userId' AS uid
+        FROM jsonb_array_elements(${opportunities.actors}) AS elem
+        WHERE elem->>'role' IS DISTINCT FROM 'introducer' AND elem->>'userId' IS NOT NULL AND elem->>'userId' != ''
+      ) sub
+    ) = ARRAY[${sql.join(sortedActorUserIds.map((uid) => sql`${uid}`), sql`, `)}]::text[]`;
+    const rows = await db
+      .select()
+      .from(opportunities)
+      .where(and(statusCondition, overlapCondition))
+      .orderBy(desc(opportunities.updatedAt));
+    const result = rows.map(toOpportunityRow);
+    return result;
   }
 
   async expireOpportunitiesByIntent(intentId: string): Promise<number> {
