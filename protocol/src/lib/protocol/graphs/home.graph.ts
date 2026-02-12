@@ -18,7 +18,7 @@ import {
   type HomeSectionProposal,
   type HomeSectionItem,
 } from '../states/home.state';
-import { OpportunityPresenter, gatherPresenterContext } from '../agents/opportunity.presenter';
+import { OpportunityPresenter, gatherPresenterContext, type PresenterDatabase } from '../agents/opportunity.presenter';
 import { HomeCategorizerAgent } from '../agents/home.categorizer';
 import { canUserSeeOpportunity } from '../support/opportunity.utils';
 import { resolveHomeSectionIcon, DEFAULT_HOME_SECTION_ICON } from '../support/lucide.icon-catalog';
@@ -217,7 +217,7 @@ export class HomeGraphFactory {
       if (state.opportunities.length === 0) {
         return { cards: [], meta: { totalOpportunities: 0, totalSections: 0 } };
       }
-      const db = this.database as Parameters<typeof gatherPresenterContext>[0];
+      const db = this.database as PresenterDatabase;
       const cards: HomeCardItem[] = [];
       const relevantActorIds = new Set<string>();
       for (const opp of state.opportunities) {

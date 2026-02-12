@@ -15,6 +15,12 @@ import { protocolLogger } from "../support/protocol.logger";
 import type { Opportunity } from "../interfaces/database.interface";
 import type { ChatGraphCompositeDatabase } from "../interfaces/database.interface";
 
+/**
+ * Minimal database interface required by gatherPresenterContext.
+ * Any database adapter that implements these three methods can be passed.
+ */
+export type PresenterDatabase = Pick<ChatGraphCompositeDatabase, 'getProfile' | 'getActiveIntents' | 'getIndex'>;
+
 const logger = protocolLogger("OpportunityPresenter");
 const LLM_TIMEOUT_MS = 20_000;
 
@@ -323,7 +329,7 @@ Produce headline, personalizedSummary, suggestedAction, narratorRemark, primaryA
  * Fetches viewer profile, viewer intents, other party profile(s), and index in parallel.
  */
 export async function gatherPresenterContext(
-  database: ChatGraphCompositeDatabase,
+  database: PresenterDatabase,
   opportunity: Opportunity,
   viewerId: string
 ): Promise<PresenterInput> {
