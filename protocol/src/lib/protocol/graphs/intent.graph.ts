@@ -5,8 +5,8 @@ import { SemanticVerifier } from "../agents/intent.verifier";
 import { IntentReconciler } from "../agents/intent.reconciler";
 import { IntentGraphDatabase } from "../interfaces/database.interface";
 import type { EmbeddingGenerator } from "../interfaces/embedder.interface";
+import type { IntentGraphQueue } from "../interfaces/queue.interface";
 import { protocolLogger } from "../support/protocol.logger";
-import { addJob as addIntentJob } from "../../../queues/intent.queue";
 
 const logger = protocolLogger("IntentGraphFactory");
 
@@ -17,6 +17,7 @@ export class IntentGraphFactory {
   constructor(
     private database: IntentGraphDatabase,
     private embedder?: EmbeddingGenerator,
+    private intentQueue?: IntentGraphQueue,
   ) { }
 
   public createGraph() {
@@ -283,7 +284,7 @@ export class IntentGraphFactory {
 
             results.push({ actionType: 'create', success: true, intentId: created.id, payload: sanitizedPayload });
             logger.info(`Created intent: ${created.id}`);
-            addIntentJob('generate_hyde', { intentId: created.id, userId: state.userId }).catch((err) =>
+            this.intentQueue?.addGenerateHydeJob({ intentId: created.id, userId: state.userId }).catch((err) =>
               logger.error('Failed to enqueue intent HyDE job', { intentId: created.id, error: err })
             );
 
@@ -317,7 +318,7 @@ export class IntentGraphFactory {
             });
             logger.info(`Updated intent: ${action.id}`);
             if (updated) {
-              addIntentJob('generate_hyde', { intentId: action.id, userId: state.userId }).catch((err) =>
+              this.intentQueue?.addGenerateHydeJob({ intentId: action.id, userId: state.userId }).catch((err) =>
                 logger.error('Failed to enqueue intent HyDE job', { intentId: action.id, error: err })
               );
             }
@@ -332,7 +333,7 @@ export class IntentGraphFactory {
             });
             logger.info(`Archived intent: ${action.id}`);
             if (result.success) {
-              addIntentJob('delete_hyde', { intentId: action.id }).catch((err) =>
+              this.intentQueue?.addDeleteHydeJob({ intentId: action.id }).catch((err) =>
                 logger.error('Failed to enqueue intent HyDE delete job', { intentId: action.id, error: err })
               );
             }
