@@ -5,6 +5,7 @@ import { StreamChat, Channel } from 'stream-chat';
 import { useAuthContext } from './AuthContext';
 import { getAvatarUrl } from '@/lib/file-utils';
 import { useAuthenticatedAPI } from '@/lib/api';
+import { getDirectChannelId } from '@/lib/chat-channel';
 
 interface MessageRequest {
   channelId: string;
@@ -207,19 +208,7 @@ export function StreamChatProvider({ children }: { children: ReactNode }) {
       }
 
       // Create a unique channel ID based on both user IDs (sorted for consistency)
-      const sortedIds = [user.id, otherUserId].sort().join('_');
-      // Hash to ensure it's under 64 characters if needed
-      const channelId = sortedIds.length > 64 
-        ? (() => {
-            let hash = 0;
-            for (let i = 0; i < sortedIds.length; i++) {
-              const char = sortedIds.charCodeAt(i);
-              hash = ((hash << 5) - hash) + char;
-              hash = hash & hash;
-            }
-            return Math.abs(hash).toString(36).slice(0, 63);
-          })()
-        : sortedIds;
+      const channelId = await getDirectChannelId(user.id, otherUserId);
 
       // Get or create channel
       const channel = client.channel('messaging', channelId, {
