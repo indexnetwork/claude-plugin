@@ -65,7 +65,7 @@ export function createIndexTools(defineTool: DefineTool, deps: ToolDeps) {
   const readSharedContextWithUser = defineTool({
     name: "read_shared_context_with_user",
     description:
-      "Returns indexes you share with another user and both users' intents in those indexes. Use when the user asks how they can collaborate with a @mentioned person (e.g. 'How can I collaborate with @X?'). Pass the mentioned user's userId (from @[Name](userId) in the message). In no-index chat this is the correct way to find shared context — do not rely on a 'current index'.",
+      "Returns indexes you share with another user and both users' intents in those indexes. Use when the user asks how they can collaborate with a @mentioned person (e.g. 'How can I collaborate with @X?'). Pass the mentioned user's userId (from @[Name](userId) in the message). In no-index chat this is the correct way to find shared context — do not rely on a 'current index'. IMPORTANT for responses: summarize only the most relevant overlaps and actionable suggestions; do not list every shared index/intent unless the user explicitly asks for the full list.",
     querySchema: z.object({
       userId: z.string().describe("The other user's ID (e.g. from @mention markup @[Name](userId))."),
     }),
