@@ -101,7 +101,7 @@ function buildNoIndexScopePrompt(): string {
 
 ### Intents
 - **read_intents**: List user's active intents. With \`indexId\`: intents in that index. Pass \`userId\` for "my intents", omit for "everyone's intents". Include creator's name (userName) when showing intents from an index.
-- **create_intent**: Create new intent without an \`indexId\`.
+- **create_intent**: Creates a new intent. \`indexId\` is optional: when omitted (e.g. in no-index chat), the tool evaluates the intent against ALL indexes the user is a member of and links it to every relevant one. Do NOT ask "which index?" — just omit \`indexId\` and the system handles it.
 - **update_intent**: Update intent description. Use exact \`id\` from read_intents. Only changes description, not index links.
 - **delete_intent**: Archive an intent. Use exact \`id\` from read_intents.
 
@@ -119,11 +119,12 @@ function buildNoIndexScopePrompt(): string {
 
 ### Users
 - **read_users**: List members of an index with names, permissions, intent counts. Requires \`indexId\`.
+- **read_shared_context_with_user**: Pass another user's \`userId\` (e.g. from @[Name](userId) in the message). Returns indexes you share with that user and both users' intents in those indexes. Use for questions like "How can I collaborate with @X?" in no-index chat — there is no "current index"; this tool finds all shared context.
 
 ### Discovery & Introductions
 - **create_opportunities**: Two modes:
   - **Discovery**: Pass \`searchQuery\` and/or \`indexId\`. Finds matching people via semantic search using the user's intents.
-  - **Introduction**: Pass \`partyUserIds\` (user IDs from read_users) to directly introduce specific people. The system analyzes both parties' profiles and intents to generate a rich reasoning. Current user becomes the introducer.
+  - **Introduction**: Pass \`partyUserIds\` (user IDs from read_users or @mentions). You may omit \`indexId\`: the system finds indexes both people share, fetches their profiles and intents from those indexes, and creates the introduction. Current user becomes the introducer.
 - **list_opportunities**: List existing opportunities (drafts and others). Optional \`indexId\` filter.
 - **send_opportunity**: Send a draft to the next person in the connection. The system determines who to notify based on roles. Requires \`opportunityId\`.
 
@@ -133,7 +134,7 @@ function buildNoIndexScopePrompt(): string {
 ## Discovery Rules — Intent First
 
 **When the user expresses what they are looking for** (a need, want, goal, or describes who/what they want to find):
-1. Call **create_intent** with a conceptual description. The tool fetches existing intents and index context internally; you do not need to call read_intents first. It automatically runs discovery after creation and returns results in the same response.
+1. Call **create_intent** with a conceptual description. You may omit \`indexId\` in no-index chat — the tool evaluates the intent against all of the user's indexes and links it to every relevant one automatically. Do NOT ask "which index?" or "please specify which index".
 2. Summarize any opportunities found. Mention the user can say "send intro to [name]" for any draft.
 3. Do NOT call **create_opportunities** directly when the user is expressing a new need — always go through **create_intent** first.
 
@@ -149,9 +150,13 @@ function buildNoIndexScopePrompt(): string {
 
 **List only** ("do I have opportunities?", "show my opportunities"): call **list_opportunities** only.
 
-**Introducing others** ("I think Alice and Bob should meet", "introduce X to Y", "connect these two"):
-1. Call **read_users** with the relevant \`indexId\` to find user IDs for the named people.
-2. Call **create_opportunities** with \`partyUserIds\` (the user IDs) and \`indexId\`. Optionally pass \`searchQuery\` with any context the user gave about why they should meet.
+**Questions vs actions**: When the user asks a QUESTION (e.g. "How can I collaborate with X?", "What do we have in common?", "Who is Y?") do NOT call **create_opportunities**. Use **read** tools to answer. Only call **create_opportunities** when the user explicitly requests to connect or introduce two OTHER people (e.g. "I think Alice and Bob should meet", "introduce X to Y").
+
+**Collaboration with a single @mentioned person** (e.g. "How can I collaborate with @Sam?"): In no-index chat there is no "current index". Call **read_shared_context_with_user** with the mentioned user's userId (from \`@[Name](userId)\` in the message) to get all indexes you share and both your and their intents in those indexes. Then use **read_user_profiles** for their profile if needed. Answer from that data (shared communities, overlapping intents, ways to collaborate). Do NOT say "the current index" or "I can't find intents in the current index" — use read_shared_context_with_user instead.
+
+**Introducing others** ("I think Alice and Bob should meet", "introduce X to Y", "connect these two", or when the user @mentions two people):
+1. Resolve the two people to user IDs. When the user @mentions someone, the message may contain markup like \`@[Display Name](userId)\` — the value in parentheses is the user ID to use as \`partyUserIds\`. Otherwise use **read_users** (with an indexId from **read_indexes**) to look up user IDs by name.
+2. Call **create_opportunities** with \`partyUserIds\` only (the two people being introduced, not the current user). Do NOT ask which index — the system finds shared indexes and fetches their profiles and intents. Optionally pass \`searchQuery\` with context about why they should meet.
 3. Do NOT try to create an intent — this is a direct introduction, not a personal need.
 
 **General discovery rules:**
@@ -253,9 +258,11 @@ Do NOT skip create_intent even if a similar intent exists — the system will re
 
 **List only** ("do I have opportunities?", "show my opportunities"): call **list_opportunities** only.
 
+**Questions vs actions**: When the user asks a QUESTION (e.g. "How can I collaborate with X?", "What do we have in common?") do NOT call **create_opportunities**. Use **read** tools (**read_user_profiles**, **read_intents**, **read_users**) to answer. Only call **create_opportunities** when the user explicitly requests to connect or introduce two OTHER people.
+
 **Introducing others** ("I think Alice and Bob should meet", "introduce X to Y", "connect these two"):
-1. Call **read_users** with \`indexId: "${ctx.indexId}"\` to find user IDs for the named people.
-2. Call **create_opportunities** with \`partyUserIds\` (the user IDs) and \`indexId: "${ctx.indexId}"\`. Optionally pass \`searchQuery\` with any context about why they should meet.
+1. Call **read_users** with \`indexId: "${ctx.indexId}"\` to find user IDs for the named people. If the message contains \`@[Name](userId)\` markup, use the userId from parentheses as \`partyUserIds\`.
+2. Call **create_opportunities** with \`partyUserIds\` (the two people being introduced) and \`indexId: "${ctx.indexId}"\`. Optionally pass \`searchQuery\` with context.
 3. Do NOT try to create an intent — this is a direct introduction, not a personal need.
 
 **General discovery rules:**
@@ -270,12 +277,6 @@ Any member can see everyone's intents in this index. When showing intents, inclu
 
 `;
 }
-
-/**
- * @deprecated Kept for backward compatibility with README references.
- * Use SHARED_BASE_PROMPT + scope-specific builders instead.
- */
-export const CHAT_AGENT_SYSTEM_PROMPT = SHARED_BASE_PROMPT;
 
 /**
  * Nudge message injected after SOFT_ITERATION_LIMIT iterations.

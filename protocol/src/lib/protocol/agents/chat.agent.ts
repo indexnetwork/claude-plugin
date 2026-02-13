@@ -1,13 +1,13 @@
 import { ChatOpenAI } from "@langchain/openai";
 import { BaseMessage, SystemMessage, ToolMessage } from "@langchain/core/messages";
 import { createChatTools, type ToolContext, type ResolvedToolContext } from "../tools";
-import { CHAT_AGENT_SYSTEM_PROMPT, ITERATION_NUDGE, buildSystemContent } from "./chat.prompt";
+import { SHARED_BASE_PROMPT, ITERATION_NUDGE, buildSystemContent } from "./chat.prompt";
 import { protocolLogger } from "../support/protocol.logger";
 
 const logger = protocolLogger("ChatAgent");
 
 // Re-export for external consumers
-export { CHAT_AGENT_SYSTEM_PROMPT, ITERATION_NUDGE } from "./chat.prompt";
+export { ITERATION_NUDGE } from "./chat.prompt";
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // CONFIGURATION
@@ -298,7 +298,7 @@ export class ChatAgent {
     logger.warn("Hit hard iteration limit", { iterationCount });
     
     const forceResponseMessages = [
-      new SystemMessage(CHAT_AGENT_SYSTEM_PROMPT),
+      new SystemMessage(SHARED_BASE_PROMPT),
       ...messages,
       new SystemMessage("You have reached the maximum number of tool calls. You MUST provide a final response now. Summarize what you've accomplished and what might still be needed.")
     ];

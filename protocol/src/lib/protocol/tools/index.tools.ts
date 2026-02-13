@@ -3,7 +3,7 @@ import type { DefineTool, ToolDeps } from "./tool.helpers";
 import { success, error, UUID_REGEX } from "./tool.helpers";
 
 export function createIndexTools(defineTool: DefineTool, deps: ToolDeps) {
-  const { graphs } = deps;
+  const { graphs, database } = deps;
 
   const readIndexes = defineTool({
     name: "read_indexes",
@@ -59,6 +59,78 @@ export function createIndexTools(defineTool: DefineTool, deps: ToolDeps) {
         return success(result.readResult);
       }
       return error("Failed to fetch index members.");
+    },
+  });
+
+  const readSharedContextWithUser = defineTool({
+    name: "read_shared_context_with_user",
+    description:
+      "Returns indexes you share with another user and both users' intents in those indexes. Use when the user asks how they can collaborate with a @mentioned person (e.g. 'How can I collaborate with @X?'). Pass the mentioned user's userId (from @[Name](userId) in the message). In no-index chat this is the correct way to find shared context — do not rely on a 'current index'.",
+    querySchema: z.object({
+      userId: z.string().describe("The other user's ID (e.g. from @mention markup @[Name](userId))."),
+    }),
+    handler: async ({ context, query }) => {
+      const otherUserId = query.userId?.trim();
+      if (!otherUserId) {
+        return error("userId is required (the @mentioned person's user ID).");
+      }
+      if (otherUserId === context.userId) {
+        return error("Use your own indexes and intents; pass the other person's userId.");
+      }
+
+      const [myMemberships, theirMemberships] = await Promise.all([
+        database.getIndexMemberships(context.userId),
+        database.getIndexMemberships(otherUserId),
+      ]);
+      const myIndexIds = new Set(myMemberships.map((m) => m.indexId));
+      const sharedIndexIds = theirMemberships.map((m) => m.indexId).filter((id) => myIndexIds.has(id));
+
+      if (sharedIndexIds.length === 0) {
+        return success({
+          sharedIndexes: [],
+          yourIntentsByIndex: [],
+          theirIntentsByIndex: [],
+          message: "You don't share any index with this user.",
+        });
+      }
+
+      const sharedIndexes = await Promise.all(
+        sharedIndexIds.map(async (indexId) => {
+          const index = await database.getIndex(indexId);
+          return { indexId, indexTitle: index?.title ?? "Unknown" };
+        })
+      );
+
+      const [yourIntentsByIndex, theirIntentsByIndex] = await Promise.all([
+        Promise.all(
+          sharedIndexIds.map(async (indexId) => {
+            const index = await database.getIndex(indexId);
+            const intents = await database.getIntentsInIndexForMember(context.userId, indexId);
+            return {
+              indexId,
+              indexTitle: index?.title ?? "Unknown",
+              intents: intents.map((i) => ({ id: i.id, payload: i.payload, summary: i.summary ?? undefined })),
+            };
+          })
+        ),
+        Promise.all(
+          sharedIndexIds.map(async (indexId) => {
+            const index = await database.getIndex(indexId);
+            const intents = await database.getIntentsInIndexForMember(otherUserId, indexId);
+            return {
+              indexId,
+              indexTitle: index?.title ?? "Unknown",
+              intents: intents.map((i) => ({ id: i.id, payload: i.payload, summary: i.summary ?? undefined })),
+            };
+          })
+        ),
+      ]);
+
+      return success({
+        sharedIndexes,
+        yourIntentsByIndex,
+        theirIntentsByIndex,
+      });
     },
   });
 
@@ -225,5 +297,5 @@ export function createIndexTools(defineTool: DefineTool, deps: ToolDeps) {
     },
   });
 
-  return [readIndexes, readUsers, updateIndex, createIndex, deleteIndex, createIndexMembership] as const;
+  return [readIndexes, readUsers, readSharedContextWithUser, updateIndex, createIndex, deleteIndex, createIndexMembership] as const;
 }

@@ -123,18 +123,20 @@ export function createIntentTools(defineTool: DefineTool, deps: ToolDeps) {
       const indexForAssignment = effectiveIndexId || context.indexId || undefined;
       const assignedIndexIds = new Set<string>();
       if (created.length > 0) {
-        let autoAssignIndexIds: string[] = [];
+        let candidateIndexIds: string[] = [];
         if (!indexForAssignment) {
+          // No index scope: evaluate the intent against ALL indexes the user is a member of
           const idxResult = await graphs.index.invoke({ userId: context.userId, operationMode: 'read' as const, showAll: true });
-          autoAssignIndexIds = (idxResult.readResult?.memberOf || [])
-            .filter((m: { autoAssign: boolean }) => m.autoAssign)
-            .map((m: { indexId: string }) => m.indexId);
+          const memberOf = idxResult.readResult?.memberOf || [];
+          candidateIndexIds = memberOf.map((m: { indexId: string }) => m.indexId);
         }
         const scopeIndexIds = indexForAssignment
           ? [indexForAssignment]
-          : autoAssignIndexIds;
+          : candidateIndexIds;
         if (scopeIndexIds.length > 0) {
-          const forceAssignSingleIndex = scopeIndexIds.length === 1;
+          // When a single explicit index was provided, skip evaluation (force-assign).
+          // When testing against all indexes (no scope), always run evaluation so only relevant indexes are linked.
+          const forceAssignSingleIndex = !!indexForAssignment && scopeIndexIds.length === 1;
           const assignmentPromises = created.flatMap((intent: { id: string; description: string }) =>
             scopeIndexIds.map(async (idxId) => {
               try {
