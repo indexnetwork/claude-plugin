@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { Channel, MessageResponse, LocalMessage } from 'stream-chat';
+import { Channel, MessageResponse, LocalMessage, type Event as StreamEvent } from 'stream-chat';
 import { useStreamChat } from '@/contexts/StreamChatContext';
 import { useNotifications } from '@/contexts/NotificationContext';
 import { Clock, Check, SkipForward, Loader2, ArrowUp, X, MoreHorizontal, Trash2 } from 'lucide-react';
@@ -68,10 +68,6 @@ const transformMessage = (msg: MessageResponse | LocalMessage): ChatMessage => {
   };
 };
 
-interface ChannelEvent {
-  channel?: { id: string };
-}
-
 interface ChatViewProps {
   userId: string;
   userName: string;
@@ -112,6 +108,9 @@ export default function ChatView({ userId, userName, userAvatar, userTitle, init
   const [acceptedOpportunities, setAcceptedOpportunities] = useState<AcceptedOpportunityMeta[]>([]);
   const menuRef = useRef<HTMLDivElement>(null);
 
+  const messageTimestamp = (message: ChatMessage) =>
+    message.created_at ? new Date(message.created_at).getTime() : 0;
+
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'auto' });
   }, []);
@@ -121,9 +120,17 @@ export default function ChatView({ userId, userName, userAvatar, userTitle, init
 
     let mounted = true;
     let currentChannel: Channel | null = null;
-    let handleMessage: ((event: ChannelEvent) => void) | null = null;
-    let handleMessageUpdated: ((event: ChannelEvent) => void) | null = null;
+    let handleMessage: ((event: StreamEvent) => void) | null = null;
+    let handleMessageUpdated: ((event: StreamEvent) => void) | null = null;
     let syncMessagesHandler: (() => void) | null = null;
+    const markReadIfVisible = async (ch: Channel) => {
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+      try {
+        await ch.markRead();
+      } catch {
+        // Read state sync is best-effort.
+      }
+    };
     const attachChannelListeners = (ch: Channel) => {
       syncMessagesHandler = () => {
         if (mounted && ch.state.messages) {
@@ -131,10 +138,42 @@ export default function ChatView({ userId, userName, userAvatar, userTitle, init
           const latestChannelData = ch.data as { acceptedOpportunities?: AcceptedOpportunityMeta[] } | undefined;
           setAcceptedOpportunities(Array.isArray(latestChannelData?.acceptedOpportunities) ? latestChannelData.acceptedOpportunities : []);
           scrollToBottom();
+          void markReadIfVisible(ch);
         }
       };
-      handleMessage = (event: ChannelEvent) => { if (mounted && event.channel?.id === ch.id) syncMessagesHandler?.(); };
-      handleMessageUpdated = (event: ChannelEvent) => { if (mounted && event.channel?.id === ch.id) syncMessagesHandler?.(); };
+      handleMessage = (event: StreamEvent) => {
+        if (!mounted) return;
+        if (!event.message) {
+          syncMessagesHandler?.();
+          return;
+        }
+
+        const incoming = transformMessage(event.message);
+        setMessages((prev) => {
+          const existingIndex = prev.findIndex((msg) => msg.id === incoming.id);
+          if (existingIndex >= 0) {
+            const next = [...prev];
+            next[existingIndex] = incoming;
+            return next;
+          }
+
+          const next = [...prev, incoming];
+          next.sort((a, b) => messageTimestamp(a) - messageTimestamp(b));
+          return next;
+        });
+        scrollToBottom();
+        void markReadIfVisible(ch);
+      };
+      handleMessageUpdated = (event: StreamEvent) => {
+        if (!mounted) return;
+        if (!event.message) {
+          syncMessagesHandler?.();
+          return;
+        }
+
+        const updated = transformMessage(event.message);
+        setMessages((prev) => prev.map((msg) => (msg.id === updated.id ? updated : msg)));
+      };
 
       ch.on('message.new', handleMessage);
       ch.on('message.updated', handleMessageUpdated);
@@ -160,6 +199,7 @@ export default function ChatView({ userId, userName, userAvatar, userTitle, init
           if (!mounted) return;
           await ch.watch();
           setChannel(ch);
+          await markReadIfVisible(ch);
 
           const channelData = ch.data as {
             pending?: boolean;
@@ -191,6 +231,7 @@ export default function ChatView({ userId, userName, userAvatar, userTitle, init
           currentChannel = newCh;
           setIsNewConversation(true);
           setChannel(newCh);
+          await markReadIfVisible(newCh);
           setMessages(newCh.state.messages.map(transformMessage));
           const channelData = newCh.data as { acceptedOpportunities?: AcceptedOpportunityMeta[] } | undefined;
           setAcceptedOpportunities(Array.isArray(channelData?.acceptedOpportunities) ? channelData.acceptedOpportunities : []);

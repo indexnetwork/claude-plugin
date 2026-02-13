@@ -82,7 +82,7 @@ const SIMULATED_MESSAGE_REQUESTS: MessageRequest[] = [
 export function StreamChatProvider({ children }: { children: ReactNode }) {
   const { user, isAuthenticated } = useAuthContext();
   const api = useAuthenticatedAPI();
-  const { info } = useNotifications();
+  const { addNotification } = useNotifications();
   const pathname = usePathname();
   const router = useRouter();
   const [client, setClient] = useState<StreamChat | null>(null);
@@ -360,7 +360,17 @@ export function StreamChatProvider({ children }: { children: ReactNode }) {
 
       const senderName = event.message?.user?.name?.trim() || event.user?.name?.trim() || 'New message';
       const preview = event.message?.text?.trim() || 'Sent you a message';
-      info(senderName, preview);
+      const senderAvatar =
+        event.message?.user?.image ||
+        event.user?.image ||
+        undefined;
+      addNotification({
+        type: 'info',
+        title: senderName,
+        message: preview,
+        avatarUrl: senderAvatar,
+        duration: 5000,
+      });
 
       if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
         try {
@@ -388,7 +398,7 @@ export function StreamChatProvider({ children }: { children: ReactNode }) {
       client.off('message.new', handleIncomingMessage);
       client.off('notification.message_new', handleIncomingMessage);
     };
-  }, [isReady, client, user?.id, info, pathname, router]);
+  }, [isReady, client, user?.id, addNotification, pathname, router]);
 
   return (
     <StreamChatContext.Provider
