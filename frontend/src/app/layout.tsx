@@ -11,7 +11,7 @@ import ClientWrapper from "@/components/ClientWrapper";
 
 export const metadata: Metadata = {
   title: "Index Network",
-  description: "You know that moment when you meet the right person and your next move clicks into place? That sense of magic? You shouldn't have to wait for luck. Index helps your others find you.",
+  description: "You know that moment when the right person unlocks your next move? Index makes that magic repeatable, and helps your others find you.",
   icons: {
     icon: '/favicon-white.png',
     shortcut: '/favicon-white.png',
@@ -21,7 +21,7 @@ export const metadata: Metadata = {
     type: "website",
     url: "https://index.network/",
     title: "Index Network",
-    description: "You know that moment when you meet the right person and your next move clicks into place? That sense of magic? You shouldn't have to wait for luck. Index helps your others find you.",
+    description: "You know that moment when the right person unlocks your next move? Index makes that magic repeatable, and helps your others find you.",
     images: [
       {
         url: "https://index.network/link-preview.png",
@@ -31,7 +31,7 @@ export const metadata: Metadata = {
   twitter: {
     card: "summary_large_image",
     title: "Index Network",
-    description: "You know that moment when you meet the right person and your next move clicks into place? That sense of magic? You shouldn't have to wait for luck. Index helps your others find you.",
+    description: "You know that moment when the right person unlocks your next move? Index makes that magic repeatable, and helps your others find you.",
     images: ["https://index.network/link-preview.png"],
   },
 };

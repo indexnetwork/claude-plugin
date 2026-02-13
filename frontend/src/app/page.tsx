@@ -772,7 +772,7 @@ function LandingPage() {
                 className="text-[17px] leading-relaxed text-black/80 mb-8 lg:mb-10 max-w-[480px] mx-auto lg:mx-0 font-normal"
                 style={{ fontFamily: "'Public Sans', -apple-system, BlinkMacSystemFont, sans-serif" }}
               >
-                You know that moment when you meet the right person and your next move clicks into place? That sense of magic? You shouldn&apos;t have to wait for luck. Index helps your others find you.
+                You know that moment when the right person unlocks your next move? Index makes that magic repeatable, and helps your others find you.
               </p>
 
               <div
