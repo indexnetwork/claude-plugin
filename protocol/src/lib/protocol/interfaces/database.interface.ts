@@ -6,6 +6,7 @@ import type {
   OpportunityContext,
   UserSocials,
 } from '../../../schemas/database.schema';
+import type { Id } from '../../../types/common.types';
 
 /** User record returned by getUser (minimal fields plus optional profile fields). */
 export interface UserRecord {
@@ -301,7 +302,6 @@ export interface Opportunity {
   actors: OpportunityActor[];
   interpretation: OpportunityInterpretation;
   context: OpportunityContext;
-  indexId: string;
   confidence: string;
   status: OpportunityStatus;
   createdAt: Date;
@@ -314,7 +314,6 @@ export interface CreateOpportunityData {
   actors: OpportunityActor[];
   interpretation: OpportunityInterpretation;
   context: OpportunityContext;
-  indexId: string;
   confidence: string;
   status?: OpportunityStatus;
   expiresAt?: Date;
@@ -354,14 +353,6 @@ export interface Database {
    * @param profile - The profile data to save
    */
   saveProfile(userId: string, profile: ProfileDocument): Promise<void>;
-
-  /**
-   * Updates the HyDE (Hypothetical Document Embedding) fields for a user profile.
-   * @param userId - The unique identifier of the user
-   * @param description - The generated HyDE description
-   * @param embedding - The vector embedding of the description
-   */
-  saveHydeProfile(userId: string, description: string, embedding: number[]): Promise<void>;
 
   /**
    * Retrieves basic user information (name, email, socials) by userId.
@@ -719,6 +710,15 @@ export interface Database {
   ): Promise<IndexMemberDetails[]>;
 
   /**
+   * Get all members from every index the user is a member of (deduplicated).
+   * Used for mentionable-users: anyone who shares at least one index with the requesting user.
+   *
+   * @param userId - The signed-in user
+   * @returns Array of member summaries (id, name, avatar only; no email)
+   */
+  getMembersFromUserIndexes(userId: Id<'users'>): Promise<{ userId: Id<'users'>; name: string; avatar: string | null }[]>;
+
+  /**
    * Get all indexed intents for an index.
    * **OWNER ONLY** - throws if user is not an owner.
    *
@@ -918,7 +918,7 @@ export interface Database {
   /**
    * Get opportunities for a user (as any actor role).
    *
-   * @param userId - User ID (actor identityId)
+   * @param userId - User ID (actor userId)
    * @param options - Optional filters and pagination
    * @returns Array of opportunities
    */
@@ -952,9 +952,23 @@ export interface Database {
   ): Promise<Opportunity | null>;
 
   /**
+   * Create one opportunity and expire others in a single transaction.
+   * Atomic: insert then update status to 'expired' for each id in expireIds.
+   * Used when enriching replaces overlapping opportunities so subscribers see consistent state.
+   *
+   * @param data - Opportunity creation data (caller may set status when enriched)
+   * @param expireIds - Opportunity IDs to set status to 'expired'
+   * @returns The created opportunity and the list of opportunities that were expired
+   */
+  createOpportunityAndExpireIds(
+    data: CreateOpportunityData,
+    expireIds: string[]
+  ): Promise<{ created: Opportunity; expired: Opportunity[] }>;
+
+  /**
    * Check if an opportunity already exists between the given actors in the index (deduplication).
    *
-   * @param actorIds - Array of user IDs (identityIds) that would be actors
+   * @param actorIds - Array of user IDs that would be actors
    * @param indexId - Index ID
    * @returns True if a non-expired opportunity exists with exactly these actors in this index
    */
@@ -962,6 +976,21 @@ export interface Database {
     actorIds: string[],
     indexId: string
   ): Promise<boolean>;
+
+  /**
+   * Find non-expired opportunities whose non-introducer actor set exactly matches the given user IDs.
+   * Overlap semantics: exact actor-set equality — an opportunity is returned only if its set of
+   * non-introducer actor userIds (ignoring introducers) equals the set of actorUserIds. Index-agnostic;
+   * opportunities are not scoped to a single index.
+   *
+   * @param actorUserIds - Typed user IDs of non-introducer actors (order-independent; compared as sets)
+   * @param options - Optional excludeStatuses (default: ['expired', 'rejected']). Uses OpportunityStatus.
+   * @returns Promise of opportunities matching the exact actor set, excluding specified statuses
+   */
+  findOverlappingOpportunities(
+    actorUserIds: Id<'users'>[],
+    options?: { excludeStatuses?: OpportunityStatus[] }
+  ): Promise<Opportunity[]>;
 
   /**
    * Expire opportunities referencing an intent (e.g. when intent is archived).
@@ -989,6 +1018,36 @@ export interface Database {
    * @returns Number of opportunities updated to expired
    */
   expireStaleOpportunities(): Promise<number>;
+
+  /**
+   * Get accepted opportunities between two actors (same actor pair, status accepted).
+   * Used when building accepted-opportunities meta after accept (e.g. for chat channel).
+   *
+   * @param userId - First actor user ID
+   * @param counterpartUserId - Second actor user ID
+   * @returns Accepted opportunities between these two users, newest first
+   */
+  getAcceptedOpportunitiesBetweenActors(
+    userId: string,
+    counterpartUserId: string
+  ): Promise<Opportunity[]>;
+
+  /**
+   * Accept all sibling opportunities between the same actor pair in one transaction.
+   * Selects opportunities where both userId and counterpartUserId are actors and status
+   * is not accepted/expired/rejected, excludes excludeOpportunityId, then bulk-updates status to accepted.
+   * Rolls back on any failure.
+   *
+   * @param userId - First actor user ID
+   * @param counterpartUserId - Second actor user ID
+   * @param excludeOpportunityId - Opportunity ID to exclude (the one already being accepted)
+   * @returns IDs of opportunities that were updated to accepted
+   */
+  acceptSiblingOpportunities(
+    userId: string,
+    counterpartUserId: string,
+    excludeOpportunityId: string
+  ): Promise<string[]>;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1001,7 +1060,7 @@ export interface Database {
  */
 export type ProfileGraphDatabase = Pick<
   Database,
-  'getProfile' | 'getUser' | 'updateUser' | 'saveProfile' | 'saveHydeProfile' | 'getProfileByUserId' | 'saveHydeDocument'
+  'getProfile' | 'getUser' | 'updateUser' | 'saveProfile' | 'getProfileByUserId' | 'getHydeDocument' | 'saveHydeDocument'
 >;
 
 /**
@@ -1031,7 +1090,6 @@ export type ChatGraphCompositeDatabase = Pick<
   | 'getUser'
   | 'updateUser'
   | 'saveProfile'
-  | 'saveHydeProfile'
   // IntentGraph subgraph requirements (getActiveIntents already included)
   | 'createIntent'
   | 'updateIntent'
@@ -1040,6 +1098,7 @@ export type ChatGraphCompositeDatabase = Pick<
   | 'createOpportunity'
   | 'getOpportunity'
   | 'opportunityExistsBetweenActors'
+  | 'findOverlappingOpportunities'
   | 'getOpportunitiesForUser'
   | 'updateOpportunityStatus'
   // HyDE graph (used by OpportunityGraph)
@@ -1064,6 +1123,7 @@ export type ChatGraphCompositeDatabase = Pick<
   | 'isIndexMember'
   | 'getIndexMembersForOwner'
   | 'getIndexMembersForMember'
+  | 'getMembersFromUserIndexes'
   | 'getIndexIntentsForOwner'
   | 'getIndexIntentsForMember'
   | 'updateIndexSettings'
@@ -1085,6 +1145,7 @@ export type OpportunityGraphDatabase = Pick<
   | 'getProfile'
   | 'createOpportunity'
   | 'opportunityExistsBetweenActors'
+  | 'findOverlappingOpportunities'
   | 'getUserIndexIds'
   | 'getActiveIntents'
   | 'getIndex'
@@ -1095,6 +1156,8 @@ export type OpportunityGraphDatabase = Pick<
   | 'updateOpportunityStatus'
   | 'isIndexMember'
   | 'getUser'
+  // Load candidate intent payload/summary for evaluator
+  | 'getIntent'
 >;
 
 /**
@@ -1121,12 +1184,18 @@ export type OpportunityControllerDatabase = Pick<
   | 'getOpportunitiesForIndex'
   | 'updateOpportunityStatus'
   | 'createOpportunity'
+  | 'createOpportunityAndExpireIds'
   | 'opportunityExistsBetweenActors'
+  | 'findOverlappingOpportunities'
+  | 'getAcceptedOpportunitiesBetweenActors'
+  | 'acceptSiblingOpportunities'
   | 'isIndexOwner'
   | 'isIndexMember'
   | 'getUser'
   | 'getIndex'
   | 'getIndexMemberships'
+  | 'getProfile'
+  | 'getActiveIntents'
 >;
 
 /**
@@ -1238,4 +1307,18 @@ export type IndexOwnershipDatabase = Pick<
 export type HydeGraphDatabase = Pick<
   Database,
   'getHydeDocument' | 'getHydeDocumentsForSource' | 'saveHydeDocument' | 'getIntent'
+>;
+
+/**
+ * Database interface for Home Graph (opportunity home view).
+ * Load opportunities, enrich with profile/index, and support presenter context.
+ */
+export type HomeGraphDatabase = Pick<
+  Database,
+  | 'getOpportunitiesForUser'
+  | 'getOpportunity'
+  | 'getProfile'
+  | 'getActiveIntents'
+  | 'getIndex'
+  | 'getUser'
 >;

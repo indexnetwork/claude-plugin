@@ -1,22 +1,22 @@
 import cron from 'node-cron';
+import { log } from '../lib/log';
 import { ChatDatabaseAdapter } from '../adapters/database.adapter';
 import { EmbedderAdapter } from '../adapters/embedder.adapter';
 import { RedisCacheAdapter } from '../adapters/cache.adapter';
 import type { HydeGraphDatabase } from '../lib/protocol/interfaces/database.interface';
 import { HydeGraphFactory } from '../lib/protocol/graphs/hyde.graph';
 import { HydeGenerator } from '../lib/protocol/agents/hyde.generator';
-import { log } from '../lib/log';
 
-const logger = log.job.from("hyde");
+const logger = log.job.from('HydeJob');
 const database = new ChatDatabaseAdapter();
 const hydeDb = database as unknown as HydeGraphDatabase;
 
 /** Staleness threshold for refresh: documents older than 30 days. */
 const STALE_HYDE_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
 
-/** Optional deps for testing. */
+/** Minimal database interface for HyDE cron jobs (used when deps provided in tests). */
 export interface HydeJobDeps {
-  database: Pick<
+  database?: Pick<
     ChatDatabaseAdapter,
     | 'deleteExpiredHydeDocuments'
     | 'getStaleHydeDocuments'
@@ -27,7 +27,8 @@ export interface HydeJobDeps {
 
 /**
  * Daily job: Remove HyDE documents with expires_at <= now.
- * @param deps - Optional; if not provided, uses default ChatDatabaseAdapter.
+ *
+ * @param deps - Optional; if not provided, uses default ChatDatabaseAdapter. Used for testing.
  */
 export async function cleanupExpiredHyde(deps?: HydeJobDeps): Promise<number> {
   const db = deps?.database ?? database;
@@ -40,7 +41,8 @@ export async function cleanupExpiredHyde(deps?: HydeJobDeps): Promise<number> {
 /**
  * Weekly job: Refresh stale persisted HyDE documents (by createdAt).
  * For each stale document with sourceType 'intent', re-run the HyDE graph; if the intent is gone, delete orphaned HyDE.
- * @param deps - Optional; if not provided, uses default ChatDatabaseAdapter and real embedder/cache/graph.
+ *
+ * @param deps - Optional; if not provided, uses default ChatDatabaseAdapter and real embedder/cache/graph. Used for testing.
  */
 export async function refreshStaleHyde(deps?: HydeJobDeps): Promise<number> {
   const db = deps?.database ?? database;
@@ -90,6 +92,7 @@ export async function refreshStaleHyde(deps?: HydeJobDeps): Promise<number> {
 
 /**
  * Schedule HyDE maintenance crons: daily cleanup, weekly refresh.
+ * Call once on app bootstrap (e.g. in the process that runs queue workers).
  */
 export function initHydeJobs(): void {
   cron.schedule('0 3 * * *', () => {

@@ -107,3 +107,71 @@ export function deriveRolesFromStrategy(strategy: HydeStrategy): DerivedRoles {
       return { sourceRole: 'peer', candidateRole: 'peer' };
   }
 }
+
+/**
+ * Role-based visibility (Latent Opportunity Lifecycle).
+ * A user can see an opportunity iff they are an actor and the rule below allows it.
+ *
+ * - Introducer: see only when status is latent (once sent, they no longer see it in home).
+ * - Peer: always see.
+ * - Patient or party: see if (status is not latent, or there is no introducer).
+ * - Agent: see if (status is accepted/rejected/expired, or (status is not latent and there is no introducer)).
+ */
+export function canUserSeeOpportunity(
+  actors: Array<{ userId: string; role: string }>,
+  status: string,
+  userId: string
+): boolean {
+  const hasIntroducer = actors.some((a) => a.role === 'introducer');
+  const userRoles = actors.filter((a) => a.userId === userId).map((a) => a.role);
+  if (userRoles.length === 0) return false;
+
+  return userRoles.some((role) => {
+    if (role === 'introducer') return status === 'latent';
+    if (role === 'peer') return true;
+    if (role === 'patient' || role === 'party')
+      return status !== 'latent' || !hasIntroducer;
+    if (role === 'agent')
+      return (
+        ['accepted', 'rejected', 'expired'].includes(status) ||
+        (status !== 'latent' && !hasIntroducer)
+      );
+    return false;
+  });
+}
+
+/**
+ * Whether an opportunity should appear on the Home feed for the viewer (actionable = has a pending action).
+ * Encodes the role-visibility matrix from the Latent Opportunity Lifecycle: only show statuses where
+ * the viewer's role has an action (Send, Accept/Reject, or transitional "Go to chat").
+ */
+export function isActionableForViewer(
+  actors: Array<{ userId: string; role: string }>,
+  status: string,
+  viewerId: string
+): boolean {
+  const viewerActors = actors.filter((a) => a.userId === viewerId);
+  if (viewerActors.length === 0) return false;
+
+  const hasIntroducer = actors.some((a) => a.role === 'introducer');
+
+  return viewerActors.some(({ role }) => {
+    switch (role) {
+      case 'introducer':
+        return status === 'latent';
+      case 'patient':
+      case 'party':
+        return hasIntroducer
+          ? status === 'pending' || status === 'viewed'
+          : status === 'latent';
+      case 'agent':
+        return hasIntroducer
+          ? status === 'accepted'
+          : status === 'pending' || status === 'viewed';
+      case 'peer':
+        return status === 'latent' || status === 'pending' || status === 'viewed';
+      default:
+        return false;
+    }
+  });
+}

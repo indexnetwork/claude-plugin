@@ -4,6 +4,7 @@ import { AuthGuard } from '../guards/auth.guard';
 import type { AuthenticatedUser } from '../guards/auth.guard';
 import { queueOpportunityNotification } from '../queues/notification.queue';
 import { log } from '../lib/log';
+import type { OpportunityStatus } from '../lib/protocol/interfaces/database.interface';
 
 const logger = log.controller.from('opportunity');
 
@@ -36,6 +37,28 @@ export class OpportunityController {
     const list = await opportunityService.getOpportunitiesForUser(user.id, options);
     logger.info('Opportunities listed', { userId: user.id, count: list.length });
     return Response.json({ opportunities: list });
+  }
+
+  /**
+   * GET /opportunities/home — home view with dynamic sections (LLM-categorized, presenter text, Lucide icons).
+   */
+  @Get('/home')
+  @UseGuards(AuthGuard)
+  async getHome(req: Request, user: AuthenticatedUser) {
+    const url = new URL(req.url, `http://${req.headers.get('host') || 'localhost'}`);
+    const indexId = url.searchParams.get('indexId') ?? undefined;
+    const limitParam = url.searchParams.get('limit');
+    const result = await opportunityService.getHomeView(user.id, {
+      indexId,
+      limit: limitParam ? parseInt(limitParam, 10) : undefined,
+    });
+    if ('error' in result) {
+      return new Response(JSON.stringify({ error: result.error }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    return Response.json(result);
   }
 
   /**

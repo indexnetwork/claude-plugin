@@ -7,6 +7,7 @@ import { eq, and, or, isNull, isNotNull, sql, count, desc, lt, lte, ne, inArray,
 import * as schema from '../schemas/database.schema';
 import db from '../lib/drizzle/drizzle';
 import type { User, NotificationPreferences } from '../schemas/database.schema';
+import type { Id } from '../types/common.types';
 import { log } from '../lib/log';
 
 // Local types used by adapters (shapes only; protocol layer defines the contracts)
@@ -778,16 +779,6 @@ export class ChatDatabaseAdapter {
       });
   }
 
-  async saveHydeProfile(userId: string, description: string, embedding: number[]): Promise<void> {
-    await db.update(schema.userProfiles)
-      .set({
-        hydeDescription: description,
-        hydeEmbedding: embedding,
-        updatedAt: new Date(),
-      })
-      .where(eq(schema.userProfiles.userId, userId));
-  }
-
   async createIntent(data: CreateIntentInput): Promise<CreatedIntentRow> {
     try {
       const [created] = await db.insert(schema.intents)
@@ -1408,6 +1399,39 @@ export class ChatDatabaseAdapter {
     return result;
   }
 
+  async getMembersFromUserIndexes(userId: Id<'users'>): Promise<{ userId: Id<'users'>; name: string; avatar: string | null }[]> {
+    // Indexes the user is a member of (non-deleted)
+    const myIndexRows = await db
+      .select({ indexId: indexMembers.indexId })
+      .from(indexMembers)
+      .innerJoin(indexes, eq(indexMembers.indexId, indexes.id))
+      .where(
+        and(eq(indexMembers.userId, userId), isNull(indexes.deletedAt))
+      );
+    const myIndexIds = myIndexRows.map((r) => r.indexId);
+    if (myIndexIds.length === 0) return [];
+
+    // All members from those indexes, joined with users; dedupe by userId
+    const rows = await db
+      .select({
+        userId: indexMembers.userId,
+        name: users.name,
+        avatar: users.avatar,
+      })
+      .from(indexMembers)
+      .innerJoin(users, eq(indexMembers.userId, users.id))
+      .innerJoin(indexes, eq(indexMembers.indexId, indexes.id))
+      .where(
+        and(inArray(indexMembers.indexId, myIndexIds), isNull(indexes.deletedAt))
+      );
+
+    const byId = new Map<Id<'users'>, { userId: Id<'users'>; name: string; avatar: string | null }>();
+    for (const r of rows) {
+      if (!byId.has(r.userId)) byId.set(r.userId, { userId: r.userId, name: r.name, avatar: r.avatar });
+    }
+    return Array.from(byId.values());
+  }
+
   async getIndexIntentsForOwner(
     indexId: string,
     requestingUserId: string,
@@ -1928,6 +1952,12 @@ export class ChatDatabaseAdapter {
   async createOpportunity(data: CreateOpportunityInput): Promise<OpportunityRow> {
     return this.opportunityAdapter.createOpportunity(data);
   }
+  async createOpportunityAndExpireIds(
+    data: CreateOpportunityInput,
+    expireIds: string[]
+  ): Promise<{ created: OpportunityRow; expired: OpportunityRow[] }> {
+    return this.opportunityAdapter.createOpportunityAndExpireIds(data, expireIds);
+  }
   async getOpportunity(id: string): Promise<OpportunityRow | null> {
     return this.opportunityAdapter.getOpportunity(id);
   }
@@ -1952,6 +1982,12 @@ export class ChatDatabaseAdapter {
   async opportunityExistsBetweenActors(actorIds: string[], indexId: string): Promise<boolean> {
     return this.opportunityAdapter.opportunityExistsBetweenActors(actorIds, indexId);
   }
+  async findOverlappingOpportunities(
+    actorUserIds: Id<'users'>[],
+    options?: { excludeStatuses?: ('latent' | 'pending' | 'viewed' | 'accepted' | 'rejected' | 'expired')[] }
+  ): Promise<OpportunityRow[]> {
+    return this.opportunityAdapter.findOverlappingOpportunities(actorUserIds, options);
+  }
   async expireOpportunitiesByIntent(intentId: string): Promise<number> {
     return this.opportunityAdapter.expireOpportunitiesByIntent(intentId);
   }
@@ -1960,6 +1996,23 @@ export class ChatDatabaseAdapter {
   }
   async expireStaleOpportunities(): Promise<number> {
     return this.opportunityAdapter.expireStaleOpportunities();
+  }
+  async getAcceptedOpportunitiesBetweenActors(
+    userId: string,
+    counterpartUserId: string
+  ): Promise<OpportunityRow[]> {
+    return this.opportunityAdapter.getAcceptedOpportunitiesBetweenActors(userId, counterpartUserId);
+  }
+  async acceptSiblingOpportunities(
+    userId: string,
+    counterpartUserId: string,
+    excludeOpportunityId: string
+  ): Promise<string[]> {
+    return this.opportunityAdapter.acceptSiblingOpportunities(
+      userId,
+      counterpartUserId,
+      excludeOpportunityId
+    );
   }
 }
 
@@ -2006,16 +2059,6 @@ export class ProfileDatabaseAdapter {
         target: schema.userProfiles.userId,
         set: data,
       });
-  }
-
-  async saveHydeProfile(userId: string, description: string, embedding: number[]): Promise<void> {
-    await db.update(schema.userProfiles)
-      .set({
-        hydeDescription: description,
-        hydeEmbedding: embedding,
-        updatedAt: new Date(),
-      })
-      .where(eq(schema.userProfiles.userId, userId));
   }
 
   async getUser(userId: string): Promise<User | null> {
@@ -2081,23 +2124,19 @@ export class ProfileDatabaseAdapter {
   }
 
   /**
-   * Get full profile row by userId (for test assertions, includes hydeDescription, hydeEmbedding).
+   * Get full profile row by userId (for test assertions).
    */
   async getProfileRow(userId: string): Promise<{
     identity: ProfileIdentity;
     narrative: ProfileNarrative;
     attributes: ProfileAttributes;
     embedding: number[] | number[][] | null;
-    hydeDescription: string | null;
-    hydeEmbedding: number[] | null;
   } | null> {
     const result = await db.select({
       identity: schema.userProfiles.identity,
       narrative: schema.userProfiles.narrative,
       attributes: schema.userProfiles.attributes,
       embedding: schema.userProfiles.embedding,
-      hydeDescription: schema.userProfiles.hydeDescription,
-      hydeEmbedding: schema.userProfiles.hydeEmbedding,
     })
       .from(schema.userProfiles)
       .where(eq(schema.userProfiles.userId, userId))
@@ -2109,8 +2148,6 @@ export class ProfileDatabaseAdapter {
       narrative: row.narrative as ProfileNarrative,
       attributes: row.attributes as ProfileAttributes,
       embedding: row.embedding,
-      hydeDescription: row.hydeDescription,
-      hydeEmbedding: row.hydeEmbedding as number[] | null,
     };
   }
 
@@ -2140,6 +2177,14 @@ export class ProfileDatabaseAdapter {
 
   private hydeAdapter = new HydeDatabaseAdapter();
 
+  async getHydeDocument(
+    sourceType: 'intent' | 'profile' | 'query',
+    sourceId: string,
+    strategy: string
+  ) {
+    return this.hydeAdapter.getHydeDocument(sourceType, sourceId, strategy);
+  }
+
   async saveHydeDocument(data: {
     sourceType: 'intent' | 'profile' | 'query';
     sourceId?: string | null;
@@ -2166,7 +2211,6 @@ interface OpportunityRow {
   actors: schema.OpportunityActor[];
   interpretation: schema.OpportunityInterpretation;
   context: schema.OpportunityContext;
-  indexId: string;
   confidence: string;
   status: 'latent' | 'pending' | 'viewed' | 'accepted' | 'rejected' | 'expired';
   createdAt: Date;
@@ -2180,7 +2224,6 @@ interface CreateOpportunityInput {
   actors: schema.OpportunityActor[];
   interpretation: schema.OpportunityInterpretation;
   context: schema.OpportunityContext;
-  indexId: string;
   confidence: string;
   status?: 'latent' | 'pending' | 'viewed' | 'accepted' | 'rejected' | 'expired';
   expiresAt?: Date;
@@ -2194,7 +2237,6 @@ function toOpportunityRow(row: typeof opportunities.$inferSelect): OpportunityRo
     actors: row.actors as schema.OpportunityActor[],
     interpretation: row.interpretation as schema.OpportunityInterpretation,
     context: row.context as schema.OpportunityContext,
-    indexId: row.indexId,
     confidence: typeof confidence === 'string' ? confidence : String(confidence),
     status: row.status,
     createdAt: row.createdAt,
@@ -2231,7 +2273,6 @@ export class OpportunityDatabaseAdapter {
         actors: data.actors,
         interpretation: data.interpretation,
         context: data.context,
-        indexId: data.indexId,
         confidence: data.confidence,
         status: data.status ?? 'pending',
         expiresAt: data.expiresAt ?? null,
@@ -2251,10 +2292,29 @@ export class OpportunityDatabaseAdapter {
     userId: string,
     options?: { status?: string; indexId?: string; role?: string; limit?: number; offset?: number }
   ): Promise<OpportunityRow[]> {
-    const actorFilter = sql`${opportunities.actors} @> ${JSON.stringify([{ identityId: userId }])}::jsonb`;
-    const conditions = [actorFilter];
+    // Role-based visibility: who can see depends on actor role and status (and whether introducer exists)
+    const visibilityGuard = sql`(
+      ${opportunities.actors} @> ${JSON.stringify([{ userId, role: 'introducer' }])}::jsonb
+      OR ${opportunities.actors} @> ${JSON.stringify([{ userId, role: 'peer' }])}::jsonb
+      OR (
+        ${opportunities.actors} @> ${JSON.stringify([{ userId, role: 'patient' }])}::jsonb
+        AND (${opportunities.status} != 'latent' OR NOT (${opportunities.actors} @> '[{"role":"introducer"}]'::jsonb))
+      )
+      OR (
+        ${opportunities.actors} @> ${JSON.stringify([{ userId, role: 'agent' }])}::jsonb
+        AND (
+          ${opportunities.status} IN ('accepted', 'rejected', 'expired')
+          OR (${opportunities.status} != 'latent' AND NOT (${opportunities.actors} @> '[{"role":"introducer"}]'::jsonb))
+        )
+      )
+      OR (
+        ${opportunities.actors} @> ${JSON.stringify([{ userId, role: 'party' }])}::jsonb
+        AND (${opportunities.status} != 'latent' OR NOT (${opportunities.actors} @> '[{"role":"introducer"}]'::jsonb))
+      )
+    )`;
+    const conditions = [visibilityGuard];
     if (options?.status) conditions.push(eq(opportunities.status, options.status as typeof opportunities.$inferSelect.status));
-    if (options?.indexId) conditions.push(eq(opportunities.indexId, options.indexId));
+    if (options?.indexId) conditions.push(sql`${opportunities.context}->>'indexId' = ${options.indexId}`);
     let q = db
       .select()
       .from(opportunities)
@@ -2270,7 +2330,7 @@ export class OpportunityDatabaseAdapter {
     indexId: string,
     options?: { status?: string; limit?: number; offset?: number }
   ): Promise<OpportunityRow[]> {
-    const conditions = [eq(opportunities.indexId, indexId)];
+    const conditions = [sql`${opportunities.context}->>'indexId' = ${indexId}`];
     if (options?.status) conditions.push(eq(opportunities.status, options.status as typeof opportunities.$inferSelect.status));
     let q = db
       .select()
@@ -2295,17 +2355,102 @@ export class OpportunityDatabaseAdapter {
     return row ? toOpportunityRow(row) : null;
   }
 
+  async createOpportunityAndExpireIds(
+    data: CreateOpportunityInput,
+    expireIds: string[]
+  ): Promise<{ created: OpportunityRow; expired: OpportunityRow[] }> {
+    return db.transaction(async (tx) => {
+      const [inserted] = await tx
+        .insert(opportunities)
+        .values({
+          detection: data.detection,
+          actors: data.actors,
+          interpretation: data.interpretation,
+          context: data.context,
+          confidence: data.confidence,
+          status: data.status ?? 'pending',
+          expiresAt: data.expiresAt ?? null,
+        })
+        .returning();
+      if (!inserted) throw new Error('OpportunityDatabaseAdapter.createOpportunityAndExpireIds: no row returned');
+      const created = toOpportunityRow(inserted);
+      const expired: OpportunityRow[] = [];
+      const now = new Date();
+      for (const id of expireIds) {
+        const [row] = await tx
+          .update(opportunities)
+          .set({ status: 'expired', updatedAt: now })
+          .where(eq(opportunities.id, id))
+          .returning();
+        if (row) expired.push(toOpportunityRow(row));
+      }
+      return { created, expired };
+    });
+  }
+
+  /** Condition: opportunity actors contain both userId and counterpartUserId. */
+  private static actorPairCondition(userId: string, counterpartUserId: string) {
+    return and(
+      sql`${opportunities.actors} @> ${JSON.stringify([{ userId }])}::jsonb`,
+      sql`${opportunities.actors} @> ${JSON.stringify([{ userId: counterpartUserId }])}::jsonb`
+    );
+  }
+
+  async getAcceptedOpportunitiesBetweenActors(
+    userId: string,
+    counterpartUserId: string
+  ): Promise<OpportunityRow[]> {
+    const rows = await db
+      .select()
+      .from(opportunities)
+      .where(
+        and(
+          OpportunityDatabaseAdapter.actorPairCondition(userId, counterpartUserId),
+          eq(opportunities.status, 'accepted')
+        )
+      )
+      .orderBy(desc(opportunities.updatedAt));
+    return rows.map(toOpportunityRow);
+  }
+
+  async acceptSiblingOpportunities(
+    userId: string,
+    counterpartUserId: string,
+    excludeOpportunityId: string
+  ): Promise<string[]> {
+    return db.transaction(async (tx) => {
+      const siblingRows = await tx
+        .select({ id: opportunities.id })
+        .from(opportunities)
+        .where(
+          and(
+            OpportunityDatabaseAdapter.actorPairCondition(userId, counterpartUserId),
+            notInArray(opportunities.status, ['accepted', 'expired', 'rejected']),
+            ne(opportunities.id, excludeOpportunityId)
+          )
+        );
+      const ids = siblingRows.map((r) => r.id);
+      if (ids.length === 0) return [];
+      const now = new Date();
+      await tx
+        .update(opportunities)
+        .set({ status: 'accepted', updatedAt: now })
+        .where(inArray(opportunities.id, ids));
+      return ids;
+    });
+  }
+
   async opportunityExistsBetweenActors(actorIds: string[], indexId: string): Promise<boolean> {
     if (actorIds.length === 0) return false;
     const expired = 'expired';
     const conditions = [
-      eq(opportunities.indexId, indexId),
+      sql`${opportunities.context}->>'indexId' = ${indexId}`,
       ne(opportunities.status, expired),
     ];
     // Require that all given actorIds appear in actors (opportunity may have extra actors, e.g. introducer)
     for (const actorId of actorIds) {
       conditions.push(
-        sql`${opportunities.actors} @> ${JSON.stringify([{ identityId: actorId }])}::jsonb`
+        sql`${opportunities.actors} @> ${JSON.stringify([{ userId: actorId }])}::jsonb`
       );
     }
     const rows = await db
@@ -2316,12 +2461,41 @@ export class OpportunityDatabaseAdapter {
     return rows.length > 0;
   }
 
+  async findOverlappingOpportunities(
+    actorUserIds: Id<'users'>[],
+    options?: { excludeStatuses?: ('latent' | 'pending' | 'viewed' | 'accepted' | 'rejected' | 'expired')[] }
+  ): Promise<OpportunityRow[]> {
+    if (actorUserIds.length === 0) return [];
+    const defaultExcludeStatuses: ('expired' | 'rejected')[] = ['expired', 'rejected'];
+    const mergedExcludeStatuses = [
+      ...new Set([...defaultExcludeStatuses, ...(options?.excludeStatuses ?? [])]),
+    ] as ('latent' | 'pending' | 'viewed' | 'accepted' | 'rejected' | 'expired')[];
+    const statusCondition = notInArray(opportunities.status, mergedExcludeStatuses);
+    // Exact match: opportunity's set of non-introducer userIds must equal actorUserIds (same people only)
+    const sortedActorUserIds = [...actorUserIds].sort();
+    const overlapCondition = sql`(
+      SELECT array_agg(uid ORDER BY uid)
+      FROM (
+        SELECT elem->>'userId' AS uid
+        FROM jsonb_array_elements(${opportunities.actors}) AS elem
+        WHERE elem->>'role' IS DISTINCT FROM 'introducer' AND elem->>'userId' IS NOT NULL AND elem->>'userId' != ''
+      ) sub
+    ) = ARRAY[${sql.join(sortedActorUserIds.map((uid) => sql`${uid}`), sql`, `)}]::text[]`;
+    const rows = await db
+      .select()
+      .from(opportunities)
+      .where(and(statusCondition, overlapCondition))
+      .orderBy(desc(opportunities.updatedAt));
+    const result = rows.map(toOpportunityRow);
+    return result;
+  }
+
   async expireOpportunitiesByIntent(intentId: string): Promise<number> {
     const rows = await db
       .select({ id: opportunities.id })
       .from(opportunities)
       .where(
-        sql`${opportunities.actors} @> ${JSON.stringify([{ intents: [intentId] }])}::jsonb`
+        sql`${opportunities.actors} @> ${JSON.stringify([{ intent: intentId }])}::jsonb`
       );
     if (rows.length === 0) return 0;
     const ids = rows.map((r) => r.id);
@@ -2330,7 +2504,7 @@ export class OpportunityDatabaseAdapter {
       .set({ status: 'expired', updatedAt: new Date() })
       .where(
         and(
-          sql`${opportunities.actors} @> ${JSON.stringify([{ intents: [intentId] }])}::jsonb`
+          sql`${opportunities.actors} @> ${JSON.stringify([{ intent: intentId }])}::jsonb`
         )
       )
       .returning({ id: opportunities.id });
@@ -2343,8 +2517,8 @@ export class OpportunityDatabaseAdapter {
       .set({ status: 'expired', updatedAt: new Date() })
       .where(
         and(
-          eq(opportunities.indexId, indexId),
-          sql`${opportunities.actors} @> ${JSON.stringify([{ identityId: userId }])}::jsonb`
+          sql`${opportunities.context}->>'indexId' = ${indexId}`,
+          sql`${opportunities.actors} @> ${JSON.stringify([{ userId }])}::jsonb`
         )
       )
       .returning({ id: opportunities.id });
@@ -2666,6 +2840,26 @@ export class UserDatabaseAdapter {
       .limit(1);
 
     return result[0] || null;
+  }
+
+  /**
+   * Find multiple users by IDs. Returns public profile fields only (same shape as single-user API).
+   */
+  async findByIds(userIds: string[]): Promise<Array<Pick<typeof users.$inferSelect, 'id' | 'name' | 'intro' | 'avatar' | 'location' | 'socials' | 'createdAt' | 'updatedAt'>>> {
+    if (userIds.length === 0) return [];
+    const result = await db.select({
+      id: users.id,
+      name: users.name,
+      intro: users.intro,
+      avatar: users.avatar,
+      location: users.location,
+      socials: users.socials,
+      createdAt: users.createdAt,
+      updatedAt: users.updatedAt,
+    })
+      .from(users)
+      .where(inArray(users.id, userIds));
+    return result;
   }
 
   /**

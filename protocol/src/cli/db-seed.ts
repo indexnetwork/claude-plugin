@@ -7,11 +7,23 @@ dotenv.config({ path: path.resolve(process.cwd(), envFile) });
 
 import { eq } from 'drizzle-orm';
 import db, { closeDb } from '../lib/drizzle/drizzle';
-import { indexMembers, indexes, users } from '../schemas/database.schema';
+import { indexMembers, indexes, userProfiles, users } from '../schemas/database.schema';
 import { privyClient } from '../lib/privy';
 import { setLevel } from '../lib/log';
-import { TESTABLE_TEST_ACCOUNTS } from './test-data';
+import { intentService } from '../services/intent.service';
+import { TESTABLE_TEST_ACCOUNTS, TESTER_PERSONAS, TESTER_PERSONAS_MAX } from './test-data';
+import type { SeedProfile, TesterPersona } from './test-data';
 import type { Id } from '../types/common.types';
+
+/** Minimal account shape for user creation (real or synthetic). */
+interface SeedAccount {
+  email: string;
+  name: string;
+  linkedin?: string | null;
+  github?: string | null;
+  x?: string | null;
+  website?: string | null;
+}
 
 // ── Index definitions ───────────────────────────────────────────────────────
 
@@ -21,6 +33,9 @@ interface IndexDef {
   prompt: string | null;
   joinPolicy: 'anyone' | 'invite_only';
 }
+
+/** Use full persona list from test-data (up to TESTER_PERSONAS_MAX). */
+const DB_SEED_TESTER_PERSONAS = TESTER_PERSONAS;
 
 const SEED_INDEXES: IndexDef[] = [
   // General-purpose indexes (null prompts = auto-assign, no LLM evaluation)
@@ -62,20 +77,71 @@ const SEED_INDEXES: IndexDef[] = [
     prompt: 'Startups, entrepreneurship, business strategy, fundraising, and go-to-market',
     joinPolicy: 'anyone',
   },
+
+  // Non-business / lifestyle indexes
+  {
+    id: 'aaaaaaaa-0005-4000-8000-000000000005',
+    title: 'Art & Creativity',
+    prompt: 'Visual art, illustration, music, writing, performance art, crafts, and creative projects',
+    joinPolicy: 'anyone',
+  },
+  {
+    id: 'aaaaaaaa-0006-4000-8000-000000000006',
+    title: 'Gaming & Esports',
+    prompt: 'Video games, tabletop RPGs, streaming, esports, game development, and gaming community',
+    joinPolicy: 'anyone',
+  },
+  {
+    id: 'aaaaaaaa-0007-4000-8000-000000000007',
+    title: 'Education & Learning',
+    prompt: 'Teaching, tutoring, education, learning, academic research, and knowledge sharing',
+    joinPolicy: 'anyone',
+  },
+  {
+    id: 'aaaaaaaa-0008-4000-8000-000000000008',
+    title: 'Sports & Fitness',
+    prompt: 'Sports, fitness, running, cycling, climbing, swimming, coaching, and athletic activities',
+    joinPolicy: 'anyone',
+  },
+  {
+    id: 'aaaaaaaa-0009-4000-8000-000000000009',
+    title: 'Community & Volunteering',
+    prompt: 'Community organizing, volunteering, mutual aid, local initiatives, and civic engagement',
+    joinPolicy: 'anyone',
+  },
+  {
+    id: 'aaaaaaaa-000a-4000-8000-00000000000a',
+    title: 'Hobbies & Makers',
+    prompt: 'Hobbies, makers, DIY, ceramics, cooking, photography, and hands-on projects',
+    joinPolicy: 'anyone',
+  },
 ];
 
 // ── CLI flags ───────────────────────────────────────────────────────────────
 
+const PERSONAS_DEFAULT = 10;
+
 type GlobalOpts = {
   silent?: boolean;
   confirm?: boolean;
+  /** Number of tester personas to seed (0–TESTER_PERSONAS_MAX). Default PERSONAS_DEFAULT. */
+  personas: number;
 };
 
 function parseArgs(): GlobalOpts {
   const args = process.argv.slice(2);
+  let personas = PERSONAS_DEFAULT;
+  const personasArg = args.find((a) => a.startsWith('--personas='));
+  if (personasArg) {
+    const value = parseInt(personasArg.split('=')[1], 10);
+    if (!Number.isNaN(value)) {
+      personas = Math.max(0, Math.min(TESTER_PERSONAS_MAX, value));
+    }
+  }
   return {
     silent: args.includes('--silent'),
     confirm: args.includes('--confirm'),
+    personas,
   };
 }
 
@@ -91,9 +157,7 @@ async function ensurePrivyIdentity(email: string): Promise<string> {
   return privyUser.id;
 }
 
-type TestAccount = (typeof TESTABLE_TEST_ACCOUNTS)[number];
-
-async function createUser(account: TestAccount): Promise<{ id: string }> {
+async function createUser(account: SeedAccount): Promise<{ id: string }> {
   const privyId = await ensurePrivyIdentity(account.email);
 
   const socials = {
@@ -122,13 +186,71 @@ async function createUser(account: TestAccount): Promise<{ id: string }> {
   }
 }
 
+/**
+ * Create or get users for the given accounts and ensure they are members of all seed indexes.
+ * @param accounts - List of accounts (real or synthetic).
+ * @param options.ownerIndex - Index in this array that receives 'owner' on all indexes; others get 'member'. Omit for all 'member'.
+ */
+async function ensureUsersAndMemberships(
+  accounts: SeedAccount[],
+  options: { ownerIndex?: number } = {}
+): Promise<{ id: string }[]> {
+  const { ownerIndex } = options;
+  const createdUsers: { id: string }[] = [];
+  for (const [i, account] of accounts.entries()) {
+    const user = await createUser(account);
+    createdUsers.push(user);
+    const role = ownerIndex !== undefined && i === ownerIndex ? 'owner' : 'member';
+    for (const idx of SEED_INDEXES) {
+      try {
+        await db.insert(indexMembers).values({
+          indexId: idx.id,
+          userId: user.id,
+          permissions: role === 'owner' ? ['owner'] : ['member'],
+          prompt: null,
+          autoAssign: true,
+        });
+      } catch {
+        /* already exists */
+      }
+    }
+  }
+  return createdUsers;
+}
+
+/** Idempotent upsert of user_profiles by userId. Used for synthetic testers before intent graph. */
+async function upsertUserProfile(userId: string, profile: SeedProfile): Promise<void> {
+  const now = new Date();
+  await db
+    .insert(userProfiles)
+    .values({
+      userId,
+      identity: profile.identity,
+      narrative: profile.narrative,
+      attributes: profile.attributes,
+      updatedAt: now,
+    })
+    .onConflictDoUpdate({
+      target: userProfiles.userId,
+      set: {
+        identity: profile.identity,
+        narrative: profile.narrative,
+        attributes: profile.attributes,
+        updatedAt: now,
+      },
+    });
+}
+
 // ── Seed logic ──────────────────────────────────────────────────────────────
 
 async function seedDatabase(): Promise<{ ok: boolean; error?: string }> {
-  const silent = parseArgs().silent;
+  const opts = parseArgs();
+  const { silent, personas: personasLimit } = opts;
+  const personasToSeed = personasLimit === 0 ? [] : DB_SEED_TESTER_PERSONAS.slice(0, personasLimit);
 
   try {
     if (!silent) console.log('Seeding indexes and users...');
+    if (!silent && DB_SEED_TESTER_PERSONAS.length > 0) console.log(`  Personas to seed: ${personasToSeed.length} (--personas=${personasLimit}, max ${TESTER_PERSONAS_MAX})`);
 
     // Create all indexes
     for (const idx of SEED_INDEXES) {
@@ -151,31 +273,61 @@ async function seedDatabase(): Promise<{ ok: boolean; error?: string }> {
 
     if (!silent) console.log(`  ${SEED_INDEXES.length} indexes ready`);
 
-    // Create users and add them to every index
-    const createdUsers: { id: string }[] = [];
+    // Real test accounts (first is owner of all indexes)
+    const realAccounts: SeedAccount[] = TESTABLE_TEST_ACCOUNTS.map((acc) => ({
+      email: acc.email,
+      name: acc.name,
+      linkedin: acc.linkedin ?? null,
+      github: acc.github ?? null,
+      x: acc.x ?? null,
+      website: acc.website ?? null,
+    }));
+    const realUsers = await ensureUsersAndMemberships(realAccounts, { ownerIndex: 0 });
 
-    for (const [i, account] of TESTABLE_TEST_ACCOUNTS.entries()) {
-      const user = await createUser(account);
-      createdUsers.push(user);
+    // Synthetic tester personas (all members); count controlled by --personas
+    const personaAccounts: SeedAccount[] = personasToSeed.map((p) => ({
+      email: p.email,
+      name: p.name,
+      linkedin: p.linkedin ?? null,
+      github: p.github ?? null,
+      x: p.x ?? null,
+      website: p.website ?? null,
+    }));
+    const personaUsers = await ensureUsersAndMemberships(personaAccounts);
 
-      for (const idx of SEED_INDEXES) {
+    // Upsert profiles for synthetic testers (required for intent graph write mode)
+    let profilesUpserted = 0;
+    for (let i = 0; i < personaUsers.length && i < personasToSeed.length; i++) {
+      await upsertUserProfile(personaUsers[i].id, personasToSeed[i].profile);
+      profilesUpserted++;
+    }
+
+    // Create intents for synthetic testers via intent graph (enqueues HyDE + opportunity discovery)
+    let intentsProcessed = 0;
+    let intentFailures = 0;
+    for (let i = 0; i < personaUsers.length && i < personasToSeed.length; i++) {
+      const userId = personaUsers[i].id;
+      const persona = personasToSeed[i];
+      const userProfileJson = JSON.stringify(persona.profile);
+      for (const intentText of persona.intents) {
         try {
-          await db.insert(indexMembers).values({
-            indexId: idx.id,
-            userId: user.id,
-            permissions: i === 0 ? ['owner'] : ['member'],
-            prompt: null,       // rely on index-level prompt only
-            autoAssign: true,
-          });
-        } catch {
-          /* already exists */
+          await intentService.processIntent(userId, userProfileJson, intentText);
+          intentsProcessed++;
+        } catch (err) {
+          intentFailures++;
+          if (!silent) {
+            console.warn(`  Intent failed for ${persona.name}: ${(err instanceof Error ? err.message : String(err)).slice(0, 80)}`);
+          }
         }
       }
     }
 
     if (!silent) {
-      console.log(`  ${createdUsers.length} users ready`);
-      console.log('\nLogin credentials:');
+      console.log(`  ${realUsers.length} real users ready`);
+      console.log(`  ${personaUsers.length} synthetic tester users ready`);
+      console.log(`  ${profilesUpserted} tester profiles upserted`);
+      console.log(`  ${intentsProcessed} intents processed via graph${intentFailures > 0 ? ` (${intentFailures} failed)` : ''}`);
+      console.log('\nLogin credentials (real accounts):');
       TESTABLE_TEST_ACCOUNTS.forEach(
         (acc) => console.log(`  ${acc.name}: ${acc.email} | ${acc.phoneNumber} | OTP: ${acc.otpCode}`)
       );
@@ -184,6 +336,7 @@ async function seedDatabase(): Promise<{ ok: boolean; error?: string }> {
         const label = idx.prompt ? `prompt: "${idx.prompt}"` : 'no prompt (auto-assign)';
         console.log(`  ${idx.title} [${idx.joinPolicy}] -- ${label}`);
       }
+      console.log('\nNote: Queue workers (e.g. via `bun run dev`) must be running for intent HyDE and opportunity-discovery jobs to run after seed.');
     }
 
     return { ok: true };

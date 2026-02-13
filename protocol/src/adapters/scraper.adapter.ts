@@ -8,6 +8,9 @@
  */
 
 import { searchUser, extractUrlContent } from '../lib/parallel/parallel';
+import { log } from '../lib/log';
+
+const logger = log.lib.from('scraper.adapter');
 
 /** Hostnames that typically require login for direct fetch; use Parallel search instead. */
 const PROFILE_SEARCH_DOMAINS = ['linkedin.com', 'www.linkedin.com'];
@@ -77,7 +80,7 @@ export class ScraperAdapter {
       }
       return `Objective: ${objective}\n\nSearch Results:\n${formattedResults}`;
     } catch (error: unknown) {
-      console.error('ScraperAdapter error:', error);
+      logger.error('Search failed', { objective, error: error instanceof Error ? error.message : String(error) });
       return `Objective: ${objective}\n\n(Search failed: ${error instanceof Error ? error.message : String(error)})`;
     }
   }
@@ -104,7 +107,7 @@ export class ScraperAdapter {
           return formatSearchResultsForContent(response.results, true);
         }
       } catch (error) {
-        console.warn('ScraperAdapter: searchUser failed for URL, falling back to extract', {
+        logger.warn('searchUser failed for URL, falling back to extract', {
           url,
           error: error instanceof Error ? error.message : String(error),
         });
