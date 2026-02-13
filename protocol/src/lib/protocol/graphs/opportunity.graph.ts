@@ -505,6 +505,16 @@ export class OpportunityGraphFactory {
         const initialStatus = state.options.initialStatus ?? 'pending';
 
         for (const evaluated of state.evaluatedOpportunities) {
+          const indexIdForIntroducer = state.indexId ?? evaluated.actors[0]?.indexId;
+          const evaluatorActors: OpportunityActor[] = evaluated.actors.map((a: EvaluatedOpportunityActor) => ({
+            indexId: a.indexId,
+            userId: a.userId,
+            role: a.role,
+            ...(a.intentId ? { intent: a.intentId } : {}),
+          }));
+          const actors: OpportunityActor[] = indexIdForIntroducer
+            ? [{ indexId: indexIdForIntroducer, userId: state.userId, role: 'introducer' }, ...evaluatorActors]
+            : evaluatorActors;
           const data: CreateOpportunityData = {
             detection: {
               source: 'opportunity_graph',
@@ -512,12 +522,7 @@ export class OpportunityGraphFactory {
               triggeredBy: state.indexedIntents[0]?.intentId,
               timestamp: now,
             },
-            actors: evaluated.actors.map((a: EvaluatedOpportunityActor) => ({
-              indexId: a.indexId,
-              userId: a.userId,
-              role: a.role,
-              ...(a.intentId ? { intent: a.intentId } : {}),
-            })),
+            actors,
             interpretation: {
               category: 'collaboration',
               reasoning: evaluated.reasoning,
@@ -808,16 +813,15 @@ export class OpportunityGraphFactory {
           };
         }
         const senderActor = opp.actors.find((a: OpportunityActor) => a.userId === state.userId);
+        const hasIntroducer = opp.actors.some((a: OpportunityActor) => a.role === 'introducer');
+        const canSend =
+          senderActor?.role === 'introducer' ||
+          senderActor?.role === 'peer' ||
+          (senderActor?.role === 'patient' && !hasIntroducer) ||
+          (senderActor?.role === 'party' && !hasIntroducer);
         if (!senderActor) {
           return { mutationResult: { success: false, error: 'You are not part of this opportunity.' } };
         }
-
-        const hasIntroducer = opp.actors.some((a: OpportunityActor) => a.role === 'introducer');
-        const canSend =
-          senderActor.role === 'introducer' ||
-          senderActor.role === 'peer' ||
-          (senderActor.role === 'patient' && !hasIntroducer) ||
-          (senderActor.role === 'party' && !hasIntroducer);
         if (!canSend) {
           return { mutationResult: { success: false, error: 'You cannot send this opportunity.' } };
         }

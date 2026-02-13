@@ -34,13 +34,13 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
     description:
       "Creates opportunities (connections). Two modes:\n" +
       "1. **Discovery mode** (default): finds matching people via semantic search. Pass searchQuery and/or indexId. When searchQuery is omitted, uses the user's existing intents.\n" +
-      "2. **Introduction mode**: when partyUserIds are provided (2+ user IDs from read_users), creates a direct introduction between those specific people. The current user becomes the introducer. The system analyzes both parties' profiles and intents to generate a rich reasoning for the match.\n\n" +
-      "Use discovery mode when user asks to find opportunities, connections, who can help, etc. Use introduction mode when user wants to connect specific OTHER people (e.g. 'I think Alice and Bob should meet', 'introduce X to Y'). For introductions, call read_users first to get user IDs.\n\n" +
+      "2. **Introduction mode**: when partyUserIds are provided (2+ user IDs from read_users), creates a direct introduction between those specific people. The current user becomes the introducer. You may omit indexId: the system finds indexes both people share, fetches their profiles and intents from those indexes, and creates the introduction. If you provide indexId, that index is used.\n\n" +
+      "Use discovery mode when user asks to find opportunities, connections, who can help, etc. Use introduction mode when user wants to connect specific OTHER people (e.g. 'I think Alice and Bob should meet', 'introduce X to Y'). For introductions, pass partyUserIds; indexId is optional.\n\n" +
       "Results are saved as drafts; use send_opportunity when ready.",
     querySchema: z.object({
       searchQuery: z.string().optional().describe("Discovery mode: what kind of connections to search for; when omitted, uses the user's intents in scope."),
       indexId: z.string().optional().describe("Index UUID from read_indexes; optional when chat is index-scoped."),
-      partyUserIds: z.array(z.string()).optional().describe("Introduction mode: user IDs of the people to introduce (at least 2). Get IDs from read_users. Current user becomes the introducer."),
+      partyUserIds: z.array(z.string()).optional().describe("Introduction mode: user IDs of the people to introduce (at least 2). Get IDs from read_users or @mentions. indexId optional — system finds shared indexes and uses their intents."),
     }),
     handler: async ({ context, query }) => {
       const effectiveIndexId = (query.indexId?.trim() || context.indexId) ?? null;
@@ -105,6 +105,8 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
   /**
    * Introduction mode handler: loads profiles & intents for specified parties,
    * runs the LLM evaluator to generate rich reasoning, then creates the opportunity.
+   * When indexId is omitted, resolves shared indexes between the two people and
+   * fetches their intents from those indexes (supports multiple shared indexes).
    */
   async function handleIntroduction(
     context: { userId: string; indexId?: string },
@@ -112,36 +114,69 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
     effectiveIndexId: string | null,
     hint?: string,
   ): Promise<string> {
-    if (!effectiveIndexId || !UUID_REGEX.test(effectiveIndexId)) {
-      return error("An index is required for introductions. Provide an indexId or use an index-scoped chat.");
+    let primaryIndexId: string;
+    let sharedIndexIds: string[];
+
+    if (effectiveIndexId && UUID_REGEX.test(effectiveIndexId)) {
+      // Explicit index: validate and use it
+      const isMember = await database.isIndexMember(effectiveIndexId, context.userId);
+      if (!isMember) {
+        return error("You are not a member of this index.");
+      }
+      for (const partyId of partyUserIds) {
+        const partyIsMember = await database.isIndexMember(effectiveIndexId, partyId);
+        if (!partyIsMember) {
+          const partyUser = await database.getUser(partyId);
+          return error(`${partyUser?.name ?? partyId} is not a member of this index.`);
+        }
+      }
+      primaryIndexId = effectiveIndexId;
+      sharedIndexIds = [effectiveIndexId];
+    } else {
+      // No index: resolve shared indexes between the two people
+      const [membershipsA, membershipsB] = await Promise.all([
+        database.getIndexMemberships(partyUserIds[0]!),
+        database.getIndexMemberships(partyUserIds[1]!),
+      ]);
+      const indexIdsA = new Set(membershipsA.map((m) => m.indexId));
+      const indexIdsB = new Set(membershipsB.map((m) => m.indexId));
+      sharedIndexIds = [...indexIdsA].filter((id) => indexIdsB.has(id));
+
+      if (sharedIndexIds.length === 0) {
+        return error("These two people don't share any index. Introductions only work when they're in at least one common community.");
+      }
+
+      const introducerIsMemberOfShared = await Promise.all(
+        sharedIndexIds.map((indexId) => database.isIndexMember(indexId, context.userId))
+      );
+      const introducerSharedIndex = sharedIndexIds.find((_, i) => introducerIsMemberOfShared[i]);
+      if (!introducerSharedIndex) {
+        return error("You must share an index with both people to introduce them.");
+      }
+      primaryIndexId = introducerSharedIndex;
     }
 
-    // Validate current user is a member
-    const isMember = await database.isIndexMember(effectiveIndexId, context.userId);
-    if (!isMember) {
-      return error("You are not a member of this index.");
-    }
-
-    // Validate all parties are members
-    for (const partyId of partyUserIds) {
-      const partyIsMember = await database.isIndexMember(effectiveIndexId, partyId);
-      if (!partyIsMember) {
-        const partyUser = await database.getUser(partyId);
-        return error(`${partyUser?.name ?? partyId} is not a member of this index.`);
+    // Check for existing opportunity in primary index (or any shared index when no index was specified)
+    for (const indexId of sharedIndexIds) {
+      const exists = await database.opportunityExistsBetweenActors(partyUserIds, indexId);
+      if (exists) {
+        return error("An opportunity already exists between these people in a shared index.");
       }
     }
 
-    // Check for duplicates
-    const exists = await database.opportunityExistsBetweenActors(partyUserIds, effectiveIndexId);
-    if (exists) {
-      return error("An opportunity already exists between these people in this index.");
-    }
-
-    // Build entity bundles for the evaluator (profiles + intents for each party)
+    // Build entity bundles: profiles + intents from shared indexes (dedupe by intent id)
     const entities: EvaluatorEntity[] = await Promise.all(
       partyUserIds.map(async (uid) => {
         const profile = await database.getProfile(uid);
-        const activeIntents = await database.getActiveIntents(uid);
+        const intentLists = await Promise.all(
+          sharedIndexIds.map((indexId) => database.getIntentsInIndexForMember(uid, indexId))
+        );
+        const seen = new Set<string>();
+        const activeIntents = intentLists.flat().filter((i) => {
+          if (seen.has(i.id)) return false;
+          seen.add(i.id);
+          return true;
+        });
         return {
           userId: uid,
           profile: {
@@ -157,32 +192,21 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
             payload: i.payload,
             summary: i.summary ?? undefined,
           })),
-          indexId: effectiveIndexId,
+          indexId: primaryIndexId,
         };
       })
     );
 
-    // Also include the introducer as context for the evaluator
-    const introducerProfile = await database.getProfile(context.userId);
-    const introducerEntity: EvaluatorEntity = {
-      userId: context.userId,
-      profile: {
-        name: introducerProfile?.identity?.name,
-        bio: introducerProfile?.identity?.bio,
-        location: introducerProfile?.identity?.location,
-        interests: introducerProfile?.attributes?.interests,
-        skills: introducerProfile?.attributes?.skills,
-        context: introducerProfile?.narrative?.context,
-      },
-      intents: hint ? [{ intentId: 'introducer-hint', payload: hint }] : undefined,
-      indexId: effectiveIndexId,
-    };
-
-    // Run the evaluator to get rich reasoning and scoring
+    // Run the evaluator with ONLY the two parties (not the introducer). Reasoning must be about
+    // why those two should meet; the introducer is added to actors afterward and must not appear in the match.
     const evaluator = new OpportunityEvaluator();
+    const introducerUser = await database.getUser(context.userId);
     const input: EvaluatorInput = {
       discovererId: context.userId,
-      entities: [introducerEntity, ...entities],
+      entities,
+      introductionMode: true,
+      introducerName: introducerUser?.name ?? undefined,
+      introductionHint: hint ?? undefined,
     };
 
     let reasoning: string;
@@ -215,16 +239,16 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
           ...evaluatedActors
             .filter((a) => a.userId !== context.userId)
             .map((a) => ({
-              indexId: effectiveIndexId,
+              indexId: primaryIndexId,
               userId: a.userId,
               role: a.role as string,
               ...(a.intentId ? { intent: a.intentId } : {}),
             })),
-          { indexId: effectiveIndexId, userId: context.userId, role: 'introducer' },
+          { indexId: primaryIndexId, userId: context.userId, role: 'introducer' },
         ]
       : [
-          ...requiredPartyUserIds.map((uid) => ({ indexId: effectiveIndexId, userId: uid, role: 'party' })),
-          { indexId: effectiveIndexId, userId: context.userId, role: 'introducer' },
+          ...requiredPartyUserIds.map((uid) => ({ indexId: primaryIndexId, userId: uid, role: 'party' })),
+          { indexId: primaryIndexId, userId: context.userId, role: 'introducer' },
         ];
 
     const confidence = score / 100;
@@ -232,6 +256,7 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
       detection: {
         source: 'manual' as const,
         createdBy: context.userId,
+        createdByName: introducerUser?.name ?? undefined,
         timestamp: new Date().toISOString(),
       },
       actors,
@@ -239,11 +264,11 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
         category: 'collaboration' as const,
         reasoning,
         confidence,
-        signals: [{ type: 'curator_judgment' as const, weight: 1, detail: 'Manual introduction via chat with LLM analysis' }],
+        signals: [{ type: 'curator_judgment' as const, weight: 1, detail: `Introduction by ${introducerUser?.name ?? 'a member'} via chat` }],
       },
-      context: { indexId: effectiveIndexId },
+      context: { indexId: primaryIndexId },
       confidence: String(confidence),
-      status: 'pending' as const,
+      status: 'latent' as const,
     };
 
     const enrichment = await enrichOrCreate(database, embedder, data);
@@ -275,9 +300,9 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
         introduced: partyNames,
         matchReason: reasoning,
         score: confidence,
-        status: 'pending',
+        status: 'latent',
       }],
-      message: `Introduction created between ${partyNames.join(' and ')}. They will be notified.`,
+      message: `Draft introduction created between ${partyNames.join(' and ')}. Review it and say "send intro" (or use send_opportunity) when you're ready to notify them.`,
     });
   }
 

@@ -52,6 +52,8 @@ export interface HomeViewCardItem {
   /** Presenter-generated subtitle under the other party name (e.g. "1 mutual intent"). */
   mutualIntentsLabel: string;
   narratorChip?: { name: string; text: string; avatar?: string | null };
+  /** Viewer's role in this opportunity (e.g. 'introducer', 'party', 'agent', 'patient', 'peer'). */
+  viewerRole?: string;
 }
 
 /** Home view section (dynamic title, icon, items). */

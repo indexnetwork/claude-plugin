@@ -245,8 +245,8 @@ export class HomeGraphFactory {
             const cardIndex = i + offset;
             const viewerActor = opportunity.actors.find((a) => a.userId === state.userId);
             const viewerRole = viewerActor?.role ?? 'party';
-            const isPendingIntroducer =
-              viewerRole === 'introducer' && opportunity.status === 'pending';
+            const isIntroducer = viewerRole === 'introducer';
+            const isPendingIntroducer = isIntroducer && opportunity.status === 'pending';
             const preferredActor = pickDisplayCounterpartActor(opportunity, state.userId)
               ?? opportunity.actors.find((a) => a.userId !== state.userId && a.role !== 'introducer');
             const actorWithProfile = opportunity.actors.find(
@@ -263,7 +263,8 @@ export class HomeGraphFactory {
             const participantNames = introducerCounterparts
               .map((actor) => userMap.get(actor.userId)?.name ?? 'Unknown')
               .sort();
-            const userName = isPendingIntroducer && participantNames.length > 0
+            // Introducer always sees both party names (e.g. "Alice ↔ Bob"), regardless of status
+            const userName = isIntroducer && participantNames.length > 0
               ? participantNames.join(' ↔ ')
               : (otherUser?.name ?? 'Unknown');
             const userAvatar = otherUser?.avatar ?? null;
@@ -278,13 +279,14 @@ export class HomeGraphFactory {
               name: userName,
               avatar: userAvatar,
               mainText: reasoningSnippet.slice(0, 300),
-              cta: isPendingIntroducer
-                ? 'Decide whether to introduce these members.'
+              cta: isIntroducer
+                ? 'Share this introduction to get things started.'
                 : 'View opportunity and decide whether to reach out.',
-              primaryActionLabel: isPendingIntroducer ? 'Good match' : 'Start Chat',
-              secondaryActionLabel: isPendingIntroducer ? 'Pass' : 'Skip',
-              mutualIntentsLabel: isPendingIntroducer ? 'Connector opportunity' : 'Shared interests',
+              primaryActionLabel: isIntroducer ? 'Good match' : 'Start Chat',
+              secondaryActionLabel: isIntroducer ? 'Pass' : 'Skip',
+              mutualIntentsLabel: isIntroducer ? 'Connector opportunity' : 'Shared interests',
               narratorChip: { name: 'Index', text: 'Worth a look.' },
+              viewerRole,
               _cardIndex: cardIndex,
             });
 
@@ -320,6 +322,7 @@ export class HomeGraphFactory {
                 secondaryActionLabel: presentation.secondaryActionLabel,
                 mutualIntentsLabel: presentation.mutualIntentsLabel,
                 narratorChip,
+                viewerRole,
                 _cardIndex: cardIndex,
               } satisfies HomeCardItem;
             } catch (e) {
