@@ -100,7 +100,7 @@ function buildNoIndexScopePrompt(): string {
 - **update_user_profile**: Update profile; requires \`profileId\` from read_user_profiles. One call with all changes.
 
 ### Intents
-- **read_intents**: List user's active intents. With \`indexId\`: intents in that index. Pass \`userId\` for "my intents", omit for "everyone's intents". Include creator's name (userName) when showing intents from an index.
+- **read_intents**: List intents. With \`indexId\`: intents in that index. Pass \`userId\` for "my intents", omit for "everyone's intents". In no-index chat, when the user asks for other people's intents, call \`read_intents\` with \`allMemberIntents: true\` to automatically fetch other members' intents across all indexes the user belongs to. Use \`limit\` and \`page\` to keep results concise. Include creator's name (userName) and index name when showing those results. Do NOT ask which index.
 - **create_intent**: Creates a new intent. \`indexId\` is optional: when omitted (e.g. in no-index chat), the tool evaluates the intent against ALL indexes the user is a member of and links it to every relevant one. Do NOT ask "which index?" — just omit \`indexId\` and the system handles it.
 - **update_intent**: Update intent description. Use exact \`id\` from read_intents. Only changes description, not index links.
 - **delete_intent**: Archive an intent. Use exact \`id\` from read_intents.
@@ -169,6 +169,8 @@ function buildNoIndexScopePrompt(): string {
 ## Intents vs Opportunities in Indexes
 
 In a shared index, any member can see everyone's intents. When showing intents, include the creator's name. When showing opportunities, the summary explains why the connection is relevant, not the other person's intent text.
+
+For no-index chat requests like "show other people's intents", do not ask which index. Use \`read_intents\` with \`allMemberIntents: true\` and present the aggregated results grouped by index/person.
 
 `;
 }

@@ -16,13 +16,99 @@ export function createIntentTools(defineTool: DefineTool, deps: ToolDeps) {
   const readIntents = defineTool({
     name: "read_intents",
     description:
-      `Fetches intents (goals, wants, needs). With no indexId: returns the user's active intents. With indexId: omit userId to return all intents in that index (all members); pass userId to return only that user's intents in the index. When chat is index-scoped, the current index is used unless you pass allUserIntents: true to get all of the user's intents (e.g. for create_intent). indexId must be a UUID from read_indexes.`,
+      `Fetches intents (goals, wants, needs). With no indexId: returns the user's active intents. With indexId: omit userId to return all intents in that index (all members); pass userId to return only that user's intents in the index. When chat is index-scoped, the current index is used unless you pass allUserIntents: true to get all of the user's intents (e.g. for create_intent). In no-index chat, pass allMemberIntents: true to fetch other members' intents across all indexes the user belongs to. Optional pagination: limit and page. indexId must be a UUID from read_indexes.`,
     querySchema: z.object({
       indexId: z.string().optional().describe("Index UUID; optional when chat is index-scoped (uses current index). Omit and use allUserIntents: true when you need all user intents for create_intent."),
       userId: z.string().optional().describe("When index-scoped: pass the current user's id when they ask for their own intents only; omit to return all intents in the index (any member can see everyone's intents in a shared network)."),
       allUserIntents: z.boolean().optional().describe("When true, return all of the current user's intents and ignore index scope. Use when you need to see every intent the user has across all indexes."),
+      allMemberIntents: z.boolean().optional().describe("When true (no-index chat), return other members' intents across every index the current user belongs to. Excludes the current user's own intents."),
+      limit: z.number().int().min(1).max(100).optional().describe("Optional page size (1-100)."),
+      page: z.number().int().min(1).optional().describe("Optional page number (1-based)."),
     }),
     handler: async ({ context, query }) => {
+      const shouldPaginate =
+        query.allMemberIntents || query.limit !== undefined || query.page !== undefined;
+      const limit = shouldPaginate ? (query.limit ?? 20) : undefined;
+      const page = shouldPaginate ? (query.page ?? 1) : undefined;
+      const offset = shouldPaginate && limit && page ? (page - 1) * limit : 0;
+
+      if (query.allMemberIntents) {
+        if (query.userId?.trim()) {
+          return error("Do not pass userId with allMemberIntents. This mode returns other members' intents across your indexes.");
+        }
+        if (query.allUserIntents) {
+          return error("allMemberIntents and allUserIntents cannot be used together.");
+        }
+        if (query.indexId?.trim()) {
+          return error("Do not pass indexId with allMemberIntents. This mode automatically uses all your indexes.");
+        }
+
+        const memberships = await database.getIndexMemberships(context.userId);
+        if (memberships.length === 0) {
+          return success({
+            count: 0,
+            intents: [],
+            indexes: [],
+            message: "You are not a member of any indexes yet.",
+          });
+        }
+
+        const intentsByIndex = await Promise.all(
+          memberships.map(async (membership) => {
+            const intents = await database.getIndexIntentsForMember(
+              membership.indexId,
+              context.userId
+            );
+            return { membership, intents };
+          })
+        );
+
+        const seen = new Set<string>();
+        const aggregated = intentsByIndex
+          .flatMap(({ membership, intents }) =>
+            intents
+              .filter((intent) => intent.userId !== context.userId)
+              .map((intent) => ({
+                id: intent.id,
+                description: intent.payload,
+                summary: intent.summary,
+                createdAt: intent.createdAt,
+                userId: intent.userId,
+                userName: intent.userName,
+                indexId: membership.indexId,
+                indexName: membership.indexTitle,
+              }))
+          )
+          .filter((intent) => {
+            const key = `${intent.indexId}:${intent.id}`;
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+          })
+          .sort((a, b) => {
+            const aTime = new Date(a.createdAt).getTime();
+            const bTime = new Date(b.createdAt).getTime();
+            return bTime - aTime;
+          });
+        const paged = shouldPaginate && limit
+          ? aggregated.slice(offset, offset + limit)
+          : aggregated;
+
+        return success({
+          count: paged.length,
+          totalCount: aggregated.length,
+          ...(shouldPaginate && limit && page ? { limit, page, totalPages: Math.ceil(aggregated.length / limit) } : {}),
+          indexes: memberships.map((m) => ({
+            indexId: m.indexId,
+            indexName: m.indexTitle,
+          })),
+          intents: paged,
+          ...(aggregated.length === 0
+            ? { message: "No other members' intents found in your indexes yet." }
+            : {}),
+        });
+      }
+
       const effectiveIndexId = query.allUserIntents
         ? undefined
         : (query.indexId?.trim() || context.indexId || undefined);
@@ -49,6 +135,18 @@ export function createIntentTools(defineTool: DefineTool, deps: ToolDeps) {
         // When the graph returns a "not a member" message, propagate as an error
         if (result.readResult.count === 0 && result.readResult.message && /not a member|Index not found/i.test(result.readResult.message)) {
           return error(result.readResult.message);
+        }
+        if (shouldPaginate && Array.isArray(result.readResult.intents) && limit && page) {
+          const pagedIntents = result.readResult.intents.slice(offset, offset + limit);
+          return success({
+            ...result.readResult,
+            count: pagedIntents.length,
+            totalCount: result.readResult.intents.length,
+            limit,
+            page,
+            totalPages: Math.ceil(result.readResult.intents.length / limit),
+            intents: pagedIntents,
+          });
         }
         return success(result.readResult);
       }
