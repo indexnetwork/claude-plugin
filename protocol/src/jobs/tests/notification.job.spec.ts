@@ -3,10 +3,10 @@ import { config } from "dotenv";
 config({ path: '.env.test' });
 
 import { describe, it, expect, mock, spyOn, beforeEach, afterEach } from 'bun:test';
-import { processOpportunityNotification } from './notification.job';
-import { onOpportunityNotification } from '../lib/notification-events';
-import { userService } from '../services/user.service';
-import * as emailQueueModule from '../lib/email/queue/email.queue';
+import { processOpportunityNotification } from '../notification.job';
+import { onOpportunityNotification } from '../../lib/notification-events';
+import { userService } from '../../services/user.service';
+import * as emailQueueModule from '../../lib/email/queue/email.queue';
 
 describe('NotificationJob', () => {
   describe('processOpportunityNotification', () => {
@@ -64,7 +64,7 @@ describe('NotificationJob', () => {
       });
 
       it('calls rpush when dedupe key is not set (SET NX returns OK)', async () => {
-        spyOn(await import('../lib/redis'), 'getRedisClient').mockReturnValue(mockRedis as any);
+        spyOn(await import('../../lib/redis'), 'getRedisClient').mockReturnValue(mockRedis as any);
 
         const db = {
           getOpportunity: mock(async () => ({
@@ -85,7 +85,7 @@ describe('NotificationJob', () => {
 
       it('skips rpush when dedupe key already exists (SET NX returns null)', async () => {
         redisSetResult = null as any;
-        spyOn(await import('../lib/redis'), 'getRedisClient').mockReturnValue(mockRedis as any);
+        spyOn(await import('../../lib/redis'), 'getRedisClient').mockReturnValue(mockRedis as any);
 
         const db = {
           getOpportunity: mock(async () => ({
@@ -130,7 +130,7 @@ describe('NotificationJob', () => {
       });
 
       it('calls addEmailJob when dedupe key is not set', async () => {
-        spyOn(await import('../lib/redis'), 'getRedisClient').mockReturnValue(mockRedis as any);
+        spyOn(await import('../../lib/redis'), 'getRedisClient').mockReturnValue(mockRedis as any);
 
         const db = {
           getOpportunity: mock(async () => ({
@@ -153,7 +153,7 @@ describe('NotificationJob', () => {
 
       it('skips addEmailJob when dedupe key already exists', async () => {
         redisSetResult = null as any;
-        spyOn(await import('../lib/redis'), 'getRedisClient').mockReturnValue(mockRedis as any);
+        spyOn(await import('../../lib/redis'), 'getRedisClient').mockReturnValue(mockRedis as any);
 
         const db = {
           getOpportunity: mock(async () => ({
@@ -169,6 +169,34 @@ describe('NotificationJob', () => {
 
         expect(addEmailJobSpy).toHaveBeenCalledTimes(0);
       });
+    });
+
+    it('treats unknown priority as low and adds to digest', async () => {
+      const payloads: Array<{ opportunityId: string; recipientId: string }> = [];
+      const unsub = onOpportunityNotification((p) => payloads.push(p));
+      const mockRedis = {
+        set: mock(async () => 'OK'),
+        rpush: mock(async () => 1),
+        expire: mock(async () => 1),
+      };
+      spyOn(await import('../../lib/redis'), 'getRedisClient').mockReturnValue(mockRedis as any);
+
+      const db = {
+        getOpportunity: mock(async () => ({
+          id: 'opp-1',
+          interpretation: { reasoning: 'Summary' },
+        })),
+      };
+
+      await processOpportunityNotification(
+        { opportunityId: 'opp-1', recipientId: 'user-1', priority: 'unknown' as any },
+        { database: db as any }
+      );
+
+      // Unknown priority should not emit WebSocket event (only immediate does)
+      expect(payloads).toHaveLength(0);
+      expect(mockRedis.rpush).toHaveBeenCalledTimes(1);
+      unsub();
     });
   });
 });

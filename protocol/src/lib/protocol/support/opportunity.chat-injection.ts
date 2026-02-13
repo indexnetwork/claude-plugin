@@ -5,14 +5,7 @@
  */
 
 import type { Opportunity } from '../interfaces/database.interface';
-import {
-  getDirectChannelId,
-  getStreamServerClient,
-  ensureIndexBotUser,
-  sendBotMessage,
-  getChannelIntroOpportunityIds,
-  addChannelIntroOpportunityId,
-} from './stream-chat.utils';
+import { getDirectChannelId, getStreamServerClient, ensureIndexBotUser, sendBotMessage, getChannelIntroOpportunityIds, addChannelIntroOpportunityId } from './stream-chat.utils';
 import { protocolLogger } from './protocol.logger';
 
 const logger = protocolLogger('OpportunityChatInjection');

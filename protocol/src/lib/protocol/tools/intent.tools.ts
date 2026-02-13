@@ -183,7 +183,7 @@ export function createIntentTools(defineTool: DefineTool, deps: ToolDeps) {
       const assignedToIndexes = await resolveIndexNames(database, [...assignedIndexIds]);
 
       if (created.length > 0) {
-        // Discovery runs in the background via intent-hyde queue → opportunity-discovery queue
+        // Discovery runs in the background via intent queue → opportunity queue
         return success({
           created: true,
           intents: created,

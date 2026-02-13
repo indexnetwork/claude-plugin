@@ -3,10 +3,10 @@ import { config } from "dotenv";
 config({ path: '.env.test' });
 
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
-import { ChatController } from "./chat.controller";
-import { ChatDatabaseAdapter, UserDatabaseAdapter, ProfileDatabaseAdapter, IntentDatabaseAdapter, IndexGraphDatabaseAdapter } from "../adapters/database.adapter";
-import { chatSessionService } from "../services/chat.service";
-import type { AuthenticatedUser } from "../guards/auth.guard";
+import { ChatController } from "../chat.controller";
+import { ChatDatabaseAdapter, UserDatabaseAdapter, ProfileDatabaseAdapter, IntentDatabaseAdapter, IndexGraphDatabaseAdapter } from "../../adapters/database.adapter";
+import { chatSessionService } from "../../services/chat.service";
+import type { AuthenticatedUser } from "../../guards/auth.guard";
 
 // Response type for chat controller
 interface ChatResponse {

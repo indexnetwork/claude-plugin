@@ -3,9 +3,9 @@ import { config } from "dotenv";
 config({ path: '.env.test' });
 
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
-import { IntentController } from "./intent.controller";
-import { IntentDatabaseAdapter, UserDatabaseAdapter, ProfileDatabaseAdapter } from "../adapters/database.adapter";
-import type { AuthenticatedUser } from "../guards/auth.guard";
+import { IntentController } from "../intent.controller";
+import { IntentDatabaseAdapter, UserDatabaseAdapter, ProfileDatabaseAdapter } from "../../adapters/database.adapter";
+import type { AuthenticatedUser } from "../../guards/auth.guard";
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // IntentDatabaseAdapter Integration Tests

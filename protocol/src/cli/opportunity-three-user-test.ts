@@ -34,7 +34,7 @@ import type { HydeCache } from '../lib/protocol/interfaces/cache.interface';
 import { HydeGraphFactory } from '../lib/protocol/graphs/hyde.graph';
 import { OpportunityGraphFactory } from '../lib/protocol/graphs/opportunity.graph';
 import { HydeGenerator } from '../lib/protocol/agents/hyde.generator';
-import { handleDiscoverOpportunities } from '../jobs/opportunity-discovery.job';
+import { handleDiscoverOpportunities } from '../jobs/opportunity.job';
 
 const INDEX_ID = '5aff6cd6-d64e-4ef9-8bcf-6c89815f771c'; // Open Mock Network from seed
 const DIMENSIONS = 2000;

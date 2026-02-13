@@ -7,7 +7,10 @@ import { config } from "dotenv";
 config({ path: '.env.test' });
 
 import { describe, expect, it, beforeAll, afterAll } from 'bun:test';
-import { RedisCacheAdapter } from './cache.adapter';
+import { getRedisClient } from '../../lib/redis';
+import { RedisCacheAdapter } from '../cache.adapter';
+
+const KEY_PREFIX = 'protocol:';
 
 const TEST_PREFIX = 'test:cache:' + Date.now() + ':';
 
@@ -114,6 +117,30 @@ describe('RedisCacheAdapter', () => {
     it('should return 0 when no keys match', async () => {
       const deleted = await cache.deleteByPattern(TEST_PREFIX + 'nomatch:xyz:*');
       expect(deleted).toBe(0);
+    });
+  });
+
+  describe('key prefix', () => {
+    it('should round-trip value for key that already starts with protocol:', async () => {
+      const prefixedKey = KEY_PREFIX + TEST_PREFIX + 'prefixed:1';
+      const value = { prefixed: true };
+      await cache.set(prefixedKey, value);
+      const got = await cache.get<typeof value>(prefixedKey);
+      expect(got).not.toBeNull();
+      expect(got?.prefixed).toBe(true);
+      await cache.delete(prefixedKey);
+    });
+  });
+
+  describe('get on invalid JSON', () => {
+    it('should return null when stored value is not valid JSON', async () => {
+      const key = TEST_PREFIX + 'invalid:json:1';
+      const redis = getRedisClient();
+      const fullKey = key.startsWith(KEY_PREFIX) ? key : KEY_PREFIX + key;
+      await redis.set(fullKey, 'not valid json {');
+      const got = await cache.get(key);
+      expect(got).toBeNull();
+      await redis.del(fullKey);
     });
   });
 });

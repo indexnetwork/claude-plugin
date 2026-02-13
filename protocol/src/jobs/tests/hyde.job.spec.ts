@@ -6,8 +6,9 @@ import { describe, it, expect, mock, beforeEach } from 'bun:test';
 import {
   cleanupExpiredHyde,
   refreshStaleHyde,
+  initHydeJobs,
   type HydeJobDeps,
-} from './hyde.job';
+} from '../hyde.job';
 
 describe('HydeJob', () => {
   describe('cleanupExpiredHyde', () => {
@@ -89,6 +90,12 @@ describe('HydeJob', () => {
         'intent',
         'intent-archived'
       );
+    });
+  });
+
+  describe('initHydeJobs', () => {
+    it('schedules without throwing', () => {
+      expect(() => initHydeJobs()).not.toThrow();
     });
   });
 });

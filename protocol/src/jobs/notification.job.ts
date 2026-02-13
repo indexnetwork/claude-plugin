@@ -1,13 +1,14 @@
+import { log } from '../lib/log';
 import { ChatDatabaseAdapter } from '../adapters/database.adapter';
 import { userService } from '../services/user.service';
 import { addEmailJob } from '../lib/email/queue/email.queue';
 import { opportunityNotificationTemplate } from '../lib/email/templates/opportunity-notification.template';
 import { emitOpportunityNotification } from '../lib/notification-events';
 import { getRedisClient } from '../lib/redis';
-import { log } from '../lib/log';
-import type { NotificationJobData } from '../queues/notification.types';
+import type { NotificationJobData } from '../queues/notification.queue';
 
-const logger = log.job.from("notification");
+const logger = log.job.from('NotificationJob');
+const database = new ChatDatabaseAdapter();
 
 const API_URL = process.env.API_URL || 'https://index.network';
 const FRONTEND_URL = process.env.FRONTEND_URL || 'https://index.network';
@@ -20,18 +21,31 @@ const DIGEST_DEDUPE_PREFIX = 'digest:dedupe:';
 const EMAIL_OPPORTUNITY_DEDUPE_PREFIX = 'email:opportunity:dedupe:';
 const DIGEST_TTL_SEC = 7 * 24 * 3600;
 
+/** Minimal database interface for notification job (used when deps provided in tests). */
+export type NotificationJobDatabase = Pick<ChatDatabaseAdapter, 'getOpportunity'>;
+
+/** Optional deps for testing (database). */
+export interface NotificationJobDeps {
+  database?: NotificationJobDatabase;
+}
+
 /**
  * Process a single opportunity notification job.
  * - immediate: WebSocket broadcast (emit event for WS server to push to client)
  * - high: Send email via Resend (enqueue to email queue)
  * - low: Add to Redis list for weekly digest (no immediate email)
+ *
+ * Invoked by notification queue worker for job name 'process_opportunity_notification'.
+ *
+ * @param data - opportunityId, recipientId, priority (from queue payload).
+ * @param deps - Optional; used for testing (mock database).
  */
 export async function processOpportunityNotification(
   data: NotificationJobData,
-  deps?: { database?: ChatDatabaseAdapter }
+  deps?: NotificationJobDeps
 ): Promise<void> {
   const { opportunityId, recipientId, priority } = data;
-  const db = deps?.database ?? new ChatDatabaseAdapter();
+  const db = deps?.database ?? database;
 
   logger.info('[NotificationJob] Processing opportunity notification', {
     opportunityId,

@@ -3,9 +3,9 @@ import { config } from "dotenv";
 config({ path: '.env.test' });
 
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
-import { LinkController } from "./link.controller";
-import { UserDatabaseAdapter, LinkDatabaseAdapter } from "../adapters/database.adapter";
-import type { AuthenticatedUser } from "../guards/auth.guard";
+import { LinkController } from "../link.controller";
+import { UserDatabaseAdapter, LinkDatabaseAdapter } from "../../adapters/database.adapter";
+import type { AuthenticatedUser } from "../../guards/auth.guard";
 
 describe("LinkController Integration", () => {
   const controller = new LinkController();

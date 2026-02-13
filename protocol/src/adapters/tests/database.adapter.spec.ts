@@ -9,7 +9,7 @@ config({ path: '.env.test' });
 import { describe, expect, it, beforeAll, afterAll } from 'bun:test';
 import { eq, inArray, sql } from 'drizzle-orm';
 import { v4 as uuidv4 } from 'uuid';
-import db from '../lib/drizzle/drizzle';
+import db from '../../lib/drizzle/drizzle';
 import {
   users,
   userProfiles,
@@ -18,7 +18,7 @@ import {
   intents,
   intentIndexes,
   opportunities,
-} from '../schemas/database.schema';
+} from '../../schemas/database.schema';
 import {
   IntentDatabaseAdapter,
   ChatDatabaseAdapter,
@@ -26,7 +26,7 @@ import {
   OpportunityDatabaseAdapter,
   IndexGraphDatabaseAdapter,
   HydeDatabaseAdapter,
-} from './database.adapter';
+} from '../database.adapter';
 
 const TEST_PREFIX = 'db_adapter_spec_' + Date.now() + '_';
 

@@ -10,7 +10,7 @@ config({ path: '.env.test' });
 import { describe, expect, it, beforeAll, afterAll } from 'bun:test';
 import { eq, inArray } from 'drizzle-orm';
 import { v4 as uuidv4 } from 'uuid';
-import db from '../lib/drizzle/drizzle';
+import db from '../../lib/drizzle/drizzle';
 import {
   users,
   userProfiles,
@@ -18,8 +18,8 @@ import {
   indexMembers,
   intents,
   intentIndexes,
-} from '../schemas/database.schema';
-import { EmbedderAdapter } from './embedder.adapter';
+} from '../../schemas/database.schema';
+import { EmbedderAdapter } from '../embedder.adapter';
 
 const TEST_PREFIX = 'embedder_spec_' + Date.now() + '_';
 
@@ -83,6 +83,44 @@ afterAll(async () => {
 
 describe('EmbedderAdapter', () => {
   const adapter = new EmbedderAdapter();
+
+  describe('search – error paths', () => {
+    it('should throw for unknown collection', async () => {
+      const vec = makeTestVector(1);
+      await expect(
+        adapter.search(vec, 'unknown_collection' as any, { limit: 5 })
+      ).rejects.toThrow('Unknown collection: unknown_collection');
+    });
+  });
+
+  describe('generate – error paths', () => {
+    it('should throw when text is empty string', async () => {
+      await expect(adapter.generate('')).rejects.toThrow('Text cannot be empty');
+    });
+
+    it('should throw when text is only whitespace', async () => {
+      await expect(adapter.generate('   \n\t  ')).rejects.toThrow('Text cannot be empty');
+    });
+
+    it('should throw when array of texts is empty after filtering', async () => {
+      await expect(adapter.generate(['', '  ', '\n'])).rejects.toThrow('Text cannot be empty');
+    });
+  });
+
+  describe('constructor', () => {
+    it('should accept optional dimensions', () => {
+      const customAdapter = new EmbedderAdapter({ dimensions: 256 });
+      expect(customAdapter).toBeDefined();
+    });
+
+    it('should accept optional apiKey and baseURL', () => {
+      const customAdapter = new EmbedderAdapter({
+        apiKey: 'test-key',
+        baseURL: 'https://test.example/v1',
+      });
+      expect(customAdapter).toBeDefined();
+    });
+  });
 
   describe('search (single-vector)', () => {
     it('should return intent match when searching with same embedding and index scope', async () => {

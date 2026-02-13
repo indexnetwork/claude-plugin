@@ -3,19 +3,19 @@ import { config } from "dotenv";
 config({ path: '.env.test' });
 
 import { describe, test, expect, beforeAll, afterAll, mock } from "bun:test";
-import { OpportunityDatabaseAdapter, UserDatabaseAdapter, ProfileDatabaseAdapter, ChatDatabaseAdapter, IndexGraphDatabaseAdapter } from "../adapters/database.adapter";
-import type { AuthenticatedUser } from "../guards/auth.guard";
+import { OpportunityDatabaseAdapter, UserDatabaseAdapter, ProfileDatabaseAdapter, ChatDatabaseAdapter, IndexGraphDatabaseAdapter } from "../../adapters/database.adapter";
+import type { AuthenticatedUser } from "../../guards/auth.guard";
 
 // Mock notification queue so loading OpportunityController does not connect to Redis
-mock.module("../queues/notification.queue", () => ({
+mock.module("../../queues/notification.queue", () => ({
   queueOpportunityNotification: async () => ({ id: "mock-job" } as any),
 }));
 
 // Load controllers after mock is registered so createManual path never touches Redis in tests
-let OpportunityControllerClass: typeof import("./opportunity.controller").OpportunityController;
-let IndexOpportunityControllerClass: typeof import("./opportunity.controller").IndexOpportunityController;
+let OpportunityControllerClass: typeof import("../opportunity.controller").OpportunityController;
+let IndexOpportunityControllerClass: typeof import("../opportunity.controller").IndexOpportunityController;
 beforeAll(async () => {
-  const mod = await import("./opportunity.controller");
+  const mod = await import("../opportunity.controller");
   OpportunityControllerClass = mod.OpportunityController;
   IndexOpportunityControllerClass = mod.IndexOpportunityController;
 });

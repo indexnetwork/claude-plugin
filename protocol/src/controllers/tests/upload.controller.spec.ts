@@ -7,10 +7,10 @@ import { config } from "dotenv";
 config({ path: '.env.test' });
 
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
-import { UploadController } from "./upload.controller";
-import type { AuthenticatedUser } from "../guards/auth.guard";
-import { UserDatabaseAdapter, FileDatabaseAdapter } from "../adapters/database.adapter";
-import { getUploadsPath } from '../lib/paths';
+import { UploadController } from "../upload.controller";
+import type { AuthenticatedUser } from "../../guards/auth.guard";
+import { UserDatabaseAdapter, FileDatabaseAdapter } from "../../adapters/database.adapter";
+import { getUploadsPath } from '../../lib/paths';
 import * as fs from 'fs';
 
 describe("UploadController Integration", () => {

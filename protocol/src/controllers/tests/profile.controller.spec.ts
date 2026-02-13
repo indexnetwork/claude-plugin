@@ -3,9 +3,9 @@ import { config } from "dotenv";
 config({ path: '.env.test' });
 
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
-import { ProfileController } from "./profile.controller";
-import type { AuthenticatedUser } from "../guards/auth.guard";
-import { UserDatabaseAdapter, ProfileDatabaseAdapter } from "../adapters/database.adapter";
+import { ProfileController } from "../profile.controller";
+import type { AuthenticatedUser } from "../../guards/auth.guard";
+import { UserDatabaseAdapter, ProfileDatabaseAdapter } from "../../adapters/database.adapter";
 
 // Integration test suite for ProfileController using actual DB
 describe("ProfileController Integration", () => {
@@ -67,7 +67,7 @@ describe("ProfileController Integration", () => {
     expect(profile!.identity?.name).toBeDefined();
     expect(profile!.embedding).not.toBeNull();
     // Verify HyDE is stored in hyde_documents
-    const { HydeDatabaseAdapter } = await import("../adapters/database.adapter");
+    const { HydeDatabaseAdapter } = await import("../../adapters/database.adapter");
     const hydeAdapter = new HydeDatabaseAdapter();
     const hydeDoc = await hydeAdapter.getHydeDocument('profile', testUserId, 'mirror');
     expect(hydeDoc).not.toBeNull();

@@ -3,9 +3,9 @@ import { config } from "dotenv";
 config({ path: '.env.test' });
 
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
-import { AuthController } from "./auth.controller";
-import { UserDatabaseAdapter } from "../adapters/database.adapter";
-import type { AuthenticatedUser } from "../guards/auth.guard";
+import { AuthController } from "../auth.controller";
+import { UserDatabaseAdapter } from "../../adapters/database.adapter";
+import type { AuthenticatedUser } from "../../guards/auth.guard";
 
 describe("AuthController Integration", () => {
   const controller = new AuthController();

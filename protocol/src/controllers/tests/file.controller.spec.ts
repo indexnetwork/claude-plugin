@@ -6,10 +6,10 @@ import { config } from "dotenv";
 config({ path: '.env.test' });
 
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
-import { FileController } from "./file.controller";
-import type { AuthenticatedUser } from "../guards/auth.guard";
-import { UserDatabaseAdapter, FileDatabaseAdapter } from "../adapters/database.adapter";
-import { getUploadsPath } from "../lib/paths";
+import { FileController } from "../file.controller";
+import type { AuthenticatedUser } from "../../guards/auth.guard";
+import { UserDatabaseAdapter, FileDatabaseAdapter } from "../../adapters/database.adapter";
+import { getUploadsPath } from "../../lib/paths";
 import * as fs from "fs";
 
 describe("FileController Integration", () => {

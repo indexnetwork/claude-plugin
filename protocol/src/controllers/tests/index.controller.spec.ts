@@ -3,9 +3,9 @@ import { config } from "dotenv";
 config({ path: '.env.test' });
 
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
-import { IndexController } from "./index.controller";
-import { UserDatabaseAdapter, ChatDatabaseAdapter, IndexGraphDatabaseAdapter } from "../adapters/database.adapter";
-import type { AuthenticatedUser } from "../guards/auth.guard";
+import { IndexController } from "../index.controller";
+import { UserDatabaseAdapter, ChatDatabaseAdapter, IndexGraphDatabaseAdapter } from "../../adapters/database.adapter";
+import type { AuthenticatedUser } from "../../guards/auth.guard";
 
 describe("IndexController Integration", () => {
   const controller = new IndexController();

@@ -14,10 +14,10 @@ import { UploadController } from './controllers/upload.controller';
 import { UserController } from './controllers/user.controller';
 import { RouteRegistry } from './lib/router/router.decorators';
 import { log } from './lib/log';
-import { adminQueuesApp } from './admin-queues';
+import { adminQueuesApp } from './controllers/queues.controller';
 // Bootstrap queue workers so jobs are processed in this process
-import './queues/intent-hyde.queue';
-import './queues/opportunity-discovery.queue';
+import './queues/intent.queue';
+import './queues/opportunity.queue';
 
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3001;
 const GLOBAL_PREFIX = '/api';
