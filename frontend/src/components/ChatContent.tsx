@@ -10,7 +10,6 @@ import { useUploadServiceV2 } from '@/services/v2/upload.service';
 import { useNotifications } from '@/contexts/NotificationContext';
 import { useOpportunities } from '@/contexts/APIContext';
 import { validateFiles } from '@/lib/file-validation';
-import ThinkingDropdown from '@/components/chat/ThinkingDropdown';
 import InlineDiscoveryCard from '@/components/chat/InlineDiscoveryCard';
 import { ContentContainer } from '@/components/layout';
 import { cn } from '@/lib/utils';
@@ -631,16 +630,6 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
           <div className="space-y-4">
               {messages.map((msg) => (
                 <div key={msg.id}>
-                  {msg.role === 'assistant' && msg.thinking && (
-                    <div className="flex justify-start mb-2">
-                      <div className="max-w-[80%]">
-                        <ThinkingDropdown
-                          thinking={msg.thinking}
-                          isStreaming={msg.isStreaming}
-                        />
-                      </div>
-                    </div>
-                  )}
                   <div
                     className={cn(
                       'flex',

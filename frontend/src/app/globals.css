@@ -222,6 +222,22 @@ button {
   margin: 0.75em 0;
 }
 
+/* Blockquote – inline tool activity indicator */
+.chat-markdown blockquote {
+  border-left: 3px solid #4091BB;
+  background-color: rgba(64, 145, 187, 0.06);
+  padding: 0.375em 0.75em;
+  margin: 0.5em 0;
+  border-radius: 0 2px 2px 0;
+  font-style: italic;
+  color: #5a5a5a;
+  font-size: 0.8125rem;
+}
+
+.chat-markdown blockquote p {
+  margin: 0;
+}
+
 /* Inverted (user message – dark bubble) */
 .chat-markdown-invert code {
   background-color: rgba(255, 255, 255, 0.2);
