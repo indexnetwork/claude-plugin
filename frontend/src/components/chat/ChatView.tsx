@@ -12,7 +12,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { cn } from '@/lib/utils';
 import { ContentContainer } from '@/components/layout';
-import { SystemMessageCard, type OpportunityPresentation } from './SystemMessageCard';
+import { SystemMessageCard, type SystemMessagePresentation } from './SystemMessageCard';
 
 interface ChatMessage {
   id: string;
@@ -23,7 +23,7 @@ interface ChatMessage {
   type?: string;
   introType?: string;
   opportunityId?: string;
-  presentation?: OpportunityPresentation;
+  presentation?: SystemMessagePresentation;
   /** Backend custom marker; takes precedence over top-level introType when present. */
   custom?: { introType?: string };
 }
@@ -33,10 +33,10 @@ function extractStringField(raw: Record<string, unknown>, key: string): string |
   return typeof val === 'string' ? val : undefined;
 }
 
-function extractPresentation(raw: Record<string, unknown>): OpportunityPresentation | undefined {
+function extractPresentation(raw: Record<string, unknown>): SystemMessagePresentation | undefined {
   const p = raw.presentation;
   if (p && typeof p === 'object' && 'headline' in p && 'personalizedSummary' in p && 'suggestedAction' in p) {
-    return p as OpportunityPresentation;
+    return p as SystemMessagePresentation;
   }
   return undefined;
 }
@@ -135,7 +135,8 @@ export default function ChatView({ userId, userName, userAvatar, userTitle, init
 
         let existingChannels = await client.queryChannels({ type: 'messaging', id: expectedChannelId }, {}, { limit: 1, watch: true, state: true });
 
-        if (existingChannels.length === 0 && channelRefreshKey > 0 && mounted) {
+        const shouldRetry = existingChannels.length === 0 && mounted && (channelRefreshKey > 0 || initialChannelId != null);
+        if (shouldRetry) {
           await new Promise((r) => setTimeout(r, 500));
           if (!mounted) return;
           existingChannels = await client.queryChannels({ type: 'messaging', id: expectedChannelId }, {}, { limit: 1, watch: true, state: true });
@@ -178,6 +179,13 @@ export default function ChatView({ userId, userName, userAvatar, userTitle, init
           ch.on('message.updated', handleMessageUpdated);
           ch.on('channel.updated', syncMessagesHandler);
         } else {
+          if (initialChannelId != null) {
+            console.warn(
+              '[ChatView] Channel not found after retries for initialChannelId:',
+              initialChannelId,
+              '— falling back to getOrCreateChannel'
+            );
+          }
           const newCh = await getOrCreateChannel(userId, userName, userAvatar);
           if (!newCh) { setLoading(false); return; }
           currentChannel = newCh;

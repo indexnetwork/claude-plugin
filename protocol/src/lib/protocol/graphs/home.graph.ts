@@ -86,6 +86,21 @@ const computeMutualIntentCount = (ctx: Record<string, unknown>): number => {
   return overlap;
 };
 
+/** Normalize timestamp for sorting; returns numeric ms or 0 for invalid/missing. */
+const safeParseDate = (value: unknown): number => {
+  if (value == null) return 0;
+  if (value instanceof Date) {
+    const t = value.getTime();
+    return Number.isFinite(t) ? t : 0;
+  }
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string') {
+    const t = new Date(value).getTime();
+    return Number.isFinite(t) ? t : 0;
+  }
+  return 0;
+};
+
 /** Confidence score for sorting (interpretation.confidence or opportunity.confidence). */
 const getConfidence = (opp: typeof HomeGraphState.State['opportunities'][number]): number => {
   const fromInterp = opp.interpretation?.confidence;
@@ -177,8 +192,8 @@ export class HomeGraphFactory {
           const confA = getConfidence(a);
           const confB = getConfidence(b);
           if (confB !== confA) return confB - confA;
-          const aTime = a.updatedAt instanceof Date ? a.updatedAt.getTime() : new Date(a.updatedAt).getTime();
-          const bTime = b.updatedAt instanceof Date ? b.updatedAt.getTime() : new Date(b.updatedAt).getTime();
+          const aTime = safeParseDate(a.updatedAt);
+          const bTime = safeParseDate(b.updatedAt);
           return bTime - aTime;
         });
         const seenUserIds = new Set<string>();

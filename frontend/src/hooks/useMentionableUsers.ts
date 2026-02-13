@@ -66,10 +66,19 @@ export function useMentionableUsers({
     }
   }, [enabled, indexService]);
 
+  // Stable signature of index IDs so joins/leaves trigger refetch even when length is unchanged
+  const indexesSignature =
+    indexes.length === 0
+      ? ''
+      : [...indexes]
+          .map((i) => i.id)
+          .sort()
+          .join(',');
+
   useEffect(() => {
     fetchedRef.current = false; // Reset when indexes change so we refetch after join/leave
     fetchAllMembers();
-  }, [fetchAllMembers, indexes.length]);
+  }, [fetchAllMembers, indexesSignature]);
 
   // Search function for react-mentions async data fetching
   const searchUsers = useCallback(

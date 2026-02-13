@@ -10,7 +10,8 @@ import {
   getStreamServerClient,
   ensureIndexBotUser,
   sendBotMessage,
-  channelHasMessageForOpportunity,
+  getChannelIntroOpportunityIds,
+  addChannelIntroOpportunityId,
 } from './stream-chat.utils';
 import { protocolLogger } from './protocol.logger';
 
@@ -32,8 +33,9 @@ function getActorPairUserIds(opportunity: Opportunity): [string, string] | null 
 
 /**
  * If the two users already have an active Stream channel (from a previous accepted opportunity),
- * send a system message about this new opportunity. Idempotent: skips if a message for this
- * opportunityId already exists in the channel.
+ * send a system message about this new opportunity. Idempotent: skips if channel metadata
+ * (introOpportunityIds) already records this opportunityId, so prior intros/updates are detected
+ * without relying on a fixed message window.
  */
 export async function injectOpportunityIntoExistingChat(opportunity: Opportunity): Promise<void> {
   const streamClient = getStreamServerClient();
@@ -55,7 +57,7 @@ export async function injectOpportunityIntoExistingChat(opportunity: Opportunity
   const channel = streamClient.channel('messaging', channelId, { members: [userId1, userId2] });
 
   try {
-    const queryResult = await channel.query({ state: true, watch: false, messages: { limit: 50 } });
+    const queryResult = await channel.query({ state: true, watch: false, messages: { limit: 1 } });
     const messages = queryResult.messages ?? [];
 
     if (messages.length === 0) {
@@ -66,8 +68,9 @@ export async function injectOpportunityIntoExistingChat(opportunity: Opportunity
       return;
     }
 
-    if (channelHasMessageForOpportunity(messages, opportunity.id)) {
-      logger.debug('[injectOpportunityIntoExistingChat] Message for this opportunity already exists; skipping', {
+    const introOpportunityIds = getChannelIntroOpportunityIds(channel);
+    if (introOpportunityIds.includes(opportunity.id)) {
+      logger.debug('[injectOpportunityIntoExistingChat] Intro/update for this opportunity already recorded; skipping', {
         opportunityId: opportunity.id,
         channelId,
       });
@@ -83,6 +86,7 @@ export async function injectOpportunityIntoExistingChat(opportunity: Opportunity
       introType: 'opportunity_update',
       opportunityId: opportunity.id,
     });
+    await addChannelIntroOpportunityId(channel, opportunity.id);
 
     logger.info('[injectOpportunityIntoExistingChat] Injected opportunity into existing chat', {
       opportunityId: opportunity.id,

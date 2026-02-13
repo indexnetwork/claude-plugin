@@ -34,7 +34,7 @@ interface IndexDef {
   joinPolicy: 'anyone' | 'invite_only';
 }
 
-/** Use full persona list from test-data (up to TESTER_PERSONAS_MAX=100). */
+/** Use full persona list from test-data (up to TESTER_PERSONAS_MAX). */
 const DB_SEED_TESTER_PERSONAS = TESTER_PERSONAS;
 
 const SEED_INDEXES: IndexDef[] = [

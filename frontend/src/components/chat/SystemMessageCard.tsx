@@ -2,7 +2,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { cn } from '@/lib/utils';
 
-export interface OpportunityPresentation {
+export interface SystemMessagePresentation {
   headline: string;
   personalizedSummary: string;
   suggestedAction: string;
@@ -11,7 +11,7 @@ export interface OpportunityPresentation {
 interface SystemMessageCardProps {
   text?: string;
   introType?: string;
-  presentation?: OpportunityPresentation;
+  presentation?: SystemMessagePresentation;
 }
 
 /**
@@ -25,11 +25,7 @@ interface SystemMessageCardProps {
 export function SystemMessageCard({ text, introType, presentation }: SystemMessageCardProps) {
   const containerClass = cn(
     'max-w-[80%] rounded-xl px-4 py-3 text-sm',
-    introType === 'opportunity_update'
-      ? 'bg-amber-50 border border-amber-200 text-amber-900 text-left'
-      : presentation
-        ? 'bg-gray-100 text-gray-700 text-left shadow-sm'
-        : 'bg-gray-100 text-gray-600 text-center',
+    presentation ? 'bg-gray-100 text-gray-700 text-left shadow-sm' : introType === 'opportunity_update' ? 'bg-amber-50 border border-amber-200 text-amber-900 text-left' : 'bg-gray-100 text-gray-600 text-center',
   );
 
   return (

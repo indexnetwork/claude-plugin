@@ -1,6 +1,7 @@
+import { EventEmitter } from 'events';
 import { log } from '../lib/log';
 import type { Id } from '../types/common.types';
-import type { OpportunityControllerDatabase, OpportunityGraphDatabase, HydeGraphDatabase, HomeGraphDatabase, CreateOpportunityData, OpportunityActor, Opportunity, OpportunityStatus } from '../lib/protocol/interfaces/database.interface';
+import type { OpportunityControllerDatabase, OpportunityGraphDatabase, HydeGraphDatabase, HomeGraphDatabase, CreateOpportunityData, Opportunity, OpportunityActor, OpportunityStatus } from '../lib/protocol/interfaces/database.interface';
 import { OpportunityPresenter, gatherPresenterContext } from '../lib/protocol/agents/opportunity.presenter';
 import type { Embedder } from '../lib/protocol/interfaces/embedder.interface';
 import type { HydeCache } from '../lib/protocol/interfaces/cache.interface';
@@ -15,7 +16,16 @@ import { presentOpportunity, type UserInfo } from '../lib/protocol/support/oppor
 import { canUserSeeOpportunity } from '../lib/protocol/support/opportunity.utils';
 import { enrichOrCreate } from '../lib/protocol/support/opportunity.enricher';
 import type { Channel } from 'stream-chat';
-import { getDirectChannelId, getStreamServerClient, ensureStreamUsers, ensureIndexBotUser, sendBotMessage, channelHasMessageForOpportunity } from '../lib/protocol/support/stream-chat.utils';
+import {
+  getDirectChannelId,
+  getStreamServerClient,
+  ensureStreamUsers,
+  ensureIndexBotUser,
+  sendBotMessage,
+  channelHasMessageForOpportunity,
+  getChannelIntroOpportunityIds,
+  addChannelIntroOpportunityId,
+} from '../lib/protocol/support/stream-chat.utils';
 
 const logger = log.service.from("OpportunityService");
 
@@ -33,16 +43,24 @@ interface OpportunityStatusUpdateResult {
   };
 }
 
-function hasActorPair(opportunity: Opportunity | null, firstUserId: string, secondUserId: string): boolean {
-  if (!opportunity) return false;
-  const actorIds = new Set(opportunity.actors.map((actor) => actor.userId));
-  return actorIds.has(firstUserId) && actorIds.has(secondUserId);
+function toIso(value: Date | string | null | undefined): string {
+  const fallback = () => new Date().toISOString();
+  if (!value) return fallback();
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return fallback();
+  return date.toISOString();
 }
 
-function toIso(value: Date | string | null | undefined): string {
-  if (!value) return new Date().toISOString();
-  if (value instanceof Date) return value.toISOString();
-  return new Date(value).toISOString();
+/** Events emitted after opportunity lifecycle changes (e.g. create, expire). */
+export type OpportunityCreatedPayload = { opportunity: Opportunity };
+export type OpportunityExpiredPayload = { opportunity: Opportunity };
+
+export class OpportunityServiceEvents extends EventEmitter {
+  override emit(event: 'created', payload: OpportunityCreatedPayload): boolean;
+  override emit(event: 'expired', payload: OpportunityExpiredPayload): boolean;
+  override emit(event: string, ...args: unknown[]): boolean {
+    return super.emit(event, ...args);
+  }
 }
 
 /**
@@ -51,6 +69,7 @@ function toIso(value: Date | string | null | undefined): string {
  * Manages opportunity operations including discovery, listing, and creation.
  * Uses OpportunityControllerDatabase adapter for database operations.
  * Uses OpportunityGraph for AI-powered opportunity discovery.
+ * Emits opportunity events (created, expired) after transactional writes so subscribers see consistent state.
  * 
  * RESPONSIBILITIES:
  * - List opportunities for users and indexes
@@ -63,6 +82,8 @@ export class OpportunityService {
   private db: OpportunityControllerDatabase;
   private graph: ReturnType<OpportunityGraphFactory['createGraph']> | null = null;
   private homeGraph: ReturnType<HomeGraphFactory['createGraph']> | null = null;
+  /** Event emitter for opportunity lifecycle; subscribe via onOpportunityEvent. */
+  private readonly events = new OpportunityServiceEvents();
 
   constructor(database?: OpportunityControllerDatabase) {
     this.db = database ?? (new ChatDatabaseAdapter() as OpportunityControllerDatabase);
@@ -86,6 +107,17 @@ export class OpportunityService {
       this.graph = factory.createGraph();
     }
     this.homeGraph = new HomeGraphFactory(this.db as unknown as HomeGraphDatabase).createGraph();
+  }
+
+  /**
+   * Subscribe to opportunity events (e.g. 'created', 'expired'). Call after transaction commits.
+   */
+  onOpportunityEvent(
+    event: 'created' | 'expired',
+    handler: (payload: OpportunityCreatedPayload | OpportunityExpiredPayload) => void
+  ): () => void {
+    this.events.on(event, handler);
+    return () => this.events.off(event, handler);
   }
 
   /**
@@ -255,23 +287,10 @@ export class OpportunityService {
       return { opportunity: updated };
     }
 
-    // Accept all active opportunities between the same actor pair so the grouped home card disappears.
-    const opportunitiesForActor = await this.db.getOpportunitiesForUser(userId);
-    const siblingMatches = opportunitiesForActor.filter(
-      (candidate) =>
-        candidate.id !== opportunityId &&
-        candidate.status !== 'accepted' &&
-        candidate.status !== 'expired' &&
-        hasActorPair(candidate, userId, counterpart.userId)
-    );
-    await Promise.all(
-      siblingMatches.map((candidate) => this.db.updateOpportunityStatus(candidate.id, 'accepted'))
-    );
+    // Accept all sibling opportunities between the same actor pair in one transaction (targeted query + bulk update).
+    await this.db.acceptSiblingOpportunities(userId, counterpart.userId, opportunityId);
 
-    const acceptedForActor = await this.db.getOpportunitiesForUser(userId, { status: 'accepted' });
-    const acceptedBetweenActors = acceptedForActor
-      .filter((candidate) => hasActorPair(candidate, userId, counterpart.userId))
-      .sort((a, b) => toIso(b.updatedAt).localeCompare(toIso(a.updatedAt)));
+    const acceptedBetweenActors = await this.db.getAcceptedOpportunitiesBetweenActors(userId, counterpart.userId);
     const acceptedOpportunitiesMeta: AcceptedOpportunityChannelMeta[] = acceptedBetweenActors.map((candidate) => ({
       opportunityId: candidate.id,
       acceptedAt: toIso(candidate.updatedAt),
@@ -344,7 +363,12 @@ export class OpportunityService {
     }
 
     try {
-      const introExists = channelHasMessageForOpportunity(existingMessages, opportunityId);
+      // Same idempotency signal as reinjection (opportunity.chat-injection): channel.data.introOpportunityIds.
+      // Fall back to recent-message scan for legacy channels that may not have metadata yet.
+      const introOpportunityIds = getChannelIntroOpportunityIds(channel);
+      const introExists =
+        introOpportunityIds.includes(opportunityId) ||
+        channelHasMessageForOpportunity(existingMessages, opportunityId);
       if (!introExists) {
         let introText: string;
         let presentation: { headline: string; personalizedSummary: string; suggestedAction: string } | undefined;
@@ -378,6 +402,7 @@ export class OpportunityService {
           acceptedOpportunityIds: acceptedOpportunitiesMeta.map((item) => item.opportunityId),
           acceptedAt: toIso(updated.updatedAt),
         });
+        await addChannelIntroOpportunityId(channel, opportunityId);
         logger.info('[OpportunityService] Index intro message sent', { opportunityId, channelId });
       }
     } catch (error) {
@@ -531,12 +556,12 @@ export class OpportunityService {
     if (enrichment.enriched) {
       toCreate.status = enrichment.resolvedStatus;
     }
-    const created = await this.db.createOpportunity(toCreate);
+    const expireIds = enrichment.enriched ? enrichment.expiredIds : [];
+    const { created, expired } = await this.db.createOpportunityAndExpireIds(toCreate, expireIds);
 
-    if (enrichment.enriched && enrichment.expiredIds.length > 0) {
-      for (const id of enrichment.expiredIds) {
-        await this.db.updateOpportunityStatus(id, 'expired');
-      }
+    this.events.emit('created', { opportunity: created });
+    for (const opp of expired) {
+      this.events.emit('expired', { opportunity: opp });
     }
     return created;
   }

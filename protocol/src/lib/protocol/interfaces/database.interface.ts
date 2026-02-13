@@ -6,6 +6,7 @@ import type {
   OpportunityContext,
   UserSocials,
 } from '../../../schemas/database.schema';
+import type { Id } from '../../../types/common.types';
 
 /** User record returned by getUser (minimal fields plus optional profile fields). */
 export interface UserRecord {
@@ -715,7 +716,7 @@ export interface Database {
    * @param userId - The signed-in user
    * @returns Array of member summaries (id, name, avatar only; no email)
    */
-  getMembersFromUserIndexes(userId: string): Promise<{ userId: string; name: string; avatar: string | null }[]>;
+  getMembersFromUserIndexes(userId: Id<'users'>): Promise<{ userId: Id<'users'>; name: string; avatar: string | null }[]>;
 
   /**
    * Get all indexed intents for an index.
@@ -951,6 +952,20 @@ export interface Database {
   ): Promise<Opportunity | null>;
 
   /**
+   * Create one opportunity and expire others in a single transaction.
+   * Atomic: insert then update status to 'expired' for each id in expireIds.
+   * Used when enriching replaces overlapping opportunities so subscribers see consistent state.
+   *
+   * @param data - Opportunity creation data (caller may set status when enriched)
+   * @param expireIds - Opportunity IDs to set status to 'expired'
+   * @returns The created opportunity and the list of opportunities that were expired
+   */
+  createOpportunityAndExpireIds(
+    data: CreateOpportunityData,
+    expireIds: string[]
+  ): Promise<{ created: Opportunity; expired: Opportunity[] }>;
+
+  /**
    * Check if an opportunity already exists between the given actors in the index (deduplication).
    *
    * @param actorIds - Array of user IDs that would be actors
@@ -963,15 +978,17 @@ export interface Database {
   ): Promise<boolean>;
 
   /**
-   * Find non-expired opportunities that share at least one non-introducer actor (by userId).
-   * Index-agnostic: opportunities are not scoped to a single index; actors can span indexes.
+   * Find non-expired opportunities whose non-introducer actor set exactly matches the given user IDs.
+   * Overlap semantics: exact actor-set equality — an opportunity is returned only if its set of
+   * non-introducer actor userIds (ignoring introducers) equals the set of actorUserIds. Index-agnostic;
+   * opportunities are not scoped to a single index.
    *
-   * @param actorUserIds - Non-introducer user IDs from the new opportunity
-   * @param options - Optional excludeStatuses (default: ['expired', 'rejected'])
-   * @returns Opportunities that overlap by actor userId
+   * @param actorUserIds - Typed user IDs of non-introducer actors (order-independent; compared as sets)
+   * @param options - Optional excludeStatuses (default: ['expired', 'rejected']). Uses OpportunityStatus.
+   * @returns Promise of opportunities matching the exact actor set, excluding specified statuses
    */
   findOverlappingOpportunities(
-    actorUserIds: string[],
+    actorUserIds: Id<'users'>[],
     options?: { excludeStatuses?: OpportunityStatus[] }
   ): Promise<Opportunity[]>;
 
@@ -1001,6 +1018,36 @@ export interface Database {
    * @returns Number of opportunities updated to expired
    */
   expireStaleOpportunities(): Promise<number>;
+
+  /**
+   * Get accepted opportunities between two actors (same actor pair, status accepted).
+   * Used when building accepted-opportunities meta after accept (e.g. for chat channel).
+   *
+   * @param userId - First actor user ID
+   * @param counterpartUserId - Second actor user ID
+   * @returns Accepted opportunities between these two users, newest first
+   */
+  getAcceptedOpportunitiesBetweenActors(
+    userId: string,
+    counterpartUserId: string
+  ): Promise<Opportunity[]>;
+
+  /**
+   * Accept all sibling opportunities between the same actor pair in one transaction.
+   * Selects opportunities where both userId and counterpartUserId are actors and status
+   * is not accepted/expired/rejected, excludes excludeOpportunityId, then bulk-updates status to accepted.
+   * Rolls back on any failure.
+   *
+   * @param userId - First actor user ID
+   * @param counterpartUserId - Second actor user ID
+   * @param excludeOpportunityId - Opportunity ID to exclude (the one already being accepted)
+   * @returns IDs of opportunities that were updated to accepted
+   */
+  acceptSiblingOpportunities(
+    userId: string,
+    counterpartUserId: string,
+    excludeOpportunityId: string
+  ): Promise<string[]>;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1137,8 +1184,11 @@ export type OpportunityControllerDatabase = Pick<
   | 'getOpportunitiesForIndex'
   | 'updateOpportunityStatus'
   | 'createOpportunity'
+  | 'createOpportunityAndExpireIds'
   | 'opportunityExistsBetweenActors'
   | 'findOverlappingOpportunities'
+  | 'getAcceptedOpportunitiesBetweenActors'
+  | 'acceptSiblingOpportunities'
   | 'isIndexOwner'
   | 'isIndexMember'
   | 'getUser'

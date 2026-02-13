@@ -13,6 +13,7 @@ import type {
   OpportunityStatus,
 } from '../interfaces/database.interface';
 import type { Embedder } from '../interfaces/embedder.interface';
+import type { Id } from '../../../types/common.types';
 import { protocolLogger } from './protocol.logger';
 
 const logger = protocolLogger('OpportunityEnricher');
@@ -22,7 +23,7 @@ const MIN_REASONING_LENGTH_FOR_EMBEDDING = 10;
 
 export type EnricherDatabase = {
   findOverlappingOpportunities(
-    actorUserIds: string[],
+    actorUserIds: Id<'users'>[],
     options?: { excludeStatuses?: ('latent' | 'pending' | 'viewed' | 'accepted' | 'rejected' | 'expired')[] }
   ): Promise<Opportunity[]>;
 };
@@ -55,20 +56,22 @@ function cosineSimilarity(a: number[], b: number[]): number {
 }
 
 /**
- * Resolve enriched opportunity status from related opportunities' statuses.
+ * Resolve enriched opportunity status from related opportunities' statuses and the incoming status.
  * Priority: accepted > pending > rejected > latent (expired and latent both resolve to latent).
+ * The incoming status is included so we do not wrongly downgrade when the new opportunity has a higher-priority status.
  */
-function resolveEnrichedStatus(relatedStatuses: string[]): OpportunityStatus {
-  if (relatedStatuses.includes('accepted')) return 'accepted';
-  if (relatedStatuses.includes('pending')) return 'pending';
-  if (relatedStatuses.includes('rejected')) return 'rejected';
+function resolveEnrichedStatus(relatedStatuses: string[], incomingStatus?: string): OpportunityStatus {
+  const statuses = incomingStatus ? [...relatedStatuses, incomingStatus] : relatedStatuses;
+  if (statuses.includes('accepted')) return 'accepted';
+  if (statuses.includes('pending')) return 'pending';
+  if (statuses.includes('rejected')) return 'rejected';
   return 'latent';
 }
 
 /**
  * Extract non-introducer actor userIds from create data.
  */
-function getNonIntroducerUserIds(data: CreateOpportunityData): string[] {
+function getNonIntroducerUserIds(data: CreateOpportunityData): Id<'users'>[] {
   const ids = data.actors
     .filter((a) => a.role !== 'introducer')
     .map((a) => a.userId);
@@ -260,7 +263,7 @@ export async function enrichOrCreate(
     confidence: mergedConfidence,
   };
 
-  const resolvedStatus = resolveEnrichedStatus(related.map((o) => o.status));
+  const resolvedStatus = resolveEnrichedStatus(related.map((o) => o.status), newData.status);
 
   logger.info('[Enricher] Enriched opportunity', {
     enrichedFrom,

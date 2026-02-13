@@ -95,17 +95,9 @@ export default function ChatSidebar() {
         }
 
         const acceptedRecipientIds = Array.from(acceptedByRecipient.keys());
-        const profileEntries = await Promise.all(
-          acceptedRecipientIds.map(async (id) => {
-            try {
-              const profile = await usersService.getUserProfile(id);
-              return [id, profile] as const;
-            } catch {
-              return [id, null] as const;
-            }
-          })
-        );
-        const profileMap = new Map(profileEntries);
+        const profilesCap = 50;
+        const idsToFetch = acceptedRecipientIds.slice(0, profilesCap);
+        const profileMap = await usersService.getUserProfiles(idsToFetch);
 
         const chats: RecentChat[] = acceptedRecipientIds.map((recipientId) => {
           const stream = streamByRecipient.get(recipientId);

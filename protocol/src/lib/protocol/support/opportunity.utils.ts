@@ -150,27 +150,28 @@ export function isActionableForViewer(
   status: string,
   viewerId: string
 ): boolean {
-  const viewerActor = actors.find((a) => a.userId === viewerId);
-  if (!viewerActor) return false;
+  const viewerActors = actors.filter((a) => a.userId === viewerId);
+  if (viewerActors.length === 0) return false;
 
   const hasIntroducer = actors.some((a) => a.role === 'introducer');
-  const role = viewerActor.role;
 
-  switch (role) {
-    case 'introducer':
-      return status === 'latent';
-    case 'patient':
-    case 'party':
-      return hasIntroducer
-        ? status === 'pending' || status === 'viewed'
-        : status === 'latent';
-    case 'agent':
-      return hasIntroducer
-        ? status === 'accepted'
-        : status === 'pending' || status === 'viewed';
-    case 'peer':
-      return status === 'latent' || status === 'pending' || status === 'viewed';
-    default:
-      return false;
-  }
+  return viewerActors.some(({ role }) => {
+    switch (role) {
+      case 'introducer':
+        return status === 'latent';
+      case 'patient':
+      case 'party':
+        return hasIntroducer
+          ? status === 'pending' || status === 'viewed'
+          : status === 'latent';
+      case 'agent':
+        return hasIntroducer
+          ? status === 'accepted'
+          : status === 'pending' || status === 'viewed';
+      case 'peer':
+        return status === 'latent' || status === 'pending' || status === 'viewed';
+      default:
+        return false;
+    }
+  });
 }

@@ -106,19 +106,13 @@ export async function ensureIndexBotUser(streamClient: StreamChat): Promise<void
 /**
  * Send a message from the Index bot on `channel`.
  *
- * With server-side auth, Stream requires message.user_id (or message.user) on the payload.
- * We merge user_id into the message and pass the same id as the second arg for compatibility.
+ * With server-side auth, Stream v9 expects the sender in the message object (user_id).
  */
 export async function sendBotMessage(
   channel: Channel,
   message: Record<string, unknown>,
 ): Promise<void> {
-  const payload = { ...message, user_id: INDEX_BOT_USER_ID };
-  await (
-    channel as unknown as {
-      sendMessage: (msg: Record<string, unknown>, userId: string) => Promise<unknown>;
-    }
-  ).sendMessage(payload, INDEX_BOT_USER_ID);
+  await channel.sendMessage({ ...message, user_id: INDEX_BOT_USER_ID } as Parameters<Channel['sendMessage']>[0]);
 }
 
 /**
@@ -145,4 +139,45 @@ export function channelHasMessageForOpportunity(
       msgOppId === opportunityId
     );
   });
+}
+
+// ──────────────────────────────────────────────────────────────
+// CHANNEL METADATA (intro deduplication)
+// ──────────────────────────────────────────────────────────────
+
+/** Channel-like object with optional custom data for intro tracking. */
+type ChannelWithIntroMeta = Channel & {
+  data?: { introOpportunityIds?: string[] };
+};
+
+/**
+ * Read the list of opportunity IDs that already have an intro or update message in this channel.
+ * Stored as channel-level metadata (channel.data.introOpportunityIds) so creation and reinjection
+ * flows can reliably detect prior intros without scanning a fixed message window.
+ */
+export function getChannelIntroOpportunityIds(channel: Channel): string[] {
+  const data = (channel as ChannelWithIntroMeta).data;
+  const ids = data?.introOpportunityIds;
+  return Array.isArray(ids) ? ids : [];
+}
+
+/**
+ * Record that an intro or update was sent for `opportunityId` by appending to channel metadata.
+ * Call after successfully sending opportunity_intro (creation) or opportunity_update (reinjection)
+ * so both flows share the same idempotency signal.
+ */
+export async function addChannelIntroOpportunityId(channel: Channel, opportunityId: string): Promise<void> {
+  const current = getChannelIntroOpportunityIds(channel);
+  if (current.includes(opportunityId)) return;
+  const next = [...current, opportunityId];
+  try {
+    await (
+      channel as unknown as { updatePartial: (arg: { set?: Record<string, unknown> }) => Promise<unknown> }
+    ).updatePartial({ set: { introOpportunityIds: next } as Record<string, unknown> });
+  } catch (error) {
+    logger.warn('[addChannelIntroOpportunityId] Failed to update channel metadata', {
+      opportunityId,
+      error,
+    });
+  }
 }

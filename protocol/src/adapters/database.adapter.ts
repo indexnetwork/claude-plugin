@@ -7,6 +7,7 @@ import { eq, and, or, isNull, isNotNull, sql, count, desc, lt, lte, ne, inArray,
 import * as schema from '../schemas/database.schema';
 import db from '../lib/drizzle/drizzle';
 import type { User, NotificationPreferences } from '../schemas/database.schema';
+import type { Id } from '../types/common.types';
 import { log } from '../lib/log';
 
 // Local types used by adapters (shapes only; protocol layer defines the contracts)
@@ -1398,7 +1399,7 @@ export class ChatDatabaseAdapter {
     return result;
   }
 
-  async getMembersFromUserIndexes(userId: string): Promise<{ userId: string; name: string; avatar: string | null }[]> {
+  async getMembersFromUserIndexes(userId: Id<'users'>): Promise<{ userId: Id<'users'>; name: string; avatar: string | null }[]> {
     // Indexes the user is a member of (non-deleted)
     const myIndexRows = await db
       .select({ indexId: indexMembers.indexId })
@@ -1424,7 +1425,7 @@ export class ChatDatabaseAdapter {
         and(inArray(indexMembers.indexId, myIndexIds), isNull(indexes.deletedAt))
       );
 
-    const byId = new Map<string, { userId: string; name: string; avatar: string | null }>();
+    const byId = new Map<Id<'users'>, { userId: Id<'users'>; name: string; avatar: string | null }>();
     for (const r of rows) {
       if (!byId.has(r.userId)) byId.set(r.userId, { userId: r.userId, name: r.name, avatar: r.avatar });
     }
@@ -1951,6 +1952,12 @@ export class ChatDatabaseAdapter {
   async createOpportunity(data: CreateOpportunityInput): Promise<OpportunityRow> {
     return this.opportunityAdapter.createOpportunity(data);
   }
+  async createOpportunityAndExpireIds(
+    data: CreateOpportunityInput,
+    expireIds: string[]
+  ): Promise<{ created: OpportunityRow; expired: OpportunityRow[] }> {
+    return this.opportunityAdapter.createOpportunityAndExpireIds(data, expireIds);
+  }
   async getOpportunity(id: string): Promise<OpportunityRow | null> {
     return this.opportunityAdapter.getOpportunity(id);
   }
@@ -1976,7 +1983,7 @@ export class ChatDatabaseAdapter {
     return this.opportunityAdapter.opportunityExistsBetweenActors(actorIds, indexId);
   }
   async findOverlappingOpportunities(
-    actorUserIds: string[],
+    actorUserIds: Id<'users'>[],
     options?: { excludeStatuses?: ('latent' | 'pending' | 'viewed' | 'accepted' | 'rejected' | 'expired')[] }
   ): Promise<OpportunityRow[]> {
     return this.opportunityAdapter.findOverlappingOpportunities(actorUserIds, options);
@@ -1989,6 +1996,23 @@ export class ChatDatabaseAdapter {
   }
   async expireStaleOpportunities(): Promise<number> {
     return this.opportunityAdapter.expireStaleOpportunities();
+  }
+  async getAcceptedOpportunitiesBetweenActors(
+    userId: string,
+    counterpartUserId: string
+  ): Promise<OpportunityRow[]> {
+    return this.opportunityAdapter.getAcceptedOpportunitiesBetweenActors(userId, counterpartUserId);
+  }
+  async acceptSiblingOpportunities(
+    userId: string,
+    counterpartUserId: string,
+    excludeOpportunityId: string
+  ): Promise<string[]> {
+    return this.opportunityAdapter.acceptSiblingOpportunities(
+      userId,
+      counterpartUserId,
+      excludeOpportunityId
+    );
   }
 }
 
@@ -2331,6 +2355,91 @@ export class OpportunityDatabaseAdapter {
     return row ? toOpportunityRow(row) : null;
   }
 
+  async createOpportunityAndExpireIds(
+    data: CreateOpportunityInput,
+    expireIds: string[]
+  ): Promise<{ created: OpportunityRow; expired: OpportunityRow[] }> {
+    return db.transaction(async (tx) => {
+      const [inserted] = await tx
+        .insert(opportunities)
+        .values({
+          detection: data.detection,
+          actors: data.actors,
+          interpretation: data.interpretation,
+          context: data.context,
+          confidence: data.confidence,
+          status: data.status ?? 'pending',
+          expiresAt: data.expiresAt ?? null,
+        })
+        .returning();
+      if (!inserted) throw new Error('OpportunityDatabaseAdapter.createOpportunityAndExpireIds: no row returned');
+      const created = toOpportunityRow(inserted);
+      const expired: OpportunityRow[] = [];
+      const now = new Date();
+      for (const id of expireIds) {
+        const [row] = await tx
+          .update(opportunities)
+          .set({ status: 'expired', updatedAt: now })
+          .where(eq(opportunities.id, id))
+          .returning();
+        if (row) expired.push(toOpportunityRow(row));
+      }
+      return { created, expired };
+    });
+  }
+
+  /** Condition: opportunity actors contain both userId and counterpartUserId. */
+  private static actorPairCondition(userId: string, counterpartUserId: string) {
+    return and(
+      sql`${opportunities.actors} @> ${JSON.stringify([{ userId }])}::jsonb`,
+      sql`${opportunities.actors} @> ${JSON.stringify([{ userId: counterpartUserId }])}::jsonb`
+    );
+  }
+
+  async getAcceptedOpportunitiesBetweenActors(
+    userId: string,
+    counterpartUserId: string
+  ): Promise<OpportunityRow[]> {
+    const rows = await db
+      .select()
+      .from(opportunities)
+      .where(
+        and(
+          OpportunityDatabaseAdapter.actorPairCondition(userId, counterpartUserId),
+          eq(opportunities.status, 'accepted')
+        )
+      )
+      .orderBy(desc(opportunities.updatedAt));
+    return rows.map(toOpportunityRow);
+  }
+
+  async acceptSiblingOpportunities(
+    userId: string,
+    counterpartUserId: string,
+    excludeOpportunityId: string
+  ): Promise<string[]> {
+    return db.transaction(async (tx) => {
+      const siblingRows = await tx
+        .select({ id: opportunities.id })
+        .from(opportunities)
+        .where(
+          and(
+            OpportunityDatabaseAdapter.actorPairCondition(userId, counterpartUserId),
+            notInArray(opportunities.status, ['accepted', 'expired', 'rejected']),
+            ne(opportunities.id, excludeOpportunityId)
+          )
+        );
+      const ids = siblingRows.map((r) => r.id);
+      if (ids.length === 0) return [];
+      const now = new Date();
+      await tx
+        .update(opportunities)
+        .set({ status: 'accepted', updatedAt: now })
+        .where(inArray(opportunities.id, ids));
+      return ids;
+    });
+  }
+
   async opportunityExistsBetweenActors(actorIds: string[], indexId: string): Promise<boolean> {
     if (actorIds.length === 0) return false;
     const expired = 'expired';
@@ -2353,15 +2462,15 @@ export class OpportunityDatabaseAdapter {
   }
 
   async findOverlappingOpportunities(
-    actorUserIds: string[],
+    actorUserIds: Id<'users'>[],
     options?: { excludeStatuses?: ('latent' | 'pending' | 'viewed' | 'accepted' | 'rejected' | 'expired')[] }
   ): Promise<OpportunityRow[]> {
     if (actorUserIds.length === 0) return [];
-    const excludeStatuses = options?.excludeStatuses ?? [];
-    const statusCondition =
-      excludeStatuses.length > 0
-        ? notInArray(opportunities.status, excludeStatuses)
-        : sql`true`;
+    const defaultExcludeStatuses: ('expired' | 'rejected')[] = ['expired', 'rejected'];
+    const mergedExcludeStatuses = [
+      ...new Set([...defaultExcludeStatuses, ...(options?.excludeStatuses ?? [])]),
+    ] as ('latent' | 'pending' | 'viewed' | 'accepted' | 'rejected' | 'expired')[];
+    const statusCondition = notInArray(opportunities.status, mergedExcludeStatuses);
     // Exact match: opportunity's set of non-introducer userIds must equal actorUserIds (same people only)
     const sortedActorUserIds = [...actorUserIds].sort();
     const overlapCondition = sql`(
@@ -2731,6 +2840,26 @@ export class UserDatabaseAdapter {
       .limit(1);
 
     return result[0] || null;
+  }
+
+  /**
+   * Find multiple users by IDs. Returns public profile fields only (same shape as single-user API).
+   */
+  async findByIds(userIds: string[]): Promise<Array<Pick<typeof users.$inferSelect, 'id' | 'name' | 'intro' | 'avatar' | 'location' | 'socials' | 'createdAt' | 'updatedAt'>>> {
+    if (userIds.length === 0) return [];
+    const result = await db.select({
+      id: users.id,
+      name: users.name,
+      intro: users.intro,
+      avatar: users.avatar,
+      location: users.location,
+      socials: users.socials,
+      createdAt: users.createdAt,
+      updatedAt: users.updatedAt,
+    })
+      .from(users)
+      .where(inArray(users.id, userIds));
+    return result;
   }
 
   /**
