@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useEffect, useState } from "react";
+import { Suspense, use, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Loader2 } from "lucide-react";
 import { useAuthContext } from "@/contexts/AuthContext";
@@ -16,7 +16,15 @@ interface ChatPageProps {
   }>;
 }
 
-export default function ChatPage({ params }: ChatPageProps) {
+function ChatPageFallback() {
+  return (
+    <div className="flex items-center justify-center py-20">
+      <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
+    </div>
+  );
+}
+
+function ChatPageContent({ params }: ChatPageProps) {
   const resolvedParams = use(params);
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -102,5 +110,13 @@ export default function ChatPage({ params }: ChatPageProps) {
       onClose={handleClose}
       onBack={handleBack}
     />
+  );
+}
+
+export default function ChatPage(props: ChatPageProps) {
+  return (
+    <Suspense fallback={<ChatPageFallback />}>
+      <ChatPageContent {...props} />
+    </Suspense>
   );
 }
