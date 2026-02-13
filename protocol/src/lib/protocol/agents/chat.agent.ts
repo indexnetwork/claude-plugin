@@ -1,7 +1,7 @@
 import { ChatOpenAI } from "@langchain/openai";
 import { BaseMessage, SystemMessage, ToolMessage } from "@langchain/core/messages";
 import { createChatTools, type ToolContext, type ResolvedToolContext } from "../tools";
-import { SHARED_BASE_PROMPT, ITERATION_NUDGE, buildSystemContent } from "./chat.prompt";
+import { ITERATION_NUDGE, buildSystemContent } from "./chat.prompt";
 import { protocolLogger } from "../support/protocol.logger";
 
 const logger = protocolLogger("ChatAgent");
@@ -74,14 +74,27 @@ export class ChatAgent {
     private resolvedContext: ResolvedToolContext,
     tools: Awaited<ReturnType<typeof createChatTools>>,
   ) {
-    // Create model with tool calling capability
+    // Thinking model for tool use: better reasoning over tool inputs/outputs (OpenRouter reasoning tokens)
+    const chatModel =
+      process.env.CHAT_MODEL ?? 'google/gemini-3-pro-preview';
+    const reasoningEffort =
+      (process.env.CHAT_REASONING_EFFORT as 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | undefined) ??
+      'high';
+
     this.model = new ChatOpenAI({
-      model: 'google/gemini-2.5-flash',
+      model: chatModel,
       configuration: {
         baseURL: process.env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1',
         apiKey: process.env.OPENROUTER_API_KEY
       },
-      maxTokens: 4096,
+      maxTokens: 8192,
+      // OpenRouter: reasoning budget for thinking models (Gemini 3, etc.)
+      modelKwargs: {
+        reasoning: {
+          effort: reasoningEffort,
+          exclude: true, // don't stream thinking tokens to the user
+        },
+      },
     });
 
     // Store tools and index by name
@@ -298,7 +311,6 @@ export class ChatAgent {
     logger.warn("Hit hard iteration limit", { iterationCount });
     
     const forceResponseMessages = [
-      new SystemMessage(SHARED_BASE_PROMPT),
       ...messages,
       new SystemMessage("You have reached the maximum number of tool calls. You MUST provide a final response now. Summarize what you've accomplished and what might still be needed.")
     ];
