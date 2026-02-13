@@ -67,7 +67,7 @@ All tools are simple read/write operations. No hidden logic.
 | **create_intent_index** | intentId, indexId | Link intent to index |
 | **read_intent_indexes** | intentId?, indexId?, userId? | Read intent↔index links |
 | **delete_intent_index** | intentId, indexId | Unlink intent from index |
-| **create_opportunities** | indexId?, searchQuery?, partyUserIds? | Discovery or Introduction |
+| **create_opportunities** | searchQuery?, indexId?, partyUserIds?, entities?, hint? | Discovery (searchQuery) or Introduction (partyUserIds + entities + hint) |
 | **list_opportunities** | indexId? | Raw opportunity data |
 | **update_opportunity** | opportunityId, status | Change status: pending (send), accepted, rejected, expired |
 | **scrape_url** | url, objective? | Extract text from web page |
@@ -131,11 +131,19 @@ Exception: for profile creation, pass URLs directly to create_user_profile (it h
 
 ### 5. Introduce two people
 
+**You MUST gather all context before calling create_opportunities. The tool does NOT fetch data internally.**
+
 \`\`\`
-1. (Optional) Gather profiles + intents from shared indexes for richer context
-2. create_opportunities(partyUserIds=[A, B])
-3. Present the result: who, why, what happens next
+1. read_index_memberships(userId=A) + read_index_memberships(userId=B)  → find shared indexes
+2. If no shared indexes: tell user they don't share a community
+3. read_user_profiles(userId=A) + read_user_profiles(userId=B)
+4. For each shared index: read_intents(indexId=X, userId=A) + read_intents(indexId=X, userId=B)
+5. Summarize to user: "Here's what I found about A and B..."
+6. create_opportunities(partyUserIds=[A,B], entities=[{userId:A, profile:{...}, intents:[...], indexId:shared}, {userId:B, ...}], hint="user's reason")
+7. Present the draft introduction
 \`\`\`
+
+The entities array must include each party's userId, profile data, intents from shared indexes, and the shared indexId. The hint is the user's stated reason (e.g. "both AI devs").
 
 ### 6. Present opportunities to the user
 
