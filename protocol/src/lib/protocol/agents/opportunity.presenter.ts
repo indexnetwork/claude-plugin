@@ -164,11 +164,17 @@ Rules:
 - Address the viewer with "you"/"your". Be concise and compelling.
 - primaryActionLabel must always invite starting or having a conversation (e.g. Start Chat, Say hello). Never use viewing/reviewing wording.
 - secondaryActionLabel must be short (under ~20 chars). narratorRemark should feel like a single sentence from the narrator (Index or a person), not meta-commentary.
+- narratorRemark is displayed with the narrator name prepended (e.g. "Index: …" or "Alice: …"). Do NOT start narratorRemark with the narrator's name or repeat it; write only the remark (e.g. "Based on your overlapping intents" or "introduced you two, sensing a valuable connection").
 
-**Introduction-originated opportunities:**
+**Introduction-originated opportunities (ONLY when INTRODUCTION CONTEXT is provided):**
 When INTRODUCTION CONTEXT is provided, this opportunity was explicitly created by an introducer. It was NOT automatically discovered.
-- For parties/patients/agents/peers viewing an introduction: mention who introduced them. The headline and summary should acknowledge the introduction (e.g., "[Name] thinks you should meet [Other]"). The narratorRemark should reference the introducer.
+- For parties/patients/agents/peers viewing an introduction: mention who introduced them. The headline and summary should acknowledge the introduction (e.g., "[Name] thinks you should meet [Other]"). The narratorRemark should reference the introducer (without repeating their name at the start).
 - This is a personal recommendation, not an algorithm match. Frame it accordingly.
+
+**When INTRODUCTION CONTEXT is NOT provided (system-discovered match):**
+- Do NOT use introducer-style wording. Do NOT say "you suggested", "this is an introduction you suggested", or "you suggested this connection". The system found this match; no human introducer was involved.
+- Instead, narratorRemark should describe why the match is relevant (e.g. "Based on your overlapping intents", "Your skills align with what they need").
+- narratorRemark should describe why the match is relevant (e.g. "Based on your overlapping intents", "Your skills align with what they need").
 
 - Exception for connector/introducer: if viewer role is "introducer" (any status), this is a curation/connector card. Use:
   - primaryActionLabel: "Good match"
@@ -473,14 +479,14 @@ export async function gatherPresenterContext(
   const signalsSummary =
     interp.signals?.map((s) => `${s.type}: ${s.detail ?? s.type}`).join("; ") ?? "Match based on profile and intent alignment.";
 
-  // Detect introduction-originated opportunities
+  // Detect introduction-originated opportunities: only when there is an explicit introducer actor.
+  // Do NOT use detection.source === "manual" alone — system-discovered opportunities can have manual source without an introducer.
   const introducerActor = opportunity.actors.find((a) => a.role === "introducer");
-  const isIntroduction = !!introducerActor || opportunity.detection?.source === "manual";
+  const isIntroduction = !!introducerActor;
   let introducerName: string | undefined;
-  if (isIntroduction) {
-    // Try detection metadata first, then fetch the introducer's profile
+  if (introducerActor) {
     introducerName = (opportunity.detection as unknown as Record<string, unknown>)?.createdByName as string | undefined;
-    if (!introducerName && introducerActor) {
+    if (!introducerName) {
       const introducerProfile = await database.getProfile(introducerActor.userId);
       introducerName = introducerProfile?.identity?.name ?? undefined;
     }

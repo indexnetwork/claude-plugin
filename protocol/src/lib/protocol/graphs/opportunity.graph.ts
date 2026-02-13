@@ -505,16 +505,16 @@ export class OpportunityGraphFactory {
         const initialStatus = state.options.initialStatus ?? 'pending';
 
         for (const evaluated of state.evaluatedOpportunities) {
-          const indexIdForIntroducer = state.indexId ?? evaluated.actors[0]?.indexId;
+          const indexIdForActors = state.indexId ?? evaluated.actors[0]?.indexId;
           const evaluatorActors: OpportunityActor[] = evaluated.actors.map((a: EvaluatedOpportunityActor) => ({
-            indexId: a.indexId,
+            indexId: a.indexId ?? indexIdForActors,
             userId: a.userId,
             role: a.role,
             ...(a.intentId ? { intent: a.intentId } : {}),
           }));
-          const actors: OpportunityActor[] = indexIdForIntroducer
-            ? [{ indexId: indexIdForIntroducer, userId: state.userId, role: 'introducer' }, ...evaluatorActors]
-            : evaluatorActors;
+          // Do not add an "introducer" for opportunity_graph — that role is only for manual intros.
+          // Automatic discovery has no human introducer; presenter uses Index as narrator.
+          const actors: OpportunityActor[] = evaluatorActors;
           const data: CreateOpportunityData = {
             detection: {
               source: 'opportunity_graph',
