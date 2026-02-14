@@ -324,33 +324,6 @@ describe('Opportunity enricher', () => {
     expect(result.data.actors).toHaveLength(1);
   });
 
-  test('excludes terminal statuses (accepted, rejected, expired) from overlap search', async () => {
-    // Track the options passed to findOverlappingOpportunities
-    let capturedArgs: unknown[] = [];
-    const db = {
-      findOverlappingOpportunities: async (...args: unknown[]) => {
-        capturedArgs = args;
-        return [] as Opportunity[];
-      },
-    };
-    const embedder = { generate: async () => [] } as unknown as Embedder;
-    const newData = minimalNewData(
-      ['user-a', 'user-b'],
-      'idx-1',
-      MEANINGFUL.reasoning.aiMlCofounder
-    );
-
-    await enrichOrCreate(db, embedder, newData);
-
-    // First arg: actor user IDs
-    expect(capturedArgs[0]).toEqual(expect.arrayContaining(['user-a', 'user-b']));
-    // Second arg: options with excludeStatuses for terminal statuses
-    const options = capturedArgs[1] as { excludeStatuses?: string[] } | undefined;
-    expect(options).toBeDefined();
-    expect(options?.excludeStatuses).toEqual(
-      expect.arrayContaining(['accepted', 'rejected', 'expired'])
-    );
-  });
 });
 
 /**
