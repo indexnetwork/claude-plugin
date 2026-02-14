@@ -110,14 +110,15 @@ const responseFormat = z.object({
 });
 
 // ──────────────────────────────────────────────────────────────
-// 3. TYPE DEFINITIONS
+// 3. TYPE DEFINITIONS (match invoke() return shape: normalized lowercase action types)
 // ──────────────────────────────────────────────────────────────
 
-export type IntentReconcilerOutput = z.infer<typeof responseFormat>;
-type NormalizedIntentAction =
+export type NormalizedIntentAction =
   | Omit<z.infer<typeof CreateIntentActionSchema>, "type"> & { type: "create" }
   | Omit<z.infer<typeof UpdateIntentActionSchema>, "type"> & { type: "update" }
   | Omit<z.infer<typeof ExpireIntentActionSchema>, "type"> & { type: "expire" };
+
+export type IntentReconcilerOutput = { actions: NormalizedIntentAction[] };
 
 const normalizeActionType = (type: string): "create" | "update" | "expire" => {
   const normalized = type.toLowerCase();
