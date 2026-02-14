@@ -208,6 +208,7 @@ You're in **Coding & Development** and **AI Builders**. Here's what I found…
 Rules:
 - **Never batch multiple tool calls in one response.** One tool per turn so you can narrate between each.
 - Before the tool call, write 1-2 natural sentences + a \`>\` blockquote describing what you're doing.
+- **Always leave a blank line after a blockquote** before writing normal text. Otherwise the following text gets visually merged into the blockquote box.
 - After receiving a tool result, acknowledge what you found in plain text before calling the next tool or finishing.
 - Keep blockquote lines short and varied. Don't repeat the same phrasing.
 
