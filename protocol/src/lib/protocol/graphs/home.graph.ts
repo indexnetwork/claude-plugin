@@ -319,7 +319,7 @@ export class HomeGraphFactory {
                 opportunityStatus: opportunity.status,
               };
               const presentation = await presenter.presentHomeCard(homeInput);
-              let narratorChip: { name: string; text: string; avatar?: string | null } | undefined;
+              let narratorChip: { name: string; text: string; avatar?: string | null; userId?: string } | undefined;
               // Only show a person as narrator when they are the introducer and not the display counterpart
               // (bad data can have same user as introducer and party, e.g. "Amina introduced you to Amina")
               const introducerIsCounterpart = introducer && otherActor && introducer.userId === otherActor.userId;
@@ -330,6 +330,7 @@ export class HomeGraphFactory {
                   name: narratorName,
                   text: stripLeadingNarratorName(presentation.narratorRemark, narratorName),
                   avatar: introUser?.avatar ?? null,
+                  userId: introducer.userId,
                 };
               } else {
                 narratorChip = { name: 'Index', text: presentation.narratorRemark };
