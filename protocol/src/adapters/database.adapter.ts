@@ -2901,6 +2901,17 @@ export class UserDatabaseAdapter {
   }
 
   /**
+   * Find user by Privy ID
+   */
+  async findByPrivyId(privyId: string): Promise<typeof users.$inferSelect | null> {
+    const result = await db.select()
+      .from(users)
+      .where(eq(users.privyId, privyId))
+      .limit(1);
+    return result[0] ?? null;
+  }
+
+  /**
    * Find user by email (for test setup/teardown).
    */
   async findByEmail(email: string): Promise<typeof users.$inferSelect | null> {
