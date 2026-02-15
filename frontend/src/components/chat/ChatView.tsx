@@ -387,8 +387,8 @@ export default function ChatView({ userId, userName, userAvatar, userTitle, init
         </div>
       </div>
 
-      {/* Scrollable content - centered */}
-      <div className="px-6 lg:px-8 pb-32">
+      {/* Scrollable content - flex-1 pushes input to bottom */}
+      <div className="px-6 lg:px-8 pb-32 flex-1">
         <ContentContainer>
           {/* Pending state banners */}
           {pendingState.isPending && (
@@ -460,7 +460,7 @@ export default function ChatView({ userId, userName, userAvatar, userTitle, init
         </ContentContainer>
       </div>
 
-      {/* Sticky input at bottom - stays in flow so it aligns with content area */}
+      {/* Sticky input at bottom - matches ChatContent */}
       <div className="sticky bottom-0 z-20">
         <div className="px-6 lg:px-8">
           <ContentContainer>
