@@ -362,7 +362,7 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
           ))}
         </div>
       )}
-      <form onSubmit={handleSubmit} className="flex items-center gap-3 bg-[#F8F8F8] border border-[#E9E9E9] rounded-full px-4 py-3">
+      <form onSubmit={handleSubmit} className="flex items-end gap-3 bg-[#F8F8F8] border border-[#E9E9E9] rounded-[24px] px-4 py-3">
         <input
           ref={fileInputRef}
           type="file"
@@ -424,7 +424,7 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
                 </h1>
               </div>
               {/* Input + index dropdown: same as below, reuse later if needed */}
-              <form onSubmit={handleSubmit} className="flex items-center gap-3 bg-[#F8F8F8] border border-[#E9E9E9] rounded-full px-4 py-3 mb-6">
+              <form onSubmit={handleSubmit} className="flex items-end gap-3 bg-[#F8F8F8] border border-[#E9E9E9] rounded-[48px] px-4 py-3 mb-6">
                 <input ref={fileInputRef} type="file" multiple accept=".csv,.doc,.docx,.epub,.html,.json,.md,.pdf,.ppt,.pptx,.rtf,.tsv,.txt,.xls,.xlsx,.xml" onChange={handleFileSelect} className="sr-only" />
                 <Button type="button" variant="ghost" size="icon" disabled={isBusy} onClick={() => fileInputRef.current?.click()} className="shrink-0 h-8 w-8 rounded-full text-gray-500 hover:text-[#4091BB] hover:bg-gray-200 p-0" title="Attach files"><Paperclip className="h-4 w-4" /></Button>
                 <MentionsTextInput value={input} onChange={setInput} placeholder="What are you looking for?" disabled={isBusy} autoFocus inputRef={inputRef} />
@@ -540,7 +540,7 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
               Find your others
             </h1>
           </div>
-          <form onSubmit={handleSubmit} className="flex items-center gap-3 bg-[#F8F8F8] border border-[#E9E9E9] rounded-full px-4 py-3">
+          <form onSubmit={handleSubmit} className="flex items-end gap-3 bg-[#F8F8F8] border border-[#E9E9E9] rounded-[24px] px-4 py-3">
             <input ref={fileInputRef} type="file" multiple accept=".csv,.doc,.docx,.epub,.html,.json,.md,.pdf,.ppt,.pptx,.rtf,.tsv,.txt,.xls,.xlsx,.xml" onChange={handleFileSelect} className="sr-only" />
             <Button type="button" variant="ghost" size="icon" disabled={isBusy} onClick={() => fileInputRef.current?.click()} className="shrink-0 h-8 w-8 rounded-full text-gray-500 hover:text-[#4091BB] hover:bg-gray-200 p-0" title="Attach files"><Paperclip className="h-4 w-4" /></Button>
             <MentionsTextInput value={input} onChange={setInput} placeholder="What are you looking for?" disabled={isBusy} autoFocus inputRef={inputRef} />

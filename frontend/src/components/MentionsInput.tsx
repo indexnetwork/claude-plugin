@@ -12,6 +12,7 @@ interface MentionsInputProps {
   disabled?: boolean;
   autoFocus?: boolean;
   onKeyDown?: (e: React.KeyboardEvent) => void;
+  onSubmit?: () => void;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   inputRef?: React.RefObject<any>;
 }
@@ -23,12 +24,16 @@ const mentionsInputStyle = {
     fontSize: 14,
     fontWeight: 'normal',
   },
-  '&singleLine': {
-    display: 'inline-block',
-    width: '100%',
+  '&multiLine': {
+    control: {
+      minHeight: 20,
+    },
     highlighter: {
       padding: 0,
       border: 'none',
+      lineHeight: '32px',
+      wordBreak: 'break-all' as const,
+      overflowWrap: 'break-word' as const,
     },
     input: {
       padding: 0,
@@ -36,6 +41,10 @@ const mentionsInputStyle = {
       outline: 'none',
       backgroundColor: 'transparent',
       color: '#000000',
+      overflow: 'auto',
+      lineHeight: '32px',
+      wordBreak: 'break-all' as const,
+      overflowWrap: 'break-word' as const,
     },
   },
   suggestions: {
@@ -102,9 +111,22 @@ export function MentionsTextInput({
   disabled,
   autoFocus,
   onKeyDown,
+  onSubmit,
   inputRef,
 }: MentionsInputProps) {
   const { searchUsers } = useMentionableUsers({ enabled: true });
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      if (onSubmit) {
+        onSubmit();
+      } else {
+        (e.target as HTMLElement).closest('form')?.requestSubmit();
+      }
+    }
+    onKeyDown?.(e);
+  };
 
   return (
     <ReactMentionsInput
@@ -113,9 +135,8 @@ export function MentionsTextInput({
       placeholder={placeholder}
       disabled={disabled}
       autoFocus={autoFocus}
-      onKeyDown={onKeyDown}
+      onKeyDown={handleKeyDown}
       style={mentionsInputStyle}
-      singleLine
       a11ySuggestionsListLabel="Suggested users"
       className="flex-1"
       inputRef={inputRef}
