@@ -72,7 +72,7 @@ export default function BlogPage() {
   };
 
   return (
-    <div className="flex flex-col flex-1">
+    <div className="flex flex-col min-h-[calc(100vh-76px)]">
       {/* Waitlist Modal */}
       {isWaitlistOpen && (
         <div 
@@ -209,10 +209,10 @@ export default function BlogPage() {
         </div>
       )}
 
-    <div className="flex-1 flex flex-col">
-      <div className="max-w-3xl w-full mx-auto px-4 py-16">
+    <main className="flex-1 flex flex-col px-6 lg:px-12 pb-[40px] pt-[80px] font-sans text-[15px] text-black">
+      <div className="max-w-[960px] w-full mx-auto">
         <div className="mb-8">
-          <h1 className="text-2xl md:text-3xl font-garamond font-medium text-black">
+          <h1 className="text-3xl font-garamond font-medium text-black">
             Letters from Index
           </h1>
         </div>
@@ -242,7 +242,7 @@ export default function BlogPage() {
           </div>
         )}
       </div>
-    </div>
+    </main>
     <Footer />
     </div>
   );
