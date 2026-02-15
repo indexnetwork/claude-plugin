@@ -414,14 +414,7 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
 
     // API-driven home view (dynamic sections with Lucide icons)
     if (USE_HOME_API) {
-      if (homeViewLoading) {
-        return (
-          <div className="px-6 lg:px-8 py-4 bg-[#FDFDFD] min-h-full flex items-center justify-center">
-            <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
-          </div>
-        );
-      }
-      if (homeViewData && homeViewData.sections.length > 0) {
+      if (homeViewLoading || (homeViewData && homeViewData.sections.length > 0)) {
         return (
           <div className="px-6 lg:px-8 py-4 bg-[#FDFDFD] min-h-full">
             <ContentContainer className="text-left">
@@ -462,7 +455,11 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
                 )}
                 <Button type="submit" size="icon" disabled={isBusy || !canSend} className="shrink-0 h-8 w-8 rounded-full bg-[#041729] text-white hover:bg-[#0a2d4a] disabled:opacity-50 disabled:cursor-not-allowed p-0">{isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowUp className="h-4 w-4" />}</Button>
               </form>
-              {homeViewData.sections.map((section) => (
+              {homeViewLoading ? (
+                <div className="flex items-center justify-center py-20">
+                  <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
+                </div>
+              ) : homeViewData?.sections.map((section) => (
                 <div key={section.id} className={section.id === homeViewData.sections[0]?.id ? 'mt-12' : 'mt-6'}>
                   <h3 className="text-xs font-semibold text-[#3D3D3D] uppercase tracking-wider mb-3 font-ibm-plex-mono text-left flex items-center gap-2">
                     <span className="w-3.5 h-3.5 shrink-0 [&_svg]:w-3.5 [&_svg]:h-3.5">
@@ -474,12 +471,12 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
                     {section.items.map((item: HomeViewCardItem) => (
                       <div key={item.opportunityId} className="bg-[#F8F8F8] rounded-md p-4">
                         <div className="flex items-center justify-between gap-2 mb-3">
-                          <div className="flex items-center gap-2 min-w-0">
+                          <div className="flex items-center gap-2 min-w-0 cursor-pointer" onClick={() => router.push(`/u/${item.userId}`)}>
                             <div className="w-8 h-8 rounded-full overflow-hidden bg-gray-300/80 flex items-center justify-center shrink-0">
                               <Image src={getAvatarUrl({ id: item.userId, name: item.name, avatar: item.avatar })} alt="" width={32} height={32} className="w-full h-full object-cover" />
                             </div>
                             <div className="min-w-0">
-                              <h4 className="font-bold text-gray-900 text-sm">{item.name}</h4>
+                              <h4 className="font-bold text-gray-900 text-sm hover:underline">{item.name}</h4>
                               <p className="text-[11px] text-[#3D3D3D]">{item.mutualIntentsLabel ?? '1 mutual intent'}</p>
                             </div>
                           </div>
@@ -507,7 +504,10 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
                         </div>
                         {item.narratorChip && (
                           <div className="mt-3">
-                            <div className="inline-flex items-center gap-2.5 px-3 py-1 bg-[#F0F0F0] rounded-md">
+                            <div
+                              className={cn("inline-flex items-center gap-2.5 px-3 py-1 bg-[#F0F0F0] rounded-md", item.narratorChip.userId && "cursor-pointer hover:bg-[#E8E8E8] transition-colors")}
+                              onClick={item.narratorChip.userId ? () => router.push(`/u/${item.narratorChip!.userId}`) : undefined}
+                            >
                               <div className="relative shrink-0">
                                 {item.narratorChip.name === 'Index' ? (
                                   <Bot className="w-7 h-7 text-[#3D3D3D]" />
@@ -515,7 +515,7 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
                                   <Image src={getAvatarUrl({ name: item.narratorChip.name, avatar: item.narratorChip.avatar ?? null })} alt="" width={28} height={28} className="w-7 h-7 rounded-full object-cover" />
                                 )}
                               </div>
-                              <span className="text-[13px] text-[#3D3D3D]"><span className="font-semibold">{item.narratorChip.name}:</span> {item.narratorChip.text}</span>
+                              <span className="text-[13px] text-[#3D3D3D]"><span className={cn("font-semibold", item.narratorChip.userId && "hover:underline")}>{item.narratorChip.name}:</span> {item.narratorChip.text}</span>
                             </div>
                           </div>
                         )}
@@ -529,6 +529,7 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
         );
       }
     }
+
 
     // Empty state — no opportunities to show
     return (
