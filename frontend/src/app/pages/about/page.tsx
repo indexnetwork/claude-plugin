@@ -26,17 +26,17 @@ export default function AboutPage() {
 
           <div className="flex flex-col gap-4">
             <div>
-              <h2 className="font-garamond text-xl font-normal text-black mb-1">Team</h2>
+              <h2 className="font-garamond text-xl font-medium text-black mb-1">Team</h2>
               <p><a href="https://x.com/hyperseref" target="_blank" rel="noopener noreferrer" className="underline">Seref Yarar</a>, <a href="https://x.com/serensandikci" target="_blank" rel="noopener noreferrer" className="underline">Seren Sandikci</a>, <a href="https://linkedin.com/in/yanekyuk" target="_blank" rel="noopener noreferrer" className="underline">Yanki Ekin Yuksel</a>, <a href="https://linkedin.com/in/vickygu" target="_blank" rel="noopener noreferrer" className="underline">Vicky Gu</a></p>
             </div>
 
             <div>
-              <h2 className="font-garamond text-xl font-normal text-black mb-1">Investors</h2>
+              <h2 className="font-garamond text-xl font-medium text-black mb-1">Investors</h2>
               <p><a href="https://frachtis.com" target="_blank" rel="noopener noreferrer" className="underline">Frachtis</a>, <a href="https://dlab.vc" target="_blank" rel="noopener noreferrer" className="underline">dlab</a>, <a href="https://blueyard.com" target="_blank" rel="noopener noreferrer" className="underline">Blueyard</a>, <a href="https://mesh.xyz" target="_blank" rel="noopener noreferrer" className="underline">Consensys Mesh</a>, <a href="https://sundao.ventures/" target="_blank" rel="noopener noreferrer" className="underline">SunDAO</a>, <a href="https://x.com/tannedoaksprout" target="_blank" rel="noopener noreferrer" className="underline">Oak</a>, <a href="https://x.com/0xbilly" target="_blank" rel="noopener noreferrer" className="underline">Billy</a>, <a href="https://www.linkedin.com/in/zhehao-kobby-chen-8b6a92a5" target="_blank" rel="noopener noreferrer" className="underline">Kobby</a></p>
             </div>
 
             <div>
-              <h2 className="font-garamond text-xl font-normal text-black mb-1">Join us</h2>
+              <h2 className="font-garamond text-xl font-medium text-black mb-1">Join us</h2>
               <p>
                 Email us at{" "}
                 <a href="mailto:hello@index.network" className="underline">hello@index.network</a>
