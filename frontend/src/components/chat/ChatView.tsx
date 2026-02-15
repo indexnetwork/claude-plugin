@@ -281,7 +281,11 @@ export default function ChatView({ userId, userName, userAvatar, userTitle, init
         return;
       }
       const response = await activeChannel.sendMessage({ text });
-      setMessages((prev) => { const filtered = prev.filter((m) => m.id !== tempId); return [...filtered, transformMessage(response.message)]; });
+      setMessages((prev) => {
+        const filtered = prev.filter((m) => m.id !== tempId);
+        if (filtered.some((m) => m.id === response.message.id)) return filtered;
+        return [...filtered, transformMessage(response.message)];
+      });
       setSendingMessageId(null);
       scrollToBottom();
       inputRef.current?.focus();
