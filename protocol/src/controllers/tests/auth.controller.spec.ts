@@ -156,6 +156,8 @@ describe("AuthController Integration", () => {
           connectionUpdates: true,
           weeklyNewsletter: true,
         },
+        onboarding: {},
+        lastWeeklyEmailSentAt: null,
       })) as typeof userService.findWithGraph;
 
       profileService.syncProfile = (async () => {
