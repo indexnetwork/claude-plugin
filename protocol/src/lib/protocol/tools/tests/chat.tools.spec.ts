@@ -25,6 +25,7 @@ mock.module("../../graphs/intent.graph", () => ({
           indexId?: string;
           queryUserId?: string;
           allUserIntents?: boolean;
+          targetIntentIds?: string[];
         }) => {
           // For read operations, replicate the real queryNode logic using the database
           if (input.operationMode === "read") {
@@ -95,7 +96,36 @@ mock.module("../../graphs/intent.graph", () => ({
             };
           }
 
-          // For non-read operations, return default empty results
+          // For update/delete with index scope: enforce index scoping (intent must be in index)
+          if (
+            (input.operationMode === "update" || input.operationMode === "delete") &&
+            input.indexId &&
+            input.targetIntentIds?.length
+          ) {
+            const intentId = input.targetIntentIds[0];
+            const intents = await db.getIntentsInIndexForMember(input.userId, input.indexId);
+            const inScope = intents.some((i: { id: string }) => i.id === intentId);
+            if (!inScope) {
+              return {
+                executionResults: [{ success: false, actionType: input.operationMode as "update" | "expire" }],
+                actions: [],
+                inferredIntents: [],
+              };
+            }
+            return {
+              executionResults: [
+                {
+                  success: true,
+                  actionType: input.operationMode === "delete" ? "expire" : "update",
+                  intentId,
+                },
+              ],
+              actions: [],
+              inferredIntents: [],
+            };
+          }
+
+          // For non-read operations without index scope, return default empty results
           return {
             executionResults: [],
             actions: [],
@@ -781,7 +811,7 @@ describe("update_intent and delete_intent (Phase 3 index-scoping)", () => {
   const intentInIndex = { id: "c2505011-2e45-426e-81dd-b9abb9b72001", payload: "In scope", summary: "X", createdAt: new Date() };
   const intentNotInIndex = "c2505011-2e45-426e-81dd-b9abb9b72099"; // Valid UUID but not in index
 
-  test("update_intent when context.indexId set invokes graph (index scoping may be enforced by graph)", async () => {
+  test("update_intent when context.indexId set and intent not in index returns success false and error", async () => {
     const mockDb = createMockDatabase(async (uid, idx) => {
       if (uid === testUserId && idx === indexId) return [intentInIndex];
       return [];
@@ -791,11 +821,12 @@ describe("update_intent and delete_intent (Phase 3 index-scoping)", () => {
     const tool = tools.find((t: { name: string }) => t.name === "update_intent") as { invoke: (args: { intentId: string; newDescription: string }) => Promise<string> };
     const result = await tool.invoke({ intentId: intentNotInIndex, newDescription: "Updated" });
     const parsed = JSON.parse(result);
-    expect(parsed).toHaveProperty("success");
-    expect(parsed).toHaveProperty(parsed.success ? "data" : "error");
+    expect(parsed.success).toBe(false);
+    expect(parsed.error).toBeDefined();
+    expect(parsed.error).toMatch(/fail|update/i);
   });
 
-  test("delete_intent when context.indexId set invokes graph (index scoping may be enforced by graph)", async () => {
+  test("delete_intent when context.indexId set and intent not in index returns success false and error", async () => {
     const mockDb = createMockDatabase(async (uid, idx) => {
       if (uid === testUserId && idx === indexId) return [intentInIndex];
       return [];
@@ -805,8 +836,39 @@ describe("update_intent and delete_intent (Phase 3 index-scoping)", () => {
     const tool = tools.find((t: { name: string }) => t.name === "delete_intent") as { invoke: (args: { intentId: string }) => Promise<string> };
     const result = await tool.invoke({ intentId: intentNotInIndex });
     const parsed = JSON.parse(result);
-    expect(parsed).toHaveProperty("success");
-    expect(parsed).toHaveProperty(parsed.success ? "data" : "error");
+    expect(parsed.success).toBe(false);
+    expect(parsed.error).toBeDefined();
+    expect(parsed.error).toMatch(/fail|delete|archived/i);
+  });
+
+  test("update_intent when context.indexId set and intent in index returns success and data shape", async () => {
+    const mockDb = createMockDatabase(async (uid, idx) => {
+      if (uid === testUserId && idx === indexId) return [intentInIndex];
+      return [];
+    }, { isIndexMember: async () => true });
+    const context: ToolContext = { userId: testUserId, database: mockDb, embedder: mockEmbedder, scraper: mockScraper, indexId };
+    const tools = await createChatTools(context);
+    const tool = tools.find((t: { name: string }) => t.name === "update_intent") as { invoke: (args: { intentId: string; newDescription: string }) => Promise<string> };
+    const result = await tool.invoke({ intentId: intentInIndex.id, newDescription: "Updated" });
+    const parsed = JSON.parse(result);
+    expect(parsed.success).toBe(true);
+    expect(parsed.data).toBeDefined();
+    expect(parsed.data.message).toBe("Intent updated.");
+  });
+
+  test("delete_intent when context.indexId set and intent in index returns success and data shape", async () => {
+    const mockDb = createMockDatabase(async (uid, idx) => {
+      if (uid === testUserId && idx === indexId) return [intentInIndex];
+      return [];
+    }, { isIndexMember: async () => true });
+    const context: ToolContext = { userId: testUserId, database: mockDb, embedder: mockEmbedder, scraper: mockScraper, indexId };
+    const tools = await createChatTools(context);
+    const tool = tools.find((t: { name: string }) => t.name === "delete_intent") as { invoke: (args: { intentId: string }) => Promise<string> };
+    const result = await tool.invoke({ intentId: intentInIndex.id });
+    const parsed = JSON.parse(result);
+    expect(parsed.success).toBe(true);
+    expect(parsed.data).toBeDefined();
+    expect(parsed.data.message).toBe("Intent archived.");
   });
 });
 
