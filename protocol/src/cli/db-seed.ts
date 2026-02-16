@@ -181,8 +181,11 @@ async function createUser(account: SeedAccount): Promise<{ id: string }> {
       .returning({ id: users.id });
     return user!;
   } catch {
-    const [existing] = await db.select({ id: users.id }).from(users).where(eq(users.email, account.email)).limit(1);
-    return existing!;
+    const [byEmail] = await db.select({ id: users.id }).from(users).where(eq(users.email, account.email)).limit(1);
+    if (byEmail) return byEmail;
+    const [byPrivyId] = await db.select({ id: users.id }).from(users).where(eq(users.privyId, privyId)).limit(1);
+    if (byPrivyId) return byPrivyId;
+    throw new Error(`createUser failed for ${account.email}: insert failed and no existing user found by email or privyId`);
   }
 }
 
