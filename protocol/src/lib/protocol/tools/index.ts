@@ -14,7 +14,12 @@ import { RedisCacheAdapter } from "../../../adapters/cache.adapter";
 import { intentQueue } from "../../../queues/intent.queue";
 import { protocolLogger } from "../support/protocol.logger";
 
-import type { ToolContext, ResolvedToolContext, ToolDeps } from "./tool.helpers";
+import {
+  type ToolContext,
+  type ResolvedToolContext,
+  type ToolDeps,
+  resolveChatContext,
+} from "./tool.helpers";
 import { error } from "./tool.helpers";
 import { createProfileTools } from "./profile.tools";
 import { createIntentTools } from "./intent.tools";
@@ -37,22 +42,20 @@ const logger = protocolLogger("ChatTools");
  * Resolves user/index identity from DB at init time.
  * Tools are created fresh for each user session to ensure proper isolation.
  */
-export async function createChatTools(deps: ToolContext) {
+export async function createChatTools(
+  deps: ToolContext,
+  preResolvedContext?: ResolvedToolContext
+) {
   const { database, embedder, scraper } = deps;
 
   // ─── Resolve context from DB ───────────────────────────────────────────────
-  const user = await database.getUser(deps.userId);
-  const indexInfo = deps.indexId ? await database.getIndex(deps.indexId) : null;
-  const isOwner = deps.indexId ? await database.isIndexOwner(deps.indexId, deps.userId) : false;
-
-  const resolvedContext: ResolvedToolContext = {
-    userId: deps.userId,
-    userName: user?.name ?? "Unknown",
-    userEmail: user?.email ?? "",
-    indexId: deps.indexId,
-    indexName: indexInfo?.title,
-    isOwner,
-  };
+  const resolvedContext =
+    preResolvedContext ??
+    await resolveChatContext({
+      database,
+      userId: deps.userId,
+      indexId: deps.indexId,
+    });
 
   // ─── Tool wrapper ──────────────────────────────────────────────────────────
   /**

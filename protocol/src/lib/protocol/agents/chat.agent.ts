@@ -1,7 +1,12 @@
 import { ChatOpenAI } from "@langchain/openai";
 import { BaseMessage, SystemMessage, ToolMessage, AIMessageChunk } from "@langchain/core/messages";
 import { concat } from "@langchain/core/utils/stream";
-import { createChatTools, type ToolContext, type ResolvedToolContext } from "../tools";
+import {
+  createChatTools,
+  type ToolContext,
+  type ResolvedToolContext,
+} from "../tools";
+import { resolveChatContext } from "../tools/tool.helpers";
 import { ITERATION_NUDGE, buildSystemContent } from "./chat.prompt";
 import { protocolLogger } from "../support/protocol.logger";
 
@@ -134,21 +139,12 @@ export class ChatAgent {
    * Resolves user/index identity from DB during tool initialization.
    */
   static async create(context: ToolContext): Promise<ChatAgent> {
-    const tools = await createChatTools(context);
-    // Resolve context for system prompt (tools already resolved it internally,
-    // but we need it here for the prompt too)
-    const db = context.database;
-    const user = await db.getUser(context.userId);
-    const indexInfo = context.indexId ? await db.getIndex(context.indexId) : null;
-    const isOwner = context.indexId ? await db.isIndexOwner(context.indexId, context.userId) : false;
-    const resolved: ResolvedToolContext = {
+    const resolved: ResolvedToolContext = await resolveChatContext({
+      database: context.database,
       userId: context.userId,
-      userName: user?.name ?? "Unknown",
-      userEmail: user?.email ?? "",
       indexId: context.indexId,
-      indexName: indexInfo?.title,
-      isOwner,
-    };
+    });
+    const tools = await createChatTools(context, resolved);
     return new ChatAgent(resolved, tools);
   }
 
