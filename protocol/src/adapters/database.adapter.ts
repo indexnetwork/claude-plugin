@@ -492,8 +492,8 @@ export class IntentDatabaseAdapter {
 // Chat Graph Database Adapter
 // ═══════════════════════════════════════════════════════════════════════════════
 
-// Chat Session and Message interfaces
-export interface ChatSession {
+// Chat Session and Message interfaces (internal to ChatDatabaseAdapter)
+interface ChatSession {
   id: string;
   userId: string;
   title: string | null;
@@ -502,7 +502,7 @@ export interface ChatSession {
   updatedAt: Date;
 }
 
-export interface ChatMessage {
+interface ChatMessage {
   id: string;
   sessionId: string;
   role: 'user' | 'assistant' | 'system';
@@ -513,14 +513,14 @@ export interface ChatMessage {
   createdAt: Date;
 }
 
-export interface CreateSessionInput {
+interface CreateSessionInput {
   id: string;
   userId: string;
   title?: string;
   indexId?: string;
 }
 
-export interface CreateMessageInput {
+interface CreateMessageInput {
   id: string;
   sessionId: string;
   role: 'user' | 'assistant' | 'system';
@@ -2844,7 +2844,7 @@ export class HydeDatabaseAdapter {
 // User Database Adapter
 // ═══════════════════════════════════════════════════════════════════════════════
 
-export interface UserWithGraph {
+interface UserWithGraph {
   id: string;
   email: string | null;
   name: string | null;
@@ -2866,7 +2866,7 @@ export interface UserWithGraph {
   };
 }
 
-export interface NewsletterUserData {
+interface NewsletterUserData {
   id: string;
   email: string | null;
   name: string | null;
@@ -2885,7 +2885,7 @@ export interface NewsletterUserData {
   } | null;
 }
 
-export interface BasicUserInfo {
+interface BasicUserInfo {
   id: string;
   name: string | null;
   intro: string | null;
@@ -3158,7 +3158,7 @@ export class UserDatabaseAdapter {
 // File Database Adapter
 // ═══════════════════════════════════════════════════════════════════════════════
 
-export interface FileRow {
+interface FileRow {
   id: string;
   name: string;
   type: string;
@@ -3167,7 +3167,7 @@ export interface FileRow {
   userId: string | null;
 }
 
-export interface FileMetadata {
+interface FileMetadata {
   id: string;
   name: string;
   type: string;
@@ -3182,7 +3182,7 @@ export interface CreateFileInput {
   userId: string;
 }
 
-export interface FileListResult {
+interface FileListResult {
   files: FileRow[];
   total: number;
 }
