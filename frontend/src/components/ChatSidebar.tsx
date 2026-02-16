@@ -358,7 +358,7 @@ export default function ChatSidebar() {
                         {chat.name}
                       </p>
                       <p className={`truncate ${isUnread ? 'text-sm font-semibold text-gray-900' : 'text-sm font-normal text-gray-500'}`}>
-                        {chat.lastMessage || 'No messages yet'}
+                        {(chat.lastMessage || 'No messages yet').replace(/[*_~`#>]/g, '')}
                       </p>
                     </div>
                   </button>
