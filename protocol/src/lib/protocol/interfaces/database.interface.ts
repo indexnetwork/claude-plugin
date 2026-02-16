@@ -424,7 +424,7 @@ export interface Database {
    * Caller must be a member of that index; only the user's own intents are returned.
    *
    * @param userId - The user requesting (must be a member of the index)
-   * @param indexNameOrId - Index UUID or display name (e.g. "Open Mock Network")
+   * @param indexNameOrId - Index UUID or display name (e.g. "Commons")
    * @returns Array of active intents in that index for the user, or empty if not a member / no match
    */
   getIntentsInIndexForMember(userId: string, indexNameOrId: string): Promise<ActiveIntent[]>;
@@ -565,6 +565,16 @@ export interface Database {
    * @returns Array of index memberships with details
    */
   getIndexMemberships(userId: string): Promise<IndexMembership[]>;
+
+  /**
+   * Get a single index membership by index and user.
+   * Used when the preloaded memberships list may not contain this index (e.g. after isIndexMember check).
+   *
+   * @param indexId - The index ID
+   * @param userId - The user ID
+   * @returns The membership or null if not found
+   */
+  getIndexMembership(indexId: string, userId: string): Promise<IndexMembership | null>;
 
   /**
    * Get index by ID (id and title only). Used for opportunity presentation.
@@ -1133,6 +1143,7 @@ export type ChatGraphCompositeDatabase = Pick<
   // IndexGraph subgraph requirements (index created intents in user's indexes)
   | 'getUserIndexIds'
   | 'getIndexMemberships'
+  | 'getIndexMembership'
   | 'getIndex'
   | 'getIndexWithPermissions'
   | 'getIntentForIndexing'
