@@ -51,7 +51,7 @@ export interface HomeViewCardItem {
   secondaryActionLabel: string;
   /** Presenter-generated subtitle under the other party name (e.g. "1 mutual intent"). */
   mutualIntentsLabel: string;
-  narratorChip?: { name: string; text: string; avatar?: string | null };
+  narratorChip?: { name: string; text: string; avatar?: string | null; userId?: string };
   /** Viewer's role in this opportunity (e.g. 'introducer', 'party', 'agent', 'patient', 'peer'). */
   viewerRole?: string;
 }

@@ -112,7 +112,7 @@ export default function ChatView({ userId, userName, userAvatar, userTitle, init
     message.created_at ? new Date(message.created_at).getTime() : 0;
 
   const scrollToBottom = useCallback(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'auto' });
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, []);
 
   useEffect(() => {
@@ -260,13 +260,7 @@ export default function ChatView({ userId, userName, userAvatar, userTitle, init
     if (!messageText.trim() || sendingMessageId) return;
     const text = messageText.trim();
     setMessageText('');
-    
-    const tempId = `temp-${Date.now()}`;
-    const optimisticMessage: ChatMessage = { id: tempId, text, user: client?.userID ? { id: client.userID, name: client?.user?.name } : null, created_at: new Date(), status: 'sending' };
-    
-    setSendingMessageId(tempId);
-    setMessages((prev) => [...prev, optimisticMessage]);
-    scrollToBottom();
+    setSendingMessageId(text);
 
     try {
       const activeChannel = channel;
@@ -280,20 +274,17 @@ export default function ChatView({ userId, userName, userAvatar, userTitle, init
         inputRef.current?.focus();
         return;
       }
-      const response = await activeChannel.sendMessage({ text });
-      setMessages((prev) => { const filtered = prev.filter((m) => m.id !== tempId); return [...filtered, transformMessage(response.message)]; });
+      await activeChannel.sendMessage({ text });
       setSendingMessageId(null);
-      scrollToBottom();
       inputRef.current?.focus();
     } catch (error) {
       console.error('Error sending message:', error);
-      setMessages((prev) => prev.filter((m) => m.id !== tempId));
       setSendingMessageId(null);
       setMessageText(text);
       showError('Failed to send', error instanceof Error ? error.message : 'Please try again.');
       inputRef.current?.focus();
     }
-  }, [channel, messageText, client, sendingMessageId, scrollToBottom, isNewConversation, showError]);
+  }, [channel, messageText, sendingMessageId, isNewConversation, showError]);
 
   // Auto-focus input on keydown anywhere
   useEffect(() => {
@@ -396,17 +387,10 @@ export default function ChatView({ userId, userName, userAvatar, userTitle, init
         </div>
       </div>
 
-      {/* Scrollable content - centered */}
-      <div className="px-6 lg:px-8 py-6 pb-32">
+      {/* Scrollable content - flex-1 pushes input to bottom */}
+      <div className="px-6 lg:px-8 pb-32 flex-1">
         <ContentContainer>
           {/* Pending state banners */}
-          {acceptedOpportunities.length > 0 && (
-            <div className="px-4 py-3 rounded-lg mb-4 bg-gray-50 border border-gray-200">
-              <div className="text-xs text-gray-600">
-                This conversation is linked to {acceptedOpportunities.length} accepted opportunit{acceptedOpportunities.length === 1 ? 'y' : 'ies'}.
-              </div>
-            </div>
-          )}
           {pendingState.isPending && (
             <div className={`px-4 py-3 rounded-lg mb-4 ${pendingState.isRequester ? 'bg-blue-50 border border-blue-200' : 'bg-green-50 border border-green-200'}`}>
               {pendingState.isRequester ? (
@@ -476,36 +460,39 @@ export default function ChatView({ userId, userName, userAvatar, userTitle, init
         </ContentContainer>
       </div>
 
-      {/* Fixed input at bottom - left offset accounts for both sidebars (256px + 256px) */}
-      <div className="fixed bottom-0 left-0 right-0 lg:left-[32rem] z-20">
-        <div className="px-6 lg:px-8 py-4">
+      {/* Sticky input at bottom - matches ChatContent */}
+      <div className="sticky bottom-0 z-20">
+        <div className="px-6 lg:px-8">
           <ContentContainer>
             {pendingState.isPending && pendingState.isRequester ? (
-              <div className="text-center text-[#3D3D3D]  text-sm">Waiting for {userName} to accept your message request</div>
+              <div className="text-center text-[#3D3D3D] text-sm">Waiting for {userName} to accept your message request</div>
             ) : pendingState.isPending && !pendingState.isRequester ? (
-              <div className="text-center text-[#3D3D3D]  text-sm">Accept the request to continue the conversation</div>
+              <div className="text-center text-[#3D3D3D] text-sm">Accept the request to continue the conversation</div>
             ) : (
               <>
-                <div className="flex items-center gap-3 bg-gray-100 rounded-full px-4 py-3">
-                  <input
-                    ref={inputRef}
-                    type="text"
-                    value={messageText}
-                    onChange={(e) => setMessageText(e.target.value)}
-                    onKeyDown={handleKeyPress}
-                    placeholder={`Type a message to ${userName}...`}
-                    disabled={sendingMessageId !== null}
-                    autoFocus
-                    className="flex-1 bg-transparent border-none outline-none  text-gray-900 placeholder-gray-500 h-6"
-                  />
-                  <button
-                    onClick={handleSend}
-                    disabled={!messageText.trim() || sendingMessageId !== null}
-                    className="shrink-0 h-8 w-8 rounded-full bg-[#041729] text-white flex items-center justify-center hover:bg-[#0a2d4a] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    <ArrowUp className="h-4 w-4" />
-                  </button>
+                <div className="bg-[linear-gradient(to_bottom,transparent_50%,#ffffff_50%)]">
+                  <form onSubmit={(e) => { e.preventDefault(); handleSend(); }} className="flex items-center gap-3 bg-[#F8F8F8] border border-[#E9E9E9] rounded-[32px] px-4 py-3">
+                    <input
+                      ref={inputRef}
+                      type="text"
+                      value={messageText}
+                      onChange={(e) => setMessageText(e.target.value)}
+                      onKeyDown={handleKeyPress}
+                      placeholder={`Type a message to ${userName}...`}
+                      disabled={sendingMessageId !== null}
+                      autoFocus
+                      className="flex-1 bg-transparent border-none outline-none text-gray-900 placeholder-gray-500 h-6"
+                    />
+                    <button
+                      type="submit"
+                      disabled={!messageText.trim() || sendingMessageId !== null}
+                      className="shrink-0 h-8 w-8 rounded-full bg-[#041729] text-white flex items-center justify-center hover:bg-[#0a2d4a] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <ArrowUp className="h-4 w-4" />
+                    </button>
+                  </form>
                 </div>
+                <div className="pb-3 bg-white" />
               </>
             )}
           </ContentContainer>

@@ -340,71 +340,75 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
   // Shared input form JSX
   const renderInputForm = () => (
     <>
-      {selectedFiles.length > 0 && (
-        <div className="flex flex-wrap gap-2 mb-2">
-          {selectedFiles.map(({ id, file }) => (
-            <span
-              key={id}
-              className="inline-flex items-center gap-1.5 px-2 py-1 rounded bg-gray-100 text-gray-800 text-sm font-ibm-plex-mono max-w-[200px]"
-            >
-              <span className="truncate" title={file.name}>
-                {file.name}
-              </span>
-              <button
-                type="button"
-                onClick={() => removeFile(id)}
-                className="shrink-0 p-0.5 rounded hover:bg-gray-200 text-gray-500 hover:text-gray-800 focus:outline-none"
-                aria-label={`Remove ${file.name}`}
+      <div className="bg-[linear-gradient(to_bottom,transparent_50%,#ffffff_50%)]">
+        {selectedFiles.length > 0 && (
+          <div className="flex flex-wrap gap-2 mb-2">
+            {selectedFiles.map(({ id, file }) => (
+              <span
+                key={id}
+                className="inline-flex items-center gap-1.5 px-2 py-1 rounded bg-gray-100 text-gray-800 text-sm font-ibm-plex-mono max-w-[200px]"
               >
-                <X className="w-3.5 h-3.5" />
-              </button>
-            </span>
-          ))}
-        </div>
-      )}
-      <form onSubmit={handleSubmit} className="flex items-center gap-3 bg-[#F8F8F8] border border-[#E9E9E9] rounded-full px-4 py-3">
-        <input
-          ref={fileInputRef}
-          type="file"
-          multiple
-          accept=".csv,.doc,.docx,.epub,.html,.json,.md,.pdf,.ppt,.pptx,.rtf,.tsv,.txt,.xls,.xlsx,.xml"
-          onChange={handleFileSelect}
-          className="sr-only"
-          aria-label="Attach files"
-        />
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          disabled={isBusy}
-          onClick={() => fileInputRef.current?.click()}
-          className="shrink-0 h-8 w-8 rounded-full text-gray-500 hover:text-[#4091BB] hover:bg-gray-200 p-0"
-          title="Attach files"
-          aria-label="Attach files"
-        >
-          <Paperclip className="h-4 w-4" />
-        </Button>
-        <MentionsTextInput
-          value={input}
-          onChange={setInput}
-          placeholder="What are you looking for?"
-          disabled={isBusy}
-          autoFocus
-          inputRef={inputRef}
-        />
-        <Button
-          type="submit"
-          size="icon"
-          disabled={isBusy || !canSend}
-          className="shrink-0 h-8 w-8 rounded-full bg-[#041729] text-white hover:bg-[#0a2d4a] disabled:opacity-50 disabled:cursor-not-allowed p-0"
-        >
-          {isLoading ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <ArrowUp className="h-4 w-4" />
-          )}
-        </Button>
-      </form>
+                <span className="truncate" title={file.name}>
+                  {file.name}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => removeFile(id)}
+                  className="shrink-0 p-0.5 rounded hover:bg-gray-200 text-gray-500 hover:text-gray-800 focus:outline-none"
+                  aria-label={`Remove ${file.name}`}
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+        <form onSubmit={handleSubmit} className="flex items-end gap-3 bg-[#F8F8F8] border border-[#E9E9E9] rounded-[32px] px-4 py-3">
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            accept=".csv,.doc,.docx,.epub,.html,.json,.md,.pdf,.ppt,.pptx,.rtf,.tsv,.txt,.xls,.xlsx,.xml"
+            onChange={handleFileSelect}
+            className="sr-only"
+            aria-label="Attach files"
+          />
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            disabled={isBusy}
+            onClick={() => fileInputRef.current?.click()}
+            className="shrink-0 h-8 w-8 rounded-full text-gray-500 hover:text-[#4091BB] hover:bg-gray-200 p-0"
+            title="Attach files"
+            aria-label="Attach files"
+          >
+            <Paperclip className="h-4 w-4" />
+          </Button>
+          <MentionsTextInput
+            value={input}
+            onChange={setInput}
+            placeholder="What are you looking for?"
+            disabled={isBusy}
+            autoFocus
+            inputRef={inputRef}
+            suggestionsAbove
+          />
+          <Button
+            type="submit"
+            size="icon"
+            disabled={isBusy || !canSend}
+            className="shrink-0 h-8 w-8 rounded-full bg-[#041729] text-white hover:bg-[#0a2d4a] disabled:opacity-50 disabled:cursor-not-allowed p-0"
+          >
+            {isLoading ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <ArrowUp className="h-4 w-4" />
+            )}
+          </Button>
+        </form>
+      </div>
+      <div className="pb-3 bg-white" />
     </>
   );
 
@@ -414,24 +418,17 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
 
     // API-driven home view (dynamic sections with Lucide icons)
     if (USE_HOME_API) {
-      if (homeViewLoading) {
+      if (homeViewLoading || (homeViewData && homeViewData.sections.length > 0)) {
         return (
-          <div className="px-6 lg:px-8 py-4 bg-[#FDFDFD] min-h-full flex items-center justify-center">
-            <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
-          </div>
-        );
-      }
-      if (homeViewData && homeViewData.sections.length > 0) {
-        return (
-          <div className="px-6 lg:px-8 py-4 bg-[#FDFDFD] min-h-full">
+          <div className="px-6 lg:px-8 min-h-full">
             <ContentContainer className="text-left">
               <div className="mt-12 mb-6">
                 <h1 className="text-[28px] font-bold text-black font-ibm-plex-mono text-center">
                   Find your others
                 </h1>
               </div>
-              {/* Input + index dropdown: same as below, reuse later if needed */}
-              <form onSubmit={handleSubmit} className="flex items-center gap-3 bg-[#F8F8F8] border border-[#E9E9E9] rounded-full px-4 py-3 mb-6">
+              <div className="bg-[linear-gradient(to_bottom,transparent_50%,#ffffff_50%)]">
+              <form onSubmit={handleSubmit} className="flex items-end gap-3 bg-[#F8F8F8] border border-[#E9E9E9] rounded-[32px] px-4 py-3 mb-6">
                 <input ref={fileInputRef} type="file" multiple accept=".csv,.doc,.docx,.epub,.html,.json,.md,.pdf,.ppt,.pptx,.rtf,.tsv,.txt,.xls,.xlsx,.xml" onChange={handleFileSelect} className="sr-only" />
                 <Button type="button" variant="ghost" size="icon" disabled={isBusy} onClick={() => fileInputRef.current?.click()} className="shrink-0 h-8 w-8 rounded-full text-gray-500 hover:text-[#4091BB] hover:bg-gray-200 p-0" title="Attach files"><Paperclip className="h-4 w-4" /></Button>
                 <MentionsTextInput value={input} onChange={setInput} placeholder="What are you looking for?" disabled={isBusy} autoFocus inputRef={inputRef} />
@@ -462,7 +459,13 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
                 )}
                 <Button type="submit" size="icon" disabled={isBusy || !canSend} className="shrink-0 h-8 w-8 rounded-full bg-[#041729] text-white hover:bg-[#0a2d4a] disabled:opacity-50 disabled:cursor-not-allowed p-0">{isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowUp className="h-4 w-4" />}</Button>
               </form>
-              {homeViewData.sections.map((section) => (
+              </div>
+              <div className="pb-3 bg-white" />
+              {homeViewLoading ? (
+                <div className="flex items-center justify-center py-20">
+                  <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
+                </div>
+              ) : homeViewData?.sections.map((section) => (
                 <div key={section.id} className={section.id === homeViewData.sections[0]?.id ? 'mt-12' : 'mt-6'}>
                   <h3 className="text-xs font-semibold text-[#3D3D3D] uppercase tracking-wider mb-3 font-ibm-plex-mono text-left flex items-center gap-2">
                     <span className="w-3.5 h-3.5 shrink-0 [&_svg]:w-3.5 [&_svg]:h-3.5">
@@ -474,12 +477,12 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
                     {section.items.map((item: HomeViewCardItem) => (
                       <div key={item.opportunityId} className="bg-[#F8F8F8] rounded-md p-4">
                         <div className="flex items-center justify-between gap-2 mb-3">
-                          <div className="flex items-center gap-2 min-w-0">
+                          <div className="flex items-center gap-2 min-w-0 cursor-pointer" onClick={() => router.push(`/u/${item.userId}`)}>
                             <div className="w-8 h-8 rounded-full overflow-hidden bg-gray-300/80 flex items-center justify-center shrink-0">
                               <Image src={getAvatarUrl({ id: item.userId, name: item.name, avatar: item.avatar })} alt="" width={32} height={32} className="w-full h-full object-cover" />
                             </div>
                             <div className="min-w-0">
-                              <h4 className="font-bold text-gray-900 text-sm">{item.name}</h4>
+                              <h4 className="font-bold text-gray-900 text-sm hover:underline">{item.name}</h4>
                               <p className="text-[11px] text-[#3D3D3D]">{item.mutualIntentsLabel ?? '1 mutual intent'}</p>
                             </div>
                           </div>
@@ -507,7 +510,10 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
                         </div>
                         {item.narratorChip && (
                           <div className="mt-3">
-                            <div className="inline-flex items-center gap-2.5 px-3 py-1 bg-[#F0F0F0] rounded-md">
+                            <div
+                              className={cn("inline-flex items-center gap-2.5 px-3 py-1 bg-[#F0F0F0] rounded-md", item.narratorChip.userId && "cursor-pointer hover:bg-[#E8E8E8] transition-colors")}
+                              onClick={item.narratorChip.userId ? () => router.push(`/u/${item.narratorChip!.userId}`) : undefined}
+                            >
                               <div className="relative shrink-0">
                                 {item.narratorChip.name === 'Index' ? (
                                   <Bot className="w-7 h-7 text-[#3D3D3D]" />
@@ -515,7 +521,7 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
                                   <Image src={getAvatarUrl({ name: item.narratorChip.name, avatar: item.narratorChip.avatar ?? null })} alt="" width={28} height={28} className="w-7 h-7 rounded-full object-cover" />
                                 )}
                               </div>
-                              <span className="text-[13px] text-[#3D3D3D]"><span className="font-semibold">{item.narratorChip.name}:</span> {item.narratorChip.text}</span>
+                              <span className="text-[13px] text-[#3D3D3D]"><span className={cn("font-semibold", item.narratorChip.userId && "hover:underline")}>{item.narratorChip.name}:</span> {item.narratorChip.text}</span>
                             </div>
                           </div>
                         )}
@@ -530,16 +536,18 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
       }
     }
 
+
     // Empty state — no opportunities to show
     return (
-      <div className="px-6 lg:px-8 py-4 bg-[#FDFDFD] min-h-full">
+      <div className="px-6 lg:px-8 bg-[#FDFDFD] min-h-full">
         <ContentContainer className="text-left">
           <div className="mt-12 mb-6">
             <h1 className="text-[28px] font-bold text-black font-ibm-plex-mono text-center">
               Find your others
             </h1>
           </div>
-          <form onSubmit={handleSubmit} className="flex items-center gap-3 bg-[#F8F8F8] border border-[#E9E9E9] rounded-full px-4 py-3">
+          <div className="bg-[linear-gradient(to_bottom,transparent_50%,#ffffff_50%)]">
+          <form onSubmit={handleSubmit} className="flex items-end gap-3 bg-[#F8F8F8] border border-[#E9E9E9] rounded-[32px] px-4 py-3">
             <input ref={fileInputRef} type="file" multiple accept=".csv,.doc,.docx,.epub,.html,.json,.md,.pdf,.ppt,.pptx,.rtf,.tsv,.txt,.xls,.xlsx,.xml" onChange={handleFileSelect} className="sr-only" />
             <Button type="button" variant="ghost" size="icon" disabled={isBusy} onClick={() => fileInputRef.current?.click()} className="shrink-0 h-8 w-8 rounded-full text-gray-500 hover:text-[#4091BB] hover:bg-gray-200 p-0" title="Attach files"><Paperclip className="h-4 w-4" /></Button>
             <MentionsTextInput value={input} onChange={setInput} placeholder="What are you looking for?" disabled={isBusy} autoFocus inputRef={inputRef} />
@@ -570,6 +578,8 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
             )}
             <Button type="submit" size="icon" disabled={isBusy || !canSend} className="shrink-0 h-8 w-8 rounded-full bg-[#041729] text-white hover:bg-[#0a2d4a] disabled:opacity-50 disabled:cursor-not-allowed p-0">{isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowUp className="h-4 w-4" />}</Button>
           </form>
+          </div>
+          <div className="pb-3 bg-white" />
           {selectedFiles.length > 0 && (
             <div className="flex flex-wrap gap-2 mt-3">
               {selectedFiles.map(({ id, file }) => (
@@ -663,7 +673,7 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
       </div>
 
       {/* Scrollable content */}
-      <div className="px-6 lg:px-8 py-6 pb-32 flex-1">
+      <div className="px-6 lg:px-8 pb-32 flex-1">
         <ContentContainer>
           <div className="space-y-4">
               {messages.map((msg) => (
@@ -726,8 +736,8 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
       </div>
 
       {/* Fixed input at bottom */}
-      <div className="fixed bottom-0 left-0 right-0 lg:left-64 z-20 bg-white">
-        <div className="px-6 lg:px-8 py-4">
+      <div className="sticky bottom-0 z-20">
+        <div className="px-6 lg:px-8">
           <ContentContainer>
             {/* Suggestion chips - always visible in conversation */}
             {suggestions.length > 0 && (

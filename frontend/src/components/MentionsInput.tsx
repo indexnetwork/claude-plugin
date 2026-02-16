@@ -12,23 +12,30 @@ interface MentionsInputProps {
   disabled?: boolean;
   autoFocus?: boolean;
   onKeyDown?: (e: React.KeyboardEvent) => void;
+  onSubmit?: () => void;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   inputRef?: React.RefObject<any>;
+  /** Show the suggestions dropdown above the input (for sticky-bottom inputs) */
+  suggestionsAbove?: boolean;
 }
 
 // Custom styles for react-mentions to match existing design
-const mentionsInputStyle = {
+const getMentionsInputStyle = (above?: boolean) => ({
   control: {
     backgroundColor: 'transparent',
     fontSize: 14,
     fontWeight: 'normal',
   },
-  '&singleLine': {
-    display: 'inline-block',
-    width: '100%',
+  '&multiLine': {
+    control: {
+      minHeight: 20,
+    },
     highlighter: {
       padding: 0,
       border: 'none',
+      lineHeight: '32px',
+      wordBreak: 'break-all' as const,
+      overflowWrap: 'break-word' as const,
     },
     input: {
       padding: 0,
@@ -36,6 +43,10 @@ const mentionsInputStyle = {
       outline: 'none',
       backgroundColor: 'transparent',
       color: '#000000',
+      overflow: 'auto',
+      lineHeight: '32px',
+      wordBreak: 'break-all' as const,
+      overflowWrap: 'break-word' as const,
     },
   },
   suggestions: {
@@ -47,19 +58,20 @@ const mentionsInputStyle = {
       maxHeight: '200px',
       overflowY: 'auto' as const,
       position: 'absolute' as const,
-      top: '100%',
-      marginTop: '8px',
       zIndex: 100,
+      ...(above
+        ? { bottom: '100%', marginBottom: '8px' }
+        : { top: '100%', marginTop: '8px' }),
     },
     item: {
-      padding: '8px 12px',
+      padding: '2px 6px',
       cursor: 'pointer',
       '&focused': {
         backgroundColor: '#F5F5F5',
       },
     },
   },
-};
+});
 
 // Style for highlighted mentions in the input
 // Note: react-mentions overlays a highlighter on the input, the background shows through
@@ -102,9 +114,23 @@ export function MentionsTextInput({
   disabled,
   autoFocus,
   onKeyDown,
+  onSubmit,
   inputRef,
+  suggestionsAbove,
 }: MentionsInputProps) {
   const { searchUsers } = useMentionableUsers({ enabled: true });
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      if (onSubmit) {
+        onSubmit();
+      } else {
+        (e.target as HTMLElement).closest('form')?.requestSubmit();
+      }
+    }
+    onKeyDown?.(e);
+  };
 
   return (
     <ReactMentionsInput
@@ -113,9 +139,9 @@ export function MentionsTextInput({
       placeholder={placeholder}
       disabled={disabled}
       autoFocus={autoFocus}
-      onKeyDown={onKeyDown}
-      style={mentionsInputStyle}
-      singleLine
+      onKeyDown={handleKeyDown}
+      style={getMentionsInputStyle(suggestionsAbove)}
+      forceSuggestionsAboveCursor={suggestionsAbove}
       a11ySuggestionsListLabel="Suggested users"
       className="flex-1"
       inputRef={inputRef}

@@ -52,4 +52,23 @@ export class AuthService {
         logger.info('[AuthService] Fetching privy user', { privyId });
         return await privyClient.getUserById(privyId);
     }
+
+    /**
+     * Find existing user by Privy ID, or create one on first login.
+     * Also sets up default notification preferences for new users.
+     */
+    async findOrCreateByPrivyId(privyId: string) {
+        const existing = await this.db.findByPrivyId(privyId);
+        if (existing) return existing;
+
+        const privyUser = await privyClient.getUserById(privyId);
+        const email = privyUser?.email?.address ?? null;
+        const name = email?.split('@')[0] ?? 'User';
+
+        const user = await this.db.create({ privyId, email: email ?? '', name });
+        await this.setupDefaultPreferences(user.id);
+        return user;
+    }
 }
+
+export const authService = new AuthService();
