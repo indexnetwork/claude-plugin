@@ -168,6 +168,12 @@ export class ChatController {
     // 2. Validate or create session
     const requestIndexId =
       typeof body.indexId === 'string' && body.indexId.trim() ? body.indexId.trim() : undefined;
+    if (requestIndexId) {
+      const requestScopeValidation = await chatSessionService.validateIndexScope(user.id, requestIndexId);
+      if (!requestScopeValidation.ok) {
+        return Response.json({ error: requestScopeValidation.error }, { status: requestScopeValidation.status });
+      }
+    }
 
     let currentSessionId = body.sessionId;
     if (!currentSessionId) {
@@ -185,6 +191,12 @@ export class ChatController {
     // Effective index for this run: request body overrides; otherwise use session's persisted index
     const sessionForIndex = await chatSessionService.getSession(currentSessionId, user.id);
     const effectiveIndexId = requestIndexId ?? sessionForIndex?.indexId ?? undefined;
+    if (effectiveIndexId) {
+      const effectiveScopeValidation = await chatSessionService.validateIndexScope(user.id, effectiveIndexId);
+      if (!effectiveScopeValidation.ok) {
+        return Response.json({ error: effectiveScopeValidation.error }, { status: effectiveScopeValidation.status });
+      }
+    }
 
     // Capture for closure
     const sessionId = currentSessionId;
