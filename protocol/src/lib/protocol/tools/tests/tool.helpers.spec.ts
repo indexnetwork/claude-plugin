@@ -40,13 +40,25 @@ function createContextDatabase(overrides?: Partial<ChatGraphCompositeDatabase>) 
       },
     ]),
     getIndex: async (id: string) => ({ id, title: "AI Builders" }),
+    getIndexMembership: async (idxId: string, uid: string) =>
+      idxId === indexId && uid === userId
+        ? {
+            indexId,
+            indexTitle: "AI Builders",
+            indexPrompt: "People building practical AI tools",
+            permissions: ["member"],
+            memberPrompt: null,
+            autoAssign: true,
+            joinedAt: new Date("2026-01-01"),
+          }
+        : null,
     isIndexMember: async () => true,
     isIndexOwner: async () => false,
   };
 
   return { ...base, ...overrides } as Pick<
     ChatGraphCompositeDatabase,
-    "getUser" | "getProfile" | "getIndexMemberships" | "getIndex" | "isIndexMember" | "isIndexOwner"
+    "getUser" | "getProfile" | "getIndexMemberships" | "getIndexMembership" | "getIndex" | "isIndexMember" | "isIndexOwner"
   >;
 }
 
@@ -100,5 +112,28 @@ describe("resolveChatContext", () => {
       expect(accessError.statusCode).toBe(403);
       expect(accessError.code).toBe("INDEX_MEMBERSHIP_REQUIRED");
     }
+  });
+
+  test("uses getIndexMembership when membership missing from userIndexes (prompt not lost)", async () => {
+    const customPrompt = "Custom index purpose for fallback test";
+    const db = createContextDatabase({
+      getIndexMemberships: async () => [], // list empty but user is still member
+      getIndexMembership: async (idxId: string, uid: string) =>
+        idxId === indexId && uid === userId
+          ? {
+              indexId,
+              indexTitle: "AI Builders",
+              indexPrompt: customPrompt,
+              permissions: ["member"],
+              memberPrompt: null,
+              autoAssign: true,
+              joinedAt: new Date("2026-01-01"),
+            }
+          : null,
+    });
+
+    const ctx = await resolveChatContext({ database: db, userId, indexId });
+    expect(ctx.scopedIndex).not.toBeUndefined();
+    expect(ctx.scopedIndex?.prompt).toBe(customPrompt);
   });
 });
