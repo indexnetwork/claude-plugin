@@ -103,15 +103,32 @@ describe("resolveChatContext", () => {
       isIndexMember: async () => false,
     });
 
-    try {
-      await resolveChatContext({ database: db, userId, indexId });
-      expect(true).toBe(false);
-    } catch (error) {
-      expect(error).toBeInstanceOf(ChatContextAccessError);
-      const accessError = error as ChatContextAccessError;
-      expect(accessError.statusCode).toBe(403);
-      expect(accessError.code).toBe("INDEX_MEMBERSHIP_REQUIRED");
-    }
+    const err = await resolveChatContext({ database: db, userId, indexId }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ChatContextAccessError);
+    expect((err as ChatContextAccessError).statusCode).toBe(403);
+    expect((err as ChatContextAccessError).code).toBe("INDEX_MEMBERSHIP_REQUIRED");
+  });
+
+  test("throws ChatContextAccessError with 404 USER_NOT_FOUND when getUser returns null", async () => {
+    const db = createContextDatabase({
+      getUser: async () => null,
+    });
+
+    const err = await resolveChatContext({ database: db, userId }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ChatContextAccessError);
+    expect((err as ChatContextAccessError).statusCode).toBe(404);
+    expect((err as ChatContextAccessError).code).toBe("USER_NOT_FOUND");
+  });
+
+  test("throws ChatContextAccessError with 404 INDEX_NOT_FOUND when indexId provided and getIndex returns null", async () => {
+    const db = createContextDatabase({
+      getIndex: async () => null,
+    });
+
+    const err = await resolveChatContext({ database: db, userId, indexId }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ChatContextAccessError);
+    expect((err as ChatContextAccessError).statusCode).toBe(404);
+    expect((err as ChatContextAccessError).code).toBe("INDEX_NOT_FOUND");
   });
 
   test("uses getIndexMembership when membership missing from userIndexes (prompt not lost)", async () => {
