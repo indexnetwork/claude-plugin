@@ -174,6 +174,7 @@ export function createIntentTools(defineTool: DefineTool, deps: ToolDeps) {
         operationMode: 'update' as const,
         inputContent: query.newDescription,
         targetIntentIds: [intentId],
+        ...(context.indexId && { indexId: context.indexId }),
       });
 
       if (result.executionResults?.some((r: ExecutionResult) => !r.success)) {
@@ -200,6 +201,7 @@ export function createIntentTools(defineTool: DefineTool, deps: ToolDeps) {
         userProfile: "",
         operationMode: 'delete' as const,
         targetIntentIds: [intentId],
+        ...(context.indexId && { indexId: context.indexId }),
       });
 
       if (result.executionResults?.some((r: ExecutionResult) => !r.success)) {
