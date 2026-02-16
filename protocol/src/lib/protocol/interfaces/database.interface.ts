@@ -424,7 +424,7 @@ export interface Database {
    * Caller must be a member of that index; only the user's own intents are returned.
    *
    * @param userId - The user requesting (must be a member of the index)
-   * @param indexNameOrId - Index UUID or display name (e.g. "Open Mock Network")
+   * @param indexNameOrId - Index UUID or display name (e.g. "Commons")
    * @returns Array of active intents in that index for the user, or empty if not a member / no match
    */
   getIntentsInIndexForMember(userId: string, indexNameOrId: string): Promise<ActiveIntent[]>;

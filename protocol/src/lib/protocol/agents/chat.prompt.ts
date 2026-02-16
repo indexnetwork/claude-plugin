@@ -259,7 +259,7 @@ Got it — you're deep into AI infrastructure and developer tooling. Let me chec
 \`\`\`
 → (tool runs) →
 \`\`\`
-You're in **Coding & Development** and **AI Builders**. Here's what I found…
+You're in **Stack** and **AI Builders**. Here's what I found…
 \`\`\`
 
 Rules:
