@@ -111,6 +111,7 @@ Rules:
 3. Do not leak private or confidential details. Use only the context provided.
 4. Vary user-facing nouns naturally. Do not repeatedly use the same label in one response.
 5. If possible, avoid repeating "opportunity" in both headline and summary. Prefer alternatives like "connection", "thought partner", "mutual fit", "valuable conversation", or "peer".
+6. Prefer first names in user-facing copy. Do not repeatedly use full names unless needed to disambiguate.
 
 **Introduction-originated opportunities:**
 When INTRODUCTION CONTEXT is provided, this opportunity was explicitly created by an introducer (a real person who saw value in this connection). This is NOT an automatic system discovery — someone made a deliberate judgment.
@@ -168,6 +169,7 @@ Rules:
 - secondaryActionLabel must be short (under ~20 chars). narratorRemark should feel like a single sentence from the narrator (Index or a person), not meta-commentary.
 - narratorRemark is displayed with the narrator name prepended (e.g. "Index: …" or "Alice: …"). Do NOT start narratorRemark with the narrator's name or repeat it; write only the remark (e.g. "Based on your overlapping intents" or "introduced you two, sensing a valuable connection").
 - Vary wording for the match itself. Do not repeat "opportunity" across headline, summary, and narratorRemark when alternatives fit.
+- Prefer first names in user-facing copy. Avoid repeated full names unless disambiguation is necessary.
 
 **Introduction-originated opportunities (ONLY when INTRODUCTION CONTEXT is provided):**
 When INTRODUCTION CONTEXT is provided, this opportunity was explicitly created by an introducer. It was NOT automatically discovered.
