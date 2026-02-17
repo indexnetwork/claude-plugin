@@ -210,9 +210,11 @@ export function AIChatProvider({ children }: { children: React.ReactNode }) {
                   if (event.title) {
                     setSessionTitle(event.title);
                   }
-                  // Update context-aware suggestions from backend
-                  if (event.suggestions && Array.isArray(event.suggestions)) {
+                  // Update context-aware suggestions from backend; clear stale chips if absent
+                  if (Array.isArray(event.suggestions)) {
                     setSuggestions(event.suggestions);
+                  } else {
+                    setSuggestions([]);
                   }
                   // Refetch sessions after streaming completes (title is generated on backend)
                   refetchSessions();
