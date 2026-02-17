@@ -51,6 +51,9 @@ export interface DiscoverInput {
   minimalForChat?: boolean;
 }
 
+/** Context used by the minimal (no-LLM) path; only introducerName is needed for narrator chip. */
+type MinimalPresenterContext = { introducerName?: string };
+
 /** Max chars for bio and matchReason in chat tool results to keep context manageable. */
 const MAX_FIELD_CHARS = 100;
 
@@ -235,7 +238,7 @@ export async function runDiscoverFromQuery(
       let presentations: OpportunityPresentationResult[] | undefined;
       let homeCardPresentations: HomeCardPresentationResult[] | undefined;
       let presenterContexts:
-        | Awaited<ReturnType<typeof gatherPresenterContext>>[]
+        | (Awaited<ReturnType<typeof gatherPresenterContext>> | MinimalPresenterContext)[]
         | undefined;
 
       if (input.minimalForChat && baseEnriched.length > 0) {
@@ -255,7 +258,7 @@ export async function runDiscoverFromQuery(
         }));
         presenterContexts = baseEnriched.map((item) => ({
           introducerName: item.opportunity.detection.createdByName ?? undefined,
-        })) as Awaited<ReturnType<typeof gatherPresenterContext>>[];
+        })) as MinimalPresenterContext[];
       } else if (input.presenter && baseEnriched.length > 0) {
         try {
           presenterContexts = await Promise.all(
@@ -266,20 +269,27 @@ export async function runDiscoverFromQuery(
 
           if (input.useHomeCardFormat) {
             // Use full home card format with action labels, narrator remark, etc.
-            const homeCardInputs: HomeCardPresenterInput[] =
-              presenterContexts.map((ctx, idx) => ({
+            // In this branch presenterContexts is from gatherPresenterContext (full PresenterInput)
+            const fullContexts = presenterContexts as Awaited<
+              ReturnType<typeof gatherPresenterContext>
+            >[];
+            const homeCardInputs: HomeCardPresenterInput[] = fullContexts.map(
+              (ctx, idx) => ({
                 ...ctx,
                 mutualIntentCount: undefined, // Could compute mutual intents if needed
                 opportunityStatus: baseEnriched[idx].opportunity.status,
-              }));
+              }),
+            );
             homeCardPresentations = await input.presenter.presentHomeCardBatch(
               homeCardInputs,
               { concurrency: 5 },
             );
           } else {
-            // Use basic presentation format
+            // Use basic presentation format; presenterContexts is full type from gatherPresenterContext
             presentations = await input.presenter.presentBatch(
-              presenterContexts,
+              presenterContexts as Awaited<
+                ReturnType<typeof gatherPresenterContext>
+              >[],
               {
                 concurrency: 5,
               },
@@ -299,6 +309,19 @@ export async function runDiscoverFromQuery(
           homeCardPresentations = undefined;
         }
       }
+
+      // Batch-fetch user avatars (same pattern as listOpportunities)
+      const candidateUserIds = [
+        ...new Set(baseEnriched.map((item) => item.candidateUserId)),
+      ];
+      const userResults = await Promise.all(
+        candidateUserIds.map((id) => database.getUser(id)),
+      );
+      const avatarByUserId = new Map<string, string | null>();
+      candidateUserIds.forEach((id, i) => {
+        const user = userResults[i] ?? null;
+        avatarByUserId.set(id, user?.avatar ?? null);
+      });
 
       const enriched: FormattedDiscoveryCandidate[] = baseEnriched.map(
         (item, idx) => {
@@ -331,9 +354,7 @@ export async function runDiscoverFromQuery(
             opportunityId: item.opportunity.id,
             userId: item.candidateUserId,
             name: item.profile?.identity?.name ?? undefined,
-            // Note: avatar is not available from ProfileDocument; it comes from the user table
-            // The frontend can fetch avatar separately using userId or use a placeholder
-            avatar: null,
+            avatar: avatarByUserId.get(item.candidateUserId) ?? null,
             bio: truncateForChat(item.profile?.identity?.bio),
             matchReason:
               truncateForChat(
