@@ -12,6 +12,7 @@ import { cn } from "@/lib/utils";
 /**
  * Shared opportunity card data structure.
  * Compatible with both HomeViewCardItem and OpportunityCard from chat context.
+ * Keep in sync with OpportunityCardPayload in protocol/src/types/chat-streaming.types.ts.
  */
 export interface OpportunityCardData {
   opportunityId: string;
@@ -163,15 +164,23 @@ export default function OpportunityCard({
 
   const handlePrimaryAction = async () => {
     if (onPrimaryAction) {
-      await onPrimaryAction(card.opportunityId, card.userId, card.viewerRole);
-      setActionTaken("accepted");
+      try {
+        await onPrimaryAction(card.opportunityId, card.userId, card.viewerRole);
+        setActionTaken("accepted");
+      } catch {
+        setActionTaken("rejected");
+      }
     }
   };
 
   const handleSecondaryAction = async () => {
     if (onSecondaryAction) {
-      await onSecondaryAction(card.opportunityId, card.userId, card.viewerRole);
-      setActionTaken("rejected");
+      try {
+        await onSecondaryAction(card.opportunityId, card.userId, card.viewerRole);
+        setActionTaken("rejected");
+      } catch {
+        setActionTaken("rejected");
+      }
     }
   };
 

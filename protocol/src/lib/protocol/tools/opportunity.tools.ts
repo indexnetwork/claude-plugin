@@ -59,11 +59,9 @@ function buildMinimalOpportunityCard(
   const introducerActor = opp.actors.find(
     (a) => a.role === "introducer" && a.userId !== viewerId,
   );
-  const raw = opp.interpretation?.reasoning?.trim() ?? "";
-  const mainText =
-    raw.length <= MINIMAL_MAIN_TEXT_MAX_CHARS
-      ? raw
-      : raw.slice(0, MINIMAL_MAIN_TEXT_MAX_CHARS) + "...";
+  const mainText = truncateForCardText(
+    opp.interpretation?.reasoning ?? "",
+  );
   const score =
     typeof opp.interpretation?.confidence === "number"
       ? opp.interpretation.confidence
@@ -75,7 +73,7 @@ function buildMinimalOpportunityCard(
     userId: counterpartUserId,
     name: counterpartName,
     avatar: counterpartAvatar,
-    mainText: mainText || "A suggested connection.",
+    mainText,
     cta: "Start a conversation to connect.",
     headline: `Connection with ${counterpartName}`,
     primaryActionLabel: "Start Chat",
@@ -372,6 +370,11 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
         const introducedPartyUserIds = partyUserIds.filter(
           (uid) => uid !== context.userId,
         );
+        if (introducedPartyUserIds.length === 0) {
+          return error(
+            "No counterpart to introduce. Provide at least one other user ID in partyUserIds (besides yourself).",
+          );
+        }
         const firstPartyId = introducedPartyUserIds[0];
         const firstEntity = query.entities?.find((e) => e.userId === firstPartyId);
         const counterpartName =
@@ -396,7 +399,7 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
           score: confidence,
           status: created.status ?? "latent",
         };
-        const block = "```opportunity\n" + JSON.stringify(cardData, null, 2) + "\n```";
+        const block = "```opportunity\n" + JSON.stringify(cardData) + "\n```";
 
         return success({
           found: true,
@@ -480,7 +483,7 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
           score: opp.score,
           status: opp.status,
         };
-        return "```opportunity\n" + JSON.stringify(cardData, null, 2) + "\n```";
+        return "```opportunity\n" + JSON.stringify(cardData) + "\n```";
       });
 
       // Join all opportunity blocks into a single string for the LLM to include verbatim
@@ -540,6 +543,33 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
         });
       }
 
+      // Batch-fetch profiles and users for all counterpart and introducer userIds to avoid N+1
+      const counterpartUserIds = new Set<string>();
+      const introducerUserIds = new Set<string>();
+      for (const opp of opportunities) {
+        const counterpartActor = opp.actors.find(
+          (a) => a.userId !== context.userId && a.role !== "introducer",
+        );
+        if (counterpartActor?.userId) counterpartUserIds.add(counterpartActor.userId);
+        const introducerActor = opp.actors.find(
+          (a) => a.role === "introducer" && a.userId !== context.userId,
+        );
+        if (introducerActor?.userId) introducerUserIds.add(introducerActor.userId);
+      }
+      const allUserIds = [...counterpartUserIds, ...introducerUserIds];
+      const [profileResults, userResults] = await Promise.all([
+        Promise.all(allUserIds.map((id) => database.getProfile(id))),
+        Promise.all(allUserIds.map((id) => database.getUser(id))),
+      ]);
+      const profileMap = new Map<string, Awaited<ReturnType<typeof database.getProfile>>>();
+      const userMap = new Map<string, Awaited<ReturnType<typeof database.getUser>>>();
+      allUserIds.forEach((userId, i) => {
+        const profile = profileResults[i] ?? null;
+        const user = userResults[i] ?? null;
+        if (profile) profileMap.set(userId, profile);
+        if (user) userMap.set(userId, user);
+      });
+
       const opportunityBlocks: string[] = [];
 
       for (const opp of opportunities) {
@@ -553,18 +583,14 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
           const introducerActor = opp.actors.find(
             (a) => a.role === "introducer" && a.userId !== context.userId,
           );
-          const createdByName = (opp.detection as { createdByName?: string })
-            ?.createdByName;
+          const createdByName = opp.detection.createdByName;
 
-          // Only fetch counterpart name/avatar and optional introducer name (no full context, no LLM)
-          const [counterpartProfile, counterpartUser, introducerProfile] =
-            await Promise.all([
-              database.getProfile(counterpartUserId),
-              database.getUser(counterpartUserId),
-              introducerActor && !createdByName
-                ? database.getProfile(introducerActor.userId)
-                : Promise.resolve(null),
-            ]);
+          const counterpartProfile = profileMap.get(counterpartUserId) ?? null;
+          const counterpartUser = userMap.get(counterpartUserId) ?? null;
+          const introducerProfile =
+            introducerActor && !createdByName
+              ? profileMap.get(introducerActor.userId) ?? null
+              : null;
 
           const counterpartName =
             counterpartProfile?.identity?.name ??
@@ -572,7 +598,7 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
             "Someone";
           const introducerName =
             createdByName ??
-            (introducerActor ? introducerProfile?.identity?.name : null);
+            (introducerActor ? introducerProfile?.identity?.name ?? null : null);
 
           const cardData = buildMinimalOpportunityCard(
             opp,
@@ -584,7 +610,7 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
           );
 
           opportunityBlocks.push(
-            "```opportunity\n" + JSON.stringify(cardData, null, 2) + "\n```",
+            "```opportunity\n" + JSON.stringify(cardData) + "\n```",
           );
         } catch (err) {
           logger.warn("Skipping opportunity that failed to build minimal card", {

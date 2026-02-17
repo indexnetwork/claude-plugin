@@ -234,6 +234,9 @@ export class ChatController {
     }
 
     let currentSessionId = body.sessionId;
+    let session: Awaited<
+      ReturnType<typeof chatSessionService.getSession>
+    > | null = null;
     if (!currentSessionId) {
       currentSessionId = await chatSessionService.createSession(
         user.id,
@@ -241,7 +244,7 @@ export class ChatController {
         requestIndexId,
       );
     } else {
-      const session = await chatSessionService.getSession(
+      session = await chatSessionService.getSession(
         currentSessionId,
         user.id,
       );
@@ -258,12 +261,7 @@ export class ChatController {
     }
 
     // Effective index for this run: request body overrides; otherwise use session's persisted index
-    const sessionForIndex = await chatSessionService.getSession(
-      currentSessionId,
-      user.id,
-    );
-    const effectiveIndexId =
-      requestIndexId ?? sessionForIndex?.indexId ?? undefined;
+    const effectiveIndexId = requestIndexId ?? session?.indexId ?? undefined;
     if (effectiveIndexId) {
       const effectiveScopeValidation =
         await chatSessionService.validateIndexScope(user.id, effectiveIndexId);
@@ -375,14 +373,12 @@ export class ChatController {
           controller.enqueue(
             encoder.encode(
               formatSSEEvent(
-                createDoneEvent(
-                  sessionId,
-                  fullResponse,
+                createDoneEvent(sessionId, fullResponse, {
                   routingDecision,
                   subgraphResults,
-                  sessionTitle,
+                  title: sessionTitle,
                   suggestions,
-                ),
+                }),
               ),
             ),
           );

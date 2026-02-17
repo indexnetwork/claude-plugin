@@ -60,6 +60,21 @@ export const SOFT_ITERATION_LIMIT = 8;
  */
 export const HARD_ITERATION_LIMIT = 12;
 
+/**
+ * Extract plain text from an AIMessageChunk (string content or text blocks).
+ */
+function extractTextFromChunk(chunk: AIMessageChunk): string {
+  const content = chunk.content;
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) {
+    return content
+      .filter((b: { type?: string }) => b.type === "text")
+      .map((b: { text?: string }) => b.text ?? "")
+      .join("");
+  }
+  return "";
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // CHAT AGENT CLASS
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -445,15 +460,7 @@ export class ChatAgent {
         accumulated = accumulated ? concat(accumulated, chunk) : chunk;
 
         // Emit text content tokens to the user immediately
-        const textPart =
-          typeof chunk.content === "string"
-            ? chunk.content
-            : Array.isArray(chunk.content)
-              ? chunk.content
-                  .filter((b: any) => b.type === "text")
-                  .map((b: any) => b.text)
-                  .join("")
-              : "";
+        const textPart = extractTextFromChunk(chunk);
         if (textPart) {
           emit({ type: "text_chunk", content: textPart });
           iterationText += textPart;
@@ -517,11 +524,15 @@ export class ChatAgent {
               resultLength: resultStr.length,
             });
 
-            // Build brief summary for the activity event
+            // Build brief summary for the activity event. Prefer tool-provided
+            // summary to avoid coupling the agent to tool response shape.
             let summary = "Done";
             try {
               const parsed = JSON.parse(resultStr);
-              if (parsed.error) summary = parsed.error;
+              if (typeof parsed.summary === "string") summary = parsed.summary;
+              else if (typeof parsed.data?.summary === "string")
+                summary = parsed.data.summary;
+              else if (parsed.error) summary = parsed.error;
               else if (parsed.data?.intents)
                 summary = `${parsed.data.intents.length} result(s)`;
               else if (parsed.data?.created) summary = "Created";
@@ -620,15 +631,7 @@ export class ChatAgent {
       forcedAccumulated = forcedAccumulated
         ? concat(forcedAccumulated, chunk)
         : chunk;
-      const textPart =
-        typeof chunk.content === "string"
-          ? chunk.content
-          : Array.isArray(chunk.content)
-            ? chunk.content
-                .filter((b: any) => b.type === "text")
-                .map((b: any) => b.text)
-                .join("")
-            : "";
+      const textPart = extractTextFromChunk(chunk);
       if (textPart) {
         emit({ type: "text_chunk", content: textPart });
         forcedText += textPart;

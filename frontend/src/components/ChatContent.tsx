@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   ArrowUp,
@@ -258,40 +258,47 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
     Record<string, string>
   >({});
 
-  // Extract opportunity IDs from all messages and fetch their current statuses
-  useEffect(() => {
-    const opportunityIds = new Set<string>();
+  // Stable list of opportunity IDs from assistant messages (avoids effect re-run on every streaming token)
+  const opportunityIdsArray = useMemo(() => {
+    const ids = new Set<string>();
     for (const msg of messages) {
       if (msg.role === "assistant" && msg.content) {
         const segments = parseOpportunityBlocks(msg.content);
         for (const seg of segments) {
           if (seg.type === "opportunity" && seg.data.opportunityId) {
-            opportunityIds.add(seg.data.opportunityId);
+            ids.add(seg.data.opportunityId);
           }
         }
       }
     }
+    return [...ids].sort();
+  }, [messages]);
 
-    if (opportunityIds.size === 0) return;
+  // Stable key so effect runs only when the set of IDs changes, not on every message reference change
+  const opportunityIdsKey = opportunityIdsArray.join(",");
 
-    // Fetch current status for each opportunity
+  // Fetch current status for each opportunity (debounced, parallel)
+  useEffect(() => {
+    const ids = opportunityIdsKey ? opportunityIdsKey.split(",") : [];
+    if (ids.length === 0) return;
+
+    const newStatusMap: Record<string, string> = {};
     const fetchStatuses = async () => {
-      const newStatusMap: Record<string, string> = {};
-      for (const id of opportunityIds) {
-        try {
-          const opp = await opportunitiesService.getOpportunity(id);
-          if (opp?.status) {
-            newStatusMap[id] = opp.status;
-          }
-        } catch {
-          // Ignore errors - card will use embedded status
+      const results = await Promise.allSettled(
+        ids.map((id) => opportunitiesService.getOpportunity(id)),
+      );
+      results.forEach((result, i) => {
+        const id = ids[i];
+        if (result.status === "fulfilled" && result.value?.status) {
+          newStatusMap[id] = result.value.status;
         }
-      }
+      });
       setOpportunityStatusMap((prev) => ({ ...prev, ...newStatusMap }));
     };
 
-    fetchStatuses();
-  }, [messages, opportunitiesService]);
+    const timeoutId = setTimeout(fetchStatuses, 200);
+    return () => clearTimeout(timeoutId);
+  }, [opportunityIdsKey, opportunitiesService]);
 
   // Home view from API (when USE_HOME_API)
   const [homeViewData, setHomeViewData] = useState<{
@@ -300,7 +307,7 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
   } | null>(null);
   const [homeViewLoading, setHomeViewLoading] = useState(false);
   const [homeViewError, setHomeViewError] = useState<string | null>(null);
-  const [homeActionLoadingByOpportunity, setHomeActionLoadingByOpportunity] =
+  const [opportunityActionLoading, setOpportunityActionLoading] =
     useState<Record<string, boolean>>({});
 
   // Index filter
@@ -415,7 +422,7 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
       fallbackUserId?: string,
       viewerRole?: string,
     ) => {
-      setHomeActionLoadingByOpportunity((prev) => ({
+      setOpportunityActionLoading((prev) => ({
         ...prev,
         [opportunityId]: true,
       }));
@@ -467,7 +474,7 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
             : "Failed to update opportunity",
         );
       } finally {
-        setHomeActionLoadingByOpportunity((prev) => ({
+        setOpportunityActionLoading((prev) => ({
           ...prev,
           [opportunityId]: false,
         }));
@@ -874,7 +881,7 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
                             )
                           }
                           isLoading={
-                            !!homeActionLoadingByOpportunity[item.opportunityId]
+                            !!opportunityActionLoading[item.opportunityId]
                           }
                         />
                       ))}
@@ -1223,7 +1230,7 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
                               viewerRole,
                             )
                           }
-                          opportunityLoadingMap={homeActionLoadingByOpportunity}
+                          opportunityLoadingMap={opportunityActionLoading}
                           currentStatusMap={opportunityStatusMap}
                         />
                       ) : (

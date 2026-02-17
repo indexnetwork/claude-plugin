@@ -111,28 +111,28 @@ export function selectStrategiesFromQuery(query: string): HydeStrategy[] {
   if (!q) return base;
 
   if (
-    /mentor|guide|guidance|learn from|advice from|someone to teach|teach me/i.test(
+    /mentor|guide|guidance|learn from|advice from|someone to teach|teach me/.test(
       q,
     )
   ) {
     base.push("mentor");
   }
   if (
-    /investor|invest|funding|raise|seed|series|vc|capital|back (us|me|this)/i.test(
+    /investor|invest|funding|raise|seed|series|vc|capital|back (us|me|this)/.test(
       q,
     )
   ) {
     base.push("investor");
   }
   if (
-    /co-?founder|collaborator|partner|peer|build together|work together|collaborat/i.test(
+    /co-?founder|collaborator|partner|peer|build together|work together|collaborat/.test(
       q,
     )
   ) {
     base.push("collaborator");
   }
   if (
-    /hire|hiring|who needs|looking for (a |an )?(developer|engineer|designer|react|frontend|backend)|job|role|position|developer needed|engineer needed/i.test(
+    /hire|hiring|who needs|looking for (a |an )?(developer|engineer|designer|react|frontend|backend)|job|role|position|developer needed|engineer needed/.test(
       q,
     )
   ) {
@@ -253,6 +253,9 @@ export async function runDiscoverFromQuery(
           secondaryActionLabel: "Skip",
           mutualIntentsLabel: "Suggested connection",
         }));
+        presenterContexts = baseEnriched.map((item) => ({
+          introducerName: item.opportunity.detection.createdByName ?? undefined,
+        })) as Awaited<ReturnType<typeof gatherPresenterContext>>[];
       } else if (input.presenter && baseEnriched.length > 0) {
         try {
           presenterContexts = await Promise.all(

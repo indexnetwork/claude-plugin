@@ -373,24 +373,27 @@ export function createTokenEvent(
 }
 
 /**
+ * Options for the done event (optional metadata).
+ */
+export interface CreateDoneEventOptions {
+  routingDecision?: Record<string, unknown>;
+  subgraphResults?: Record<string, unknown>;
+  title?: string;
+  suggestions?: ChatSuggestion[];
+  opportunityCards?: OpportunityCardPayload[];
+}
+
+/**
  * Creates a formatted done event.
  */
 export function createDoneEvent(
   sessionId: string,
   response: string,
-  routingDecision?: Record<string, unknown>,
-  subgraphResults?: Record<string, unknown>,
-  title?: string,
-  suggestions?: ChatSuggestion[],
-  opportunityCards?: OpportunityCardPayload[],
+  options?: CreateDoneEventOptions,
 ): DoneEvent {
   return createStreamEvent<DoneEvent>("done", sessionId, {
     response,
-    routingDecision,
-    subgraphResults,
-    title,
-    suggestions,
-    opportunityCards,
+    ...options,
   });
 }
 

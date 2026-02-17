@@ -80,9 +80,9 @@ export const HomeCardPresentationSchema = z.object({
     .describe("Brief suggested next step (e.g. CTA line)"),
   narratorRemark: z
     .string()
-    .max(120)
+    .max(80)
     .describe(
-      "One short sentence for the narrator chip (e.g. who is suggesting and why)",
+      "One short sentence for the narrator chip, max ~80 chars (e.g. who is suggesting and why)",
     ),
   primaryActionLabel: z
     .string()
@@ -214,7 +214,6 @@ When INTRODUCTION CONTEXT is provided, this opportunity was explicitly created b
 **When INTRODUCTION CONTEXT is NOT provided (system-discovered match):**
 - Do NOT use introducer-style wording. Do NOT say "you suggested", "this is an introduction you suggested", or "you suggested this connection". The system found this match; no human introducer was involved.
 - Instead, narratorRemark should describe why the match is relevant (e.g. "Based on your overlapping intents", "Your skills align with what they need").
-- narratorRemark should describe why the match is relevant (e.g. "Based on your overlapping intents", "Your skills align with what they need").
 
 - Exception for connector/introducer: if viewer role is "introducer" (any status), this is a curation/connector card. Use:
   - primaryActionLabel: "Good match"
@@ -256,7 +255,7 @@ export class OpportunityPresenter {
 
     const invokePromise = targetModel.invoke(messages, {
       signal: controller.signal,
-    } as Record<string, unknown>);
+    });
 
     const timeoutPromise = new Promise<never>((_, reject) => {
       timeoutId = setTimeout(() => {
@@ -581,9 +580,7 @@ export async function gatherPresenterContext(
   const isIntroduction = !!introducerActor;
   let introducerName: string | undefined;
   if (introducerActor) {
-    introducerName = (
-      opportunity.detection as unknown as Record<string, unknown>
-    )?.createdByName as string | undefined;
+    introducerName = opportunity.detection.createdByName;
     if (!introducerName) {
       const introducerProfile = await database.getProfile(
         introducerActor.userId,
