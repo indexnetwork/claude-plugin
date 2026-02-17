@@ -95,6 +95,19 @@ export interface TokenEvent extends ChatStreamEventBase {
 }
 
 /**
+ * Chat suggestion for follow-up actions.
+ * Matches frontend Suggestion type (label, type, followupText/prefill).
+ */
+export interface ChatSuggestion {
+  label: string;
+  type: 'direct' | 'prompt';
+  /** For 'direct' type: text to auto-submit as next message */
+  followupText?: string;
+  /** For 'prompt' type: text to prefill the input */
+  prefill?: string;
+}
+
+/**
  * Done event - sent when the response is complete.
  */
 export interface DoneEvent extends ChatStreamEventBase {
@@ -107,6 +120,8 @@ export interface DoneEvent extends ChatStreamEventBase {
   subgraphResults?: Record<string, unknown>;
   /** Optional session title (auto-generated or existing) */
   title?: string;
+  /** Optional context-aware follow-up suggestions */
+  suggestions?: ChatSuggestion[];
 }
 
 /**
@@ -303,13 +318,15 @@ export function createDoneEvent(
   response: string,
   routingDecision?: Record<string, unknown>,
   subgraphResults?: Record<string, unknown>,
-  title?: string
+  title?: string,
+  suggestions?: ChatSuggestion[]
 ): DoneEvent {
   return createStreamEvent<DoneEvent>('done', sessionId, {
     response,
     routingDecision,
     subgraphResults,
-    title
+    title,
+    suggestions
   });
 }
 
