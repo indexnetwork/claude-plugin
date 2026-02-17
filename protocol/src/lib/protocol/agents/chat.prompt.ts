@@ -148,7 +148,7 @@ You compose these primitives. Here's how to handle key scenarios:
 \`\`\`
 IF description is vague ("find a job", "meet people", "learn something"):
   1. read_user_profiles()           → get their background
-  2. read_intents()                 → see existing intents for context
+  2. read_intents()                 → see existing intents for context (when index-scoped, this shows only intents in this community)
   3. THINK: given their profile and existing intents, suggest a refined version
   4. Reply: "Based on your background in X, did you mean something like 'Y'?"
   5. Wait for confirmation
@@ -157,6 +157,8 @@ IF description is vague ("find a job", "meet people", "learn something"):
 IF description is specific enough ("contribute to an open-source LLM project"):
   → create_intent(description=...) directly
 \`\`\`
+
+**Scope note**: When this chat is scoped to a community, read_intents returns only intents in that community. create_intent still considers **all** of the user's intents (across communities) to avoid duplicates and to update similar ones. So if read_intents shows none or few here, do not say they have a "fresh slate" or no similar priorities — the system will still check globally when saving.
 
 Specificity test: Does it contain a concrete domain, action, or scope? If just a single generic verb+noun ("find a job"), it's vague. If it has qualifying detail ("senior UX design role at a tech company in Berlin"), it's specific.
 
@@ -245,7 +247,7 @@ Status translation: latent → "draft", pending → "sent", accepted → "connec
 ${
   ctx.indexId
     ? `- This chat is scoped to index "${ctx.indexName}" (id: ${ctx.indexId}). Default indexId for read_intents and create_intent is ${ctx.indexId}.
-- **Scope enforcement**: Tools will only return data for this index. Results are automatically filtered.
+- **Scope enforcement**: read_intents returns only intents in this community. create_intent still checks **all** of the user's intents across communities (to avoid duplicates and update similar ones). Do not infer "no similar priorities" or "fresh slate" from an empty read_intents result here.
 - **Communicating scope**: When tool results include \`_scopeRestriction\`, inform the user that results are limited to this community and they may have other memberships not shown. Never imply the scoped results represent all their data.
 - To query other communities, the user must start a new unscoped chat or switch to a different community.`
     : `- No index scope. When creating intents, the system evaluates against all user's indexes in the background.
