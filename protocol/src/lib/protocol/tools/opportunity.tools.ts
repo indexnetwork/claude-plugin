@@ -27,6 +27,14 @@ function truncateForCardText(s: string, max = MINIMAL_MAIN_TEXT_MAX_CHARS): stri
 }
 
 /**
+ * Sanitize JSON string for use inside a markdown code fence (```). Escapes backticks
+ * so embedded ``` cannot close the fence prematurely.
+ */
+function sanitizeJsonForCodeFence(json: string): string {
+  return json.replace(/`/g, "\\u0060");
+}
+
+/**
  * Build minimal opportunity card data for chat without calling the LLM presenter.
  * Uses only required fields from the opportunity record and counterpart name/avatar
  * so list_opportunities and discovery return quickly.
@@ -229,6 +237,14 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
 
         // Check for existing opportunity
         const partyUserIds = query.partyUserIds;
+        const introducedPartyUserIds = partyUserIds.filter(
+          (uid) => uid !== context.userId,
+        );
+        if (introducedPartyUserIds.length === 0) {
+          return error(
+            "No counterpart to introduce. Provide at least one other user ID in partyUserIds (besides yourself).",
+          );
+        }
         // Use systemDb for cross-user opportunity checks
         const exists = await systemDb.opportunityExistsBetweenActors(
           partyUserIds,
@@ -367,14 +383,6 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
         }
 
         // Build a proper ```opportunity block so the frontend can render a card (same format as list/discovery)
-        const introducedPartyUserIds = partyUserIds.filter(
-          (uid) => uid !== context.userId,
-        );
-        if (introducedPartyUserIds.length === 0) {
-          return error(
-            "No counterpart to introduce. Provide at least one other user ID in partyUserIds (besides yourself).",
-          );
-        }
         const firstPartyId = introducedPartyUserIds[0];
         const firstEntity = query.entities?.find((e) => e.userId === firstPartyId);
         const counterpartName =
@@ -399,7 +407,10 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
           score: confidence,
           status: created.status ?? "latent",
         };
-        const block = "```opportunity\n" + JSON.stringify(cardData) + "\n```";
+        const block =
+          "```opportunity\n" +
+          sanitizeJsonForCodeFence(JSON.stringify(cardData)) +
+          "\n```";
 
         return success({
           found: true,
@@ -483,7 +494,11 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
           score: opp.score,
           status: opp.status,
         };
-        return "```opportunity\n" + JSON.stringify(cardData) + "\n```";
+        return (
+          "```opportunity\n" +
+          sanitizeJsonForCodeFence(JSON.stringify(cardData)) +
+          "\n```"
+        );
       });
 
       // Join all opportunity blocks into a single string for the LLM to include verbatim
@@ -610,7 +625,9 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
           );
 
           opportunityBlocks.push(
-            "```opportunity\n" + JSON.stringify(cardData) + "\n```",
+            "```opportunity\n" +
+              sanitizeJsonForCodeFence(JSON.stringify(cardData)) +
+              "\n```",
           );
         } catch (err) {
           logger.warn("Skipping opportunity that failed to build minimal card", {
