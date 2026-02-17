@@ -46,8 +46,8 @@ export interface OpportunityCardData {
   status?: string;
 }
 
-/** Status values that allow user actions (accept/reject). */
-const ACTIONABLE_STATUSES = new Set(["latent", "draft", "pending"]);
+/** Status values that allow user actions (accept/reject). Matches DB opportunity_status enum. */
+const ACTIONABLE_STATUSES = new Set(["latent", "pending"]);
 
 /** Determine if a status allows actions. */
 function isActionableStatus(status?: string): boolean {
@@ -148,6 +148,7 @@ export default function OpportunityCard({
   const [actionTaken, setActionTaken] = useState<
     "accepted" | "rejected" | null
   >(null);
+  const [actionError, setActionError] = useState(false);
 
   // Use currentStatus if provided (fetched from server), otherwise fall back to card.status
   const effectiveStatus = currentStatus ?? card.status;
@@ -164,11 +165,12 @@ export default function OpportunityCard({
 
   const handlePrimaryAction = async () => {
     if (onPrimaryAction) {
+      setActionError(false);
       try {
         await onPrimaryAction(card.opportunityId, card.userId, card.viewerRole);
         setActionTaken("accepted");
       } catch {
-        setActionTaken("rejected");
+        setActionError(true);
       }
     }
   };
@@ -193,6 +195,22 @@ export default function OpportunityCard({
       router.push(`/u/${card.narratorChip.userId}`);
     }
   };
+
+  // If primary action failed, show error and retry
+  if (actionError) {
+    return (
+      <div className="bg-gray-50 rounded-lg p-4 my-2 text-center text-sm">
+        <p className="text-red-600 mb-2">Something went wrong. Please try again.</p>
+        <button
+          type="button"
+          onClick={() => setActionError(false)}
+          className="text-[#041729] font-medium hover:underline"
+        >
+          Retry
+        </button>
+      </div>
+    );
+  }
 
   // If action was already taken (in chat context), show a minimal confirmation
   if (actionTaken) {
