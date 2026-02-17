@@ -47,10 +47,7 @@ export function useSuggestions({
   const [isLoading, setIsLoading] = useState(false);
 
   const fetchSuggestions = useCallback(async () => {
-    if (!enabled) {
-      setFetchedSuggestions([]);
-      return;
-    }
+    if (!enabled) return;
 
     if (intentId) {
       setIsLoading(true);
