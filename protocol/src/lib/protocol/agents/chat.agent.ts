@@ -68,8 +68,8 @@ function extractTextFromChunk(chunk: AIMessageChunk): string {
   if (typeof content === "string") return content;
   if (Array.isArray(content)) {
     return content
-      .filter((b: { type?: string }) => b.type === "text")
-      .map((b: { text?: string }) => b.text ?? "")
+      .filter((b): b is { type: "text"; text?: string } => (b as { type?: string }).type === "text")
+      .map((b) => b.text ?? "")
       .join("");
   }
   return "";
@@ -525,21 +525,11 @@ export class ChatAgent {
             });
 
             // Build brief summary for the activity event. Prefer tool-provided
-            // summary to avoid coupling the agent to tool response shape.
+            // top-level summary to avoid coupling the agent to tool response shape.
             let summary = "Done";
             try {
-              const parsed = JSON.parse(resultStr);
-              if (typeof parsed.summary === "string") summary = parsed.summary;
-              else if (typeof parsed.data?.summary === "string")
-                summary = parsed.data.summary;
-              else if (parsed.error) summary = parsed.error;
-              else if (parsed.data?.intents)
-                summary = `${parsed.data.intents.length} result(s)`;
-              else if (parsed.data?.created) summary = "Created";
-              else if (parsed.data?.updated) summary = "Updated";
-              else if (parsed.data?.deleted) summary = "Removed";
-              else if (parsed.data?.opportunities)
-                summary = `${parsed.data.opportunities.length} connection(s)`;
+              const parsed = JSON.parse(resultStr) as { summary?: string };
+              summary = parsed.summary ?? "Done";
             } catch {
               /* not JSON, keep default */
             }
