@@ -11,6 +11,11 @@ import { IndexGraphFactory } from "../graphs/index.graph";
 import { IndexMembershipGraphFactory } from "../graphs/index_membership.graph";
 import { IntentIndexGraphFactory } from "../graphs/intent_index.graph";
 import { RedisCacheAdapter } from "../../../adapters/cache.adapter";
+import {
+  chatDatabaseAdapter,
+  createUserDatabase,
+  createSystemDatabase,
+} from "../../../adapters/database.adapter";
 import { intentQueue } from "../../../queues/intent.queue";
 import { protocolLogger } from "../support/protocol.logger";
 
@@ -108,9 +113,19 @@ export async function createChatTools(
   const indexMembershipGraph = new IndexMembershipGraphFactory(database).createGraph();
   const intentIndexGraph = new IntentIndexGraphFactory(database).createGraph();
 
+  // ─── Create context-bound databases ────────────────────────────────────────
+  // Get the user's index scope (all indexes they have access to)
+  const indexScope = resolvedContext.userIndexes.map((m) => m.indexId);
+
+  // Create context-bound database instances
+  const userDb = createUserDatabase(chatDatabaseAdapter, resolvedContext.userId);
+  const systemDb = createSystemDatabase(chatDatabaseAdapter, resolvedContext.userId, indexScope);
+
   // ─── Assemble dependencies ─────────────────────────────────────────────────
   const toolDeps: ToolDeps = {
     database,
+    userDb,
+    systemDb,
     scraper,
     embedder,
     graphs: {

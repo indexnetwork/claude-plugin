@@ -4,6 +4,8 @@ import type {
   ChatGraphCompositeDatabase,
   IndexMembership,
   UserRecord,
+  UserDatabase,
+  SystemDatabase,
 } from "../interfaces/database.interface";
 import type { Scraper } from "../interfaces/scraper.interface";
 
@@ -52,10 +54,18 @@ export interface ResolvedToolContext {
 /**
  * Dependencies passed when creating tools for a user session.
  * Includes DB adapters, embedder, and scraper.
+ *
+ * Note: userDb and systemDb are optional inputs - if not provided, createChatTools
+ * will create them internally from the chatDatabaseAdapter singleton.
  */
 export interface ToolContext {
   userId: string;
+  /** @deprecated Use userDb or systemDb instead. Kept for backwards compatibility. */
   database: ChatGraphCompositeDatabase;
+  /** Context-bound database for accessing the authenticated user's own resources. Created internally if not provided. */
+  userDb?: UserDatabase;
+  /** Context-bound database for LLM/system operations on cross-user resources within shared indexes. Created internally if not provided. */
+  systemDb?: SystemDatabase;
   embedder: import("../interfaces/embedder.interface").Embedder;
   scraper: Scraper;
   /** When set, chat is scoped to this index; tools use it as default for read_intents and create_intent. */
@@ -195,7 +205,12 @@ export type DefineTool = <T extends z.ZodType>(opts: {
  * Passed by `createChatTools` after compiling all subgraphs.
  */
 export interface ToolDeps {
+  /** @deprecated Use userDb or systemDb instead. Kept for backwards compatibility. */
   database: ChatGraphCompositeDatabase;
+  /** Context-bound database for accessing the authenticated user's own resources. */
+  userDb: UserDatabase;
+  /** Context-bound database for LLM/system operations on cross-user resources within shared indexes. */
+  systemDb: SystemDatabase;
   scraper: Scraper;
   embedder: import('../interfaces/embedder.interface').Embedder;
   graphs: {

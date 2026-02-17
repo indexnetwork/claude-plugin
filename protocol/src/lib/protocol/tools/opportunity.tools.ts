@@ -11,7 +11,7 @@ import { protocolLogger } from "../support/protocol.logger";
 const logger = protocolLogger("ChatTools:Opportunity");
 
 export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
-  const { database, graphs, embedder } = deps;
+  const { database, userDb, systemDb, graphs, embedder } = deps;
   const presenter = new OpportunityPresenter();
 
   const createOpportunities = defineTool({
@@ -47,7 +47,14 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
       hint: z.string().optional().describe("Introduction mode: the user's reason for the intro (e.g. 'both AI devs')."),
     }),
     handler: async ({ context, query }) => {
-      const effectiveIndexId = (query.indexId?.trim() || context.indexId) ?? null;
+      // Strict scope enforcement: when chat is index-scoped, only allow that index
+      if (context.indexId && query.indexId?.trim() && query.indexId.trim() !== context.indexId) {
+        return error(
+          `This chat is scoped to ${context.indexName ?? 'this index'}. You can only create opportunities in this community.`
+        );
+      }
+
+      const effectiveIndexId = (context.indexId || query.indexId?.trim()) ?? null;
 
       // ── Introduction mode ──
       if (query.partyUserIds && query.partyUserIds.length >= 2) {
@@ -65,6 +72,24 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
           return error("Each entity must include an indexId (the shared index).");
         }
 
+        // Strict scope enforcement: when chat is index-scoped, primaryIndexId must match
+        if (context.indexId && primaryIndexId !== context.indexId) {
+          return error(
+            `This chat is scoped to ${context.indexName ?? 'this index'}. You can only introduce members of this community.`
+          );
+        }
+
+        // Verify all party users are members of the primary index
+        for (const userId of query.partyUserIds) {
+          if (userId === context.userId) continue; // Skip self (we know we're a member)
+          const isMember = await systemDb.isIndexMember(primaryIndexId, userId);
+          if (!isMember) {
+            return error(
+              `User ${userId} is not a member of the specified community. You can only introduce members who share an index.`
+            );
+          }
+        }
+
         // Map entities to evaluator format
         const evaluatorEntities: EvaluatorEntity[] = query.entities.map((e) => ({
           userId: e.userId,
@@ -75,14 +100,16 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
 
         // Check for existing opportunity
         const partyUserIds = query.partyUserIds;
-        const exists = await database.opportunityExistsBetweenActors(partyUserIds, primaryIndexId);
+        // Use systemDb for cross-user opportunity checks
+        const exists = await systemDb.opportunityExistsBetweenActors(partyUserIds, primaryIndexId);
         if (exists) {
           return error("An opportunity already exists between these people.");
         }
 
         // Run evaluator
         const evaluator = new OpportunityEvaluator();
-        const introducerUser = await database.getUser(context.userId);
+        // Use userDb for own user data
+        const introducerUser = await userDb.getUser();
         const evalInput: EvaluatorInput = {
           discovererId: context.userId,
           entities: evaluatorEntities,
@@ -161,16 +188,19 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
           status: 'latent' as const,
         };
 
+        // Note: enrichOrCreate still uses the legacy database param for now
         const enrichment = await enrichOrCreate(database, embedder, data);
         const toCreate = enrichment.data;
         if (enrichment.enriched) {
           toCreate.status = enrichment.resolvedStatus;
         }
-        const created = await database.createOpportunity(toCreate);
+        // Use systemDb for cross-user opportunity creation
+        const created = await systemDb.createOpportunity(toCreate);
 
         if (enrichment.enriched && enrichment.expiredIds.length > 0) {
           for (const id of enrichment.expiredIds) {
-            await database.updateOpportunityStatus(id, 'expired');
+            // Use systemDb for opportunity status updates
+            await systemDb.updateOpportunityStatus(id, 'expired');
           }
         }
 
@@ -203,7 +233,11 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
           return error("Index not found or you are not a member.");
         }
         indexScope = [effectiveIndexId];
+      } else if (context.indexId) {
+        // When scoped but no explicit indexId, use the scoped index
+        indexScope = [context.indexId];
       } else {
+        // No scope - use all indexes (only in unscoped chat)
         const indexResult = await graphs.index.invoke({
           userId: context.userId,
           operationMode: 'read' as const,
@@ -241,12 +275,19 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
   const listOpportunities = defineTool({
     name: "list_opportunities",
     description:
-      "Lists the user's opportunities (suggested connections). Returns raw opportunity data — present it conversationally. Optional indexId filter.",
+      "Lists the user's opportunities (suggested connections). Returns raw opportunity data — present it conversationally. When chat is index-scoped, only shows opportunities from that index.",
     querySchema: z.object({
       indexId: z.string().optional().describe("Index UUID filter; defaults to current index when scoped."),
     }),
     handler: async ({ context, query }) => {
-      const effectiveIndexId = (query.indexId?.trim() || context.indexId) ?? undefined;
+      // Strict scope enforcement: when chat is index-scoped, only allow that index
+      if (context.indexId && query.indexId?.trim() && query.indexId.trim() !== context.indexId) {
+        return error(
+          `This chat is scoped to ${context.indexName ?? 'this index'}. You can only list opportunities from this community.`
+        );
+      }
+
+      const effectiveIndexId = (context.indexId || query.indexId?.trim()) ?? undefined;
       if (effectiveIndexId && !UUID_REGEX.test(effectiveIndexId)) {
         return error("Invalid index ID format.");
       }
@@ -267,12 +308,31 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
   const updateOpportunity = defineTool({
     name: "update_opportunity",
     description:
-      "Updates an opportunity's status. Use 'pending' to send a draft (notifies next person). Use 'accepted'/'rejected' to respond to a received opportunity.",
+      "Updates an opportunity's status. Use 'pending' to send a draft (notifies next person). Use 'accepted'/'rejected' to respond to a received opportunity. When chat is index-scoped, can only update opportunities from that index.",
     querySchema: z.object({
       opportunityId: z.string().describe("Opportunity ID from list_opportunities"),
       status: z.enum(["pending", "accepted", "rejected", "expired"]).describe("New status: pending (send draft), accepted, rejected, expired"),
     }),
     handler: async ({ context, query }) => {
+      const opportunityId = query.opportunityId?.trim();
+      if (!opportunityId || !UUID_REGEX.test(opportunityId)) {
+        return error("Valid opportunityId required.");
+      }
+
+      // Strict scope enforcement: when chat is index-scoped, verify opportunity is in that index
+      if (context.indexId) {
+        const opportunity = await systemDb.getOpportunity(opportunityId);
+        if (!opportunity) {
+          return error("Opportunity not found.");
+        }
+        const opportunityIndexId = opportunity.context?.indexId;
+        if (opportunityIndexId && opportunityIndexId !== context.indexId) {
+          return error(
+            `This chat is scoped to ${context.indexName ?? 'this index'}. You can only update opportunities from this community.`
+          );
+        }
+      }
+
       const isSend = query.status === "pending";
       const result = await graphs.opportunity.invoke({
         userId: context.userId,
