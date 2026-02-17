@@ -83,7 +83,7 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
         const introducerIsMember = await systemDb.isIndexMember(primaryIndexId, context.userId);
         if (!introducerIsMember) {
           return error(
-            `User ${context.userId} is not a member of the specified community. You can only introduce members who share an index.`
+            "One or more users are not members of the specified community. You can only introduce members who share an index."
           );
         }
 
@@ -93,7 +93,7 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
           const isMember = await systemDb.isIndexMember(primaryIndexId, userId);
           if (!isMember) {
             return error(
-              `User ${userId} is not a member of the specified community. You can only introduce members who share an index.`
+              "One or more users are not members of the specified community. You can only introduce members who share an index."
             );
           }
         }
