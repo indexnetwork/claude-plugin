@@ -9,6 +9,8 @@ import { describe, test, expect } from "bun:test";
 import { SuggestionGenerator } from "../suggestion.generator";
 import type { ChatSuggestion } from "../../../../types/chat-streaming.types";
 
+const HAS_OPENROUTER_KEY = !!process.env.OPENROUTER_API_KEY;
+
 describe("SuggestionGenerator", () => {
   test("generate with empty messages returns empty array without calling LLM", async () => {
     const generator = new SuggestionGenerator();
@@ -16,7 +18,7 @@ describe("SuggestionGenerator", () => {
     expect(result).toEqual([]);
   });
 
-  test("generate with one exchange returns 1-6 suggestions with valid shape", async () => {
+  test.skipIf(!HAS_OPENROUTER_KEY)("generate with one exchange returns 1-6 suggestions with valid shape", async () => {
     const generator = new SuggestionGenerator();
     const result = await generator.generate({
       messages: [
@@ -44,7 +46,7 @@ describe("SuggestionGenerator", () => {
     }
   }, 30000);
 
-  test("generate with indexContext includes context in prompt and returns suggestions", async () => {
+  test.skipIf(!HAS_OPENROUTER_KEY)("generate with indexContext includes context in prompt and returns suggestions", async () => {
     const generator = new SuggestionGenerator();
     const result = await generator.generate({
       messages: [
@@ -65,7 +67,7 @@ describe("SuggestionGenerator", () => {
     }
   }, 30000);
 
-  test("generate uses only last 6 messages for excerpt", async () => {
+  test.skipIf(!HAS_OPENROUTER_KEY)("generate uses only last 6 messages for excerpt", async () => {
     const generator = new SuggestionGenerator();
     const manyMessages = Array.from({ length: 10 }, (_, i) =>
       i % 2 === 0
