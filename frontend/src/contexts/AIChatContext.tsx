@@ -4,6 +4,7 @@ import React, { createContext, useContext, useState, useCallback, useRef } from 
 import { usePathname } from 'next/navigation';
 import { usePrivy } from '@privy-io/react-auth';
 import { useAIChatSessions } from '@/contexts/AIChatSessionsContext';
+import type { Suggestion } from '@/hooks/useSuggestions';
 
 interface ThinkingStep {
   content: string;
@@ -43,6 +44,8 @@ interface AIChatContextType {
   scopeIndexId: string | null;
   /** Set the current index scope (e.g. from the index filter dropdown in ChatContent). Call with null for "Everywhere". */
   setScopeIndexId: (indexId: string | null) => void;
+  /** Context-aware suggestions from the last done event; empty when no messages or after clear/load. */
+  suggestions: Suggestion[];
   isLoading: boolean;
   sendMessage: (message: string, fileIds?: string[], attachmentNames?: string[]) => Promise<void>;
   /** Clear messages and session state. Use { abortStream: false } when navigating away so the in-flight stream can finish and the new session appears in the sidebar. */
@@ -73,6 +76,7 @@ export function AIChatProvider({ children }: { children: React.ReactNode }) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [sessionTitle, setSessionTitle] = useState<string | null>(null);
+  const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const { getAccessToken } = usePrivy();
   const { refetchSessions } = useAIChatSessions();
@@ -206,6 +210,10 @@ export function AIChatProvider({ children }: { children: React.ReactNode }) {
                   if (event.title) {
                     setSessionTitle(event.title);
                   }
+                  // Update context-aware suggestions from backend
+                  if (event.suggestions && Array.isArray(event.suggestions)) {
+                    setSuggestions(event.suggestions);
+                  }
                   // Refetch sessions after streaming completes (title is generated on backend)
                   refetchSessions();
                   break;
@@ -247,6 +255,7 @@ export function AIChatProvider({ children }: { children: React.ReactNode }) {
       setIsLoading(false); // Stop showing loading on home while stream continues in background
     }
     setMessages([]);
+    setSuggestions([]);
     setSessionId(null);
     setSessionTitle(null);
     setSessionIndexId(null); // Clear session-bound index so new chat can use UI selection
@@ -276,6 +285,7 @@ export function AIChatProvider({ children }: { children: React.ReactNode }) {
       };
       setSessionId(data.session.id);
       setSessionTitle(data.session.title?.trim() ?? null);
+      setSuggestions([]); // Session load does not return suggestions; next response will
       // Load the session's bound index - this is the persisted scope for this conversation
       setSessionIndexId(data.session.indexId ?? null);
       setMessages(
@@ -331,6 +341,7 @@ export function AIChatProvider({ children }: { children: React.ReactNode }) {
       sessionIndexId,
       scopeIndexId,
       setScopeIndexId: setScopeIndexIdOverride,
+      suggestions,
       isLoading,
       sendMessage,
       clearChat,
