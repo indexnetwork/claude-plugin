@@ -248,6 +248,8 @@ export function createChatGraphMockDb(
       Promise.resolve(isIndexMember(indexId, userId)),
     getIndexMembersForOwner: noopArray,
     getIndexMembersForMember: noopArray,
+    getMembersFromUserIndexes: async () => [],
+    removeMemberFromIndex: async () => ({ success: true }),
     getIndexIntentsForOwner: async (indexId: string, requestingUserId: string, opts?: { limit?: number; offset?: number }) =>
       Promise.resolve(indexIntentsForOwner(indexId, requestingUserId)).then((f) =>
         Array.isArray(f) ? f : []
