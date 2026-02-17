@@ -60,8 +60,6 @@ function getStatusMessage(status?: string): string | null {
   switch (status) {
     case "accepted":
       return "✓ This connection has been accepted";
-    case "connected":
-      return "✓ You're already connected";
     case "rejected":
       return "This opportunity was declined";
     case "expired":
@@ -177,11 +175,12 @@ export default function OpportunityCard({
 
   const handleSecondaryAction = async () => {
     if (onSecondaryAction) {
+      setActionError(false);
       try {
         await onSecondaryAction(card.opportunityId, card.userId, card.viewerRole);
         setActionTaken("rejected");
       } catch {
-        setActionTaken("rejected");
+        setActionError(true);
       }
     }
   };
@@ -258,7 +257,16 @@ export default function OpportunityCard({
       <div className="flex items-center justify-between gap-2 mb-3">
         <div
           className="flex items-center gap-2 min-w-0 cursor-pointer"
+          role="link"
+          tabIndex={0}
           onClick={handleProfileClick}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              handleProfileClick();
+            }
+          }}
+          aria-label={`View profile of ${card.name || "Someone"}`}
         >
           <div className="w-8 h-8 rounded-full overflow-hidden bg-gray-300/80 flex items-center justify-center shrink-0">
             <Image
@@ -331,7 +339,20 @@ export default function OpportunityCard({
               card.narratorChip.userId &&
                 "cursor-pointer hover:bg-[#E8E8E8] transition-colors",
             )}
-            onClick={handleNarratorClick}
+            {...(card.narratorChip.userId
+              ? {
+                  role: "link" as const,
+                  tabIndex: 0,
+                  onClick: handleNarratorClick,
+                  onKeyDown: (e: React.KeyboardEvent) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      handleNarratorClick();
+                    }
+                  },
+                  "aria-label": `View profile of ${card.narratorChip.name}`,
+                }
+              : {})}
           >
             <div className="relative shrink-0">
               {card.narratorChip.name === "Index" ? (
