@@ -288,7 +288,7 @@ export class ChatController {
                   { role: 'assistant', content: fullResponse },
                 ],
               })
-              .catch(() => undefined),
+              .catch(() => []),
           ]);
 
           // Send done event with title and suggestions
