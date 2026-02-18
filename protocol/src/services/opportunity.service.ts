@@ -13,7 +13,7 @@ import { ChatDatabaseAdapter } from '../adapters/database.adapter';
 import { EmbedderAdapter } from '../adapters/embedder.adapter';
 import { RedisCacheAdapter } from '../adapters/cache.adapter';
 import { presentOpportunity, type UserInfo } from '../lib/protocol/support/opportunity.presentation';
-import { canUserSeeOpportunity } from '../lib/protocol/support/opportunity.utils';
+import { canUserSeeOpportunity, validateOpportunityActors } from '../lib/protocol/support/opportunity.utils';
 import { persistOpportunities } from '../lib/protocol/support/opportunity.persist';
 import type { OpportunityChatProvider, ChatChannel } from '../lib/protocol/interfaces/chat.interface';
 import { getChatProvider } from '../adapters/chat.adapter';
@@ -534,6 +534,13 @@ export class OpportunityService {
       ...(p.intentId ? { intent: p.intentId } : {}),
     }));
     actors.push({ indexId, userId: creatorId, role: 'introducer' });
+
+    try {
+      validateOpportunityActors(actors);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Invalid opportunity actors';
+      return { error: message, status: 400 };
+    }
 
     const conf = data.confidence ?? 0.8;
     const opportunityData: CreateOpportunityData = {

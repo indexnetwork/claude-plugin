@@ -30,6 +30,7 @@ import {
   type EvaluatorInput,
 } from '../agents/opportunity.evaluator';
 import type { OpportunityGraphDatabase } from '../interfaces/database.interface';
+import { validateOpportunityActors } from '../support/opportunity.utils';
 
 /** Optional evaluator for testing (avoids LLM calls). */
 export type OpportunityEvaluatorLike = {
@@ -738,6 +739,16 @@ export class OpportunityGraphFactory {
               confidence: String(evaluated.score / 100),
               status: initialStatus,
             };
+          }
+
+          try {
+            validateOpportunityActors(data.actors);
+          } catch (err) {
+            logger.warn('[Graph:Persist] Skipping opportunity with invalid actors', {
+              error: err instanceof Error ? err.message : String(err),
+              opportunityReasoning: evaluated.reasoning?.slice(0, 80),
+            });
+            continue;
           }
 
           itemsToPersist.push(data);

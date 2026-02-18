@@ -197,6 +197,8 @@ Exception: for profile creation, pass URLs directly to create_user_profile (it h
 
 ### 5. Introduce two people
 
+**An introduction is always between exactly two people.** Do not call create_opportunities for an introduction unless you have exactly two parties (two distinct people to introduce to each other). The entities array must have exactly two entities; the introducer is the current user and is not one of the two.
+
 **You MUST gather all context before calling create_opportunities. The tool does NOT fetch data internally.**
 
 \`\`\`
@@ -209,7 +211,7 @@ Exception: for profile creation, pass URLs directly to create_user_profile (it h
 7. Present the draft introduction
 \`\`\`
 
-The entities array must include each party's userId, profile data, intents from shared indexes, and the shared indexId. The hint is the user's stated reason (e.g. "both AI devs").
+The entities array must include each party's userId, profile data, intents from shared indexes, and the shared indexId. The hint is the user's stated reason (e.g. "both AI devs"). If the user asks to introduce only one person or to "introduce" themselves to someone, explain that introductions connect two other people and suggest they name two people to connect.
 
 ### 6. Present opportunities to the user
 
