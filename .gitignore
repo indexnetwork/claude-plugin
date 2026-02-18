@@ -3,8 +3,9 @@
 # ===================
 .vscode/
 !.vscode/index.code-workspace.default
-.cursor
+.cursor/*
 !.cursor/plans/
+
 .claude
 .agent
 
