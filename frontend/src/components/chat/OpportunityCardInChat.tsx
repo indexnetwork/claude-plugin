@@ -97,6 +97,20 @@ function getNarratorChipClass(status?: string): string {
   }
 }
 
+/** Hover class for the narrator chip when clickable (by status). */
+function getNarratorHoverClass(status?: string): string {
+  switch (status) {
+    case "accepted":
+      return "hover:bg-green-200/50";
+    case "rejected":
+      return "hover:bg-red-200/40";
+    case "expired":
+      return "hover:bg-amber-200/50";
+    default:
+      return "hover:bg-[#E8E8E8]";
+  }
+}
+
 interface OpportunityCardProps {
   card: OpportunityCardData;
   /** Handler for primary action (accept/start chat). If not provided, card is display-only. */
@@ -353,23 +367,10 @@ export default function OpportunityCard({
         <div className="mt-3">
           <div
             className={cn(
-              "inline-flex items-center gap-2.5 px-3 py-1 rounded-md border",
+              "inline-flex items-center gap-2.5 px-3 py-1 rounded-md",
               getNarratorChipClass(effectiveStatus),
               card.narratorChip.userId && "cursor-pointer transition-colors",
-              card.narratorChip.userId &&
-                effectiveStatus === "accepted" &&
-                "hover:bg-green-200/50",
-              card.narratorChip.userId &&
-                effectiveStatus === "rejected" &&
-                "hover:bg-red-200/40",
-              card.narratorChip.userId &&
-                effectiveStatus === "expired" &&
-                "hover:bg-amber-200/50",
-              card.narratorChip.userId &&
-                !["accepted", "rejected", "expired"].includes(
-                  effectiveStatus ?? "",
-                ) &&
-                "hover:bg-[#E8E8E8]",
+              card.narratorChip.userId && getNarratorHoverClass(effectiveStatus),
             )}
             {...(card.narratorChip.userId
               ? {
