@@ -31,6 +31,32 @@ function applyEvent(
   return { stop: false };
 }
 
+type SessionResponse = SendMessageResult;
+
+function processLines(
+  lines: string[],
+  state: { sessionId: string; response: string }
+): SessionResponse | null {
+  for (const line of lines) {
+    if (line.startsWith("data: ")) {
+      try {
+        const json = JSON.parse(line.slice(6)) as Parameters<typeof applyEvent>[0];
+        const result = applyEvent(json, state);
+        if (result.stop) {
+          return {
+            sessionId: json.sessionId ?? state.sessionId,
+            response: normalizeBlockquotes(state.response),
+            error: result.error,
+          };
+        }
+      } catch {
+        // Skip malformed lines
+      }
+    }
+  }
+  return null;
+}
+
 /**
  * Send a message to the protocol chat stream API and accumulate the response.
  * Parses SSE events: status (sessionId), token (content), done (response), error.
@@ -85,45 +111,15 @@ export async function sendMessage(
     const lines = buffer.split("\n");
     buffer = lines.pop() ?? "";
 
-    for (const line of lines) {
-      if (line.startsWith("data: ")) {
-        try {
-          const json = JSON.parse(line.slice(6)) as Parameters<typeof applyEvent>[0];
-          const result = applyEvent(json, state);
-          if (result.stop) {
-            return {
-              sessionId: json.sessionId ?? state.sessionId,
-              response: normalizeBlockquotes(state.response),
-              error: result.error,
-            };
-          }
-        } catch {
-          // Skip malformed lines
-        }
-      }
-    }
+    const done = processLines(lines, state);
+    if (done) return done;
   }
 
   // Flush remaining buffer: process every complete "data: " line so we don't miss the done event
   if (buffer) {
     const lines = buffer.split("\n");
-    for (const line of lines) {
-      if (line.startsWith("data: ")) {
-        try {
-          const json = JSON.parse(line.slice(6)) as Parameters<typeof applyEvent>[0];
-          const result = applyEvent(json, state);
-          if (result.stop) {
-            return {
-              sessionId: json.sessionId ?? state.sessionId,
-              response: normalizeBlockquotes(state.response),
-              error: result.error,
-            };
-          }
-        } catch {
-          // ignore
-        }
-      }
-    }
+    const done = processLines(lines, state);
+    if (done) return done;
   }
 
   return {

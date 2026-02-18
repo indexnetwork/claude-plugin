@@ -313,28 +313,10 @@ export class ChatAgent {
             typeof result === "string" ? result : JSON.stringify(result);
 
           if (tc.name === "create_opportunities") {
-            let parsed: { success?: boolean; data?: { createIntentSuggested?: boolean; suggestedIntentDescription?: string } };
-            try {
-              parsed = JSON.parse(resultStr) as typeof parsed;
-            } catch {
-              parsed = {};
-            }
-            if (
-              parsed?.data?.createIntentSuggested &&
-              typeof parsed.data.suggestedIntentDescription === "string"
-            ) {
-              const createIntentTool = this.toolsByName.get("create_intent");
-              const createOpportunitiesTool = this.toolsByName.get("create_opportunities");
-              if (createIntentTool && createOpportunitiesTool) {
-                logger.info("Create-intent signal: auto-calling create_intent then create_opportunities");
-                await createIntentTool.invoke({
-                  description: parsed.data.suggestedIntentDescription,
-                  indexId: (tc.args as { indexId?: string }).indexId,
-                });
-                result = await createOpportunitiesTool.invoke(tc.args);
-                resultStr =
-                  typeof result === "string" ? result : JSON.stringify(result);
-              }
+            const newResult = await this.handleCreateIntentCallback(resultStr, tc.args);
+            if (newResult !== null) {
+              resultStr = newResult;
+              result = newResult;
             }
           }
 
@@ -368,6 +350,54 @@ export class ChatAgent {
     );
 
     return results;
+  }
+
+  /**
+   * When create_opportunities returned createIntentSuggested, call create_intent then create_opportunities.
+   * Returns the new create_opportunities result string or null if no callback / create_intent failed.
+   */
+  private async handleCreateIntentCallback(
+    resultStr: string,
+    originalArgs: Record<string, unknown>
+  ): Promise<string | null> {
+    let parsed: { success?: boolean; error?: string; data?: { createIntentSuggested?: boolean; suggestedIntentDescription?: string } };
+    try {
+      parsed = JSON.parse(resultStr) as typeof parsed;
+    } catch {
+      return null;
+    }
+    if (
+      !parsed?.data?.createIntentSuggested ||
+      typeof parsed.data.suggestedIntentDescription !== "string"
+    ) {
+      return null;
+    }
+    const createIntentTool = this.toolsByName.get("create_intent");
+    const createOpportunitiesTool = this.toolsByName.get("create_opportunities");
+    if (!createIntentTool || !createOpportunitiesTool) return null;
+
+    logger.info("Create-intent signal: auto-calling create_intent then create_opportunities");
+    const createIntentResult = await createIntentTool.invoke({
+      description: parsed.data.suggestedIntentDescription,
+      indexId: (originalArgs as { indexId?: string }).indexId,
+    });
+    const createIntentStr =
+      typeof createIntentResult === "string" ? createIntentResult : JSON.stringify(createIntentResult);
+    let createIntentParsed: { success?: boolean; error?: string };
+    try {
+      createIntentParsed = JSON.parse(createIntentStr) as { success?: boolean; error?: string };
+    } catch {
+      createIntentParsed = {};
+    }
+    if (createIntentParsed.success === false) {
+      logger.warn("Create-intent failed; not re-running create_opportunities", {
+        error: createIntentParsed.error,
+      });
+      return null;
+    }
+
+    const newResult = await createOpportunitiesTool.invoke(originalArgs);
+    return typeof newResult === "string" ? newResult : JSON.stringify(newResult);
   }
 
   /**
@@ -548,28 +578,10 @@ export class ChatAgent {
               typeof result === "string" ? result : JSON.stringify(result);
 
             if (tc.name === "create_opportunities") {
-              let parsed: { success?: boolean; data?: { createIntentSuggested?: boolean; suggestedIntentDescription?: string } };
-              try {
-                parsed = JSON.parse(resultStr) as typeof parsed;
-              } catch {
-                parsed = {};
-              }
-              if (
-                parsed?.data?.createIntentSuggested &&
-                typeof parsed.data.suggestedIntentDescription === "string"
-              ) {
-                const createIntentTool = this.toolsByName.get("create_intent");
-                const createOpportunitiesTool = this.toolsByName.get("create_opportunities");
-                if (createIntentTool && createOpportunitiesTool) {
-                  logger.info("Streaming: create-intent signal, auto-calling create_intent then create_opportunities");
-                  await createIntentTool.invoke({
-                    description: parsed.data.suggestedIntentDescription,
-                    indexId: (tc.args as { indexId?: string }).indexId,
-                  });
-                  result = await createOpportunitiesTool.invoke(tc.args);
-                  resultStr =
-                    typeof result === "string" ? result : JSON.stringify(result);
-                }
+              const newResult = await this.handleCreateIntentCallback(resultStr, tc.args);
+              if (newResult !== null) {
+                resultStr = newResult;
+                result = newResult;
               }
             }
 

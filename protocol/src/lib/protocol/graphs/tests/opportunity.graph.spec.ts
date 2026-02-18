@@ -134,7 +134,7 @@ describe('Opportunity Graph', () => {
 
       const result = (await compiledGraph.invoke({
         userId: 'user-source' as Id<'users'>,
-        searchQuery: 'Find a co-founder',
+        searchQuery: 'co-founder',
         options: {},
       } as OpportunityGraphInvokeInput)) as OpportunityGraphInvokeResult;
 
@@ -154,7 +154,7 @@ describe('Opportunity Graph', () => {
 
       const result = (await compiledGraph.invoke({
         userId: 'user-source' as Id<'users'>,
-        searchQuery: 'Find a co-founder',
+        searchQuery: 'co-founder',
         options: {},
       } as OpportunityGraphInvokeInput)) as OpportunityGraphInvokeResult;
 
@@ -174,7 +174,7 @@ describe('Opportunity Graph', () => {
 
       await compiledGraph.invoke({
         userId: 'user-source' as Id<'users'>,
-        searchQuery: 'Find mentor',
+        searchQuery: 'co-founder',
         indexId: 'idx-1' as Id<'indexes'>,
         options: {},
       } as OpportunityGraphInvokeInput);
@@ -190,7 +190,7 @@ describe('Opportunity Graph', () => {
 
       await compiledGraph.invoke({
         userId: 'user-source' as Id<'users'>,
-        searchQuery: 'Find mentor',
+        searchQuery: 'co-founder',
         options: { limit: 5 },
       } as OpportunityGraphInvokeInput);
 
@@ -215,7 +215,7 @@ describe('Opportunity Graph', () => {
 
       const result = (await compiledGraph.invoke({
         userId: 'user-source' as Id<'users'>,
-        searchQuery: 'Find a React developer',
+        searchQuery: 'co-founder',
         options: { limit: 5 },
       } as OpportunityGraphInvokeInput)) as OpportunityGraphInvokeResult;
 
@@ -241,7 +241,7 @@ describe('Opportunity Graph', () => {
 
       const result = (await compiledGraph.invoke({
         userId: 'user-source' as Id<'users'>,
-        searchQuery: 'Find mentor',
+        searchQuery: 'co-founder',
         options: {},
       } as OpportunityGraphInvokeInput)) as OpportunityGraphInvokeResult;
 
@@ -268,7 +268,7 @@ describe('Opportunity Graph', () => {
 
       const result = (await compiledGraph.invoke({
         userId: 'user-source' as Id<'users'>,
-        searchQuery: 'Find co-founder',
+        searchQuery: 'co-founder',
         options: { minScore: 70 },
       } as OpportunityGraphInvokeInput)) as OpportunityGraphInvokeResult;
 
@@ -294,7 +294,7 @@ describe('Opportunity Graph', () => {
 
       const result = (await compiledGraph.invoke({
         userId: 'user-source' as Id<'users'>,
-        searchQuery: 'Find partners',
+        searchQuery: 'co-founder',
         options: { limit: 1, minScore: 70 },
       } as OpportunityGraphInvokeInput)) as OpportunityGraphInvokeResult;
 
@@ -320,7 +320,7 @@ describe('Opportunity Graph', () => {
 
       const result = (await compiledGraph.invoke({
         userId: 'user-source' as Id<'users'>,
-        searchQuery: 'Find mentor',
+        searchQuery: 'co-founder',
         options: { initialStatus: 'latent', minScore: 70 },
       } as OpportunityGraphInvokeInput)) as OpportunityGraphInvokeResult;
 
@@ -345,7 +345,7 @@ describe('Opportunity Graph', () => {
 
       await compiledGraph.invoke({
         userId: 'user-source' as Id<'users'>,
-        searchQuery: 'Find mentor',
+        searchQuery: 'co-founder',
         options: { minScore: 70 },
       } as OpportunityGraphInvokeInput);
 
@@ -382,7 +382,7 @@ describe('Opportunity Graph', () => {
 
       await compiledGraph.invoke({
         userId: 'user-source' as Id<'users'>,
-        searchQuery: 'Find mentee',
+        searchQuery: 'co-founder',
         options: { initialStatus: 'latent', minScore: 70 },
       } as OpportunityGraphInvokeInput);
 
@@ -423,7 +423,7 @@ describe('Opportunity Graph', () => {
 
       await compiledGraph.invoke({
         userId: 'user-source' as Id<'users'>,
-        searchQuery: 'Find mentor',
+        searchQuery: 'co-founder',
         options: { initialStatus: 'latent', minScore: 70 },
       } as OpportunityGraphInvokeInput);
 
@@ -463,7 +463,7 @@ describe('Opportunity Graph', () => {
 
       await compiledGraph.invoke({
         userId: 'user-source' as Id<'users'>,
-        searchQuery: 'Find collaborator',
+        searchQuery: 'co-founder',
         options: { initialStatus: 'latent', minScore: 70 },
       } as OpportunityGraphInvokeInput);
 
@@ -488,7 +488,7 @@ describe('Opportunity Graph', () => {
 
       await compiledGraph.invoke({
         userId: 'user-source' as Id<'users'>,
-        searchQuery: 'Find someone',
+        searchQuery: 'co-founder',
         options: {},
       } as OpportunityGraphInvokeInput);
 
@@ -507,7 +507,7 @@ describe('Opportunity Graph', () => {
 
       await compiledGraph.invoke({
         userId: 'user-source' as Id<'users'>,
-        searchQuery: 'Find someone',
+        searchQuery: 'co-founder',
         options: {},
       } as OpportunityGraphInvokeInput);
 
@@ -533,7 +533,7 @@ describe('Opportunity Graph', () => {
 
       const result = (await compiledGraph.invoke({
         userId: 'user-source' as Id<'users'>,
-        searchQuery: 'Find a technical co-founder',
+        searchQuery: 'co-founder',
         options: { initialStatus: 'latent', limit: 5, minScore: 70 },
       } as OpportunityGraphInvokeInput)) as OpportunityGraphInvokeResult;
 
@@ -558,7 +558,7 @@ describe('Opportunity Graph', () => {
 
       const result = (await compiledGraph.invoke({
         userId: 'user-source' as Id<'users'>,
-        searchQuery: 'Find unicorns',
+        searchQuery: 'co-founder',
         options: {},
       } as OpportunityGraphInvokeInput)) as OpportunityGraphInvokeResult;
 
@@ -583,7 +583,7 @@ describe('Opportunity Graph', () => {
 
       const result = (await compiledGraph.invoke({
         userId: 'user-source' as Id<'users'>,
-        searchQuery: 'Find mentor',
+        searchQuery: 'co-founder',
         options: { minScore: 80 },
       } as OpportunityGraphInvokeInput)) as OpportunityGraphInvokeResult;
 
@@ -683,6 +683,21 @@ describe('Opportunity Graph', () => {
       expect(result.error).toBeDefined();
       expect(result.error).toContain('not members');
       expect(result.opportunities?.length ?? 0).toBe(0);
+    });
+
+    test('when evaluator returns no results uses fallback and returns one opportunity', async () => {
+      const { compiledGraph } = createMockGraph({ evaluatorResult: [] });
+
+      const result = (await compiledGraph.invoke({
+        operationMode: 'create_introduction',
+        userId: 'user-source' as Id<'users'>,
+        indexId: 'idx-1' as Id<'indexes'>,
+        introductionEntities: introEntities,
+        introductionHint: 'both AI devs',
+      } as OpportunityGraphInvokeInput)) as OpportunityGraphInvokeResult;
+
+      expect(result.opportunities.length).toBe(1);
+      expect(result.error).toBeUndefined();
     });
   });
 });

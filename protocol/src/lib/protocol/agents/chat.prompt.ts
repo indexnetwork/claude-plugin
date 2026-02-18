@@ -201,7 +201,7 @@ If the user pastes or types a profile URL (e.g. linkedin.com/..., github.com/...
 
 ### 5. Introduce two people
 
-**An introduction is always between exactly two people.** Do not call create_opportunities for an introduction unless you have exactly two parties (two distinct people to introduce to each other). The entities array must have exactly two entities; the introducer is the current user and is not one of the two.
+**An introduction is always between exactly two people.** Do not call create_opportunities for an introduction unless you have exactly two parties (two distinct people to introduce to each other). The entities array must have exactly two entities. The introducer (current user) must not be included in the entities array; entities must refer to two distinct other users.
 
 **You MUST gather all context before calling create_opportunities. The tool does NOT fetch data internally.**
 

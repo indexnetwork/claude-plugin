@@ -12,6 +12,14 @@ import type { EvaluatorEntity } from '../agents/opportunity.evaluator';
  * Following the intent graph pattern with Annotation-based state management.
  */
 
+/** Asker's profile shape (embedding + optional identity/narrative/attributes). Used by sourceProfile annotation. */
+export interface SourceProfileData {
+  embedding: number[] | null;
+  identity?: { name?: string; bio?: string };
+  narrative?: { context?: string };
+  attributes?: { skills?: string[]; interests?: string[] };
+}
+
 /**
  * Indexed intent with hyde document (from prep node)
  */
@@ -217,7 +225,7 @@ export const OpportunityGraphState = Annotation.Root({
   }),
 
   /** Asker's profile (from prep). Used for profile-as-source discovery and evaluation. */
-  sourceProfile: Annotation<{ embedding: number[] | null; identity?: { name?: string; bio?: string }; narrative?: { context?: string }; attributes?: { skills?: string[]; interests?: string[] } } | null>({
+  sourceProfile: Annotation<SourceProfileData | null>({
     reducer: (curr, next) => next ?? curr,
     default: () => null,
   }),

@@ -232,40 +232,59 @@ export class OpportunityGraphFactory {
 
       const targetIndexIds = state.targetIndexes.map((t) => t.indexId);
 
-      let resolvedIntentId: Id<'intents'> | undefined;
-      if (state.triggerIntentId) {
-        const inIndex = await this.database.getIndexIdsForIntent(state.triggerIntentId);
-        const inTarget = inIndex.some((id) => targetIndexIds.includes(id as Id<'indexes'>));
-        resolvedIntentId = state.triggerIntentId;
-        const resolvedIntentInIndex = inTarget;
-        const discoverySource = resolvedIntentInIndex ? ('intent' as const) : ('profile' as const);
-        return {
-          resolvedTriggerIntentId: resolvedIntentId,
-          resolvedIntentInIndex,
-          discoverySource,
-        };
-      }
+      try {
+        let resolvedIntentId: Id<'intents'> | undefined;
+        if (state.triggerIntentId) {
+          const inIndex = await this.database.getIndexIdsForIntent(state.triggerIntentId);
+          const inTarget = inIndex.some((id) => targetIndexIds.includes(id as Id<'indexes'>));
+          resolvedIntentId = state.triggerIntentId;
+          const resolvedIntentInIndex = inTarget;
+          const discoverySource = resolvedIntentInIndex ? ('intent' as const) : ('profile' as const);
+          return {
+            resolvedTriggerIntentId: resolvedIntentId,
+            resolvedIntentInIndex,
+            discoverySource,
+          };
+        }
 
       if (state.searchQuery?.trim() && state.indexedIntents.length > 0) {
         const q = state.searchQuery.trim().toLowerCase();
-        const matched =
-          state.indexedIntents.find((i) => i.payload?.toLowerCase().includes(q)) ?? state.indexedIntents[0];
-        resolvedIntentId = matched.intentId;
-        const inIndex = await this.database.getIndexIdsForIntent(matched.intentId);
-        const resolvedIntentInIndex = inIndex.some((id) => targetIndexIds.includes(id as Id<'indexes'>));
-        const discoverySource = resolvedIntentInIndex ? ('intent' as const) : ('profile' as const);
-        return {
-          resolvedTriggerIntentId: resolvedIntentId,
-          resolvedIntentInIndex,
-          discoverySource,
-        };
+        const matched = state.indexedIntents.find((i) => i.payload?.toLowerCase().includes(q));
+        if (matched) {
+          resolvedIntentId = matched.intentId;
+          const inIndex = await this.database.getIndexIdsForIntent(matched.intentId);
+          const resolvedIntentInIndex = inIndex.some((id) => targetIndexIds.includes(id as Id<'indexes'>));
+          const discoverySource = resolvedIntentInIndex ? ('intent' as const) : ('profile' as const);
+          return {
+            resolvedTriggerIntentId: resolvedIntentId,
+            resolvedIntentInIndex,
+            discoverySource,
+          };
+        }
+        logger.warn('[Graph:Resolve] No intent matched search query; leaving resolvedIntentId unset', {
+          searchQuery: state.searchQuery,
+          indexedIntentsCount: state.indexedIntents.length,
+        });
       }
 
-      return {
-        resolvedTriggerIntentId: undefined,
-        resolvedIntentInIndex: false,
-        discoverySource: 'profile' as const,
-      };
+        return {
+          resolvedTriggerIntentId: undefined,
+          resolvedIntentInIndex: false,
+          discoverySource: 'profile' as const,
+        };
+      } catch (err) {
+        logger.error('[Graph:Resolve] Failed', {
+          triggerIntentId: state.triggerIntentId,
+          searchQuery: state.searchQuery,
+          error: err,
+        });
+        return {
+          resolvedTriggerIntentId: undefined,
+          resolvedIntentInIndex: false,
+          discoverySource: 'profile' as const,
+          error: err instanceof Error ? err.message : 'Resolve failed',
+        };
+      }
     };
 
     /**
@@ -610,46 +629,80 @@ export class OpportunityGraphFactory {
         entitiesCount: state.introductionEntities?.length ?? 0,
       });
 
-      const entities = state.introductionEntities ?? [];
-      const primaryIndexId = (state.indexId ?? entities[0]?.indexId) as Id<'indexes'> | undefined;
+      try {
+        const entities = state.introductionEntities ?? [];
+        const primaryIndexId = (state.indexId ?? entities[0]?.indexId) as Id<'indexes'> | undefined;
 
-      if (!primaryIndexId || entities.length < 2) {
-        return {
-          error: 'Introduction requires indexId and at least two entities (profiles + intents per party).',
-        };
-      }
+        if (!primaryIndexId || entities.length < 2) {
+          return {
+            error: 'Introduction requires indexId and at least two entities (profiles + intents per party).',
+          };
+        }
 
-      if (state.requiredIndexId && primaryIndexId !== state.requiredIndexId) {
-        return {
-          error: 'This chat is scoped to a different community. You can only introduce members of the current community.',
-        };
-      }
+        if (state.requiredIndexId && primaryIndexId !== state.requiredIndexId) {
+          return {
+            error: 'This chat is scoped to a different community. You can only introduce members of the current community.',
+          };
+        }
 
-      const introducerIsMember = await this.database.isIndexMember(primaryIndexId, state.userId);
-      if (!introducerIsMember) {
-        return {
-          error: 'One or more users are not members of the specified community. You can only introduce members who share an index.',
-        };
-      }
-
-      const partyUserIds = [...new Set(entities.map((e) => e.userId).filter((id) => id !== state.userId))];
-      for (const userId of partyUserIds) {
-        const isMember = await this.database.isIndexMember(primaryIndexId, userId);
-        if (!isMember) {
+        const introducerIsMember = await this.database.isIndexMember(primaryIndexId, state.userId);
+        if (!introducerIsMember) {
           return {
             error: 'One or more users are not members of the specified community. You can only introduce members who share an index.',
           };
         }
-      }
 
-      const exists = await this.database.opportunityExistsBetweenActors(partyUserIds, primaryIndexId);
-      if (exists) {
-        return { error: 'An opportunity already exists between these people.' };
-      }
+        const partyUserIds = [...new Set(entities.map((e) => e.userId).filter((id) => id !== state.userId))];
+        const partyMemberships = await Promise.all(
+          partyUserIds.map((userId) => this.database.isIndexMember(primaryIndexId, userId))
+        );
+        const allPartyMembers = partyMemberships.every(Boolean);
+        if (!allPartyMembers) {
+          return {
+            error: 'One or more users are not members of the specified community. You can only introduce members who share an index.',
+          };
+        }
 
-      logger.info('[Graph:IntroValidation] Validation passed');
-      return {};
+        const exists = await this.database.opportunityExistsBetweenActors(partyUserIds, primaryIndexId);
+        if (exists) {
+          return { error: 'An opportunity already exists between these people.' };
+        }
+
+        logger.info('[Graph:IntroValidation] Validation passed');
+        return {};
+      } catch (err) {
+        logger.error('[Graph:IntroValidation] Failed', {
+          userId: state.userId,
+          indexId: state.indexId,
+          error: err,
+        });
+        return {
+          error: err instanceof Error ? err.message : 'Introduction validation failed.',
+        };
+      }
     };
+
+    /**
+     * Build fallback reasoning and actors when evaluator returns empty or throws.
+     */
+    function buildIntroFallback(
+      entities: EvaluatorEntity[],
+      state: typeof OpportunityGraphState.State,
+      primaryIndexId: Id<'indexes'>,
+      introducerName?: string
+    ): { reasoning: string; score: number; actors: EvaluatedOpportunityActor[] } {
+      const reasoning =
+        `${introducerName ?? 'A member'} believes these people should connect.` +
+        (state.introductionHint ? ` Context: ${state.introductionHint}` : '');
+      const score = 70;
+      const partyUserIds = entities.map((e) => e.userId).filter((id) => id !== state.userId);
+      const actors: EvaluatedOpportunityActor[] = partyUserIds.map((uid) => ({
+        userId: uid as Id<'users'>,
+        role: 'peer' as const,
+        indexId: primaryIndexId,
+      }));
+      return { reasoning, score, actors };
+    }
 
     /**
      * Node: intro_evaluation (create_introduction path)
@@ -668,20 +721,22 @@ export class OpportunityGraphFactory {
         return { evaluatedOpportunities: [], error: 'Missing entities or index for introduction.' };
       }
 
-      const introducerUser = await this.database.getUser(state.userId);
-      const input: EvaluatorInput = {
-        discovererId: state.userId,
-        entities,
-        introductionMode: true,
-        introducerName: introducerUser?.name ?? undefined,
-        introductionHint: state.introductionHint ?? undefined,
-      };
-
+      let introducerName: string | undefined;
       let reasoning: string;
       let score: number;
       let actors: EvaluatedOpportunityActor[] = [];
 
       try {
+        const introducerUser = await this.database.getUser(state.userId);
+        introducerName = introducerUser?.name ?? undefined;
+        const input: EvaluatorInput = {
+          discovererId: state.userId,
+          entities,
+          introductionMode: true,
+          introducerName,
+          introductionHint: state.introductionHint ?? undefined,
+        };
+
         const evaluated = await (evaluatorAgent as OpportunityEvaluator).invokeEntityBundle(input, { minScore: 0 });
         if (evaluated.length > 0) {
           const best = evaluated[0];
@@ -694,29 +749,17 @@ export class OpportunityGraphFactory {
             indexId: primaryIndexId,
           }));
         } else {
-          reasoning =
-            `${introducerUser?.name ?? 'A member'} believes these people should connect.` +
-            (state.introductionHint ? ` Context: ${state.introductionHint}` : '');
-          score = 70;
-          const partyUserIds = entities.map((e) => e.userId).filter((id) => id !== state.userId);
-          actors = partyUserIds.map((uid) => ({
-            userId: uid as Id<'users'>,
-            role: 'party' as const,
-            indexId: primaryIndexId,
-          }));
+          const fallback = buildIntroFallback(entities, state, primaryIndexId, introducerName);
+          reasoning = fallback.reasoning;
+          score = fallback.score;
+          actors = fallback.actors;
         }
       } catch (evalErr) {
-        logger.warn('[Graph:IntroEvaluation] Evaluator failed, using fallback', { error: evalErr });
-        reasoning =
-          `${introducerUser?.name ?? 'A member'} believes these people should connect.` +
-          (state.introductionHint ? ` Context: ${state.introductionHint}` : '');
-        score = 70;
-        const partyUserIds = entities.map((e) => e.userId).filter((id) => id !== state.userId);
-        actors = partyUserIds.map((uid) => ({
-          userId: uid as Id<'users'>,
-          role: 'party' as const,
-          indexId: primaryIndexId,
-        }));
+        logger.warn('[Graph:IntroEvaluation] Evaluator or getUser failed, using fallback', { error: evalErr });
+        const fallback = buildIntroFallback(entities, state, primaryIndexId, introducerName);
+        reasoning = fallback.reasoning;
+        score = fallback.score;
+        actors = fallback.actors;
       }
 
       const evaluatedOpportunity: EvaluatedOpportunity = {
@@ -727,7 +770,7 @@ export class OpportunityGraphFactory {
 
       return {
         evaluatedOpportunities: [evaluatedOpportunity],
-        introductionContext: { createdByName: introducerUser?.name ?? undefined },
+        introductionContext: { createdByName: introducerName },
         options: { ...state.options, initialStatus: 'latent' as const },
       };
     };
@@ -758,6 +801,13 @@ export class OpportunityGraphFactory {
           let data: CreateOpportunityData;
 
           if (state.introductionContext) {
+            if (indexIdForActors === undefined) {
+              logger.warn('[Graph:Persist] Introduction path missing indexId; skipping opportunity', {
+                userId: state.userId,
+                actorsCount: evaluated.actors.length,
+              });
+              continue;
+            }
             // Introduction path: manual detection, introducer actor, curator_judgment signal.
             const evaluatorActors: OpportunityActor[] = evaluated.actors.map((a: EvaluatedOpportunityActor) => ({
               indexId: a.indexId ?? indexIdForActors,
@@ -767,7 +817,7 @@ export class OpportunityGraphFactory {
             }));
             actors = [
               ...evaluatorActors,
-              { indexId: indexIdForActors!, userId: state.userId, role: 'introducer' as const },
+              { indexId: indexIdForActors, userId: state.userId, role: 'introducer' as const },
             ];
             data = {
               detection: {
@@ -789,7 +839,7 @@ export class OpportunityGraphFactory {
                   },
                 ],
               },
-              context: { indexId: state.indexId ?? indexIdForActors! },
+              context: { indexId: state.indexId ?? indexIdForActors },
               confidence: String(evaluated.score / 100),
               status: initialStatus,
             };
@@ -1226,6 +1276,17 @@ export class OpportunityGraphFactory {
       return 'evaluation';
     };
 
+    /**
+     * After intro_validation: if validation set state.error, end early; else continue to intro_evaluation.
+     */
+    const routeAfterIntroValidation = (state: typeof OpportunityGraphState.State): string => {
+      if (state.error) {
+        logger.info('[Graph:Routing] Intro validation error - ending early');
+        return END;
+      }
+      return 'intro_evaluation';
+    };
+
     // ═══════════════════════════════════════════════════════════════
     // GRAPH ASSEMBLY
     // ═══════════════════════════════════════════════════════════════
@@ -1257,8 +1318,11 @@ export class OpportunityGraphFactory {
         send: 'send',
       })
 
-      // Introduction path: validation -> evaluation -> persist
-      .addEdge('intro_validation', 'intro_evaluation')
+      // Introduction path: validation -> evaluation -> persist (or END on validation error)
+      .addConditionalEdges('intro_validation', routeAfterIntroValidation, {
+        intro_evaluation: 'intro_evaluation',
+        [END]: END,
+      })
       .addEdge('intro_evaluation', 'persist')
 
       // CRUD fast paths -> END

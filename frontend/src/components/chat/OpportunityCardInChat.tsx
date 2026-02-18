@@ -316,7 +316,7 @@ export default function OpportunityCard({
             )}
           </div>
         )}
-        {showResolvedStatus && statusMessage && (
+        {showResolvedStatus && (
           <div className="flex items-center gap-1.5 shrink-0 text-sm text-gray-600">
             {effectiveStatus === "accepted" && (
               <Check className="w-4 h-4 text-green-600 shrink-0" />

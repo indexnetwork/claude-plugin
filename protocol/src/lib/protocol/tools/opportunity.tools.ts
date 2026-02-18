@@ -147,8 +147,7 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
               .optional(),
             indexId: z
               .string()
-              .optional()
-              .describe("Shared index this entity's data comes from"),
+              .describe("Shared index this entity's data comes from (required for intro mode)"),
           }),
         )
         .optional()

@@ -199,12 +199,15 @@ export class ChatGraphFactory {
       };
 
       const isRetriableError = (err: unknown): boolean => {
+        const status = (err as { status?: number; statusCode?: number; code?: string }).status
+          ?? (err as { statusCode?: number }).statusCode;
+        if (typeof status === "number" && status >= 500 && status <= 599) return true;
         const msg = err instanceof Error ? err.message : String(err);
         const lower = msg.toLowerCase();
         return (
           lower === "internal server error" ||
           lower.includes("internal server error") ||
-          lower.includes("500") ||
+          /\b500\b|status[: ]*500/i.test(msg) ||
           lower.includes("econnreset") ||
           lower.includes("etimedout")
         );
@@ -236,18 +239,16 @@ export class ChatGraphFactory {
           });
           try {
             const result = await runLoop();
-            if (result) {
-              logger.info("Agent loop complete after retry", {
-                userId: state.userId,
-                iterations: result.iterationCount,
-              });
-              return {
-                messages: result.messages,
-                responseText: result.responseText,
-                iterationCount: result.iterationCount,
-                shouldContinue: false,
-              };
-            }
+            logger.info("Agent loop complete after retry", {
+              userId: state.userId,
+              iterations: result.iterationCount,
+            });
+            return {
+              messages: result.messages,
+              responseText: result.responseText,
+              iterationCount: result.iterationCount,
+              shouldContinue: false,
+            };
           } catch (retryError) {
             logger.error("Agent loop failed on retry", {
               userId: state.userId,

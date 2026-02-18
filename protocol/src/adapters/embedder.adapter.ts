@@ -311,13 +311,22 @@ export class EmbedderAdapter {
       .innerJoin(indexMembers, eq(userProfiles.userId, indexMembers.userId))
       .where(and(...conditions))
       .orderBy(sql`${userProfiles.embedding} <=> ${vectorStr}::vector`)
-      .limit(limit);
-    return results
-      .filter((r) => r.userId != null)
+      .limit(limit * 10);
+    const byUser = new Map<string, { userId: string; similarity: number; indexId: string }>();
+    for (const r of results) {
+      if (r.userId == null) continue;
+      const existing = byUser.get(r.userId);
+      if (!existing || r.similarity > existing.similarity) {
+        byUser.set(r.userId, { userId: r.userId, similarity: r.similarity, indexId: r.indexId });
+      }
+    }
+    return [...byUser.values()]
+      .sort((a, b) => b.similarity - a.similarity)
+      .slice(0, limit)
       .map((r) => ({
         type: 'profile' as const,
-        id: r.userId!,
-        userId: r.userId!,
+        id: r.userId,
+        userId: r.userId,
         score: r.similarity,
         matchedVia: 'mirror' as HydeStrategy,
         indexId: r.indexId,

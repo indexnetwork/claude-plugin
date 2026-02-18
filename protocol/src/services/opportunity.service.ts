@@ -562,17 +562,23 @@ export class OpportunityService {
     };
 
     const embedder = new EmbedderAdapter();
-    const { created, expired } = await persistOpportunities({
-      database: this.db,
-      embedder,
-      items: [opportunityData],
-    });
+    try {
+      const { created, expired } = await persistOpportunities({
+        database: this.db,
+        embedder,
+        items: [opportunityData],
+      });
 
-    this.events.emit('created', { opportunity: created[0] });
-    for (const opp of expired) {
-      this.events.emit('expired', { opportunity: opp });
+      this.events.emit('created', { opportunity: created[0] });
+      for (const opp of expired) {
+        this.events.emit('expired', { opportunity: opp });
+      }
+      return created[0];
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to persist opportunity';
+      logger.warn('[OpportunityService] createManualOpportunity persistence failed', { error: err, creatorId, indexId });
+      return { error: message, status: 500 };
     }
-    return created[0];
   }
 
   /**

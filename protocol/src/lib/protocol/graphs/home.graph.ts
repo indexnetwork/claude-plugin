@@ -293,7 +293,10 @@ export class HomeGraphFactory {
               : (otherUser?.name ?? 'Unknown');
             // Fallback to profile identity name when users.name is missing (e.g. profile has display name, users row does not)
             if ((userName === 'Unknown' || !userName?.trim()) && otherActor?.userId && db.getProfile) {
-              const profile = await db.getProfile(otherActor.userId).catch(() => null);
+              const profile = await db.getProfile(otherActor.userId).catch((err) => {
+                logger.debug('[HomeGraph] getProfile fallback failed', { otherActorUserId: otherActor.userId, error: err });
+                return null;
+              });
               const profileName = profile?.identity?.name?.trim();
               if (profileName) userName = profileName;
             }

@@ -39,7 +39,7 @@ CREATE TABLE IF NOT EXISTS "eval_needs" (
 
 CREATE TABLE IF NOT EXISTS "eval_scenario_results" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
-  "eval_run_id" uuid NOT NULL REFERENCES "public"."eval_runs"("id") ON DELETE CASCADE,
+  "eval_run_id" uuid NOT NULL,
   "scenario_id" text NOT NULL,
   "need_id" text NOT NULL,
   "persona_id" text NOT NULL,

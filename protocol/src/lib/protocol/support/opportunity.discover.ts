@@ -205,7 +205,7 @@ export async function runDiscoverFromQuery(
         userId,
         searchQuery: queryOrEmpty || undefined,
         indexId: indexScope.length === 1 ? indexScope[0] : undefined,
-        triggerIntentId: triggerIntentId ?? undefined,
+        triggerIntentId,
         options,
       });
 

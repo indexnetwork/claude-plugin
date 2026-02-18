@@ -378,8 +378,16 @@ CRITICAL REASONING INSTRUCTIONS FOR INTRODUCTIONS:
       const result = await this.entityBundleModel.invoke(messages);
       const parsed = entityBundleResponseFormat.parse(result);
       parsedTotal = parsed.opportunities.length;
-      const filtered = parsed.opportunities.filter((op) => op.score >= minScore);
-      logger.info('[OpportunityEvaluator.invokeEntityBundle] Done', { total: parsed.opportunities.length, accepted: filtered.length });
+      const introGuard =
+        input.introductionMode
+          ? parsed.opportunities.filter((op) => op.actors.length === 2)
+          : parsed.opportunities;
+      const filtered = introGuard.filter((op) => op.score >= minScore);
+      logger.info('[OpportunityEvaluator.invokeEntityBundle] Done', {
+        total: parsed.opportunities.length,
+        afterIntroGuard: introGuard.length,
+        accepted: filtered.length,
+      });
       return filtered;
     } catch (llmError) {
       logger.error('[OpportunityEvaluator.invokeEntityBundle] Failed; returning empty opportunities.', {
