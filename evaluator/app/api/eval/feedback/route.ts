@@ -2,8 +2,7 @@ import { NextRequest } from "next/server";
 import { getUserIdFromRequest } from "@/lib/auth";
 import { db } from "@/lib/db/drizzle";
 import { userFeedback } from "@/lib/db/schema";
-import { eq } from "drizzle-orm";
-import { desc } from "drizzle-orm";
+import { eq, and, desc } from "drizzle-orm";
 
 export async function POST(req: NextRequest) {
   const userId = await getUserIdFromRequest(req);
@@ -52,6 +51,7 @@ export async function GET(req: NextRequest) {
     const entries = await db
       .select()
       .from(userFeedback)
+      .where(eq(userFeedback.archived, false))
       .orderBy(desc(userFeedback.createdAt));
 
     return Response.json({ feedback: entries });

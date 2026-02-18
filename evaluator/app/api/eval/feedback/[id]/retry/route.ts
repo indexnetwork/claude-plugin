@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { getUserIdFromRequest } from "@/lib/auth";
 import { db } from "@/lib/db/drizzle";
 import { userFeedback } from "@/lib/db/schema";
-import { eq, and } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { sendMessage } from "@/lib/chat-client";
 
 export async function POST(
@@ -31,60 +31,91 @@ export async function POST(
   if (!token)
     return Response.json({ error: "Missing token" }, { status: 401 });
 
-  try {
-    const [entry] = await db
-      .select()
-      .from(userFeedback)
-      .where(and(eq(userFeedback.id, id), eq(userFeedback.userId, userId)));
+  const [entry] = await db
+    .select()
+    .from(userFeedback)
+    .where(eq(userFeedback.id, id));
 
-    if (!entry)
-      return Response.json({ error: "Feedback not found" }, { status: 404 });
+  if (!entry)
+    return Response.json({ error: "Feedback not found" }, { status: 404 });
 
-    if (!entry.conversation?.length)
-      return Response.json(
-        { error: "No conversation to retry" },
-        { status: 400 }
-      );
+  if (!entry.conversation?.length)
+    return Response.json(
+      { error: "No conversation to retry" },
+      { status: 400 }
+    );
 
-    await db
-      .update(userFeedback)
-      .set({ retryStatus: "running", retryConversation: null })
-      .where(eq(userFeedback.id, id));
+  await db
+    .update(userFeedback)
+    .set({ retryStatus: "running", retryConversation: null })
+    .where(eq(userFeedback.id, id));
 
-    const userMessages = entry.conversation.filter((m) => m.role === "user");
-    const retryConversation: Array<{ role: string; content: string }> = [];
-    let sessionId: string | undefined;
+  const userMessages = entry.conversation.filter((m) => m.role === "user");
+  const encoder = new TextEncoder();
 
-    for (const msg of userMessages) {
-      const result = await sendMessage(apiUrl, token, {
-        message: msg.content,
-        sessionId,
-      });
+  const stream = new ReadableStream({
+    async start(controller) {
+      const retryConversation: Array<{ role: string; content: string }> = [];
+      let sessionId: string | undefined;
 
-      retryConversation.push({ role: "user", content: msg.content });
-      retryConversation.push({
-        role: "assistant",
-        content: result.error
-          ? `[Error: ${result.error}]`
-          : result.response,
-      });
+      const emit = (data: Record<string, unknown>) => {
+        controller.enqueue(
+          encoder.encode(`data: ${JSON.stringify(data)}\n\n`)
+        );
+      };
 
-      if (result.sessionId) sessionId = result.sessionId;
-      if (result.error) break;
-    }
+      try {
+        for (const msg of userMessages) {
+          emit({ type: "user", content: msg.content });
+          retryConversation.push({ role: "user", content: msg.content });
 
-    await db
-      .update(userFeedback)
-      .set({ retryStatus: "completed", retryConversation })
-      .where(eq(userFeedback.id, id));
+          const result = await sendMessage(apiUrl, token, {
+            message: msg.content,
+            sessionId,
+          });
 
-    return Response.json({ ok: true, retryConversation });
-  } catch (err) {
-    console.error("Retry failed", err);
-    await db
-      .update(userFeedback)
-      .set({ retryStatus: "error" })
-      .where(eq(userFeedback.id, id));
-    return Response.json({ error: "Retry failed" }, { status: 500 });
-  }
+          const assistantContent = result.error
+            ? `[Error: ${result.error}]`
+            : result.response;
+
+          emit({ type: "assistant", content: assistantContent });
+          retryConversation.push({ role: "assistant", content: assistantContent });
+
+          if (result.sessionId) sessionId = result.sessionId;
+
+          if (result.error) {
+            emit({ type: "error", message: result.error });
+            break;
+          }
+        }
+
+        await db
+          .update(userFeedback)
+          .set({ retryStatus: "completed", retryConversation })
+          .where(eq(userFeedback.id, id));
+
+        emit({ type: "done" });
+      } catch (err) {
+        console.error("Retry stream failed", err);
+        emit({
+          type: "error",
+          message: err instanceof Error ? err.message : "Retry failed",
+        });
+        await db
+          .update(userFeedback)
+          .set({ retryStatus: "error" })
+          .where(eq(userFeedback.id, id));
+      } finally {
+        controller.close();
+      }
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+    },
+  });
 }
