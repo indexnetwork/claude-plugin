@@ -4,7 +4,6 @@ import { success, error, UUID_REGEX } from "./tool.helpers";
 import { MINIMAL_MAIN_TEXT_MAX_CHARS } from "../support/opportunity.constants";
 import { runDiscoverFromQuery } from "../support/opportunity.discover";
 import { enrichOrCreate } from "../support/opportunity.enricher";
-import { OpportunityPresenter } from "../agents/opportunity.presenter";
 import { OpportunityEvaluator } from "../agents/opportunity.evaluator";
 import type {
   EvaluatorEntity,
@@ -98,7 +97,6 @@ function buildMinimalOpportunityCard(
 
 export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
   const { database, userDb, systemDb, graphs, embedder } = deps;
-  const presenter = new OpportunityPresenter();
 
   const createOpportunities = defineTool({
     name: "create_opportunities",
@@ -380,13 +378,20 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
         // Build a proper ```opportunity block so the frontend can render a card (same format as list/discovery)
         const firstPartyId = introducedPartyUserIds[0];
         const firstEntity = query.entities?.find((e) => e.userId === firstPartyId);
+        const counterpartUser = firstPartyId
+          ? await database.getUser(firstPartyId)
+          : null;
         const counterpartName =
           firstEntity?.profile?.name ?? firstPartyId ?? "Someone";
         const cardData = {
           opportunityId: created.id,
           userId: firstPartyId,
           name: counterpartName,
-          avatar: null as string | null,
+          avatar:
+            counterpartUser?.avatar ??
+            (firstEntity?.profile as { avatar?: string | null } | undefined)
+              ?.avatar ??
+            null,
           mainText: truncateForCardText(reasoning),
           cta: "Start a conversation to connect.",
           headline: `Connection with ${counterpartName}`,
@@ -454,8 +459,6 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
         query: searchQuery,
         indexScope,
         limit: 5,
-        presenter,
-        useHomeCardFormat: true,
         minimalForChat: true, // Skip LLM presenter; return only required fields for fast chat
       });
 
