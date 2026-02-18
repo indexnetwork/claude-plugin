@@ -21,13 +21,15 @@ import {
   ChevronDown,
   ChevronRight,
   X,
+  MessageSquare,
+  RefreshCw,
 } from "lucide-react";
 import type { Scenario } from "@/lib/scenarios";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 type ReviewFlag = "pass" | "fail" | "needs_review" | "skipped";
-type Tab = "runs" | "cases";
+type Tab = "runs" | "cases" | "feedback";
 
 interface ScenarioState extends Scenario {
   status: "pending" | "running" | "completed" | "error";
@@ -433,6 +435,258 @@ function TestCasesTab({ getAccessToken }: { getAccessToken: () => Promise<string
             </div>
           </div>
         ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── Feedback Tab ────────────────────────────────────────────────────────────
+
+interface FeedbackEntry {
+  id: string;
+  userId: string;
+  feedback: string;
+  sessionId: string | null;
+  conversation: Array<{ role: string; content: string }> | null;
+  retryConversation: Array<{ role: string; content: string }> | null;
+  retryStatus: string | null;
+  createdAt: string;
+}
+
+function FeedbackTab({ getAccessToken }: { getAccessToken: () => Promise<string | null> }) {
+  const [entries, setEntries] = useState<FeedbackEntry[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [retrying, setRetrying] = useState<string | null>(null);
+
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001/api";
+
+  const authHeaders = useCallback(async () => {
+    const token = await getAccessToken();
+    return token
+      ? { "Content-Type": "application/json", Authorization: `Bearer ${token}` }
+      : null;
+  }, [getAccessToken]);
+
+  const fetchFeedback = useCallback(async () => {
+    setLoading(true);
+    try {
+      const headers = await authHeaders();
+      if (!headers) return;
+      const res = await fetch("/api/eval/feedback", { headers });
+      if (res.ok) {
+        const data = await res.json();
+        setEntries(data.feedback || []);
+      }
+    } catch (e) {
+      console.error("Failed to fetch feedback", e);
+    } finally {
+      setLoading(false);
+    }
+  }, [authHeaders]);
+
+  useEffect(() => {
+    fetchFeedback();
+  }, [fetchFeedback]);
+
+  const retryFeedback = async (id: string) => {
+    setRetrying(id);
+    try {
+      const headers = await authHeaders();
+      if (!headers) return;
+      const res = await fetch(`/api/eval/feedback/${id}/retry`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ apiUrl }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setEntries((prev) =>
+          prev.map((e) =>
+            e.id === id
+              ? { ...e, retryConversation: data.retryConversation, retryStatus: "completed" }
+              : e
+          )
+        );
+      }
+    } catch (e) {
+      console.error("Retry failed", e);
+      setEntries((prev) =>
+        prev.map((e) => (e.id === id ? { ...e, retryStatus: "error" } : e))
+      );
+    } finally {
+      setRetrying(null);
+    }
+  };
+
+  const selected = entries.find((e) => e.id === selectedId);
+
+  return (
+    <div className="flex-1 flex overflow-hidden">
+      {/* Left panel: feedback list */}
+      <div className="w-80 bg-white border-r border-gray-200 flex flex-col overflow-hidden">
+        <div className="p-3 border-b border-gray-200 flex-shrink-0">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-gray-500 uppercase">
+              Feedback ({entries.length})
+            </span>
+            <button
+              onClick={fetchFeedback}
+              disabled={loading}
+              className="p-1 text-gray-400 hover:text-gray-600 rounded"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
+            </button>
+          </div>
+        </div>
+
+        {loading && entries.length === 0 ? (
+          <div className="p-8 text-center text-gray-400 flex-1 flex items-center justify-center">
+            <Loader2 className="w-5 h-5 animate-spin" />
+          </div>
+        ) : entries.length === 0 ? (
+          <div className="p-8 text-center text-gray-400 flex-1 flex items-center justify-center">
+            <div>
+              <MessageSquare className="w-10 h-10 mx-auto mb-2 text-gray-200" />
+              <p className="text-sm">No feedback yet</p>
+            </div>
+          </div>
+        ) : (
+          <div className="divide-y divide-gray-100 overflow-y-auto flex-1">
+            {entries.map((entry) => (
+              <button
+                key={entry.id}
+                onClick={() => setSelectedId(entry.id)}
+                className={`w-full text-left px-4 py-3 hover:bg-gray-50 ${
+                  selectedId === entry.id ? "bg-blue-50 border-l-4 border-l-blue-600" : ""
+                }`}
+              >
+                <p className="text-sm text-gray-800 line-clamp-2 mb-1">{entry.feedback}</p>
+                <div className="flex items-center gap-2 text-xs text-gray-400">
+                  <span>{new Date(entry.createdAt).toLocaleDateString()}</span>
+                  {entry.conversation && (
+                    <span className="px-1.5 py-0.5 bg-blue-50 text-blue-600 rounded">
+                      {entry.conversation.length} msgs
+                    </span>
+                  )}
+                  {entry.retryStatus === "completed" && (
+                    <span className="px-1.5 py-0.5 bg-green-50 text-green-600 rounded">
+                      retried
+                    </span>
+                  )}
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Right panel: detail */}
+      <div className="flex-1 overflow-y-auto p-6">
+        {!selected ? (
+          <div className="h-full flex items-center justify-center text-gray-400">
+            <div className="text-center">
+              <MessageSquare className="w-12 h-12 mx-auto mb-3 text-gray-200" />
+              <p>Select a feedback entry to view details</p>
+            </div>
+          </div>
+        ) : (
+          <div className="max-w-4xl mx-auto space-y-6">
+            {/* Feedback text */}
+            <div className="bg-white rounded-lg shadow-sm p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-bold text-gray-900">Feedback</h2>
+                <span className="text-xs text-gray-400">
+                  {new Date(selected.createdAt).toLocaleString()}
+                </span>
+              </div>
+              <div className="p-4 bg-gray-50 rounded-lg text-sm">{selected.feedback}</div>
+              {selected.sessionId && (
+                <p className="mt-2 text-xs text-gray-400">
+                  Session: {selected.sessionId}
+                </p>
+              )}
+            </div>
+
+            {/* Original conversation */}
+            {selected.conversation && selected.conversation.length > 0 && (
+              <div className="bg-white rounded-lg shadow-sm p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-base font-semibold">
+                    Original Conversation ({selected.conversation.length} messages)
+                  </h3>
+                  <button
+                    onClick={() => retryFeedback(selected.id)}
+                    disabled={retrying === selected.id}
+                    className="flex items-center gap-2 px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium disabled:opacity-50"
+                  >
+                    {retrying === selected.id ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" /> Retrying...
+                      </>
+                    ) : (
+                      <>
+                        <RotateCcw className="w-3.5 h-3.5" /> Retry
+                      </>
+                    )}
+                  </button>
+                </div>
+                <div className="space-y-3">
+                  {selected.conversation.map((msg, idx) => (
+                    <div key={idx}>
+                      <div className="text-xs font-semibold text-gray-500 uppercase mb-1">
+                        {msg.role === "user" ? "User" : "Agent"}
+                      </div>
+                      <div
+                        className={`p-3 rounded-lg text-sm ${
+                          msg.role === "user"
+                            ? "bg-blue-50 border border-blue-200"
+                            : "bg-green-50 border border-green-200"
+                        }`}
+                      >
+                        {msg.content}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Retry conversation (side-by-side comparison) */}
+            {selected.retryConversation && selected.retryConversation.length > 0 && (
+              <div className="bg-white rounded-lg shadow-sm p-6">
+                <h3 className="text-base font-semibold mb-4">
+                  Retry Conversation ({selected.retryConversation.length} messages)
+                </h3>
+                <div className="space-y-3">
+                  {selected.retryConversation.map((msg, idx) => (
+                    <div key={idx}>
+                      <div className="text-xs font-semibold text-gray-500 uppercase mb-1">
+                        {msg.role === "user" ? "User" : "Agent (retry)"}
+                      </div>
+                      <div
+                        className={`p-3 rounded-lg text-sm ${
+                          msg.role === "user"
+                            ? "bg-blue-50 border border-blue-200"
+                            : "bg-purple-50 border border-purple-200"
+                        }`}
+                      >
+                        {msg.content}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* No conversation */}
+            {!selected.conversation && (
+              <div className="bg-white rounded-lg shadow-sm p-6 text-center text-gray-400">
+                <p className="text-sm">No conversation was captured with this feedback</p>
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -974,6 +1228,16 @@ export default function EvaluatorPage() {
             >
               Test Cases
             </button>
+            <button
+              onClick={() => setActiveTab("feedback")}
+              className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
+                activeTab === "feedback"
+                  ? "bg-white text-gray-900 shadow-sm"
+                  : "text-gray-500 hover:text-gray-700"
+              }`}
+            >
+              Feedback
+            </button>
           </div>
           {activeTab === "runs" && (
             <span className="text-sm text-gray-500">
@@ -1048,7 +1312,9 @@ export default function EvaluatorPage() {
       </div>
 
       {/* Tab content */}
-      {activeTab === "cases" ? (
+      {activeTab === "feedback" ? (
+        <FeedbackTab getAccessToken={getAccessToken} />
+      ) : activeTab === "cases" ? (
         <TestCasesTab getAccessToken={getAccessToken} />
       ) : (
         /* ── Runs Tab ─────────────────────────────────────────────────────── */
