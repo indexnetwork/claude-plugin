@@ -252,7 +252,7 @@ export default function OpportunityCard({
   const hasActions = canTakeAction && (onPrimaryAction || onSecondaryAction);
 
   return (
-    <div className="bg-[#F8F8F8] rounded-md p-4">
+    <div className="bg-[#F4F7F6] rounded-md pt-3 px-4 pb-4">
       {/* Header: Avatar, Name, Mutual Intents, Actions */}
       <div className="flex items-center justify-between gap-2 mb-3">
         <div
@@ -335,9 +335,9 @@ export default function OpportunityCard({
         <div className="mt-3">
           <div
             className={cn(
-              "inline-flex items-center gap-2.5 px-3 py-1 bg-[#F0F0F0] rounded-md",
+              "inline-flex items-center gap-2.5 px-3 py-1 bg-[#EDF2F0] rounded-md",
               card.narratorChip.userId &&
-                "cursor-pointer hover:bg-[#E8E8E8] transition-colors",
+                "cursor-pointer hover:bg-[#E4EDEA] transition-colors",
             )}
             {...(card.narratorChip.userId
               ? {
