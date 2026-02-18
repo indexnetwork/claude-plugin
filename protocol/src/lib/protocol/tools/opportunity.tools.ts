@@ -43,6 +43,7 @@ function buildMinimalOpportunityCard(
   counterpartName: string,
   counterpartAvatar: string | null,
   introducerName?: string | null,
+  introducerAvatar?: string | null,
 ): {
   opportunityId: string;
   userId: string;
@@ -87,7 +88,9 @@ function buildMinimalOpportunityCard(
     narratorChip: {
       name: narratorName,
       text: "Based on your overlap in this community.",
-      ...(introducerActor ? { userId: introducerActor.userId } : {}),
+      ...(introducerActor
+        ? { userId: introducerActor.userId, avatar: introducerAvatar ?? null }
+        : {}),
     },
     viewerRole,
     score,
@@ -614,6 +617,9 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
           const introducerName =
             createdByName ??
             (introducerActor ? introducerProfile?.identity?.name ?? null : null);
+          const introducerUser = introducerActor
+            ? userMap.get(introducerActor.userId) ?? null
+            : null;
 
           const cardData = buildMinimalOpportunityCard(
             opp,
@@ -622,6 +628,7 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
             counterpartName,
             counterpartUser?.avatar ?? null,
             introducerName,
+            introducerUser?.avatar ?? null,
           );
 
           opportunityBlocks.push(
