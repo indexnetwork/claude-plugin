@@ -80,6 +80,7 @@ function createMockGraph(deps?: {
         ])),
     getIndex: deps?.getIndex ?? (() => Promise.resolve({ id: 'idx-1', title: 'Test Index' })),
     getIndexMemberCount: deps?.getIndexMemberCount ?? (() => Promise.resolve(2)),
+    getIndexIdsForIntent: () => Promise.resolve(['idx-1']),
     getUser: (_userId: string) => Promise.resolve({ id: _userId, name: 'Test User', email: 'test@example.com' }),
     isIndexMember: () => Promise.resolve(true),
     getOpportunity: () => Promise.resolve(null),
@@ -102,6 +103,7 @@ function createMockGraph(deps?: {
           indexId: 'idx-1',
         },
       ]),
+    searchWithProfileEmbedding: () => Promise.resolve([]),
   } as unknown as Embedder;
 
   const mockHydeGenerator = {
@@ -143,12 +145,12 @@ describe('Opportunity Graph', () => {
       expect(searchSpy).not.toHaveBeenCalled();
     });
 
-    test('when user has no active intents, returns error and early exit', async () => {
+    test('when user has no active intents, continues to scope and discovery (no error about intents)', async () => {
       const { compiledGraph, mockHydeGenerator, mockEmbedder } = createMockGraph({
         getActiveIntents: () => Promise.resolve([]),
       });
       const hydeSpy = spyOn(mockHydeGenerator, 'invoke');
-      const searchSpy = spyOn(mockEmbedder, 'searchWithHydeEmbeddings');
+      const hydeSearchSpy = spyOn(mockEmbedder, 'searchWithHydeEmbeddings');
 
       const result = (await compiledGraph.invoke({
         userId: 'user-source' as Id<'users'>,
@@ -156,11 +158,10 @@ describe('Opportunity Graph', () => {
         options: {},
       } as OpportunityGraphInvokeInput)) as OpportunityGraphInvokeResult;
 
-      expect(result.error).toBeDefined();
-      expect(result.error).toContain('intents');
+      expect(result.error).toBeUndefined();
       expect(result.opportunities).toEqual([]);
       expect(hydeSpy).not.toHaveBeenCalled();
-      expect(searchSpy).not.toHaveBeenCalled();
+      expect(hydeSearchSpy).not.toHaveBeenCalled();
     });
   });
 
@@ -496,12 +497,12 @@ describe('Opportunity Graph', () => {
       expect(createSpy).not.toHaveBeenCalled();
     });
 
-    test('when no active intents, full invoke does not call HyDE or search or createOpportunity', async () => {
+    test('when no active intents, full invoke does not call HyDE or createOpportunity (profile path may run)', async () => {
       const { compiledGraph, mockDb, mockHydeGenerator, mockEmbedder } = createMockGraph({
         getActiveIntents: () => Promise.resolve([]),
       });
       const hydeSpy = spyOn(mockHydeGenerator, 'invoke');
-      const searchSpy = spyOn(mockEmbedder, 'searchWithHydeEmbeddings');
+      const hydeSearchSpy = spyOn(mockEmbedder, 'searchWithHydeEmbeddings');
       const createSpy = spyOn(mockDb, 'createOpportunity');
 
       await compiledGraph.invoke({
@@ -511,7 +512,7 @@ describe('Opportunity Graph', () => {
       } as OpportunityGraphInvokeInput);
 
       expect(hydeSpy).not.toHaveBeenCalled();
-      expect(searchSpy).not.toHaveBeenCalled();
+      expect(hydeSearchSpy).not.toHaveBeenCalled();
       expect(createSpy).not.toHaveBeenCalled();
     });
   });

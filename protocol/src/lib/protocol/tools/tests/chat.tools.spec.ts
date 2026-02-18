@@ -885,7 +885,7 @@ describe("update_intent and delete_intent (Phase 3 index-scoping)", () => {
 });
 
 describe("create_opportunities tool", () => {
-  test("returns a tool named create_opportunities with schema containing searchQuery and optional indexId", async () => {
+  test("returns a tool named create_opportunities with schema containing searchQuery, optional indexId, and optional intentId", async () => {
     const mockDb = createMockDatabase(async () => []);
     const context: ToolContext = { userId: testUserId, database: mockDb, embedder: mockEmbedder, scraper: mockScraper };
     const tools = await createChatTools(context);
@@ -895,6 +895,7 @@ describe("create_opportunities tool", () => {
     const shape = schema?.shape ?? (tool as { schema?: { schema?: { shape?: Record<string, unknown> } } }).schema?.schema?.shape;
     expect(shape?.searchQuery).toBeDefined();
     expect(shape?.indexId).toBeDefined();
+    expect(shape?.intentId).toBeDefined();
   });
 
   test("when user has no index memberships (getIndexMemberships returns []), returns found false with message about joining an index", async () => {
