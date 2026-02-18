@@ -14,7 +14,7 @@ import { EmbedderAdapter } from '../adapters/embedder.adapter';
 import { RedisCacheAdapter } from '../adapters/cache.adapter';
 import { presentOpportunity, type UserInfo } from '../lib/protocol/support/opportunity.presentation';
 import { canUserSeeOpportunity } from '../lib/protocol/support/opportunity.utils';
-import { enrichOrCreate } from '../lib/protocol/support/opportunity.enricher';
+import { persistOpportunities } from '../lib/protocol/support/opportunity.persist';
 import type { OpportunityChatProvider, ChatChannel } from '../lib/protocol/interfaces/chat.interface';
 import { getChatProvider } from '../adapters/chat.adapter';
 import {
@@ -555,19 +555,17 @@ export class OpportunityService {
     };
 
     const embedder = new EmbedderAdapter();
-    const enrichment = await enrichOrCreate(this.db, embedder, opportunityData);
-    const toCreate = enrichment.data;
-    if (enrichment.enriched) {
-      toCreate.status = enrichment.resolvedStatus;
-    }
-    const expireIds = enrichment.enriched ? enrichment.expiredIds : [];
-    const { created, expired } = await this.db.createOpportunityAndExpireIds(toCreate, expireIds);
+    const { created, expired } = await persistOpportunities({
+      database: this.db,
+      embedder,
+      items: [opportunityData],
+    });
 
-    this.events.emit('created', { opportunity: created });
+    this.events.emit('created', { opportunity: created[0] });
     for (const opp of expired) {
       this.events.emit('expired', { opportunity: opp });
     }
-    return created;
+    return created[0];
   }
 
   /**
