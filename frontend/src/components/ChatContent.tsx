@@ -45,6 +45,8 @@ import { useTypewriter } from "@/hooks/useTypewriter";
  */
 const USE_HOME_API = true;
 
+const CHAT_INPUT_PLACEHOLDER = "What's on your mind?";
+
 interface PendingFile {
   id: string;
   file: File;
@@ -655,7 +657,7 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
           <MentionsTextInput
             value={input}
             onChange={setInput}
-            placeholder="What are you looking for?"
+            placeholder={CHAT_INPUT_PLACEHOLDER}
             disabled={isBusy}
             autoFocus
             inputRef={inputRef}
@@ -724,7 +726,7 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
                   <MentionsTextInput
                     value={input}
                     onChange={setInput}
-                    placeholder="What are you looking for?"
+                    placeholder={CHAT_INPUT_PLACEHOLDER}
                     disabled={isBusy}
                     autoFocus
                     inputRef={inputRef}
@@ -943,7 +945,7 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
               <MentionsTextInput
                 value={input}
                 onChange={setInput}
-                placeholder="What are you looking for?"
+                placeholder={CHAT_INPUT_PLACEHOLDER}
                 disabled={isBusy}
                 autoFocus
                 inputRef={inputRef}
