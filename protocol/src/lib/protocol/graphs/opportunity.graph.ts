@@ -631,8 +631,9 @@ export class OpportunityGraphFactory {
       try {
         const entities = state.introductionEntities ?? [];
         const primaryIndexId = (state.indexId ?? entities[0]?.indexId) as Id<'indexes'> | undefined;
+        const partyUserIds = [...new Set(entities.map((e) => e.userId).filter((id) => id !== state.userId))];
 
-        if (!primaryIndexId || entities.length < 2) {
+        if (!primaryIndexId || partyUserIds.length < 2) {
           return {
             error: 'Introduction requires indexId and at least two entities (profiles + intents per party).',
           };
@@ -650,8 +651,6 @@ export class OpportunityGraphFactory {
             error: 'One or more users are not members of the specified community. You can only introduce members who share an index.',
           };
         }
-
-        const partyUserIds = [...new Set(entities.map((e) => e.userId).filter((id) => id !== state.userId))];
         const partyMemberships = await Promise.all(
           partyUserIds.map((userId) => this.database.isIndexMember(primaryIndexId, userId))
         );
