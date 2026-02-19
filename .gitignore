@@ -3,7 +3,7 @@
 # ===================
 .vscode/
 !.vscode/index.code-workspace.default
-# .cursor
+.cursor
 .claude
 .agent
 
