@@ -5,9 +5,8 @@
   "private": true,
   "scripts": {
     "dev": "NODE_ENV=development bun --watch src/main.ts",
-    "dev:prod": "NODE_ENV=production bun --watch src/main.ts",
     "build": "tsc",
-    "start": "NODE_ENV=production bun dist/main.js",
+    "start": "bun dist/main.js",
     "lint": "eslint src/**/*.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
