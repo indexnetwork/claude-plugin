@@ -1,7 +1,9 @@
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
+
 import db from "./drizzle/drizzle";
 import * as schema from "../schemas/database.schema";
+import { getTrustedOrigins } from "./cors";
 
 // Use BETTER_AUTH_URL only when it's not localhost; otherwise infer from request.
 // Fixes prod when env was copied from dev (localhost) - request host will be correct.
@@ -39,18 +41,7 @@ export const auth = betterAuth({
         }
       : {}),
   },
-  trustedOrigins: (() => {
-    const isDev =
-      process.env.NODE_ENV === "development" || process.env.ENV === "dev";
-    const base = [
-      process.env.FRONTEND_URL || "http://localhost:3000",
-      process.env.EVALUATOR_URL || "http://localhost:3002",
-    ];
-    if (isDev) {
-      return [...base, "http://localhost:3000", "http://localhost:3002"];
-    }
-    return base;
-  })(),
+  trustedOrigins: getTrustedOrigins(),
   advanced: {
     defaultCookieAttributes: {
       sameSite: "lax",
