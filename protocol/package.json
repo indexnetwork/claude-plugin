@@ -36,7 +36,6 @@
     "@langchain/langgraph": "^1.1.2",
     "@langchain/langgraph-checkpoint-postgres": "^1.0.0",
     "@langchain/openai": "^1.2.3",
-    "@privy-io/server-auth": "^1.26.1",
     "@sentry/node": "^10.29.0",
     "bullmq": "^5.65.1",
     "busboy": "^1.6.0",
