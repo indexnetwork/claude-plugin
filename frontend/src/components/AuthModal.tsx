@@ -72,7 +72,10 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
     setLoading(true);
     setError(null);
     try {
-      await authClient.signIn.social({ provider: 'google' });
+      await authClient.signIn.social({
+        provider: 'google',
+        callbackURL: typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000',
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Google sign in failed');
       setLoading(false);
@@ -129,7 +132,7 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
               placeholder="Name"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              className="w-full px-4 py-3 border border-gray-300 text-sm focus:outline-none focus:border-gray-900 transition-colors"
+              className="w-full px-4 py-3 border border-gray-300 text-sm text-black focus:outline-none focus:border-gray-900 transition-colors"
             />
           )}
           <input
@@ -138,7 +141,7 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             required
-            className="w-full px-4 py-3 border border-gray-300 text-sm focus:outline-none focus:border-gray-900 transition-colors"
+            className="w-full px-4 py-3 border border-gray-300 text-sm text-black focus:outline-none focus:border-gray-900 transition-colors"
           />
           <input
             type="password"
@@ -147,7 +150,7 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
             onChange={(e) => setPassword(e.target.value)}
             required
             minLength={8}
-            className="w-full px-4 py-3 border border-gray-300 text-sm focus:outline-none focus:border-gray-900 transition-colors"
+            className="w-full px-4 py-3 border border-gray-300 text-sm text-black focus:outline-none focus:border-gray-900 transition-colors"
           />
 
           {error && (
