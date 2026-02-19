@@ -73,7 +73,7 @@ git fetch upstream && git fetch origin
 CURRENT=$(git branch --show-current)
 for b in $(git branch --merged upstream/dev); do
   b=$(echo "$b" | tr -d ' *')
-  [ "$b" = "$CURRENT" ] || [ "$b" = "main" ] || [ "$b" = "master" ] || [ "$b" = "dev" ] && continue
+  if [ "$b" = "$CURRENT" ] || [ "$b" = "main" ] || [ "$b" = "master" ] || [ "$b" = "dev" ]; then continue; fi
   git branch -d "$b" 2>/dev/null && git push origin --delete "$b" 2>/dev/null
 done
 ```

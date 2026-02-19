@@ -21,7 +21,7 @@ When creating branches, follow this workflow and naming spec.
 
 | Type | Purpose | Examples |
 |------|---------|----------|
-| `main` | Primary development branch | `main`, `master`, `develop` |
+| `main` | Primary development branch | `main`, `master`, `dev` |
 | `feature/` or `feat/` | New features | `feature/add-login-page`, `feat/opportunity-cards-in-chat` |
 | `bugfix/` or `fix/` | Bug corrections | `bugfix/fix-header-bug`, `fix/login-redirect-loop` |
 | `hotfix/` | Urgent production fixes | `hotfix/security-patch` |

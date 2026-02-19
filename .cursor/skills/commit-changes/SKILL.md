@@ -31,7 +31,7 @@ description: Commits changes modularly with descriptive messages following the C
 [optional footer]
 ```
 
-- **type** (required): `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `chore`, or `improvement`. Use `feat` for new features, `fix` for bug fixes.
+- **type** (required): `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, or `chore`. Use `feat` for new features, `fix` for bug fixes.
 - **scope** (optional): Noun in parentheses, e.g. `feat(parser):`, `fix(auth):`.
 - **description** (required): Short summary after the colon and space. Imperative mood, lowercase start, no period at end.
 - **body** (optional): Extra context; one blank line after the description.
