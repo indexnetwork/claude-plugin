@@ -23,10 +23,10 @@ alwaysApply: false
 
 Each category has a `*.template.md` with coding guidelines. Consult before adding or changing code in that layer:
 
-- `src/controllers/controller.template.md`
-- `src/services/service.template.md`
-- `src/queues/queue.template.md`
-- `src/lib/protocol/agents/agent.template.md`
+- `protocol/src/controllers/controller.template.md`
+- `protocol/src/services/service.template.md`
+- `protocol/src/queues/queue.template.md`
+- `protocol/src/lib/protocol/agents/agent.template.md`
 
 ## TSDoc
 
