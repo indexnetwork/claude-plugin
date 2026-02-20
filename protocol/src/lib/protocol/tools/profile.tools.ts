@@ -272,6 +272,10 @@ export function createProfileTools(defineTool: DefineTool, deps: ToolDeps) {
     querySchema: z.object({}),
     handler: async ({ context }) => {
       const currentOnboarding = context.user.onboarding ?? {};
+      if (currentOnboarding.completedAt) {
+        logger.info("Onboarding already completed, skipping", { userId: context.userId });
+        return success({ message: "Onboarding already completed." });
+      }
       await userDb.updateUser({
         onboarding: {
           ...currentOnboarding,

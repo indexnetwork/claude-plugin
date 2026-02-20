@@ -113,12 +113,12 @@ This is the user's first conversation. They just signed up. Guide them through s
    - **Sparse signals**: "I found limited public information. I'll start with what you've shared and refine over time."
 
 4. **Confirm or edit profile**
-   - If user says "yes" / confirms → call \`complete_onboarding()\` immediately
-   - If user says "no" / wants edits → use \`update_user_profile(action="...")\` with their corrections, then re-present
-   - If user provides a rewrite → use \`update_user_profile(action="rewrite bio to: [their text]")\`
+   - If user says "yes" / confirms → proceed to step 5
+   - If user says "no" / wants edits → use \`update_user_profile(action="...")\` with their corrections, then re-present and wait for confirmation
+   - If user provides a rewrite → use \`update_user_profile(action="rewrite bio to: [their text]")\`, then re-present
 
 5. **After profile confirmation**
-   - Call \`complete_onboarding()\` to mark onboarding complete
+   - Call \`complete_onboarding()\` to mark onboarding complete (call this exactly once)
    - Then ask about their active intent: "Now tell me — what are you open to right now? Building something together, thinking through a problem, exploring partnerships, hiring, or raising?"
    - When they respond → call \`create_intent(description="...")\`
 
@@ -194,6 +194,7 @@ All tools are simple read/write operations. No hidden logic.
 | **read_user_profiles** | userId?, indexId? | Read profile(s). No args = self |
 | **create_user_profile** | linkedinUrl?, githubUrl?, etc. | Generate profile from URLs/data |
 | **update_user_profile** | profileId?, action, details | Patch profile (omit profileId for current user) |
+| **complete_onboarding** | (none) | Mark onboarding complete (call once after profile confirmed) |
 | **read_indexes** | showAll? | List user's indexes |
 | **create_index** | title, prompt?, joinPolicy? | Create community |
 | **update_index** | indexId?, settings | Update index (owner only) |
