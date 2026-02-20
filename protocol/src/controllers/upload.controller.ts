@@ -10,6 +10,7 @@ import { Readable } from 'stream';
 import { v4 as uuidv4 } from 'uuid';
 
 import { validateFileByMetadata, FILE_SIZE_LIMITS } from '../lib/uploads.config';
+import { uploadAvatarToS3 } from '../lib/s3';
 import type { FileRecord } from '../types';
 
 const logger = log.controller.from("upload");
@@ -20,7 +21,7 @@ type ParsedFile = { filename: string; mimeType: string; buffer: Buffer };
  * Parse multipart/form-data using busboy (recommended for server-side parsing).
  * Resolves with the first file under field name "file", or rejects if missing/invalid.
  */
-function parseMultipartFile(req: Request): Promise<ParsedFile> {
+function parseMultipartFile(req: Request, fieldName = 'file', sizeLimit = FILE_SIZE_LIMITS.GENERAL): Promise<ParsedFile> {
   return new Promise((resolve, reject) => {
     const contentType = req.headers.get('content-type') || '';
     if (!contentType.includes('multipart/form-data')) {
@@ -40,13 +41,13 @@ function parseMultipartFile(req: Request): Promise<ParsedFile> {
     const bb = busboy({
       headers: { 'content-type': contentType },
       limits: {
-        fileSize: FILE_SIZE_LIMITS.GENERAL,
+        fileSize: sizeLimit,
         files: 1,
       },
     });
 
     bb.on('file', (name, stream, info) => {
-      if (name !== 'file') {
+      if (name !== fieldName) {
         stream.resume();
         return;
       }
@@ -183,6 +184,40 @@ export class UploadController {
       files: data,
       pagination: result.pagination,
     };
+  }
+
+  @Post('/avatar')
+  @UseGuards(AuthGuard)
+  async uploadAvatar(req: Request, user: AuthenticatedUser): Promise<Response | object> {
+    let parsed: ParsedFile;
+    try {
+      parsed = await parseMultipartFile(req, 'avatar', FILE_SIZE_LIMITS.AVATAR);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Invalid multipart body';
+      return Response.json({ error: message }, { status: 400 });
+    }
+
+    const { filename, mimeType, buffer } = parsed;
+
+    const validation = validateFileByMetadata(filename, mimeType, buffer.length, 'avatar');
+    if (!validation.isValid) {
+      return Response.json({ error: validation.message || 'File validation failed' }, { status: 400 });
+    }
+
+    try {
+      const ext = path.extname(filename).replace('.', '');
+      const avatarUrl = await uploadAvatarToS3(buffer, user.id, ext, mimeType);
+
+      logger.info('Avatar uploaded', { userId: user.id, avatarUrl });
+
+      return { message: 'Avatar uploaded successfully', avatarUrl };
+    } catch (err) {
+      logger.error('Avatar upload failed', {
+        userId: user.id,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return Response.json({ error: 'Failed to upload avatar' }, { status: 500 });
+    }
   }
 
   private fileUrl(userId: string, fileId: string, name: string): string {
