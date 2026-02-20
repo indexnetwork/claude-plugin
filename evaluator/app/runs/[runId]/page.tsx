@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { EvaluatorShell } from "@/components/EvaluatorShell";
 import { ConversationView } from "@/components/ConversationView";
+import { apiFetch } from "@/lib/api";
 
 type ReviewFlag = "pass" | "fail" | "needs_review" | "skipped";
 
@@ -65,9 +66,7 @@ export default function RunPage() {
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch(`/api/eval/runs/${runId}`, {
-          credentials: "include",
-        });
+        const res = await apiFetch(`/api/eval/runs/${runId}`);
         if (!res.ok) throw new Error("Failed to load run");
         const data = await res.json();
         if (cancelled) return;
@@ -109,11 +108,9 @@ export default function RunPage() {
       id: string,
       payload: { reviewFlag?: ReviewFlag | null; reviewNote?: string | null }
     ) => {
-      await fetch(`/api/eval/runs/${runId}/scenarios/${id}`, {
+      await apiFetch(`/api/eval/runs/${runId}/scenarios/${id}`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify(payload),
+        json: payload,
       });
     },
     [runId]
@@ -225,16 +222,14 @@ export default function RunPage() {
     )?.scenarioId ?? scenarioId;
 
     try {
-      const res = await fetch("/api/eval/run", {
+      const res = await apiFetch("/api/eval/run", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({
+        json: {
           runId,
           scenarioId: actualScenarioId,
           apiUrl,
           useSeeding: true,
-        }),
+        },
       });
       const data = await res.json();
       const result = data.results?.[0];

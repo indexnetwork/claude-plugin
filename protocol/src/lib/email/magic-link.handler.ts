@@ -11,8 +11,10 @@ export async function sendMagicLinkEmail(email: string, url: string): Promise<vo
     if (callbackURL) {
       const callbackOrigin = new URL(callbackURL).origin;
       if (callbackOrigin !== parsed.origin) {
-        finalUrl = `${callbackOrigin}${parsed.pathname}${parsed.search}`;
-        logger.info('Rewrote magic link to match callbackURL origin', { to: callbackOrigin });
+        // Redirect directly to callback with token - callback page will verify via API
+        const token = parsed.searchParams.get('token');
+        finalUrl = `${callbackURL}?token=${token}`;
+        logger.info('Rewrote magic link to callback with token', { to: callbackURL });
       }
     }
   } catch {

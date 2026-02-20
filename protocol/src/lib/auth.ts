@@ -1,16 +1,14 @@
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
-import { magicLink } from "better-auth/plugins";
+import { magicLink, bearer } from "better-auth/plugins";
 
 import db from "./drizzle/drizzle";
 import * as schema from "../schemas/database.schema";
 import { getTrustedOrigins } from "./cors";
 import { sendMagicLinkEmail } from "./email/magic-link.handler";
 
-// Omit baseURL so Better Auth infers from request. When evaluator proxies auth, it sends
-// X-Forwarded-Host so magic-link verify URL and cookies target evaluator domain.
 export const auth = betterAuth({
-  baseURL: undefined,
+  baseURL: process.env.PROTOCOL_URL,
   database: drizzleAdapter(db, {
     provider: "pg",
     schema: {
@@ -46,9 +44,9 @@ export const auth = betterAuth({
       },
       expiresIn: 600,
     }),
+    bearer(),
   ],
   advanced: {
-    trustedProxyHeaders: true,
     defaultCookieAttributes: {
       sameSite: "lax",
     },

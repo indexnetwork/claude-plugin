@@ -36,8 +36,8 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
 
   const callbackURL =
     typeof window !== "undefined"
-      ? window.location.origin
-      : "http://localhost:3002";
+      ? `${window.location.origin}/auth/callback`
+      : "http://localhost:3002/auth/callback";
 
   const handleMagicLink = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -68,20 +68,29 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
 
     try {
       if (isSignUp) {
-        const { error: signUpError } = await authClient.signUp.email({
-          email,
-          password,
-          name: name || email.split("@")[0],
-        });
+        const { error: signUpError } = await authClient.signUp.email(
+          { email, password, name: name || email.split("@")[0] },
+          {
+            onSuccess: (ctx) => {
+              const token = ctx.response.headers.get("set-auth-token");
+              if (token) localStorage.setItem("bearer_token", token);
+            },
+          }
+        );
         if (signUpError) {
           setError(signUpError.message || "Sign up failed");
           return;
         }
       } else {
-        const { error: signInError } = await authClient.signIn.email({
-          email,
-          password,
-        });
+        const { error: signInError } = await authClient.signIn.email(
+          { email, password },
+          {
+            onSuccess: (ctx) => {
+              const token = ctx.response.headers.get("set-auth-token");
+              if (token) localStorage.setItem("bearer_token", token);
+            },
+          }
+        );
         if (signInError) {
           setError(signInError.message || "Sign in failed");
           return;
