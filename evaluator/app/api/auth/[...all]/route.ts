@@ -68,6 +68,8 @@ async function proxy(
 
     const newHeaders = new Headers(res.headers);
     newHeaders.set("Cache-Control", "no-store, no-cache, must-revalidate");
+    newHeaders.delete("content-encoding");
+    newHeaders.delete("content-length");
     const cookies =
       typeof res.headers.getSetCookie === "function"
         ? res.headers.getSetCookie()
