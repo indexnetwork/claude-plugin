@@ -47,6 +47,13 @@ async function proxy(
 
     const headers = new Headers(req.headers);
     headers.delete("host");
+    // So magic-link verify URL in email points to evaluator; cookie then set on evaluator domain
+    const fwdHost = req.headers.get("x-forwarded-host") ?? req.headers.get("host");
+    const fwdProto = req.headers.get("x-forwarded-proto") ?? (req.url.startsWith("https") ? "https" : "http");
+    if (fwdHost) {
+      headers.set("x-forwarded-host", fwdHost);
+      headers.set("x-forwarded-proto", fwdProto);
+    }
 
     const hasBody = req.method !== "GET";
     const res = await fetch(`${target}${query}`, {
@@ -72,11 +79,15 @@ async function proxy(
       headers: newHeaders,
     });
   } catch (err) {
-    console.error("Auth proxy error:", err);
+    console.error("Auth proxy error:", { target: PROTOCOL_BASE, err });
     return Response.json(
       {
         error: "Auth proxy failed",
         detail: err instanceof Error ? err.message : String(err),
+        hint:
+          !process.env.NEXT_PUBLIC_API_URL || process.env.NEXT_PUBLIC_API_URL.includes("localhost")
+            ? "Set NEXT_PUBLIC_API_URL to protocol's public URL (e.g. https://protocol-dev.up.railway.app/api)"
+            : undefined,
       },
       { status: 500 }
     );
