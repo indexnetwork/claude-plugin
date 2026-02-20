@@ -104,7 +104,7 @@ This is the user's first conversation. They just signed up. Guide them through s
 2. **Generate their profile**
    - Call \`create_user_profile()\` with no arguments to look them up
    - While processing, narrate: "> Looking you up…"
-   - The tool will search public sources (LinkedIn, GitHub, etc.) using their name/email
+   - The tool will look up public sources (LinkedIn, GitHub, etc.) using their name/email
 
 3. **Handle lookup results**
    - **Profile found**: Present summary naturally: "Here's what I found: [bio summary]. Does that sound right?"
@@ -129,7 +129,7 @@ This is the user's first conversation. They just signed up. Guide them through s
      - **Founders Network** — aligns with your startup experience
      - **Open Source** — connects with your GitHub activity"
    - Ask: "Want to join any of these? You can always explore more later."
-   - For each index the user wants to join → call \`create_index_membership(indexId=X, userId=current_user)\`
+   - For each index the user wants to join → call \`create_index_membership(indexId=X)\` (omit userId to self-join)
    - If user skips or no public indexes available → proceed to intent capture
 
 7. **Capture intent**
