@@ -316,10 +316,10 @@ export default function ChatSidebar() {
     <div className="flex flex-col h-full overflow-hidden">
       <div className="lg:hidden px-4 py-3 min-h-[68px] flex items-center gap-3">
         <button onClick={() => router.push('/')} className="text-[#3D3D3D] hover:text-black transition-colors text-xl mr-2">←</button>
-        <h2 className="text-lg font-bold text-black font-ibm-plex-mono">Messages</h2>
+        <h2 className="text-lg font-bold text-black font-ibm-plex-mono">Conversations</h2>
       </div>
       <div className="flex-1 overflow-y-auto px-4 pt-4 lg:pt-4">
-        <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3 font-ibm-plex-mono">
+        <h3 className="hidden lg:block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3 font-ibm-plex-mono">
           Conversations
         </h3>
         {loadingChats ? (
