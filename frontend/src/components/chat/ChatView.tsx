@@ -5,9 +5,9 @@ import { Channel, MessageResponse, LocalMessage, type Event as StreamEvent } fro
 import { useStreamChat } from '@/contexts/StreamChatContext';
 import { useNotifications } from '@/contexts/NotificationContext';
 import { Clock, Check, SkipForward, Loader2, ArrowUp, X, MoreHorizontal, Trash2 } from 'lucide-react';
-import Image from 'next/image';
 import Link from 'next/link';
 import { getAvatarUrl } from '@/lib/file-utils';
+import UserAvatar from '@/components/UserAvatar';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { cn } from '@/lib/utils';
@@ -225,7 +225,7 @@ export default function ChatView({ userId, userName, userAvatar, userTitle, init
               '— falling back to getOrCreateChannel'
             );
           }
-          const newCh = await getOrCreateChannel(userId, userName, userAvatar);
+          const newCh = await getOrCreateChannel(userId, userName, getAvatarUrl({ avatar: userAvatar || null, id: userId, name: userName }));
           if (!newCh) { setLoading(false); return; }
           await newCh.watch();
           currentChannel = newCh;
@@ -301,7 +301,6 @@ export default function ChatView({ userId, userName, userAvatar, userTitle, init
 
   const handleKeyPress = useCallback((e: React.KeyboardEvent) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }, [handleSend]);
 
-  const avatarUrl = getAvatarUrl({ avatar: userAvatar || null, id: userId, name: userName });
 
   const handleBack = () => { if (onBack) onBack(); else clearActiveChat(); };
 
@@ -360,7 +359,7 @@ export default function ChatView({ userId, userName, userAvatar, userTitle, init
           <button onClick={handleBack} className="text-[#3D3D3D] hover:text-black transition-colors text-xl mr-2">←</button>
           <Link href={`/u/${userId}`} className="flex items-center gap-3 hover:opacity-80 transition-opacity">
             <div className="relative">
-              <Image src={avatarUrl} alt={userName} width={44} height={44} className="rounded-full" />
+              <UserAvatar avatar={userAvatar} id={userId} name={userName} size={44} />
             </div>
             <h2 className="font-ibm-plex-mono font-bold text-lg text-black">{userName}</h2>
           </Link>
@@ -442,7 +441,7 @@ export default function ChatView({ userId, userName, userAvatar, userTitle, init
                       />
                     ) : (
                       <div className={cn('flex items-end gap-2', isOwn ? 'justify-end' : 'justify-start')}>
-                        {!isOwn && <Image src={avatarUrl} alt={userName} width={32} height={32} className="rounded-full flex-shrink-0" />}
+                        {!isOwn && <UserAvatar avatar={userAvatar} id={userId} name={userName} size={32} className="flex-shrink-0" />}
                         <div className={cn('max-w-[70%] rounded-2xl px-4 py-2', isOwn ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-900')}>
                           <article className={cn(' text-sm', isOwn && 'text-white')}>
                             <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.text || ''}</ReactMarkdown>
