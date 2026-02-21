@@ -18,13 +18,12 @@
  */
 import dotenv from 'dotenv';
 import path from 'path';
+import { eq, inArray } from 'drizzle-orm';
 
 dotenv.config({ path: path.resolve(process.cwd(), '.env.development') });
 
-import { eq, inArray } from 'drizzle-orm';
 import db, { closeDb } from '../lib/drizzle/drizzle';
 import * as schema from '../schemas/database.schema';
-import { TESTER_PERSONAS } from './test-data';
 import { ChatDatabaseAdapter } from '../adapters/database.adapter';
 import { EmbedderAdapter } from '../adapters/embedder.adapter';
 import { RedisCacheAdapter } from '../adapters/cache.adapter';
@@ -35,6 +34,8 @@ import { HydeGraphFactory } from '../lib/protocol/graphs/hyde.graph';
 import { OpportunityGraphFactory } from '../lib/protocol/graphs/opportunity.graph';
 import { HydeGenerator } from '../lib/protocol/agents/hyde.generator';
 import { opportunityQueue } from '../queues/opportunity.queue';
+
+import { TESTER_PERSONAS } from './test-data';
 
 const INDEX_ID = '5aff6cd6-d64e-4ef9-8bcf-6c89815f771c'; // Commons from seed
 const DIMENSIONS = 2000;
