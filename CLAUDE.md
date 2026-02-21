@@ -432,12 +432,30 @@ bun test path/to/test.ts   # Specific test file
 4. **Apply migration**: `bun run db:migrate`
 5. **Verify**: `bun run db:studio` to inspect changes
 
-### Fixing Ruined Migrations
+### Why migrations get out of sync
 
-If a local Drizzle migration gets corrupted or out of sync:
+Drizzle stays in sync when (1) **`drizzle/meta/_journal.json`** lists every migration in order and (2) the **`__drizzle_migrations`** table in the DB matches what’s been applied. Things break when:
+
+- **Journal and files diverge** — A new `.sql` file is added (e.g. `0001_foo.sql`) but `_journal.json` is not updated. Then `drizzle-kit migrate` only knows about migrations in the journal, so the new file is never applied. **Rule:** Every file in `drizzle/*.sql` must have a matching entry in `drizzle/meta/_journal.json` (same order; `tag` = filename without `.sql`).
+- **Applying SQL outside Drizzle** — Running SQL by hand or via `db:apply-schema` applies changes but does not insert into `__drizzle_migrations`. Next run of `drizzle-kit migrate` can skip or re-apply migrations. **Rule:** Prefer `bun run db:migrate` so Drizzle tracks applied migrations; if you must run SQL manually, insert the corresponding row(s) into `__drizzle_migrations` (see Drizzle docs).
+- **pgvector** — Drizzle does not emit `CREATE EXTENSION vector`. The first migration must include it (e.g. add it manually to the first `.sql` or use a custom migration). The `maintenance:fix-migrations` script injects it when regenerating from scratch.
+
+Using Drizzle is correct; the pain usually comes from the journal or migration history getting out of sync with the actual files/DB.
+
+### Fixing ruined migrations
+
+If local migrations are corrupted or out of sync:
 
 ```bash
-bun run db:fix-migrations   # Reset and regenerate migrations locally
+cd protocol
+bun run maintenance:fix-migrations   # Reset DB, regenerate one migration with pgvector, then restore drizzle/
+```
+
+For a **remote** DB (e.g. Neon) you can reset and re-run all migrations:
+
+```bash
+bun run maintenance:reset-remote-db -- --confirm
+bun run db:migrate
 ```
 
 ### Common Operations
