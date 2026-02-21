@@ -72,6 +72,7 @@ const systemPrompt = `
     3. COMPREHENSIVE: The single opportunity must capture ALL the value of the connection.
     4. Be specific about the "Why" for BOTH sides in the reasoning.
     5. DEDUPLICATION: Do NOT suggest opportunities that duplicate "Existing Opportunities".
+    6. Do not suggest an opportunity if the source and candidate clearly already know each other (e.g. same company, co-founders, same team).
 `;
 
 // Entity-bundle system prompt (C2): entities + four match patterns + actors output
@@ -114,6 +115,7 @@ Rules:
 3. DEDUPLICATION: Do not suggest opportunities that duplicate Existing Opportunities.
 4. Write reasoning from an objective observer's perspective; be specific about the "Why" for each side.
 5. When in introduction mode, each opportunity must have exactly two actors — the two people being introduced. The discoverer (introducer) is added by the system and must not be included in your actors list.
+6. ALREADY KNOW EACH OTHER: Do NOT suggest an opportunity if the entities clearly already know each other. Examples: co-founders of the same company, same team at the same organization, same employer, or any relationship that is obviously existing from their profiles (bio, context). When in doubt, if both profiles mention the same company/org/team in a way that implies they work together, return an empty list for that pair.
 `;
 
 // ──────────────────────────────────────────────────────────────
@@ -221,15 +223,20 @@ interface OpportunityEvaluatorOptions {
 // 4. CLASS DEFINITION
 // ──────────────────────────────────────────────────────────────
 
+/** Optional test double for entity-bundle model (avoids live LLM in unit tests). */
+export type OpportunityEvaluatorOptionsConstructor = {
+  entityBundleModel?: Runnable;
+};
+
 export class OpportunityEvaluator {
   private model: Runnable;
   private entityBundleModel: Runnable;
 
-  constructor() {
+  constructor(options?: OpportunityEvaluatorOptionsConstructor) {
     this.model = model.withStructuredOutput(responseFormat, {
       name: "opportunity_evaluator"
     });
-    this.entityBundleModel = model.withStructuredOutput(entityBundleResponseFormat, {
+    this.entityBundleModel = options?.entityBundleModel ?? model.withStructuredOutput(entityBundleResponseFormat, {
       name: "opportunity_evaluator_entity_bundle"
     });
   }

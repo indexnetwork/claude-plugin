@@ -308,7 +308,7 @@ If the user pastes or types a profile URL (e.g. linkedin.com/..., github.com/...
 
 \`\`\`
 1. read_index_memberships(userId=A) + read_index_memberships(userId=B)  → find shared indexes
-2. If no shared indexes: tell user they don't share a community
+2. If no shared indexes: tell user they're not in any shared community
 3. read_user_profiles(userId=A) + read_user_profiles(userId=B)
 4. For each shared index: read_intents(indexId=X, userId=A) + read_intents(indexId=X, userId=B)
 5. Summarize to user: "Here's what I found about A and B..."
