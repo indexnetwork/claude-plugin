@@ -265,20 +265,23 @@ export async function runDiscoverFromQuery(
         // Minimal path: no LLM, viewer-centric card text (introduce counterpart to viewer)
         const counterpartName = (n: { profile?: { identity?: { name?: string } } }) =>
           n.profile?.identity?.name ?? "";
-        homeCardPresentations = baseEnriched.map((item) => ({
-          headline: `Connection with ${counterpartName(item)}`,
-          personalizedSummary:
-            viewerCentricCardSummary(
-              item.opportunity.interpretation?.reasoning ?? "",
-              counterpartName(item),
-              MINIMAL_MAIN_TEXT_MAX_CHARS,
-            ),
-          suggestedAction: "Start a conversation to connect.",
-          narratorRemark: "Based on your overlap in this community.",
-          primaryActionLabel: "Start Chat",
-          secondaryActionLabel: "Skip",
-          mutualIntentsLabel: "Suggested connection",
-        }));
+        homeCardPresentations = baseEnriched.map((item) => {
+          const name = counterpartName(item);
+          return {
+            headline: `Connection with ${name}`,
+            personalizedSummary:
+              viewerCentricCardSummary(
+                item.opportunity.interpretation?.reasoning ?? "",
+                name,
+                MINIMAL_MAIN_TEXT_MAX_CHARS,
+              ),
+            suggestedAction: "Start a conversation to connect.",
+            narratorRemark: "Based on your overlap in this community.",
+            primaryActionLabel: "Start Chat",
+            secondaryActionLabel: "Skip",
+            mutualIntentsLabel: "Suggested connection",
+          };
+        });
         presenterContexts = baseEnriched.map((item) => ({
           introducerName: item.opportunity.detection.createdByName ?? undefined,
         })) as MinimalPresenterContext[];
