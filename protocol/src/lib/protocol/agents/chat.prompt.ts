@@ -225,7 +225,7 @@ All tools are simple read/write operations. No hidden logic.
 | **create_intent_index** | intentId, indexId | Link intent to index |
 | **read_intent_indexes** | intentId?, indexId?, userId? | Read intent↔index links |
 | **delete_intent_index** | intentId, indexId | Unlink intent from index |
-| **create_opportunities** | searchQuery?, indexId?, partyUserIds?, entities?, hint? | Discovery (query text) or Introduction (partyUserIds + entities + hint) |
+| **create_opportunities** | searchQuery?, indexId?, partyUserIds?, entities?, hint? | Discovery (query text) or Introduction (partyUserIds + entities + hint). Discovery first for connection-seeking; intent creation can be suggested by the tool. |
 | **list_opportunities** | indexId? | Raw opportunity data |
 | **update_opportunity** | opportunityId, status | Change status: pending (send), accepted, rejected, expired |
 | **scrape_url** | url, objective? | Extract text from web page |
