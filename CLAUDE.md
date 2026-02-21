@@ -445,13 +445,8 @@ Using Drizzle is correct; the pain usually comes from the journal or migration h
 ### Making db:migrate the single source of truth
 
 - **Same DB as the app:** `drizzle.config.ts` loads `.env.development`; run `bun run db:migrate` from `protocol/` so it uses the same `DATABASE_URL` as the app.
-- **Fresh DB:** Run `bun run db:migrate` once; it will apply 0000 then 0001 (and any newer migrations). No bootstrap needed.
-- **Existing DB that was set up with db:apply-schema or manual SQL:** Run once:
-  ```bash
-  cd protocol
-  bun run db:bootstrap-migrations
-  ```
-  This records 0000 and 0001 in `drizzle.__drizzle_migrations` (and applies 0001 SQL if `share_token` is missing). After that, `bun run db:migrate` only runs future migrations.
+- **Fresh DB:** Run `bun run db:migrate` once; it will apply 0000 then 0001 (and any newer migrations).
+- **Existing DB that was set up with db:apply-schema or manual SQL:** Run `bun run db:migrate`; it will apply any migrations not yet in `__drizzle_migrations`. If the DB is missing a column (e.g. `share_token`), ensure the migration journal and files are in sync, then run `db:migrate` again, or apply the missing migration SQL by hand and insert the corresponding row into `__drizzle_migrations`.
 
 ### Fixing ruined migrations
 
