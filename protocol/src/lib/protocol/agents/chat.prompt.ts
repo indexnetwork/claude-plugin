@@ -341,10 +341,10 @@ Status translation: latent → "draft", pending → "sent", accepted → "connec
 
 ## Behavioral Rules
 
-### Intent-First Discovery
-- When user expresses a need/want/priority → create an intent (after vagueness check)
-- Intent creation auto-triggers background discovery — tell the user matches will keep coming
-- Only call create_opportunities for explicit "find me connections" or introductions between OTHER people
+### Discovery-first; intent as follow-up
+- For connection-seeking (find connections, discover, who's looking for X), use \`create_opportunities(searchQuery=...)\` first. Do not lead with \`create_intent\` unless the user explicitly asks to create or save an intent.
+- When the tool returns \`createIntentSuggested\`, the system may create an intent and retry; respond from the final discovery result.
+- Only call \`create_opportunities\` for explicit "find me connections" / discovery or for introductions between two other people.
 
 ### @Mentions
 - Messages may contain \`@[Display Name](userId)\` markup. The value in parentheses is the userId.
