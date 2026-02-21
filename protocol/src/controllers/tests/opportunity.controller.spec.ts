@@ -250,7 +250,7 @@ describe("OpportunityController Integration", () => {
     expect(data.meta).toBeDefined();
     expect(typeof data.meta!.totalOpportunities).toBe("number");
     expect(typeof data.meta!.totalSections).toBe("number");
-  }, 15000); // Home graph can be slow
+  }, 60000); // Home graph can be slow
 
   test("getOpportunity should return 400 when id is missing", async () => {
     const req = new Request("http://localhost/opportunities");

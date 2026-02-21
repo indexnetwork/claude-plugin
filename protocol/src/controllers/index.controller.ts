@@ -262,23 +262,23 @@ export class IndexController {
       const index = await indexService.joinPublicIndex(params.id, user.id);
       logger.info('User joined public index', { indexId: params.id, userId: user.id });
       return Response.json({ index });
-} catch (err: unknown) {
-        const msg = errorMessage(err);
-        if (msg.includes('not found')) {
-          return new Response(JSON.stringify({ error: msg }), {
-            status: 404,
-            headers: { 'Content-Type': 'application/json' },
-          });
-        }
-        if (msg.includes('not public')) {
-          return new Response(JSON.stringify({ error: msg }), {
-            status: 403,
-            headers: { 'Content-Type': 'application/json' },
-          });
-        }
-        throw err;
+    } catch (err: unknown) {
+      const msg = errorMessage(err);
+      if (msg.includes('not found')) {
+        return new Response(JSON.stringify({ error: msg }), {
+          status: 404,
+          headers: { 'Content-Type': 'application/json' },
+        });
       }
+      if (msg.includes('not public')) {
+        return new Response(JSON.stringify({ error: msg }), {
+          status: 403,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      throw err;
     }
+  }
 
   /**
    * Get current user's member settings (permissions and ownership status).

@@ -447,11 +447,13 @@ Generate intents naturally, you decide how many intents to generate (typically 3
               const location = content?.location && 
                                content.location !== 'Location unavailable' && 
                                content.location.trim() !== '' ? content.location : null;
-              const intents: GeneratedIntent[] = (content?.intents ?? []).map((i: { intent?: string; confidence?: string; date?: string }) => ({
-                intent: i.intent ?? '',
-                confidence: (i.confidence as 'low' | 'medium' | 'high') || 'medium',
-                date: i.date ?? new Date().toISOString().split('T')[0],
-              }));
+              const intents: GeneratedIntent[] = (content?.intents ?? [])
+                .map((i: { intent?: string; confidence?: string; date?: string }) => ({
+                  intent: (i.intent ?? '').trim(),
+                  confidence: (i.confidence as 'low' | 'medium' | 'high') || 'medium',
+                  date: i.date ?? new Date().toISOString().split('T')[0],
+                }))
+                .filter((i) => i.intent !== '');
 
               finalResult = { intro, location, intents };
               onEvent?.({ type: 'result', data: finalResult });
@@ -511,11 +513,13 @@ Generate intents naturally, you decide how many intents to generate (typically 3
             const location = content?.location && 
                              content.location !== 'Location unavailable' && 
                              content.location.trim() !== '' ? content.location : null;
-            const intents: GeneratedIntent[] = (content?.intents ?? []).map((i: { intent?: string; confidence?: string; date?: string }) => ({
-              intent: i.intent ?? '',
-              confidence: (i.confidence as 'low' | 'medium' | 'high') || 'medium',
-              date: i.date ?? new Date().toISOString().split('T')[0],
-            }));
+            const intents: GeneratedIntent[] = (content?.intents ?? [])
+              .map((i: { intent?: string; confidence?: string; date?: string }) => ({
+                intent: (i.intent ?? '').trim(),
+                confidence: (i.confidence as 'low' | 'medium' | 'high') || 'medium',
+                date: i.date ?? new Date().toISOString().split('T')[0],
+              }))
+              .filter((i) => i.intent !== '');
 
             finalResult = { intro, location, intents };
             onEvent?.({ type: 'result', data: finalResult });

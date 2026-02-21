@@ -154,11 +154,11 @@ export function createProfileTools(defineTool: DefineTool, deps: ToolDeps) {
             alreadyExists: true,
             message: "Profile already exists. If the user confirmed it, call complete_onboarding() to finish setup. If they want changes, use update_user_profile().",
             profile: {
-              name: p.identity.name,
-              bio: p.identity.bio,
-              location: p.identity.location,
-              skills: p.attributes.skills,
-              interests: p.attributes.interests,
+              name: p.name,
+              bio: p.bio,
+              location: p.location,
+              skills: p.skills,
+              interests: p.interests,
             },
           });
         }

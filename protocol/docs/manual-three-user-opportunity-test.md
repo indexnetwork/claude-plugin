@@ -64,10 +64,10 @@ Login: use your auth flow (e.g. magic link to the email above, or dev token/CLI 
 - Go to **Library** → **My Opportunities** tab.
 - You should see opportunities where User A is an actor (e.g. as patient or introducer). Count and list are from `GET /opportunities` (role-based visibility: e.g. patient sees latent; agent may only see after status change).
 
-### 3. Log out and log in as User B (Jordan Lee)
+### 3. Switch to User B (Jordan Lee)
 
-- Log out in the app.
-- Log in with email: `seed-tester-2@index-network.test` (use your auth flow, e.g. magic link).
+- Sign out of the app.
+- Sign in with email: `seed-tester-2@index-network.test` (use your auth flow, e.g. magic link).
 - Go to **Library** → **My Opportunities**.
 - Compare with User A: depending on the opportunity’s actors and status, User B may see **no** opportunities, **fewer**, or **the same** (e.g. if B is the other peer). This validates role-based visibility.
 

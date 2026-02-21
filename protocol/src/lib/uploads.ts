@@ -12,16 +12,8 @@ import { v4 as uuidv4 } from 'uuid';
 import { UnstructuredClient } from 'unstructured-client';
 import { Strategy } from 'unstructured-client/sdk/models/shared';
 import { NodeHtmlMarkdown } from 'node-html-markdown';
-import { getUploadsPath } from './paths';
 
-// Type extension for requests with generated file ID
-declare global {
-  namespace Express {
-    interface Request {
-      generatedFileId?: string;
-    }
-  }
-}
+import { getUploadsPath } from './paths';
 import {
   FILE_SIZE_LIMITS,
   MAX_FILES_PER_UPLOAD,
@@ -36,6 +28,15 @@ import {
   isFileExtensionSupported,
   FALLBACK_TEXT_EXTENSIONS,
 } from './uploads.config';
+
+// Type extension for requests with generated file ID
+declare global {
+  namespace Express {
+    interface Request {
+      generatedFileId?: string;
+    }
+  }
+}
 
 // ----- Thin Validation Adapters -----
 
@@ -59,13 +60,19 @@ export const validateFileUploads = (files: Express.Multer.File[], uploadType: Up
 
 // ----- Multer Filters -----
 
-export function createFileFilter(_uploadContext: UploadContext) {
-  return (req: Express.Request, file: Express.Multer.File, cb: (error: Error | null, accept?: boolean) => void) => {
-    const validation = validateFileType(file, 'general');
+/** Map UploadContext to the validation type used by validateFileType (both discovery and library use general). */
+function uploadContextToUploadType(_uploadContext: UploadContext): UploadType {
+  return 'general';
+}
+
+export function createFileFilter(uploadContext: UploadContext) {
+  const uploadType = uploadContextToUploadType(uploadContext);
+  return (req: Express.Request, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
+    const validation = validateFileType(file, uploadType);
     if (validation.isValid) {
       cb(null, true);
     } else {
-      cb(new Error(validation.message), false);
+      cb(new Error(validation.message ?? 'File type not allowed'));
     }
   };
 }

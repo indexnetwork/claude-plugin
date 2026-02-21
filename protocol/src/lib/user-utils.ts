@@ -3,13 +3,17 @@ import { users } from '../schemas/database.schema';
 import { eq } from 'drizzle-orm';
 import { log } from './log';
 import type { IntegrationName } from './integrations/config';
+import type { UserSocials } from '../types/users.types';
 
 const logger = log.lib.from("lib/user-utils.ts");
+
+/** Provider for integration-backed users; 'file' is used for file-import-created users (not in INTEGRATIONS). */
+export type UserProvider = IntegrationName | 'file';
 
 export interface ExtractedUser {
   email: string;
   name: string;
-  provider: IntegrationName;
+  provider: UserProvider;
   providerId: string;
   avatar?: string;
 }
@@ -167,8 +171,7 @@ export async function resolveFileUser(params: {
       }
       
       if (socials) {
-        type UserSocials = { x?: string; linkedin?: string; github?: string; websites?: string[] };
-    const currentSocials = (user.socials as UserSocials | null) ?? {};
+        const currentSocials = (user.socials as UserSocials | null) ?? {};
         const updatedSocials = { ...currentSocials };
         let socialsChanged = false;
         
@@ -234,7 +237,7 @@ export async function resolveFileUser(params: {
     const createdUser = await saveUser({
       email,
       name,
-      provider: 'file' as IntegrationName,
+      provider: 'file',
       providerId: email,
       avatar
     });

@@ -330,7 +330,8 @@ export class IntentDatabaseAdapter {
     } else {
       conditions.push(isNull(schema.intents.archivedAt));
     }
-    if (options.sourceType) {
+    const validSourceTypes: SourceType[] = ['file', 'integration', 'link', 'discovery_form', 'enrichment'];
+    if (options.sourceType && validSourceTypes.includes(options.sourceType as SourceType)) {
       conditions.push(eq(schema.intents.sourceType, options.sourceType as SourceType));
     }
     const where = and(...conditions);
@@ -2187,7 +2188,7 @@ export class ProfileDatabaseAdapter {
 
     if (data.socials) {
       // Merge with existing socials instead of overwriting
-      const existingSocials = (current as User).socials ?? {};
+      const existingSocials = current.socials ?? {};
       const merged = { ...existingSocials };
       if (data.socials.x !== undefined) merged.x = data.socials.x;
       if (data.socials.linkedin !== undefined) merged.linkedin = data.socials.linkedin;
@@ -2197,7 +2198,7 @@ export class ProfileDatabaseAdapter {
     }
 
     if (data.onboarding !== undefined) {
-      const existingOnboarding = (current as User).onboarding ?? {};
+      const existingOnboarding = current.onboarding ?? {};
       updateFields.onboarding = { ...existingOnboarding, ...data.onboarding };
     }
 
