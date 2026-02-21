@@ -24,7 +24,7 @@ dotenv.config({ path: path.resolve(process.cwd(), '.env.development') });
 import { eq, inArray } from 'drizzle-orm';
 import db, { closeDb } from '../lib/drizzle/drizzle';
 import * as schema from '../schemas/database.schema';
-import { TESTABLE_TEST_ACCOUNTS } from './test-data';
+import { TESTER_PERSONAS } from './test-data';
 import { ChatDatabaseAdapter } from '../adapters/database.adapter';
 import { EmbedderAdapter } from '../adapters/embedder.adapter';
 import { RedisCacheAdapter } from '../adapters/cache.adapter';
@@ -42,7 +42,7 @@ const DIMENSIONS = 2000;
 async function main() {
   console.log('=== Three-user opportunity test ===\n');
 
-  const emails = TESTABLE_TEST_ACCOUNTS.map((a) => a.email);
+  const emails = TESTER_PERSONAS.slice(0, 3).map((a) => a.email);
   const userRows = await db
     .select({ id: schema.users.id, email: schema.users.email, name: schema.users.name })
     .from(schema.users)

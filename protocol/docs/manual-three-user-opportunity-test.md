@@ -87,11 +87,10 @@ Use **email + OTP** (or your auth flow) to log in on the frontend.
 
 - **No opportunities for any user**: Ensure intent was created in an index that has HyDE docs and that `intent-hyde` and `opportunity-discovery` jobs ran (check queues and worker logs).
 - **Auth origin**: Add the frontend origin (e.g. `http://localhost:3000`) in your auth config (e.g. Better Auth trustedOrigins).
-- **OTP not accepted**: Use the OTP from the table, or check your auth provider docs for test authentication.
 
 ## Reference
 
 - Seed script: `protocol/src/cli/db-seed.ts`
-- Test accounts: `protocol/src/cli/test-data.ts` (`TESTABLE_TEST_ACCOUNTS`)
+- Test users: first 3 seeded personas (`seed-tester-1@index-network.test`, `seed-tester-2@index-network.test`, `seed-tester-3@index-network.test`) from `protocol/src/cli/test-data.ts` (`TESTER_PERSONAS`)
 - Opportunity API: `GET /opportunities` (list for current user), `GET /opportunities/:id` (detail with presentation)
 - Visibility rules: `protocol/src/lib/protocol/docs/Latent Opportunity Lifecycle.md`
