@@ -324,7 +324,12 @@ export class HomeGraphFactory {
             });
 
             try {
-              const ctx = await gatherPresenterContext(db, opportunity, state.userId);
+              const ctx = await gatherPresenterContext(
+                db,
+                opportunity,
+                state.userId,
+                otherActor?.userId,
+              );
               const mutualIntentCount = computeMutualIntentCount(ctx as unknown as Record<string, unknown>);
               const homeInput = {
                 ...ctx,
