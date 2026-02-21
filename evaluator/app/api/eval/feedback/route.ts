@@ -4,6 +4,7 @@ import { db } from "@/lib/db/drizzle";
 import { evalScenarios } from "@/lib/db/schema";
 import { eq, desc, and } from "drizzle-orm";
 import { classifyFeedback } from "@/lib/seed/feedback.classifier";
+import { addScenariosToActiveRuns } from "@/lib/runs";
 
 /**
  * POST: Submit feedback -> LLM classifies -> creates eval_scenarios row with source="feedback"
@@ -46,6 +47,8 @@ export async function POST(req: NextRequest) {
         seedRequirements: classified.seedRequirements,
       })
       .returning();
+
+    await addScenariosToActiveRuns([scenario.id]);
 
     return Response.json({ ok: true, scenario });
   } catch (err) {
