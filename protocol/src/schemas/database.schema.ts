@@ -329,11 +329,13 @@ export const chatSessions = pgTable('chat_sessions', {
   userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
   title: text('title'),
   indexId: text('index_id').references(() => indexes.id, { onDelete: 'set null' }),
+  shareToken: text('share_token'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   metadata: jsonb('metadata'),
 }, (table) => ({
   userIdx: index('chat_sessions_user_idx').on(table.userId),
+  shareTokenUnique: uniqueIndex('chat_sessions_share_token_unique').on(table.shareToken),
 }));
 
 export const chatMessages = pgTable('chat_messages', {

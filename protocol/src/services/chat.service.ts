@@ -244,6 +244,35 @@ export class ChatSessionService {
     return true;
   }
 
+  async shareSession(sessionId: string, userId: string): Promise<string | null> {
+    const session = await this.getSession(sessionId, userId);
+    if (!session) return null;
+
+    if (session.shareToken) return session.shareToken;
+
+    const token = crypto.randomUUID();
+    await this.db.setShareToken(sessionId, token);
+    logger.info('Session shared', { sessionId, shareToken: token });
+    return token;
+  }
+
+  async unshareSession(sessionId: string, userId: string): Promise<boolean> {
+    const session = await this.getSession(sessionId, userId);
+    if (!session) return false;
+
+    await this.db.setShareToken(sessionId, null);
+    logger.info('Session unshared', { sessionId });
+    return true;
+  }
+
+  async getSharedSession(shareToken: string) {
+    const session = await this.db.getSessionByShareToken(shareToken);
+    if (!session) return null;
+
+    const messages = await this.db.getSessionMessages(session.id, 200);
+    return { session, messages };
+  }
+
   /**
    * Process a message through the chat graph (non-streaming).
    * 

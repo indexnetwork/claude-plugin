@@ -545,4 +545,89 @@ export class ChatController {
 
     return Response.json({ success: true, title });
   }
+
+  @Post("/session/share")
+  @UseGuards(AuthGuard)
+  async shareSession(req: Request, user: AuthenticatedUser) {
+    let body: { sessionId?: string };
+    try {
+      body = (await req.json()) as { sessionId?: string };
+    } catch {
+      return Response.json(
+        { error: "Invalid request body. Expected { sessionId: string }" },
+        { status: 400 },
+      );
+    }
+
+    if (!body.sessionId) {
+      return Response.json({ error: "sessionId is required" }, { status: 400 });
+    }
+
+    const shareToken = await chatSessionService.shareSession(
+      body.sessionId,
+      user.id,
+    );
+    if (!shareToken) {
+      return Response.json({ error: "Session not found" }, { status: 404 });
+    }
+
+    return Response.json({ shareToken });
+  }
+
+  @Post("/session/unshare")
+  @UseGuards(AuthGuard)
+  async unshareSession(req: Request, user: AuthenticatedUser) {
+    let body: { sessionId?: string };
+    try {
+      body = (await req.json()) as { sessionId?: string };
+    } catch {
+      return Response.json(
+        { error: "Invalid request body. Expected { sessionId: string }" },
+        { status: 400 },
+      );
+    }
+
+    if (!body.sessionId) {
+      return Response.json({ error: "sessionId is required" }, { status: 400 });
+    }
+
+    const unshared = await chatSessionService.unshareSession(
+      body.sessionId,
+      user.id,
+    );
+    if (!unshared) {
+      return Response.json({ error: "Session not found" }, { status: 404 });
+    }
+
+    return Response.json({ success: true });
+  }
+
+  @Get("/shared/:token")
+  async getSharedSession(
+    _req: Request,
+    _user: unknown,
+    params: { token: string },
+  ) {
+    const result = await chatSessionService.getSharedSession(params.token);
+    if (!result) {
+      return Response.json(
+        { error: "Shared session not found" },
+        { status: 404 },
+      );
+    }
+
+    return Response.json({
+      session: {
+        id: result.session.id,
+        title: result.session.title,
+        createdAt: result.session.createdAt,
+      },
+      messages: result.messages.map((m) => ({
+        id: m.id,
+        role: m.role,
+        content: m.content,
+        createdAt: m.createdAt,
+      })),
+    });
+  }
 }

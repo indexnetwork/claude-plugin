@@ -499,6 +499,7 @@ interface ChatSession {
   userId: string;
   title: string | null;
   indexId: string | null;
+  shareToken: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -617,6 +618,20 @@ export class ChatDatabaseAdapter {
   async deleteSession(sessionId: string): Promise<void> {
     await db.delete(schema.chatSessions)
       .where(eq(schema.chatSessions.id, sessionId));
+  }
+
+  async setShareToken(sessionId: string, token: string | null): Promise<void> {
+    await db.update(schema.chatSessions)
+      .set({ shareToken: token, updatedAt: new Date() })
+      .where(eq(schema.chatSessions.id, sessionId));
+  }
+
+  async getSessionByShareToken(token: string): Promise<ChatSession | null> {
+    const [session] = await db.select()
+      .from(schema.chatSessions)
+      .where(eq(schema.chatSessions.shareToken, token))
+      .limit(1);
+    return session || null;
   }
 
   // ─────────────────────────────────────────────────────────────────────────────

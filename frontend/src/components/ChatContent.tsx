@@ -12,6 +12,8 @@ import {
   ChevronDown,
   Lock,
   ChevronLeft,
+  Share2,
+  Check,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { MentionsTextInput } from "@/components/MentionsInput";
@@ -266,6 +268,28 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
   const navigatingToHomeRef = useRef(false);
   const sessionIdRef = useRef(sessionId);
   const [isIndexDropdownOpen, setIsIndexDropdownOpen] = useState(false);
+  const [shareCopied, setShareCopied] = useState(false);
+
+  const handleShare = useCallback(async () => {
+    if (!sessionId) return;
+    try {
+      const base = process.env.NEXT_PUBLIC_API_URL || "";
+      const res = await fetch(`${base}/chat/session/share`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionId }),
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error("Failed to share");
+      const { shareToken } = (await res.json()) as { shareToken: string };
+      const shareUrl = `${window.location.origin}/s/${shareToken}`;
+      await navigator.clipboard.writeText(shareUrl);
+      setShareCopied(true);
+      setTimeout(() => setShareCopied(false), 2000);
+    } catch {
+      showError("Failed to create share link");
+    }
+  }, [sessionId, showError]);
 
   // Keep ref in sync with sessionId
   useEffect(() => {
@@ -1209,15 +1233,30 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
               {displayTitle}
             </button>
             {sessionId && (
-              <button
-                type="button"
-                onClick={startEditingTitle}
-                title="Rename conversation"
-                className="shrink-0 p-1 rounded text-gray-500 hover:text-[#4091BB] hover:bg-gray-100 focus:outline-none"
-                aria-label="Rename conversation"
-              >
-                <Pencil className="h-4 w-4" />
-              </button>
+              <>
+                <button
+                  type="button"
+                  onClick={startEditingTitle}
+                  title="Rename conversation"
+                  className="shrink-0 p-1 rounded text-gray-500 hover:text-[#4091BB] hover:bg-gray-100 focus:outline-none"
+                  aria-label="Rename conversation"
+                >
+                  <Pencil className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={handleShare}
+                  title={shareCopied ? "Link copied!" : "Share conversation"}
+                  className="shrink-0 p-1 rounded text-gray-500 hover:text-[#4091BB] hover:bg-gray-100 focus:outline-none"
+                  aria-label="Share conversation"
+                >
+                  {shareCopied ? (
+                    <Check className="h-4 w-4 text-green-500" />
+                  ) : (
+                    <Share2 className="h-4 w-4" />
+                  )}
+                </button>
+              </>
             )}
             {boundIndex && (
               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600 ml-2">

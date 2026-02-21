@@ -105,7 +105,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (authenticated && !user && !userFetchAttempted) return;
 
     const isHomePage = pathname === '/';
-    const isPublicPage = pathname.startsWith('/simulation') || pathname.startsWith('/l') || pathname.startsWith('/index/') || pathname.startsWith('/blog') || pathname.startsWith('/pages') || pathname.startsWith('/about') || pathname.startsWith('/login');
+    const isPublicPage = pathname.startsWith('/simulation') || pathname.startsWith('/l') || pathname.startsWith('/index/') || pathname.startsWith('/blog') || pathname.startsWith('/pages') || pathname.startsWith('/about') || pathname.startsWith('/login') || pathname.startsWith('/s/');
     const isProtectedPage = pathname.startsWith('/i/');
 
     const shouldRedirectToHome = !authenticated && (isProtectedPage || (!isHomePage && !isPublicPage));
