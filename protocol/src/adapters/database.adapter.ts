@@ -6,7 +6,7 @@
 import { eq, and, or, isNull, isNotNull, sql, count, desc, lt, lte, ne, inArray, ilike, notInArray } from 'drizzle-orm';
 import * as schema from '../schemas/database.schema';
 import db from '../lib/drizzle/drizzle';
-import type { User, NotificationPreferences } from '../schemas/database.schema';
+import type { User, NotificationPreferences, OnboardingState } from '../schemas/database.schema';
 import type { Id } from '../types/common.types';
 import { log } from '../lib/log';
 
@@ -426,6 +426,7 @@ export class IntentDatabaseAdapter {
       avatar: user.avatar ?? null,
       location: user.location ?? null,
       socials: user.socials ?? null,
+      onboarding: user.onboarding ?? null,
     };
   }
 
@@ -777,7 +778,7 @@ export class ChatDatabaseAdapter {
 
   async updateUser(
     userId: string,
-    data: { name?: string; location?: string; socials?: { x?: string; linkedin?: string; github?: string; websites?: string[] } }
+    data: { name?: string; location?: string; socials?: { x?: string; linkedin?: string; github?: string; websites?: string[] }; onboarding?: OnboardingState }
   ) {
     // Delegate to ProfileDatabaseAdapter which has the merge logic
     const profileAdapter = new ProfileDatabaseAdapter();
@@ -2172,8 +2173,8 @@ export class ProfileDatabaseAdapter {
    */
   async updateUser(
     userId: string,
-    data: { name?: string; location?: string; socials?: { x?: string; linkedin?: string; github?: string; websites?: string[] } }
-  ): Promise<{ id: string; name: string; email: string; intro?: string | null; avatar?: string | null; location?: string | null; socials?: { x?: string; linkedin?: string; github?: string; websites?: string[] } | null } | null> {
+    data: { name?: string; location?: string; socials?: { x?: string; linkedin?: string; github?: string; websites?: string[] }; onboarding?: OnboardingState }
+  ): Promise<{ id: string; name: string; email: string; intro?: string | null; avatar?: string | null; location?: string | null; socials?: { x?: string; linkedin?: string; github?: string; websites?: string[] } | null; onboarding?: OnboardingState | null } | null> {
     // Load current user to merge socials
     const current = await this.getUser(userId);
     if (!current) return null;
@@ -2194,6 +2195,11 @@ export class ProfileDatabaseAdapter {
       updateFields.socials = merged;
     }
 
+    if (data.onboarding !== undefined) {
+      const existingOnboarding = (current as any).onboarding ?? {};
+      updateFields.onboarding = { ...existingOnboarding, ...data.onboarding };
+    }
+
     const result = await db.update(schema.users)
       .set(updateFields)
       .where(eq(schema.users.id, userId))
@@ -2209,6 +2215,7 @@ export class ProfileDatabaseAdapter {
       avatar: updated.avatar,
       location: updated.location,
       socials: updated.socials as { x?: string; linkedin?: string; github?: string; websites?: string[] } | null,
+      onboarding: updated.onboarding as OnboardingState | null,
     };
   }
 
