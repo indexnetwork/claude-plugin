@@ -442,6 +442,17 @@ Drizzle stays in sync when (1) **`drizzle/meta/_journal.json`** lists every migr
 
 Using Drizzle is correct; the pain usually comes from the journal or migration history getting out of sync with the actual files/DB.
 
+### Making db:migrate the single source of truth
+
+- **Same DB as the app:** `drizzle.config.ts` loads `.env.development`; run `bun run db:migrate` from `protocol/` so it uses the same `DATABASE_URL` as the app.
+- **Fresh DB:** Run `bun run db:migrate` once; it will apply 0000 then 0001 (and any newer migrations). No bootstrap needed.
+- **Existing DB that was set up with db:apply-schema or manual SQL:** Run once:
+  ```bash
+  cd protocol
+  bun run db:bootstrap-migrations
+  ```
+  This records 0000 and 0001 in `drizzle.__drizzle_migrations` (and applies 0001 SQL if `share_token` is missing). After that, `bun run db:migrate` only runs future migrations.
+
 ### Fixing ruined migrations
 
 If local migrations are corrupted or out of sync:
