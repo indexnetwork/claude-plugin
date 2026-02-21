@@ -3,7 +3,7 @@ import { config } from "dotenv";
 config({ path: '.env.test' });
 
 import { describe, expect, it } from "bun:test";
-import { OpportunityEvaluator, CandidateProfile } from "../opportunity.evaluator";
+import { OpportunityEvaluator, CandidateProfile, EvaluatorInput } from "../opportunity.evaluator";
 
 describe('OpportunityEvaluator', () => {
   const evaluator = new OpportunityEvaluator();
@@ -52,4 +52,32 @@ describe('OpportunityEvaluator', () => {
     const charlieMatch = result.find(r => r.candidateId === "user-charlie");
     expect(charlieMatch).toBeUndefined();
   }, 60000);
+
+  it('returns no opportunity when entities clearly already know each other (e.g. co-founders)', async () => {
+    const input: EvaluatorInput = {
+      discovererId: 'discoverer-1',
+      entities: [
+        {
+          userId: 'user-a',
+          profile: {
+            name: 'Alice',
+            bio: 'Co-founder at Acme Corp.',
+            context: 'Building Acme Corp. with Bob.',
+          },
+          indexId: 'index-1',
+        },
+        {
+          userId: 'user-b',
+          profile: {
+            name: 'Bob',
+            bio: 'Co-founder at Acme Corp.',
+            context: 'Building Acme Corp. with Alice.',
+          },
+          indexId: 'index-1',
+        },
+      ],
+    };
+    const result = await evaluator.invokeEntityBundle(input, { minScore: 70 });
+    expect(result).toHaveLength(0);
+  }, 30000);
 });
