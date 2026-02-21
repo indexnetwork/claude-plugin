@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { getUserIdFromRequest } from "@/lib/auth";
 import { db } from "@/lib/db/drizzle";
 import { evalScenarios } from "@/lib/db/schema";
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, and } from "drizzle-orm";
 import { classifyFeedback } from "@/lib/seed/feedback.classifier";
 
 /**
@@ -57,8 +57,24 @@ export async function POST(req: NextRequest) {
   }
 }
 
+function mapFeedbackRow(row: typeof evalScenarios.$inferSelect) {
+  return {
+    id: row.id,
+    userId: "system",
+    feedback: row.feedbackText ?? row.question,
+    sessionId: null,
+    conversation: row.feedbackConversation ?? null,
+    retryConversation: null,
+    retryStatus: null,
+    archived: !row.enabled,
+    createdAt: row.createdAt.toISOString(),
+    aiExplanation: row.expectation,
+    issueLabels: [row.category, row.needId].filter(Boolean) as string[],
+  };
+}
+
 /**
- * GET: List feedback-sourced scenarios
+ * GET: List feedback-sourced scenarios, mapped to FeedbackView shape
  */
 export async function GET(req: NextRequest) {
   const userId = await getUserIdFromRequest(req);
@@ -66,13 +82,15 @@ export async function GET(req: NextRequest) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
 
   try {
-    const feedback = await db
+    const rows = await db
       .select()
       .from(evalScenarios)
-      .where(eq(evalScenarios.source, "feedback"))
+      .where(
+        and(eq(evalScenarios.source, "feedback"), eq(evalScenarios.enabled, true))
+      )
       .orderBy(desc(evalScenarios.createdAt));
 
-    return Response.json({ feedback });
+    return Response.json({ feedback: rows.map(mapFeedbackRow) });
   } catch (err) {
     console.error("Failed to load feedback", err);
     return Response.json(
