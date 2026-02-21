@@ -12,7 +12,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { UnstructuredClient } from 'unstructured-client';
 import { Strategy } from 'unstructured-client/sdk/models/shared';
 import { NodeHtmlMarkdown } from 'node-html-markdown';
-import { getUploadsPath, getTempPath } from './paths';
+import { getUploadsPath } from './paths';
 
 // Type extension for requests with generated file ID
 declare global {
@@ -25,8 +25,6 @@ declare global {
 import {
   FILE_SIZE_LIMITS,
   MAX_FILES_PER_UPLOAD,
-  SUPPORTED_FILE_TYPES,
-  GENERAL_ALLOWED_TYPES,
   UploadType,
   UploadContext,
   ValidationResult,
@@ -35,7 +33,6 @@ import {
   validateFileCountByNumber,
   validateFileByMetadata,
   validateFilesByMetadata,
-  getSupportedFileExtensions,
   isFileExtensionSupported,
   FALLBACK_TEXT_EXTENSIONS,
 } from './uploads.config';
@@ -62,8 +59,8 @@ export const validateFileUploads = (files: Express.Multer.File[], uploadType: Up
 
 // ----- Multer Filters -----
 
-export function createFileFilter(uploadContext: UploadContext) {
-  return (req: any, file: Express.Multer.File, cb: any) => {
+export function createFileFilter(_uploadContext: UploadContext) {
+  return (req: Express.Request, file: Express.Multer.File, cb: (error: Error | null, accept?: boolean) => void) => {
     const validation = validateFileType(file, 'general');
     if (validation.isValid) {
       cb(null, true);
@@ -122,7 +119,7 @@ export async function loadFileContent(filePath: string): Promise<{ content: stri
 
       if (Array.isArray(response) && response.length > 0) {
         const content = response
-          .map((element: any) => element.text || '')
+          .map((element: { text?: string }) => element.text ?? '')
           .filter((text: string) => text.trim())
           .join('\n\n');
         return { content, error: null };

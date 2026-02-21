@@ -151,7 +151,7 @@ export async function resolveFileUser(params: {
       const user = existingUser[0];
       logger.info('File import user already exists', { email, userId: user.id });
       
-      const updates: any = {};
+      const updates: Record<string, unknown> = {};
       
       if (name && (!user.name || user.name.trim() === '')) {
         updates.name = name;
@@ -167,7 +167,8 @@ export async function resolveFileUser(params: {
       }
       
       if (socials) {
-        const currentSocials = (user.socials as any) || {};
+        type UserSocials = { x?: string; linkedin?: string; github?: string; websites?: string[] };
+    const currentSocials = (user.socials as UserSocials | null) ?? {};
         const updatedSocials = { ...currentSocials };
         let socialsChanged = false;
         
@@ -233,13 +234,13 @@ export async function resolveFileUser(params: {
     const createdUser = await saveUser({
       email,
       name,
-      provider: 'file' as any,
+      provider: 'file' as IntegrationName,
       providerId: email,
       avatar
     });
     
     if (intro || location || socials) {
-      const updateData: any = { updatedAt: new Date() };
+      const updateData: Record<string, unknown> = { updatedAt: new Date() };
       if (intro) updateData.intro = intro;
       if (location) updateData.location = location;
       if (socials) updateData.socials = socials;
@@ -292,7 +293,7 @@ export async function resolveIntegrationUser(params: {
         const needsUpdate = (!user.name || user.name.trim() === '') || (avatar && !user.avatar);
         
         if (needsUpdate) {
-          const updateData: any = {};
+          const updateData: Record<string, unknown> = {};
           if (!user.name || user.name.trim() === '') {
             updateData.name = name;
           }

@@ -17,7 +17,7 @@ import { ScraperAdapter } from '../adapters/scraper.adapter';
 import type { Id } from '../types/common.types';
 
 import { TESTER_PERSONAS, TESTER_PERSONAS_MAX } from './test-data';
-import type { SeedProfile, TesterPersona } from './test-data';
+import type { SeedProfile } from './test-data';
 
 /** Minimal account shape for user creation (real or synthetic). */
 interface SeedAccount {
@@ -246,8 +246,8 @@ async function seedDatabase(): Promise<{ ok: boolean; error?: string }> {
     if (!silent) console.log('Creating indexes...');
 
     // Create all indexes
-    let indexesCreated = 0;
-    let indexesExisted = 0;
+    let _indexesCreated = 0;
+    let _indexesExisted = 0;
     for (let i = 0; i < SEED_INDEXES.length; i++) {
       const idx = SEED_INDEXES[i];
       try {
@@ -262,10 +262,10 @@ async function seedDatabase(): Promise<{ ok: boolean; error?: string }> {
             allowGuestVibeCheck: false,
           },
         });
-        indexesCreated++;
+        _indexesCreated++;
         if (!silent) console.log(`  Index ${i + 1}/${SEED_INDEXES.length}: ${idx.title} — created`);
       } catch (err) {
-        indexesExisted++;
+        _indexesExisted++;
         if (!silent) console.log(`  Index ${i + 1}/${SEED_INDEXES.length}: ${idx.title} — already exists`);
       }
     }

@@ -31,7 +31,6 @@ import type { HydeGraphDatabase, OpportunityGraphDatabase } from '../lib/protoco
 import type { Embedder } from '../lib/protocol/interfaces/embedder.interface';
 import type { HydeCache } from '../lib/protocol/interfaces/cache.interface';
 import { HydeGraphFactory } from '../lib/protocol/graphs/hyde.graph';
-import { OpportunityGraphFactory } from '../lib/protocol/graphs/opportunity.graph';
 import { HydeGenerator } from '../lib/protocol/agents/hyde.generator';
 import { opportunityQueue } from '../queues/opportunity.queue';
 

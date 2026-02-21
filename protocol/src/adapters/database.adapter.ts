@@ -102,7 +102,7 @@ interface IndexMembershipRow {
   joinedAt: Date;
 }
 
-const { intents, indexes, indexMembers, intentIndexes, users, hydeDocuments, opportunities, chatSessions, chatMessages, userNotificationSettings, userProfiles, files, links } = schema;
+const { intents, indexes, indexMembers, intentIndexes, users, hydeDocuments, opportunities, userNotificationSettings, userProfiles, files, links } = schema;
 
 // HyDE row to document shape (embedding may come as number[] or pg vector)
 type HydeSourceTypeLocal = 'intent' | 'profile' | 'query';
@@ -331,7 +331,7 @@ export class IntentDatabaseAdapter {
       conditions.push(isNull(schema.intents.archivedAt));
     }
     if (options.sourceType) {
-      conditions.push(eq(schema.intents.sourceType, options.sourceType as any));
+      conditions.push(eq(schema.intents.sourceType, options.sourceType as SourceType));
     }
     const where = and(...conditions);
 
@@ -1766,7 +1766,6 @@ export class ChatDatabaseAdapter {
     userId: string,
     role: 'owner' | 'admin' | 'member'
   ): Promise<{ success: boolean; alreadyMember?: boolean }> {
-    const logger = log.lib.from('database.adapter');
     const existing = await db
       .select()
       .from(indexMembers)
@@ -2188,7 +2187,7 @@ export class ProfileDatabaseAdapter {
 
     if (data.socials) {
       // Merge with existing socials instead of overwriting
-      const existingSocials = (current as any).socials ?? {};
+      const existingSocials = (current as User).socials ?? {};
       const merged = { ...existingSocials };
       if (data.socials.x !== undefined) merged.x = data.socials.x;
       if (data.socials.linkedin !== undefined) merged.linkedin = data.socials.linkedin;
@@ -2198,7 +2197,7 @@ export class ProfileDatabaseAdapter {
     }
 
     if (data.onboarding !== undefined) {
-      const existingOnboarding = (current as any).onboarding ?? {};
+      const existingOnboarding = (current as User).onboarding ?? {};
       updateFields.onboarding = { ...existingOnboarding, ...data.onboarding };
     }
 
@@ -2605,7 +2604,6 @@ export class OpportunityDatabaseAdapter {
         sql`${opportunities.actors} @> ${JSON.stringify([{ intent: intentId }])}::jsonb`
       );
     if (rows.length === 0) return 0;
-    const ids = rows.map((r) => r.id);
     const updated = await db
       .update(opportunities)
       .set({ status: 'expired', updatedAt: new Date() })
@@ -3438,16 +3436,7 @@ import type { VectorStore } from '../lib/protocol/interfaces/embedder.interface'
 import type {
   UserDatabase,
   SystemDatabase,
-  CreateIntentData,
-  UpdateIntentData,
   SimilarIntent,
-  SimilarIntentSearchOptions,
-  OpportunityQueryOptions,
-  OpportunityStatus,
-  CreateOpportunityData,
-  HydeSourceType,
-  CreateHydeDocumentData,
-  UpdateIndexSettingsData,
 } from '../lib/protocol/interfaces/database.interface';
 
 /**
