@@ -196,9 +196,30 @@
           "type": "jsonb",
           "primaryKey": false,
           "notNull": false
+        },
+        "share_token": {
+          "name": "share_token",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
+        "chat_sessions_share_token_unique": {
+          "name": "chat_sessions_share_token_unique",
+          "columns": [
+            {
+              "expression": "share_token",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
         "chat_sessions_user_idx": {
           "name": "chat_sessions_user_idx",
           "columns": [
