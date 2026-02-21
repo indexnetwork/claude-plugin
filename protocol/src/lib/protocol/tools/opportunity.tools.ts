@@ -167,7 +167,7 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
         query.indexId.trim() !== context.indexId
       ) {
         return error(
-          `This chat is scoped to ${context.indexName ?? "this index"}. You can only create opportunities in this community.`,
+          `This chat is scoped to ${context.indexName ?? "this index"}. You can only create opportunities in this group.`,
         );
       }
 
@@ -417,7 +417,7 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
         query.indexId.trim() !== context.indexId
       ) {
         return error(
-          `This chat is scoped to ${context.indexName ?? "this index"}. You can only list opportunities from this community.`,
+          `This chat is scoped to ${context.indexName ?? "this index"}. You can only list opportunities from this group.`,
         );
       }
 
