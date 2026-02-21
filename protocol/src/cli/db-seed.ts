@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 import dotenv from 'dotenv';
 import path from 'path';
+import { eq } from 'drizzle-orm';
 
 const envFile = `.env.development`;
 dotenv.config({ path: path.resolve(process.cwd(), envFile) });
 
-import { eq } from 'drizzle-orm';
 import db, { closeDb } from '../lib/drizzle/drizzle';
 import { indexMembers, indexes, userProfiles, users } from '../schemas/database.schema';
 import { setLevel } from '../lib/log';
@@ -14,9 +14,10 @@ import { ProfileGraphFactory } from '../lib/protocol/graphs/profile.graph';
 import { ProfileDatabaseAdapter } from '../adapters/database.adapter';
 import { EmbedderAdapter } from '../adapters/embedder.adapter';
 import { ScraperAdapter } from '../adapters/scraper.adapter';
+import type { Id } from '../types/common.types';
+
 import { TESTER_PERSONAS, TESTER_PERSONAS_MAX } from './test-data';
 import type { SeedProfile, TesterPersona } from './test-data';
-import type { Id } from '../types/common.types';
 
 /** Minimal account shape for user creation (real or synthetic). */
 interface SeedAccount {
