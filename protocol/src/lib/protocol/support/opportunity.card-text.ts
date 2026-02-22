@@ -83,7 +83,10 @@ export function viewerCentricCardSummary(
     if (compoundIdx !== -1) {
       const sentence = sentences[compoundIdx];
       // Find where the counterpart name appears and extract from there
-      const cpIdx = sentence.toLowerCase().indexOf(nameLower);
+      // Use case-insensitive Unicode-aware regex so the index is correct
+      // even when toLowerCase() changes string length (e.g. Turkish İ→i, German ß→ss).
+      const cpMatch = sentence.match(new RegExp(escapeRegex(name), "iu"));
+      const cpIdx = cpMatch?.index ?? -1;
       if (cpIdx > 0) {
         const extracted = sentence.slice(cpIdx).trim();
         const rest = sentences.slice(compoundIdx + 1).join(" ").trim();
