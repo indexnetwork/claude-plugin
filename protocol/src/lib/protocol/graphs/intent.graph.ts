@@ -7,6 +7,7 @@ import { IntentGraphDatabase } from "../interfaces/database.interface";
 import type { EmbeddingGenerator } from "../interfaces/embedder.interface";
 import type { IntentGraphQueue } from "../interfaces/queue.interface";
 import { protocolLogger } from "../support/protocol.logger";
+import { timed } from "../../performance";
 
 const logger = protocolLogger("IntentGraphFactory");
 const MAX_PERMISSIBLE_ENTROPY = 0.75;
@@ -132,34 +133,36 @@ export class IntentGraphFactory {
      * regardless of index scope.
      */
     const prepNode = async (state: typeof IntentGraphState.State) => {
-      logger.info("Starting preparation phase", {
-        operationMode: state.operationMode,
-        hasContent: !!state.inputContent,
-        targetIntentIds: state.targetIntentIds,
-        indexId: state.indexId,
-      });
+      return timed("IntentGraph.prep", async () => {
+        logger.info("Starting preparation phase", {
+          operationMode: state.operationMode,
+          hasContent: !!state.inputContent,
+          targetIntentIds: state.targetIntentIds,
+          indexId: state.indexId,
+        });
 
-      // Gate: write operations require an existing profile
-      if (state.operationMode !== 'read') {
-        const profile = await this.database.getProfile(state.userId);
-        if (!profile) {
-          throw new Error(
-            "You need to create a profile before creating intents. Please set up your profile first."
-          );
+        // Gate: write operations require an existing profile
+        if (state.operationMode !== 'read') {
+          const profile = await this.database.getProfile(state.userId);
+          if (!profile) {
+            throw new Error(
+              "You need to create a profile before creating intents. Please set up your profile first."
+            );
+          }
         }
-      }
 
-      const activeIntents = await this.database.getActiveIntents(state.userId);
-      const formattedActiveIntents = activeIntents
-        .map(i => `ID: ${i.id}, Description: ${i.payload}, Summary: ${i.summary || 'N/A'}`)
-        .join('\n') || "No active intents.";
+        const activeIntents = await this.database.getActiveIntents(state.userId);
+        const formattedActiveIntents = activeIntents
+          .map(i => `ID: ${i.id}, Description: ${i.payload}, Summary: ${i.summary || 'N/A'}`)
+          .join('\n') || "No active intents.";
 
-      logger.info("Fetched active intents", {
-        count: activeIntents.length,
-        operationMode: state.operationMode
+        logger.info("Fetched active intents", {
+          count: activeIntents.length,
+          operationMode: state.operationMode
+        });
+
+        return { activeIntents: formattedActiveIntents };
       });
-
-      return { activeIntents: formattedActiveIntents };
     };
 
     /**
@@ -169,36 +172,38 @@ export class IntentGraphFactory {
      * Phase 5: Passes conversation context for anaphoric resolution.
      */
     const inferenceNode = async (state: typeof IntentGraphState.State) => {
-      logger.info("Starting inference", {
-        operationMode: state.operationMode,
-        hasContent: !!state.inputContent,
-        contentPreview: state.inputContent?.substring(0, 50),
-        hasConversationContext: !!state.conversationContext,
-        conversationMessagesCount: state.conversationContext?.length || 0
+      return timed("IntentGraph.inference", async () => {
+        logger.info("Starting inference", {
+          operationMode: state.operationMode,
+          hasContent: !!state.inputContent,
+          contentPreview: state.inputContent?.substring(0, 50),
+          hasConversationContext: !!state.conversationContext,
+          conversationMessagesCount: state.conversationContext?.length || 0
+        });
+
+        // Phase 4: Control profile fallback based on operation mode
+        // Only allow for create operations without explicit content
+        const allowProfileFallback = state.operationMode === 'create' && !state.inputContent;
+
+        // Cast operationMode to exclude 'read' (inference node is never called in read mode)
+        const inferrerMode = state.operationMode === 'read' ? 'create' : state.operationMode;
+        const result = await inferrer.invoke(
+          state.inputContent || null,
+          state.userProfile,
+          {
+            allowProfileFallback,
+            operationMode: inferrerMode,
+            conversationContext: state.conversationContext  // Phase 5: Pass conversation history
+          }
+        );
+
+        logger.info("Inference complete", {
+          inferredCount: result.intents.length,
+          operationMode: state.operationMode
+        });
+
+        return { inferredIntents: result.intents };
       });
-      
-      // Phase 4: Control profile fallback based on operation mode
-      // Only allow for create operations without explicit content
-      const allowProfileFallback = state.operationMode === 'create' && !state.inputContent;
-      
-      // Cast operationMode to exclude 'read' (inference node is never called in read mode)
-      const inferrerMode = state.operationMode === 'read' ? 'create' : state.operationMode;
-      const result = await inferrer.invoke(
-        state.inputContent || null,
-        state.userProfile,
-        {
-          allowProfileFallback,
-          operationMode: inferrerMode,
-          conversationContext: state.conversationContext  // Phase 5: Pass conversation history
-        }
-      );
-      
-      logger.info("Inference complete", {
-        inferredCount: result.intents.length,
-        operationMode: state.operationMode
-      });
-      
-      return { inferredIntents: result.intents };
     };
 
     /**
@@ -207,90 +212,92 @@ export class IntentGraphFactory {
      * Phase 4: Can be skipped for delete operations and updates with no new intents.
      */
     const verificationNode = async (state: typeof IntentGraphState.State) => {
-      const intents = state.inferredIntents;
-      
-      logger.info("Starting verification", {
-        operationMode: state.operationMode,
-        intentCount: intents.length
-      });
-      
-      if (intents.length === 0) {
-        logger.info("No intents to verify");
-        return { verifiedIntents: [] };
-      }
+      return timed("IntentGraph.verification", async () => {
+        const intents = state.inferredIntents;
 
-      logger.info(`Verifying ${intents.length} intents in parallel...`);
+        logger.info("Starting verification", {
+          operationMode: state.operationMode,
+          intentCount: intents.length
+        });
 
-      // Parallel Execution
-      const verificationResults = await Promise.all(
-        intents.map(async (intent): Promise<VerifiedIntent | null> => {
-          try {
-            let description = intent.description;
-            let verdict = await verifier.invoke(description, state.userProfile);
+        if (intents.length === 0) {
+          logger.info("No intents to verify");
+          return { verifiedIntents: [] };
+        }
 
-            if (isVague(description, verdict.semantic_entropy, verdict.felicity_scores.clarity)) {
-              const enrichedDescription = enrichVagueIntentWithProfile(description, state.userProfile);
-              if (enrichedDescription !== description) {
-                logger.info("Enriched vague intent using profile context", {
-                  before: description,
-                  after: enrichedDescription,
-                });
-                const enrichedVerdict = await verifier.invoke(enrichedDescription, state.userProfile);
-                const becameClear =
-                  enrichedVerdict.semantic_entropy < verdict.semantic_entropy ||
-                  enrichedVerdict.felicity_scores.clarity > verdict.felicity_scores.clarity;
-                if (becameClear) {
-                  description = enrichedDescription;
-                  verdict = enrichedVerdict;
+        logger.info(`Verifying ${intents.length} intents in parallel...`);
+
+        // Parallel Execution
+        const verificationResults = await Promise.all(
+          intents.map(async (intent): Promise<VerifiedIntent | null> => {
+            try {
+              let description = intent.description;
+              let verdict = await verifier.invoke(description, state.userProfile);
+
+              if (isVague(description, verdict.semantic_entropy, verdict.felicity_scores.clarity)) {
+                const enrichedDescription = enrichVagueIntentWithProfile(description, state.userProfile);
+                if (enrichedDescription !== description) {
+                  logger.info("Enriched vague intent using profile context", {
+                    before: description,
+                    after: enrichedDescription,
+                  });
+                  const enrichedVerdict = await verifier.invoke(enrichedDescription, state.userProfile);
+                  const becameClear =
+                    enrichedVerdict.semantic_entropy < verdict.semantic_entropy ||
+                    enrichedVerdict.felicity_scores.clarity > verdict.felicity_scores.clarity;
+                  if (becameClear) {
+                    description = enrichedDescription;
+                    verdict = enrichedVerdict;
+                  }
                 }
               }
-            }
 
-            // Filter Logic: Must be a Commissive, Directive, or Declaration
-            const VALID_TYPES = ['COMMISSIVE', 'DIRECTIVE', 'DECLARATION'];
-            if (!VALID_TYPES.includes(verdict.classification)) {
-              logger.warn(`Dropping intent: "${description}" (Type: ${verdict.classification})`);
+              // Filter Logic: Must be a Commissive, Directive, or Declaration
+              const VALID_TYPES = ['COMMISSIVE', 'DIRECTIVE', 'DECLARATION'];
+              if (!VALID_TYPES.includes(verdict.classification)) {
+                logger.warn(`Dropping intent: "${description}" (Type: ${verdict.classification})`);
+                return null;
+              }
+
+              if (isVague(description, verdict.semantic_entropy, verdict.felicity_scores.clarity)) {
+                logger.warn(`Dropping vague intent after verification: "${description}"`, {
+                  entropy: verdict.semantic_entropy,
+                  clarity: verdict.felicity_scores.clarity,
+                });
+                return null;
+              }
+
+              // Calculate Score
+              const score = Math.min(
+                verdict.felicity_scores.authority,
+                verdict.felicity_scores.sincerity,
+                verdict.felicity_scores.clarity
+              );
+
+              // Return enriched intent
+              return {
+                ...intent,
+                description,
+                verification: verdict,
+                score
+              };
+            } catch (e) {
+              logger.error(`Error verifying intent: ${intent.description}`, { error: e });
               return null;
             }
+          })
+        );
 
-            if (isVague(description, verdict.semantic_entropy, verdict.felicity_scores.clarity)) {
-              logger.warn(`Dropping vague intent after verification: "${description}"`, {
-                entropy: verdict.semantic_entropy,
-                clarity: verdict.felicity_scores.clarity,
-              });
-              return null;
-            }
+        // Filter out nulls
+        const verified = verificationResults.filter((i): i is VerifiedIntent => i !== null);
+        logger.info(`Verification complete`, {
+          passed: verified.length,
+          total: intents.length,
+          operationMode: state.operationMode
+        });
 
-            // Calculate Score
-            const score = Math.min(
-              verdict.felicity_scores.authority,
-              verdict.felicity_scores.sincerity,
-              verdict.felicity_scores.clarity
-            );
-
-            // Return enriched intent
-            return {
-              ...intent,
-              description,
-              verification: verdict,
-              score
-            };
-          } catch (e) {
-            logger.error(`Error verifying intent: ${intent.description}`, { error: e });
-            return null;
-          }
-        })
-      );
-
-      // Filter out nulls
-      const verified = verificationResults.filter((i): i is VerifiedIntent => i !== null);
-      logger.info(`Verification complete`, {
-        passed: verified.length,
-        total: intents.length,
-        operationMode: state.operationMode
+        return { verifiedIntents: verified };
       });
-
-      return { verifiedIntents: verified };
     };
 
     /**
@@ -299,59 +306,61 @@ export class IntentGraphFactory {
      * Phase 4: Handles delete operations directly without LLM reconciliation.
      */
     const reconciliationNode = async (state: typeof IntentGraphState.State) => {
-      logger.info("Starting reconciliation", {
-        operationMode: state.operationMode,
-        verifiedIntentCount: state.verifiedIntents.length,
-        targetIntentIds: state.targetIntentIds
-      });
-      
-      // Phase 4: Handle delete operations directly
-      if (state.operationMode === 'delete') {
-        if (!state.targetIntentIds || state.targetIntentIds.length === 0) {
-          logger.warn("Delete mode with no target IDs");
+      return timed("IntentGraph.reconciliation", async () => {
+        logger.info("Starting reconciliation", {
+          operationMode: state.operationMode,
+          verifiedIntentCount: state.verifiedIntents.length,
+          targetIntentIds: state.targetIntentIds
+        });
+
+        // Phase 4: Handle delete operations directly
+        if (state.operationMode === 'delete') {
+          if (!state.targetIntentIds || state.targetIntentIds.length === 0) {
+            logger.warn("Delete mode with no target IDs");
+            return { actions: [] };
+          }
+
+          logger.info("Delete mode - generating expire actions", {
+            targetIds: state.targetIntentIds
+          });
+
+          const actions = state.targetIntentIds.map(id => ({
+            type: 'expire' as const,
+            id,
+            reasoning: 'User requested deletion'
+          }));
+
+          return { actions };
+        }
+
+        // Standard reconciliation for create/update operations
+        const candidates = state.verifiedIntents;
+        if (candidates.length === 0) {
+          logger.info("No verified intents to reconcile");
           return { actions: [] };
         }
-        
-        logger.info("Delete mode - generating expire actions", {
-          targetIds: state.targetIntentIds
+
+        // Format candidates for the Reconciler Prompt
+        const formattedCandidates = candidates.map(c =>
+          `- [${c.type.toUpperCase()}] "${c.description}" (Confidence: ${c.confidence}, Score: ${c.score})\n` +
+          `  Reasoning: ${c.reasoning}\n` +
+          `  Verification: ${c.verification?.classification} (Flags: ${c.verification?.flags.join(', ') || 'None'})`
+        ).join('\n');
+
+        logger.info("Invoking reconciler agent", {
+          candidateCount: candidates.length,
+          operationMode: state.operationMode
         });
-        
-        const actions = state.targetIntentIds.map(id => ({
-          type: 'expire' as const,
-          id,
-          reasoning: 'User requested deletion'
-        }));
-        
-        return { actions };
-      }
-      
-      // Standard reconciliation for create/update operations
-      const candidates = state.verifiedIntents;
-      if (candidates.length === 0) {
-        logger.info("No verified intents to reconcile");
-        return { actions: [] };
-      }
 
-      // Format candidates for the Reconciler Prompt
-      const formattedCandidates = candidates.map(c =>
-        `- [${c.type.toUpperCase()}] "${c.description}" (Confidence: ${c.confidence}, Score: ${c.score})\n` +
-        `  Reasoning: ${c.reasoning}\n` +
-        `  Verification: ${c.verification?.classification} (Flags: ${c.verification?.flags.join(', ') || 'None'})`
-      ).join('\n');
+        const result = await reconciler.invoke(formattedCandidates, state.activeIntents);
 
-      logger.info("Invoking reconciler agent", {
-        candidateCount: candidates.length,
-        operationMode: state.operationMode
+        logger.info("Reconciliation complete", {
+          actionCount: result.actions.length,
+          operationMode: state.operationMode
+        });
+
+        return { actions: result.actions };
       });
-
-      const result = await reconciler.invoke(formattedCandidates, state.activeIntents);
-      
-      logger.info("Reconciliation complete", {
-        actionCount: result.actions.length,
-        operationMode: state.operationMode
-      });
-      
-      return { actions: result.actions };
     };
 
     /** Strip URLs and "More details at [url]" from intent payloads before persisting. */
@@ -371,157 +380,159 @@ export class IntentGraphFactory {
      * Executes reconciler actions against the database.
      */
     const executorNode = async (state: typeof IntentGraphState.State) => {
-      const actions = state.actions;
-      if (!actions || actions.length === 0) {
-        return { executionResults: [] };
-      }
-
-      logger.info(`Executing ${actions.length} actions...`);
-      const results: ExecutionResult[] = [];
-      const verifiedIntentByPayload = new Map<string, VerifiedIntent>();
-      for (const verifiedIntent of state.verifiedIntents) {
-        verifiedIntentByPayload.set(verifiedIntent.description, verifiedIntent);
-        verifiedIntentByPayload.set(sanitizePayload(verifiedIntent.description), verifiedIntent);
-      }
-
-      for (const action of actions) {
-        const actionType = action.type.toLowerCase() as 'create' | 'update' | 'expire';
-        try {
-          if (actionType === 'create') {
-            const createAction = action as {
-              payload: string;
-              score: number | null;
-              semanticEntropy?: number | null;
-              referentialAnchor?: string | null;
-              intentMode?: 'REFERENTIAL' | 'ATTRIBUTIVE' | null;
-            };
-            const sanitizedPayload = sanitizePayload(createAction.payload);
-            const matchedVerifiedIntent =
-              verifiedIntentByPayload.get(createAction.payload) ||
-              verifiedIntentByPayload.get(sanitizedPayload);
-
-            // Generate embedding for the intent payload
-            let flatEmbedding: number[] | undefined;
-            if (this.embedder) {
-              try {
-                const embedding = await this.embedder.generate(sanitizedPayload);
-                flatEmbedding = Array.isArray(embedding?.[0])
-                  ? (embedding as number[][])[0]
-                  : (embedding as number[]);
-                logger.info("Generated embedding for new intent", { dimensions: flatEmbedding?.length });
-              } catch (embErr) {
-                logger.error("Failed to generate embedding for intent (continuing without)", { error: embErr });
-              }
-            }
-
-            const created = await this.database.createIntent({
-              userId: state.userId,
-              payload: sanitizedPayload,
-              confidence: createAction.score ? createAction.score / 100 : 1.0,
-              inferenceType: 'explicit',
-              sourceType: 'discovery_form',
-              embedding: flatEmbedding,
-              semanticEntropy:
-                createAction.semanticEntropy ??
-                matchedVerifiedIntent?.verification?.semantic_entropy ??
-                null,
-              referentialAnchor:
-                createAction.referentialAnchor ??
-                matchedVerifiedIntent?.verification?.referential_anchor ??
-                null,
-              felicityAuthority: matchedVerifiedIntent?.verification?.felicity_scores.authority ?? null,
-              felicitySincerity: matchedVerifiedIntent?.verification?.felicity_scores.sincerity ?? null,
-              intentMode: createAction.intentMode ?? null,
-              speechActType: toSpeechActType(matchedVerifiedIntent?.verification?.classification),
-            });
-
-            results.push({ actionType: 'create', success: true, intentId: created.id, payload: sanitizedPayload });
-            logger.info(`Created intent: ${created.id}`);
-            this.intentQueue?.addGenerateHydeJob({ intentId: created.id, userId: state.userId }).catch((err) =>
-              logger.error('Failed to enqueue intent HyDE job', { intentId: created.id, error: err })
-            );
-
-          } else if (actionType === 'update') {
-            const updateAction = action as {
-              id: string;
-              payload: string;
-              intentMode?: 'REFERENTIAL' | 'ATTRIBUTIVE' | null;
-            };
-            const sanitizedPayload = sanitizePayload(updateAction.payload);
-            const matchedVerifiedIntent =
-              verifiedIntentByPayload.get(updateAction.payload) ||
-              verifiedIntentByPayload.get(sanitizedPayload);
-
-            // Regenerate embedding for the updated payload
-            let flatEmbedding: number[] | undefined;
-            if (this.embedder) {
-              try {
-                const embedding = await this.embedder.generate(sanitizedPayload);
-                flatEmbedding = Array.isArray(embedding?.[0])
-                  ? (embedding as number[][])[0]
-                  : (embedding as number[]);
-                logger.info("Generated embedding for updated intent", { intentId: updateAction.id, dimensions: flatEmbedding?.length });
-              } catch (embErr) {
-                logger.error("Failed to generate embedding for intent update (continuing without)", { error: embErr });
-              }
-            }
-
-            const updated = await this.database.updateIntent(updateAction.id, {
-              payload: sanitizedPayload,
-              embedding: flatEmbedding,
-              semanticEntropy:
-                matchedVerifiedIntent?.verification?.semantic_entropy ??
-                null,
-              referentialAnchor:
-                matchedVerifiedIntent?.verification?.referential_anchor ??
-                null,
-              felicityAuthority: matchedVerifiedIntent?.verification?.felicity_scores.authority ?? null,
-              felicitySincerity: matchedVerifiedIntent?.verification?.felicity_scores.sincerity ?? null,
-              intentMode: updateAction.intentMode ?? null,
-              speechActType: toSpeechActType(matchedVerifiedIntent?.verification?.classification),
-            });
-            results.push({
-              actionType: 'update',
-              success: !!updated,
-              intentId: updateAction.id,
-              payload: sanitizedPayload,
-              error: updated ? undefined : 'Intent not found'
-            });
-            logger.info(`Updated intent: ${updateAction.id}`);
-            if (updated) {
-              this.intentQueue?.addGenerateHydeJob({ intentId: updateAction.id, userId: state.userId }).catch((err) =>
-                logger.error('Failed to enqueue intent HyDE job', { intentId: updateAction.id, error: err })
-              );
-            }
-
-          } else if (actionType === 'expire') {
-            const expireAction = action as { id: string };
-            const result = await this.database.archiveIntent(expireAction.id);
-            results.push({
-              actionType: 'expire',
-              success: result.success,
-              intentId: expireAction.id,
-              error: result.error
-            });
-            logger.info(`Archived intent: ${expireAction.id}`);
-            if (result.success) {
-              this.intentQueue?.addDeleteHydeJob({ intentId: expireAction.id }).catch((err) =>
-                logger.error('Failed to enqueue intent HyDE delete job', { intentId: expireAction.id, error: err })
-              );
-            }
-          }
-        } catch (error) {
-          logger.error(`Failed to execute ${action.type}:`, { error });
-          results.push({
-            actionType,
-            success: false,
-            intentId: 'id' in action ? action.id : undefined,
-            error: error instanceof Error ? error.message : 'Unknown error'
-          });
+      return timed("IntentGraph.executor", async () => {
+        const actions = state.actions;
+        if (!actions || actions.length === 0) {
+          return { executionResults: [] };
         }
-      }
 
-      return { executionResults: results };
+        logger.info(`Executing ${actions.length} actions...`);
+        const results: ExecutionResult[] = [];
+        const verifiedIntentByPayload = new Map<string, VerifiedIntent>();
+        for (const verifiedIntent of state.verifiedIntents) {
+          verifiedIntentByPayload.set(verifiedIntent.description, verifiedIntent);
+          verifiedIntentByPayload.set(sanitizePayload(verifiedIntent.description), verifiedIntent);
+        }
+
+        for (const action of actions) {
+          const actionType = action.type.toLowerCase() as 'create' | 'update' | 'expire';
+          try {
+            if (actionType === 'create') {
+              const createAction = action as {
+                payload: string;
+                score: number | null;
+                semanticEntropy?: number | null;
+                referentialAnchor?: string | null;
+                intentMode?: 'REFERENTIAL' | 'ATTRIBUTIVE' | null;
+              };
+              const sanitizedPayload = sanitizePayload(createAction.payload);
+              const matchedVerifiedIntent =
+                verifiedIntentByPayload.get(createAction.payload) ||
+                verifiedIntentByPayload.get(sanitizedPayload);
+
+              // Generate embedding for the intent payload
+              let flatEmbedding: number[] | undefined;
+              if (this.embedder) {
+                try {
+                  const embedding = await this.embedder.generate(sanitizedPayload);
+                  flatEmbedding = Array.isArray(embedding?.[0])
+                    ? (embedding as number[][])[0]
+                    : (embedding as number[]);
+                  logger.info("Generated embedding for new intent", { dimensions: flatEmbedding?.length });
+                } catch (embErr) {
+                  logger.error("Failed to generate embedding for intent (continuing without)", { error: embErr });
+                }
+              }
+
+              const created = await this.database.createIntent({
+                userId: state.userId,
+                payload: sanitizedPayload,
+                confidence: createAction.score ? createAction.score / 100 : 1.0,
+                inferenceType: 'explicit',
+                sourceType: 'discovery_form',
+                embedding: flatEmbedding,
+                semanticEntropy:
+                  createAction.semanticEntropy ??
+                  matchedVerifiedIntent?.verification?.semantic_entropy ??
+                  null,
+                referentialAnchor:
+                  createAction.referentialAnchor ??
+                  matchedVerifiedIntent?.verification?.referential_anchor ??
+                  null,
+                felicityAuthority: matchedVerifiedIntent?.verification?.felicity_scores.authority ?? null,
+                felicitySincerity: matchedVerifiedIntent?.verification?.felicity_scores.sincerity ?? null,
+                intentMode: createAction.intentMode ?? null,
+                speechActType: toSpeechActType(matchedVerifiedIntent?.verification?.classification),
+              });
+
+              results.push({ actionType: 'create', success: true, intentId: created.id, payload: sanitizedPayload });
+              logger.info(`Created intent: ${created.id}`);
+              this.intentQueue?.addGenerateHydeJob({ intentId: created.id, userId: state.userId }).catch((err) =>
+                logger.error('Failed to enqueue intent HyDE job', { intentId: created.id, error: err })
+              );
+
+            } else if (actionType === 'update') {
+              const updateAction = action as {
+                id: string;
+                payload: string;
+                intentMode?: 'REFERENTIAL' | 'ATTRIBUTIVE' | null;
+              };
+              const sanitizedPayload = sanitizePayload(updateAction.payload);
+              const matchedVerifiedIntent =
+                verifiedIntentByPayload.get(updateAction.payload) ||
+                verifiedIntentByPayload.get(sanitizedPayload);
+
+              // Regenerate embedding for the updated payload
+              let flatEmbedding: number[] | undefined;
+              if (this.embedder) {
+                try {
+                  const embedding = await this.embedder.generate(sanitizedPayload);
+                  flatEmbedding = Array.isArray(embedding?.[0])
+                    ? (embedding as number[][])[0]
+                    : (embedding as number[]);
+                  logger.info("Generated embedding for updated intent", { intentId: updateAction.id, dimensions: flatEmbedding?.length });
+                } catch (embErr) {
+                  logger.error("Failed to generate embedding for intent update (continuing without)", { error: embErr });
+                }
+              }
+
+              const updated = await this.database.updateIntent(updateAction.id, {
+                payload: sanitizedPayload,
+                embedding: flatEmbedding,
+                semanticEntropy:
+                  matchedVerifiedIntent?.verification?.semantic_entropy ??
+                  null,
+                referentialAnchor:
+                  matchedVerifiedIntent?.verification?.referential_anchor ??
+                  null,
+                felicityAuthority: matchedVerifiedIntent?.verification?.felicity_scores.authority ?? null,
+                felicitySincerity: matchedVerifiedIntent?.verification?.felicity_scores.sincerity ?? null,
+                intentMode: updateAction.intentMode ?? null,
+                speechActType: toSpeechActType(matchedVerifiedIntent?.verification?.classification),
+              });
+              results.push({
+                actionType: 'update',
+                success: !!updated,
+                intentId: updateAction.id,
+                payload: sanitizedPayload,
+                error: updated ? undefined : 'Intent not found'
+              });
+              logger.info(`Updated intent: ${updateAction.id}`);
+              if (updated) {
+                this.intentQueue?.addGenerateHydeJob({ intentId: updateAction.id, userId: state.userId }).catch((err) =>
+                  logger.error('Failed to enqueue intent HyDE job', { intentId: updateAction.id, error: err })
+                );
+              }
+
+            } else if (actionType === 'expire') {
+              const expireAction = action as { id: string };
+              const result = await this.database.archiveIntent(expireAction.id);
+              results.push({
+                actionType: 'expire',
+                success: result.success,
+                intentId: expireAction.id,
+                error: result.error
+              });
+              logger.info(`Archived intent: ${expireAction.id}`);
+              if (result.success) {
+                this.intentQueue?.addDeleteHydeJob({ intentId: expireAction.id }).catch((err) =>
+                  logger.error('Failed to enqueue intent HyDE delete job', { intentId: expireAction.id, error: err })
+                );
+              }
+            }
+          } catch (error) {
+            logger.error(`Failed to execute ${action.type}:`, { error });
+            results.push({
+              actionType,
+              success: false,
+              intentId: 'id' in action ? action.id : undefined,
+              error: error instanceof Error ? error.message : 'Unknown error'
+            });
+          }
+        }
+
+        return { executionResults: results };
+      });
     };
 
     // --- QUERY NODE (Read Mode) ---
@@ -533,48 +544,86 @@ export class IntentGraphFactory {
      * No LLM calls; no inference/verification/reconciliation.
      */
     const queryNode = async (state: typeof IntentGraphState.State) => {
-      logger.info("Starting query (read mode)", {
-        userId: state.userId,
-        indexId: state.indexId,
-        queryUserId: state.queryUserId,
-        allUserIntents: state.allUserIntents,
-      });
+      return timed("IntentGraph.query", async () => {
+        logger.info("Starting query (read mode)", {
+          userId: state.userId,
+          indexId: state.indexId,
+          queryUserId: state.queryUserId,
+          allUserIntents: state.allUserIntents,
+        });
 
-      try {
-        // When allUserIntents is true, ignore index scope and return all
-        const effectiveIndexId = state.allUserIntents ? undefined : state.indexId;
+        try {
+          // When allUserIntents is true, ignore index scope and return all
+          const effectiveIndexId = state.allUserIntents ? undefined : state.indexId;
 
-        if (effectiveIndexId) {
-          // Verify membership
-          const isMember = await this.database.isIndexMember(effectiveIndexId, state.userId);
-          if (!isMember) {
-            return {
-              readResult: {
-                count: 0,
-                intents: [],
-                message: "Index not found or you are not a member.",
-              },
-            };
-          }
+          if (effectiveIndexId) {
+            // Verify membership
+            const isMember = await this.database.isIndexMember(effectiveIndexId, state.userId);
+            if (!isMember) {
+              return {
+                readResult: {
+                  count: 0,
+                  intents: [],
+                  message: "Index not found or you are not a member.",
+                },
+              };
+            }
 
-          // Index-scoped read
-          if (!state.queryUserId) {
-            // All intents in the index (any member can see)
-            const intents = await this.database.getIndexIntentsForMember(
-              effectiveIndexId,
-              state.userId,
-              { limit: 50, offset: 0 }
+            // Index-scoped read
+            if (!state.queryUserId) {
+              // All intents in the index (any member can see)
+              const intents = await this.database.getIndexIntentsForMember(
+                effectiveIndexId,
+                state.userId,
+                { limit: 50, offset: 0 }
+              );
+              if (intents.length === 0) {
+                return {
+                  readResult: {
+                    count: 0,
+                    intents: [],
+                    message: "No intents in this index yet.",
+                    indexId: effectiveIndexId,
+                  },
+                };
+              }
+              return {
+                readResult: {
+                  count: intents.length,
+                  indexId: effectiveIndexId,
+                  intents: intents.map((i) => ({
+                    id: i.id,
+                    description: i.payload,
+                    summary: i.summary,
+                    createdAt: i.createdAt,
+                    userId: i.userId,
+                    userName: i.userName,
+                  })),
+                },
+              };
+            }
+
+            // Specific user's intents in the index
+            const effectiveUserId = state.queryUserId;
+            const intents = await this.database.getIntentsInIndexForMember(
+              effectiveUserId,
+              effectiveIndexId
             );
             if (intents.length === 0) {
               return {
                 readResult: {
                   count: 0,
                   intents: [],
-                  message: "No intents in this index yet.",
+                  message:
+                    effectiveUserId === state.userId
+                      ? "You don't have any intents in this index yet."
+                      : "No intents for that user in this index.",
                   indexId: effectiveIndexId,
                 },
               };
             }
+            const user = await this.database.getUser(effectiveUserId);
+            const userName = user?.name ?? null;
             return {
               readResult: {
                 count: intents.length,
@@ -584,83 +633,47 @@ export class IntentGraphFactory {
                   description: i.payload,
                   summary: i.summary,
                   createdAt: i.createdAt,
-                  userId: i.userId,
-                  userName: i.userName,
+                  userId: effectiveUserId,
+                  userName,
                 })),
               },
             };
           }
 
-          // Specific user's intents in the index
-          const effectiveUserId = state.queryUserId;
-          const intents = await this.database.getIntentsInIndexForMember(
-            effectiveUserId,
-            effectiveIndexId
-          );
+          // Global (no index scope): return user's own active intents
+          const intents = await this.database.getActiveIntents(state.userId);
           if (intents.length === 0) {
             return {
               readResult: {
                 count: 0,
                 intents: [],
                 message:
-                  effectiveUserId === state.userId
-                    ? "You don't have any intents in this index yet."
-                    : "No intents for that user in this index.",
-                indexId: effectiveIndexId,
+                  "You don't have any active intents yet. Share what you're looking for.",
               },
             };
           }
-          const user = await this.database.getUser(effectiveUserId);
-          const userName = user?.name ?? null;
           return {
             readResult: {
               count: intents.length,
-              indexId: effectiveIndexId,
               intents: intents.map((i) => ({
                 id: i.id,
                 description: i.payload,
                 summary: i.summary,
                 createdAt: i.createdAt,
-                userId: effectiveUserId,
-                userName,
               })),
             },
           };
-        }
-
-        // Global (no index scope): return user's own active intents
-        const intents = await this.database.getActiveIntents(state.userId);
-        if (intents.length === 0) {
+        } catch (err) {
+          logger.error("Query node failed", { error: err });
           return {
             readResult: {
               count: 0,
               intents: [],
-              message:
-                "You don't have any active intents yet. Share what you're looking for.",
+              message: "Failed to fetch intents. Please try again.",
             },
           };
         }
-        return {
-          readResult: {
-            count: intents.length,
-            intents: intents.map((i) => ({
-              id: i.id,
-              description: i.payload,
-              summary: i.summary,
-              createdAt: i.createdAt,
-            })),
-          },
-        };
-      } catch (err) {
-        logger.error("Query node failed", { error: err });
-        return {
-          readResult: {
-            count: 0,
-            intents: [],
-            message: "Failed to fetch intents. Please try again.",
-          },
-        };
-      }
+      });
     };
 
     // --- CONDITIONAL ROUTING FUNCTIONS ---
