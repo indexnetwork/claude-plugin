@@ -9,7 +9,7 @@ import { useAuthContext } from '@/contexts/AuthContext';
 import { useXMTP } from '@/contexts/XMTPContext';
 import { useAIChatSessions } from '@/contexts/AIChatSessionsContext';
 import { useAIChat } from '@/contexts/AIChatContext';
-import { authClient } from '@/lib/auth-client';
+import { apiClient } from '@/lib/api';
 import UserAvatar from '@/components/UserAvatar';
 import { useIndexesState } from '@/contexts/IndexesContext';
 import { useIndexes } from '@/contexts/APIContext';
@@ -29,7 +29,7 @@ interface ChatSession {
 export default function Sidebar() {
   const router = useRouter();
   const pathname = usePathname();
-  const { user, updateUser, refetchUser } = useAuthContext();
+  const { user, updateUser, refetchUser, signOut } = useAuthContext();
   const { isConnected: isReady, totalUnreadCount: xmtpUnreadCount } = useXMTP();
   const { sessionsVersion } = useAIChatSessions();
   const { clearChat } = useAIChat();
@@ -130,11 +130,7 @@ export default function Sidebar() {
       try {
         if (isInitialLoad) setLoadingSessions(true);
 
-        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/chat/sessions`, {
-          credentials: 'include',
-        });
-        if (!res.ok) throw new Error('Failed to fetch sessions');
-        const data = await res.json() as { sessions: ChatSession[] };
+        const data = await apiClient.get<{ sessions: ChatSession[] }>('/chat/sessions');
         setChatSessions(data.sessions.slice(0, 10));
       } catch (error) {
         console.error('Failed to fetch chat sessions:', error);
@@ -328,7 +324,7 @@ export default function Sidebar() {
               <div className="border-t border-gray-100 py-1.5">
                 <button
                   className="w-full px-4 py-2 text-left flex items-center gap-2.5 text-sm text-red-500 hover:bg-red-50 hover:text-red-600 transition-colors"
-                  onClick={() => { setUserDropdownOpen(false); authClient.signOut(); }}
+                  onClick={() => { setUserDropdownOpen(false); signOut(); }}
                 >
                   <LogOut className="h-4 w-4 flex-shrink-0" />
                   Log out

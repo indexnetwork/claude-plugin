@@ -3,6 +3,7 @@
 import { createContext, useContext, useEffect, useState, useCallback, useRef, ReactNode } from 'react';
 import { useAuthContext } from './AuthContext';
 import { useAuthenticatedAPI } from '@/lib/api';
+import { getJwtToken } from '@/lib/auth-client';
 import { createXmtpService, type XmtpConversation, type XmtpMessage, type XmtpChatContext } from '@/services/xmtp';
 
 interface XMTPContextType {
@@ -125,8 +126,16 @@ export function XMTPProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    const connectSSE = () => {
-      const es = new EventSource(`${API_BASE}/xmtp/stream`, { withCredentials: true });
+    const connectSSE = async () => {
+      let url = `${API_BASE}/xmtp/stream`;
+      try {
+        const token = await getJwtToken();
+        url += `?token=${encodeURIComponent(token)}`;
+      } catch {
+        setTimeout(connectSSE, 5000);
+        return;
+      }
+      const es = new EventSource(url);
       eventSourceRef.current = es;
 
       es.onopen = () => setIsConnected(true);
@@ -171,11 +180,11 @@ export function XMTPProvider({ children }: { children: ReactNode }) {
       es.onerror = () => {
         setIsConnected(false);
         es.close();
-        setTimeout(connectSSE, 5000);
+        setTimeout(() => void connectSSE(), 5000);
       };
     };
 
-    connectSSE();
+    void connectSSE();
     void refreshConversations();
 
     return () => {

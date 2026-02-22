@@ -144,6 +144,7 @@ Bun.serve({
       '/api/auth/delete-user', '/api/auth/list-sessions',
       '/api/auth/revoke-session', '/api/auth/revoke-other-sessions',
       '/api/auth/update-user',
+      '/api/auth/token', '/api/auth/jwks',
     ];
     const isBetterAuthRoute = betterAuthPaths.some(p => url.pathname.startsWith(p));
     if (isBetterAuthRoute) {

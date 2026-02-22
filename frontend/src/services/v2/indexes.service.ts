@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import type { Index } from '@/types';
 import type { PaginatedResponse } from '@/types';
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? '';
+import { apiClient } from '@/lib/api';
 
 /** Response shape from GET /indexes (member + personal indexes; "Everywhere" is static in UI). */
 export interface IndexListV2Response {
@@ -9,91 +9,26 @@ export interface IndexListV2Response {
   pagination: { current: number; total: number; count: number; totalCount: number };
 }
 
-async function v2Fetch(path: string, options: RequestInit = {}): Promise<Response> {
-  const url = `${API_BASE_URL}${path}`;
-  return fetch(url, {
-    ...options,
-    credentials: 'include',
-    headers: {
-      ...(options.headers as Record<string, string>),
-    },
-  });
-}
-
 export function createIndexesServiceV2() {
   return {
-    /**
-     * List indexes the user is a member of (including personal index).
-     * GET /indexes. "Everywhere" is not returned (static UI option).
-     */
     getIndexes: async (): Promise<PaginatedResponse<Index>> => {
-      const res = await v2Fetch('/indexes', { method: 'GET' });
-
-      if (!res.ok) {
-        let message = res.statusText;
-        try {
-          const data = (await res.json()) as { error?: string };
-          message = data.error ?? message;
-        } catch {
-          // ignore
-        }
-        throw new Error(message);
-      }
-
-      const data = (await res.json()) as IndexListV2Response;
+      const data = await apiClient.get<IndexListV2Response>('/indexes');
       return {
         data: data.indexes ?? [],
         pagination: data.pagination ?? { current: 1, total: 0, count: 0, totalCount: 0 },
       };
     },
 
-    /**
-     * Get public indexes that the user has not joined (for discovery).
-     * GET /indexes/discovery/public
-     */
     getPublicIndexes: async (): Promise<PaginatedResponse<Index>> => {
-      const res = await v2Fetch('/indexes/discovery/public', { method: 'GET' });
-
-      if (!res.ok) {
-        let message = res.statusText;
-        try {
-          const data = (await res.json()) as { error?: string };
-          message = data.error ?? message;
-        } catch {
-          // ignore
-        }
-        throw new Error(message);
-      }
-
-      const data = (await res.json()) as IndexListV2Response;
+      const data = await apiClient.get<IndexListV2Response>('/indexes/discovery/public');
       return {
         data: data.indexes ?? [],
         pagination: data.pagination ?? { current: 1, total: 0, count: 0, totalCount: 0 },
       };
     },
 
-    /**
-     * Join a public index.
-     * POST /indexes/:id/join
-     */
     joinPublicIndex: async (indexId: string): Promise<Index> => {
-      const res = await v2Fetch(`/indexes/${indexId}/join`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-      });
-
-      if (!res.ok) {
-        let message = res.statusText;
-        try {
-          const data = (await res.json()) as { error?: string };
-          message = data.error ?? message;
-        } catch {
-          // ignore
-        }
-        throw new Error(message);
-      }
-
-      const data = (await res.json()) as { index: Index };
+      const data = await apiClient.post<{ index: Index }>(`/indexes/${indexId}/join`);
       return data.index;
     },
   };

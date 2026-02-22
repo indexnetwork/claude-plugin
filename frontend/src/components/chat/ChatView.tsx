@@ -184,6 +184,7 @@ export default function ChatView({ userId, userName, userAvatar, initialGroupId,
               {messages.map((message, index) => {
                 const isOwn = message.senderInboxId === 'self' || (myInboxId != null && message.senderInboxId === myInboxId);
                 const content = typeof message.content === 'string' ? message.content : String(message.content ?? '');
+                if (!content.trim()) return null;
                 const showTimestamp = index === 0 || (messages[index - 1] && Number(message.sentAt) - Number(messages[index - 1].sentAt) > 300_000_000_000);
 
                 return (

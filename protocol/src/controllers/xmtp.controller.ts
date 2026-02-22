@@ -190,14 +190,16 @@ export class XmtpController {
       ? allMessages.filter((m) => m.sentAtNs != null && BigInt(m.sentAtNs.toString()) > hiddenAtNs)
       : allMessages;
 
-    return Response.json({
-      messages: messages.map((m) => ({
+    const mapped = messages
+      .map((m) => ({
         id: m.id,
         senderInboxId: m.senderInboxId,
         content: extractText(m),
         sentAt: m.sentAtNs?.toString(),
-      })),
-    });
+      }))
+      .filter((m) => m.content.trim() !== '');
+
+    return Response.json({ messages: mapped });
   }
 
   @Post("/send")
@@ -334,12 +336,14 @@ export class XmtpController {
           .then(async (messageStream) => {
             try {
               for await (const message of messageStream) {
+                const content = extractText(message);
+                if (!content.trim()) continue;
                 const event = {
                   type: "message",
                   id: message.id,
                   groupId: message.conversationId,
                   senderInboxId: message.senderInboxId,
-                  content: extractText(message),
+                  content,
                   sentAt: message.sentAtNs?.toString(),
                 };
                 controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));

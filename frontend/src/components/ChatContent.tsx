@@ -35,6 +35,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useIndexFilter } from "@/contexts/IndexFilterContext";
 import { useIndexesState } from "@/contexts/IndexesContext";
+import { apiClient } from "@/lib/api";
 import { useSuggestions } from "@/hooks/useSuggestions";
 
 import { mentionsToMarkdownLinks } from "@/lib/mentions";
@@ -290,15 +291,7 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
   const handleShare = useCallback(async () => {
     if (!sessionId) return;
     try {
-      const base = process.env.NEXT_PUBLIC_API_URL || "";
-      const res = await fetch(`${base}/chat/session/share`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionId }),
-        credentials: "include",
-      });
-      if (!res.ok) throw new Error("Failed to share");
-      const { shareToken } = (await res.json()) as { shareToken: string };
+      const { shareToken } = await apiClient.post<{ shareToken: string }>("/chat/session/share", { sessionId });
       const shareUrl = `${window.location.origin}/s/${shareToken}`;
       await navigator.clipboard.writeText(shareUrl);
       setShareCopied(true);
