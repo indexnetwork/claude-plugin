@@ -31,6 +31,7 @@ function buildMinimalOpportunityCard(
   counterpartAvatar: string | null,
   introducerName?: string | null,
   introducerAvatar?: string | null,
+  viewerName?: string,
 ): {
   opportunityId: string;
   userId: string;
@@ -56,6 +57,7 @@ function buildMinimalOpportunityCard(
     opp.interpretation?.reasoning ?? "",
     counterpartName,
     MINIMAL_MAIN_TEXT_MAX_CHARS,
+    viewerName,
   );
   const score =
     typeof opp.interpretation?.confidence === "number"
@@ -253,6 +255,7 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
             reasoning,
             counterpartName,
             MINIMAL_MAIN_TEXT_MAX_CHARS,
+            introducerUser?.name ?? undefined,
           ),
           cta: "Start a conversation to connect.",
           headline: `Connection with ${counterpartName}`,
@@ -461,10 +464,12 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
       const allUserIds = [
         ...new Set([...counterpartUserIds, ...introducerUserIds]),
       ];
-      const [profileResults, userResults] = await Promise.all([
+      const [viewerUser, profileResults, userResults] = await Promise.all([
+        database.getUser(context.userId),
         Promise.all(allUserIds.map((id) => database.getProfile(id))),
         Promise.all(allUserIds.map((id) => database.getUser(id))),
       ]);
+      const viewerName = viewerUser?.name ?? undefined;
       const profileMap = new Map<string, Awaited<ReturnType<typeof database.getProfile>>>();
       const userMap = new Map<string, Awaited<ReturnType<typeof database.getUser>>>();
       allUserIds.forEach((userId, i) => {
@@ -518,6 +523,7 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
             counterpartUser?.avatar ?? null,
             introducerName,
             introducerUser?.avatar ?? null,
+            viewerName,
           );
 
           opportunityBlocks.push(
