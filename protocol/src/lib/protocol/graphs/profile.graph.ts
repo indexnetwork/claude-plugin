@@ -7,6 +7,7 @@ import { Embedder } from "../interfaces/embedder.interface";
 import { Scraper } from "../interfaces/scraper.interface";
 import { searchUser } from "../../../lib/parallel/parallel";
 import { protocolLogger } from "../support/protocol.logger";
+import { timed } from "../../performance";
 
 const logger = protocolLogger("ProfileGraphFactory");
 
@@ -75,6 +76,7 @@ export class ProfileGraphFactory {
     // - User information insufficient for scraping
     // ─────────────────────────────────────────────────────────
     const checkStateNode = async (state: typeof ProfileGraphState.State) => {
+      return timed("ProfileGraph.checkState", async () => {
       if (!state.userId) {
         logger.error("Missing userId");
         return {
@@ -238,6 +240,7 @@ export class ProfileGraphFactory {
           error: "Failed to load profile from database"
         };
       }
+      });
     };
 
     // ─────────────────────────────────────────────────────────
@@ -245,6 +248,7 @@ export class ProfileGraphFactory {
     // Scrapes data from web if input is not provided
     // ─────────────────────────────────────────────────────────
     const scrapeNode = async (state: typeof ProfileGraphState.State) => {
+      return timed("ProfileGraph.scrape", async () => {
       if (state.input && isMeaningfulProfileInput(state.input)) {
         logger.info("Meaningful input already provided - skipping scrape");
         return {};
@@ -321,6 +325,7 @@ export class ProfileGraphFactory {
           error: "Web scrape failed"
         };
       }
+      });
     };
 
     // ─────────────────────────────────────────────────────────
@@ -330,6 +335,7 @@ export class ProfileGraphFactory {
     // Used in 'generate' mode only.
     // ─────────────────────────────────────────────────────────
     const autoGenerateNode = async (state: typeof ProfileGraphState.State) => {
+      return timed("ProfileGraph.autoGenerate", async () => {
       logger.info("Starting auto-generate via Parallels searchUser", {
         userId: state.userId,
       });
@@ -427,6 +433,7 @@ export class ProfileGraphFactory {
         });
         return { error: "Auto-generate failed. Please try again or provide your information manually." };
       }
+      });
     };
 
     // ─────────────────────────────────────────────────────────
@@ -435,6 +442,7 @@ export class ProfileGraphFactory {
     // If updating existing profile, merges new information intelligently.
     // ─────────────────────────────────────────────────────────
     const generateProfileNode = async (state: typeof ProfileGraphState.State) => {
+      return timed("ProfileGraph.generateProfile", async () => {
       if (!state.input) {
         logger.error("No input provided for profile generation");
         return {
@@ -482,6 +490,7 @@ export class ProfileGraphFactory {
           error: "Profile generation failed"
         };
       }
+      });
     };
 
     // ─────────────────────────────────────────────────────────
@@ -489,6 +498,7 @@ export class ProfileGraphFactory {
     // Generates embedding for profile and saves to DB
     // ─────────────────────────────────────────────────────────
     const embedSaveProfileNode = async (state: typeof ProfileGraphState.State) => {
+      return timed("ProfileGraph.embedSaveProfile", async () => {
       if (!state.profile) {
         logger.error("Profile missing in embed step");
         return {
@@ -542,6 +552,7 @@ export class ProfileGraphFactory {
           error: "Failed to embed/save profile"
         };
       }
+      });
     };
 
 
@@ -550,6 +561,7 @@ export class ProfileGraphFactory {
     // Generates Hypothetical Document Embedding description for profile matching
     // ─────────────────────────────────────────────────────────
     const generateHydeNode = async (state: typeof ProfileGraphState.State) => {
+      return timed("ProfileGraph.generateHyde", async () => {
       if (!state.profile) {
         logger.error("Profile missing for HyDE generation");
         return {
@@ -582,6 +594,7 @@ export class ProfileGraphFactory {
           error: "HyDE generation failed"
         };
       }
+      });
     };
 
     // ─────────────────────────────────────────────────────────
@@ -589,6 +602,7 @@ export class ProfileGraphFactory {
     // Generates embedding for HyDE description and saves to DB
     // ─────────────────────────────────────────────────────────
     const embedSaveHydeNode = async (state: typeof ProfileGraphState.State) => {
+      return timed("ProfileGraph.embedSaveHyde", async () => {
       if (!state.hydeDescription) {
         logger.error("HyDE description missing");
         return {
@@ -634,6 +648,7 @@ export class ProfileGraphFactory {
           error: "Failed to embed/save HyDE"
         };
       }
+      });
     };
 
     // ─────────────────────────────────────────────────────────

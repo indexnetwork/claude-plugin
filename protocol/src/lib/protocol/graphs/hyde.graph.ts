@@ -14,6 +14,7 @@ import type { HydeGraphDatabase } from '../interfaces/database.interface';
 import type { EmbeddingGenerator } from '../interfaces/embedder.interface';
 import type { HydeCache } from '../interfaces/cache.interface';
 import { protocolLogger } from '../support/protocol.logger';
+import { timed } from '../../performance';
 
 const logger = protocolLogger("HyDEGraphFactory");
 
@@ -46,6 +47,7 @@ export class HydeGraphFactory {
     const self = this;
 
     const checkCacheNode = async (state: typeof HydeGraphState.State) => {
+      return timed("HydeGraph.checkCache", async () => {
       const { sourceType, sourceId, sourceText, strategies, forceRegenerate } =
         state;
 
@@ -94,6 +96,7 @@ export class HydeGraphFactory {
         requested: strategies.length,
       });
       return { hydeDocuments: cached };
+      });
     };
 
     const shouldGenerate = (state: typeof HydeGraphState.State): string => {
@@ -110,6 +113,7 @@ export class HydeGraphFactory {
     const generateMissingNode = async (
       state: typeof HydeGraphState.State
     ) => {
+      return timed("HydeGraph.generateMissing", async () => {
       const { sourceText, strategies, hydeDocuments, context } = state;
       const missing = strategies.filter((s) => !hydeDocuments[s]);
 
@@ -140,9 +144,11 @@ export class HydeGraphFactory {
       );
 
       return { hydeDocuments: { ...state.hydeDocuments, ...generated } };
+      });
     };
 
     const embedNode = async (state: typeof HydeGraphState.State) => {
+      return timed("HydeGraph.embed", async () => {
       const { hydeDocuments } = state;
       const strategies = Object.keys(hydeDocuments);
       const toEmbed: { strategy: string; doc: HydeDocumentState }[] = [];
@@ -177,9 +183,11 @@ export class HydeGraphFactory {
       }
 
       return { hydeDocuments: updated, hydeEmbeddings };
+      });
     };
 
     const cacheResultsNode = async (state: typeof HydeGraphState.State) => {
+      return timed("HydeGraph.cacheResults", async () => {
       const { sourceType, sourceId, sourceText, hydeDocuments } = state;
 
       for (const strategy of Object.keys(hydeDocuments)) {
@@ -215,6 +223,7 @@ export class HydeGraphFactory {
         count: Object.keys(hydeDocuments).length,
       });
       return {};
+      });
     };
 
     const workflow = new StateGraph(HydeGraphState)
