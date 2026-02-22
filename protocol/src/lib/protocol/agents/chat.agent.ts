@@ -14,6 +14,7 @@ import {
 import { resolveChatContext } from "../tools/tool.helpers";
 import { ITERATION_NUDGE, buildSystemContent } from "./chat.prompt";
 import { protocolLogger } from "../support/protocol.logger";
+import { Timed } from "../../performance";
 
 const logger = protocolLogger("ChatAgent");
 
@@ -186,6 +187,7 @@ export class ChatAgent {
    * @param iterationCount - Current iteration number (for soft limit)
    * @returns Result indicating whether to continue and any tool calls/response
    */
+  @Timed()
   async runIteration(
     messages: BaseMessage[],
     iterationCount: number,
@@ -406,6 +408,7 @@ export class ChatAgent {
    * @param initialMessages - Starting conversation messages
    * @returns Final response text and full message history
    */
+  @Timed()
   async run(initialMessages: BaseMessage[]): Promise<{
     responseText: string;
     messages: BaseMessage[];
@@ -471,6 +474,7 @@ export class ChatAgent {
    * @param writer - Callback to emit streaming events (from `config.writer`)
    * @returns Final response metadata (same shape as `run()`)
    */
+  @Timed()
   async streamRun(
     initialMessages: BaseMessage[],
     writer?: StreamWriter,

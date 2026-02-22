@@ -1,6 +1,7 @@
 import { ChatOpenAI } from "@langchain/openai";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { log } from "../../log";
+import { Timed } from "../../performance";
 
 const logger = log.lib.from("ChatTitleGenerator");
 
@@ -39,6 +40,7 @@ export class ChatTitleGenerator {
    * Suggests a title from the conversation excerpt.
    * Call only when there is at least one user and one assistant message.
    */
+  @Timed()
   async invoke(input: TitleGeneratorInput): Promise<string> {
     const { messages } = input;
     if (messages.length === 0) return "New chat";
