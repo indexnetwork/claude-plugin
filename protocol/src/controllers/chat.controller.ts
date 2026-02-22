@@ -323,20 +323,15 @@ export class ChatController {
             checkpointer,
           )) {
             if (event) {
-              controller.enqueue(encoder.encode(formatSSEEvent(event)));
+              // response_complete is an internal event carrying the agent's
+              // authoritative final text — don't forward it to the SSE client.
+              if (event.type === "response_complete") {
+                fullResponse = event.response;
+              } else {
+                controller.enqueue(encoder.encode(formatSSEEvent(event)));
+              }
 
-              // Accumulate response for persistence.
-              // Reset on each new agent iteration so only the final
-              // iteration's text is persisted (intermediate iterations
-              // produce narration that the model restates afterward).
-              if (
-                event.type === "status" &&
-                event.message.startsWith("__iteration_start:")
-              ) {
-                fullResponse = "";
-              } else if (event.type === "token") {
-                fullResponse += event.content;
-              } else if (event.type === "routing") {
+              if (event.type === "routing") {
                 routingDecision = {
                   target: event.target,
                   reasoning: event.reasoning,
