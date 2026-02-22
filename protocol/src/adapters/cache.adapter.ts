@@ -3,8 +3,69 @@
  * Used for HyDE document caching and opportunity graph.
  */
 
-import { getRedisClient } from '../lib/redis';
+import Redis from 'ioredis';
+
+import { log } from '../lib/log';
 import type { Cache, CacheOptions } from '../lib/protocol/interfaces/cache.interface';
+
+const logger = log.lib.from("cache.adapter");
+
+/* ------------------------------------------------------------------ */
+/*  Shared Redis singleton                                            */
+/* ------------------------------------------------------------------ */
+
+let redis: Redis | null = null;
+
+/**
+ * Get the shared Redis client for general caching/operations.
+ * Uses lazyConnect for efficiency in the main client.
+ */
+export function getRedisClient(): Redis {
+  if (!redis) {
+    // Use REDIS_URL if available, otherwise fall back to individual env vars
+    const redisUrl = process.env.REDIS_URL;
+
+    if (redisUrl) {
+      redis = new Redis(redisUrl, {
+        maxRetriesPerRequest: 3,
+        lazyConnect: true
+      });
+    } else {
+      redis = new Redis({
+        host: process.env.REDIS_HOST || 'localhost',
+        port: parseInt(process.env.REDIS_PORT || '6379'),
+        password: process.env.REDIS_PASSWORD,
+        db: parseInt(process.env.REDIS_DB || '0'),
+        maxRetriesPerRequest: 3,
+        lazyConnect: true
+      });
+    }
+
+    redis.on('error', (err: Error) => {
+      logger.error('Redis error', { error: err.message });
+    });
+
+    redis.on('connect', () => {
+      logger.info('Redis connected');
+    });
+  }
+
+  return redis;
+}
+
+/**
+ * Close the shared Redis connection and reset the singleton.
+ */
+export async function closeRedisConnection(): Promise<void> {
+  if (redis) {
+    await redis.quit();
+    redis = null;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/*  Cache adapter                                                     */
+/* ------------------------------------------------------------------ */
 
 const KEY_PREFIX = 'protocol:';
 
