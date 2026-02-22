@@ -9,6 +9,7 @@ import { ProfileDocument } from "./profile.generator";
  */
 import { config } from "dotenv";
 config({ path: '.env.development', override: true });
+import { Timed } from "../../performance";
 
 const logger = protocolLogger("HyDEGenerator");
 
@@ -80,6 +81,7 @@ export class HydeGenerator {
     return textToEmbed;
   }
 
+  @Timed()
   public async invoke(input: string) {
     logger.info("Received input", { inputLength: input?.length });
     const messages = [

@@ -147,6 +147,17 @@ export const IntentGraphState = Annotation.Root({
     default: () => [],
   }),
 
+  // --- Error State ---
+
+  /**
+   * If set, indicates a fatal error that should short-circuit the graph to END.
+   * Populated by prep when a precondition fails (e.g. missing profile).
+   */
+  error: Annotation<string | undefined>({
+    reducer: (curr, next) => next ?? curr,
+    default: () => undefined,
+  }),
+
   // --- Read Mode Fields ---
 
   /**
