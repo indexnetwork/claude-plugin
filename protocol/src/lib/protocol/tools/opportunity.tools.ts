@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { DefineTool, ToolDeps } from "./tool.helpers";
 import { success, error, UUID_REGEX } from "./tool.helpers";
 import { MINIMAL_MAIN_TEXT_MAX_CHARS } from "../support/opportunity.constants";
-import { viewerCentricCardSummary } from "../support/opportunity.card-text";
+import { viewerCentricCardSummary, narratorRemarkFromReasoning } from "../support/opportunity.card-text";
 import { runDiscoverFromQuery } from "../support/opportunity.discover";
 import type { EvaluatorEntity } from "../agents/opportunity.evaluator";
 import { protocolLogger } from "../support/protocol.logger";
@@ -53,8 +53,9 @@ function buildMinimalOpportunityCard(
   const introducerActor = opp.actors.find(
     (a) => a.role === "introducer" && a.userId !== viewerId,
   );
+  const reasoning = opp.interpretation?.reasoning ?? "";
   const mainText = viewerCentricCardSummary(
-    opp.interpretation?.reasoning ?? "",
+    reasoning,
     counterpartName,
     MINIMAL_MAIN_TEXT_MAX_CHARS,
     viewerName,
@@ -82,7 +83,7 @@ function buildMinimalOpportunityCard(
     mutualIntentsLabel: "Suggested connection",
     narratorChip: {
       name: narratorName,
-      text: "Based on your overlap in this community.",
+      text: narratorRemarkFromReasoning(reasoning, counterpartName),
       ...(introducerActor
         ? { userId: introducerActor.userId, avatar: introducerAvatar ?? null }
         : {}),
@@ -264,7 +265,7 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
           mutualIntentsLabel: "Suggested connection",
           narratorChip: {
             name: introducerUser?.name ?? "A member",
-            text: "Based on your overlap in this community.",
+            text: narratorRemarkFromReasoning(reasoning, counterpartName),
             userId: context.userId,
           },
           viewerRole: "introducer",

@@ -104,3 +104,91 @@ export function viewerCentricCardSummary(
   if (fromCounterpart.length <= maxChars) return fromCounterpart;
   return fromCounterpart.slice(0, maxChars) + "...";
 }
+
+/** Max length for narrator chip text (matches LLM presenter schema). */
+const NARRATOR_MAX_CHARS = 80;
+
+const FALLBACK_REMARK = "A potential connection worth exploring.";
+
+/**
+ * Generates a short narrator remark from opportunity reasoning for the narrator chip.
+ * Used by the minimal (no-LLM) card path so each card gets a unique remark
+ * instead of the same static text.
+ *
+ * @param reasoning - Raw interpretation.reasoning text.
+ * @param counterpartName - Display name of the counterpart (excluded from the remark).
+ * @returns A short remark (max ~80 chars) suitable for the narrator chip.
+ */
+export function narratorRemarkFromReasoning(
+  reasoning: string,
+  counterpartName: string,
+): string {
+  const raw = stripUuids(reasoning).trim();
+  if (!raw) return FALLBACK_REMARK;
+
+  // Extract a short clause that captures the *why* of the match.
+  // Strategy: find key matching phrases and distill into a short remark.
+  const sentences = splitSentences(raw);
+  const cpName = counterpartName.trim();
+  const cpLower = cpName.toLowerCase();
+  const cpFirst = cpName.split(/\s+/)[0]?.toLowerCase();
+
+  // Remove sentences that are just about a person's identity (starts with their name).
+  // We want the "why" not the "who".
+  const whySentences = sentences.filter((s) => {
+    const sl = s.toLowerCase();
+    // Skip sentences that start with the counterpart's name (identity descriptions)
+    if (cpLower && sl.startsWith(cpLower)) return false;
+    if (cpFirst && cpFirst.length > 1 && sl.startsWith(cpFirst)) return false;
+    return true;
+  });
+
+  // Look for sentences with matching-signal keywords
+  const matchSignals =
+    /\b(both|complementary|overlap|shared|mutual|align|match|collaborat|connect|similar|common|together|synerg|fit|looking for|seeking|needs?)\b/i;
+  const signalSentence = (whySentences.length > 0 ? whySentences : sentences).find(
+    (s) => matchSignals.test(s),
+  );
+
+  const sourceSentence = signalSentence ?? whySentences[0] ?? sentences[0];
+  if (!sourceSentence) return FALLBACK_REMARK;
+
+  // Clean: remove names so the remark is about the relationship, not the person
+  let remark = sourceSentence;
+  if (cpName) {
+    // Remove full name and first name references
+    remark = remark.replace(new RegExp(escapeRegex(cpName), "gi"), "").trim();
+    if (cpFirst && cpFirst.length > 1) {
+      // Only replace standalone first name (word boundary)
+      remark = remark.replace(new RegExp(`\\b${escapeRegex(cpFirst)}\\b`, "gi"), "").trim();
+    }
+  }
+
+  // Clean up artifacts from name removal (leading commas, double spaces, etc.)
+  remark = remark
+    .replace(/^[\s,;:–—-]+/, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+
+  // Lowercase the first letter if it was mid-sentence before name removal
+  if (remark.length > 0) {
+    remark = remark[0].toLowerCase() + remark.slice(1);
+  }
+
+  // Prefix to make it narrator-style
+  remark = `Spotted ${remark}`;
+
+  // Clean double periods
+  remark = remark.replace(/\.{2,}/g, ".").trim();
+
+  // Truncate to max chars
+  if (remark.length > NARRATOR_MAX_CHARS) {
+    remark = remark.slice(0, NARRATOR_MAX_CHARS - 3).trimEnd() + "...";
+  }
+
+  return remark;
+}
+
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}

@@ -20,7 +20,7 @@ import {
   type HomeCardPresenterInput,
 } from "../agents/opportunity.presenter";
 import { MINIMAL_MAIN_TEXT_MAX_CHARS } from "./opportunity.constants";
-import { viewerCentricCardSummary } from "./opportunity.card-text";
+import { viewerCentricCardSummary, narratorRemarkFromReasoning } from "./opportunity.card-text";
 import { protocolLogger, withCallLogging } from "./protocol.logger";
 
 const logger = protocolLogger("OpportunityDiscover");
@@ -297,17 +297,18 @@ export async function runDiscoverFromQuery(
         }) => n.profile?.identity?.name ?? nameByUserId.get(n.candidateUserId) ?? "";
         homeCardPresentations = baseEnriched.map((item) => {
           const name = counterpartName(item);
+          const reasoning = item.opportunity.interpretation?.reasoning ?? "";
           return {
             headline: `Connection with ${name}`,
             personalizedSummary:
               viewerCentricCardSummary(
-                item.opportunity.interpretation?.reasoning ?? "",
+                reasoning,
                 name,
                 MINIMAL_MAIN_TEXT_MAX_CHARS,
                 viewerName,
               ),
             suggestedAction: "Start a conversation to connect.",
-            narratorRemark: "Based on your overlap in this community.",
+            narratorRemark: narratorRemarkFromReasoning(reasoning, name),
             primaryActionLabel: "Start Chat",
             secondaryActionLabel: "Skip",
             mutualIntentsLabel: "Suggested connection",

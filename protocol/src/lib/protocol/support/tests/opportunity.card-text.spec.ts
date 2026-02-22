@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
-import { viewerCentricCardSummary } from "../opportunity.card-text";
+import { viewerCentricCardSummary, narratorRemarkFromReasoning } from "../opportunity.card-text";
 
 describe("viewerCentricCardSummary", () => {
   // ── Existing behavior (should remain unchanged) ──
@@ -93,5 +93,59 @@ describe("viewerCentricCardSummary", () => {
     // Should extract the counterpart portion
     expect(result).toContain("Elena Petrova");
     expect(result).not.toMatch(/^Yankı/);
+  });
+});
+
+describe("narratorRemarkFromReasoning", () => {
+  it("returns a fallback when reasoning is empty", () => {
+    const result = narratorRemarkFromReasoning("", "Alex Chen");
+    expect(result).toBe("A potential connection worth exploring.");
+  });
+
+  it("produces a remark that differs from the static default", () => {
+    const reasoning =
+      "Both users share deep expertise in AI and machine learning, making them strong collaborators.";
+    const result = narratorRemarkFromReasoning(reasoning, "Alex Chen");
+    expect(result).not.toBe("Based on your overlap in this community.");
+  });
+
+  it("keeps the remark under 80 characters", () => {
+    const reasoning =
+      "Yankı Ekin Yüksel is interested in AI in software development and could potentially collaborate with Elena Petrova, an applied AI researcher building an AI operations toolkit and looking for technical collaborators in the machine learning space.";
+    const result = narratorRemarkFromReasoning(reasoning, "Elena Petrova");
+    expect(result.length).toBeLessThanOrEqual(80);
+  });
+
+  it("does not include the counterpart full name in the remark", () => {
+    const reasoning =
+      "Elena Petrova is an applied AI researcher. Strong match for mentorship collaboration.";
+    const result = narratorRemarkFromReasoning(reasoning, "Elena Petrova");
+    expect(result).not.toContain("Elena Petrova");
+  });
+
+  it("produces different remarks for different reasoning texts", () => {
+    const r1 = narratorRemarkFromReasoning(
+      "Both share expertise in AI and machine learning.",
+      "Alex Chen",
+    );
+    const r2 = narratorRemarkFromReasoning(
+      "One is looking for a designer, the other is a UX specialist.",
+      "Yuki Tanaka",
+    );
+    expect(r1).not.toBe(r2);
+  });
+
+  it("strips UUIDs from the remark", () => {
+    const reasoning =
+      "Match e037ca5a-d5ce-426e-80d1-376abc123def between users based on complementary skills.";
+    const result = narratorRemarkFromReasoning(reasoning, "Someone");
+    expect(result).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}/);
+  });
+
+  it("does not start with the counterpart's name", () => {
+    const reasoning =
+      "Alex Chen has strong React skills. The viewer needs a frontend developer.";
+    const result = narratorRemarkFromReasoning(reasoning, "Alex Chen");
+    expect(result).not.toMatch(/^Alex/i);
   });
 });
