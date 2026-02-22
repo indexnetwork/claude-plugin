@@ -259,20 +259,7 @@ export default function OpportunityCard({
     );
   }
 
-  // If action was already taken (in chat context), show a minimal confirmation
-  if (actionTaken) {
-    return (
-      <div className="bg-gray-50 rounded-lg p-4 my-2 text-center text-sm text-gray-500">
-        {actionTaken === "accepted" ? (
-          <span>✓ You accepted this connection</span>
-        ) : (
-          <span>This opportunity was dismissed</span>
-        )}
-      </div>
-    );
-  }
-
-  const hasActions = canTakeAction && (onPrimaryAction || onSecondaryAction);
+  const hasActions = !actionTaken && canTakeAction && (onPrimaryAction || onSecondaryAction);
   const showResolvedStatus = !canTakeAction && statusMessage;
 
   return (
@@ -318,7 +305,7 @@ export default function OpportunityCard({
                 onClick={handlePrimaryAction}
               >
                 {isLoading
-                  ? "Working..."
+                  ? "On it..."
                   : card.primaryActionLabel || "Start Chat"}
               </button>
             )}
@@ -334,7 +321,13 @@ export default function OpportunityCard({
             )}
           </div>
         )}
-        {showResolvedStatus && (
+        {actionTaken && (
+          <div className="flex items-center gap-1.5 shrink-0 text-sm text-gray-500">
+            <Check className="w-4 h-4 text-green-600 shrink-0" />
+            <span>{actionTaken === "accepted" ? "Sent" : "Dismissed"}</span>
+          </div>
+        )}
+        {!actionTaken && showResolvedStatus && (
           <div className="flex items-center gap-1.5 shrink-0 text-sm text-gray-600">
             {effectiveStatus === "accepted" && (
               <Check className="w-4 h-4 text-green-600 shrink-0" />
