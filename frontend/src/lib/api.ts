@@ -1,6 +1,6 @@
 import { useCallback, useMemo } from 'react';
 
-import { authClient } from './auth-client';
+import { authClient, getJwtToken } from './auth-client';
 
 // API Configuration
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL!;
@@ -30,9 +30,11 @@ class APIClient {
     options: RequestInit = {}
   ): Promise<T> {
     const url = `${this.baseURL}${endpoint}`;
+    const token = await getJwtToken();
 
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`,
       ...(options.headers as Record<string, string>),
     };
 
@@ -40,7 +42,6 @@ class APIClient {
       const response = await fetch(url, {
         ...options,
         headers,
-        credentials: 'include',
       });
 
       if (!response.ok) {
@@ -117,6 +118,48 @@ class APIClient {
     });
   }
 
+  /** POST that returns the raw Response (for SSE / streaming). */
+  async stream(
+    endpoint: string,
+    data?: unknown,
+    options?: { signal?: AbortSignal }
+  ): Promise<Response> {
+    const url = `${this.baseURL}${endpoint}`;
+    const token = await getJwtToken();
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+      body: data ? JSON.stringify(data) : undefined,
+      signal: options?.signal,
+    });
+    return response;
+  }
+
+  /** POST a FormData body (multiple files / fields). */
+  async uploadFormData<T>(endpoint: string, formData: FormData): Promise<T> {
+    const url = `${this.baseURL}${endpoint}`;
+    const token = await getJwtToken();
+    const response = await fetch(url, {
+      method: 'POST',
+      body: formData,
+      headers: { 'Authorization': `Bearer ${token}` },
+    });
+
+    if (!response.ok) {
+      let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+      try {
+        const errorData = await response.json();
+        errorMessage = errorData.error || errorData.message || errorMessage;
+      } catch { /* keep default */ }
+      throw new APIError(errorMessage, response.status);
+    }
+
+    return response.json();
+  }
+
   // File upload
   async uploadFile<T>(
     endpoint: string,
@@ -134,10 +177,11 @@ class APIClient {
       });
     }
 
+    const token = await getJwtToken();
     const response = await fetch(`${this.baseURL}${endpoint}`, {
       method: 'POST',
       body: formData,
-      credentials: 'include',
+      headers: { 'Authorization': `Bearer ${token}` },
     });
 
     if (!response.ok) {

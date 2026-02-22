@@ -1,14 +1,18 @@
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
-import { magicLink, bearer } from "better-auth/plugins";
+import { magicLink, bearer, jwt } from "better-auth/plugins";
 
 import db from "./drizzle/drizzle";
 import * as schema from "../schemas/database.schema";
 import { getTrustedOrigins } from "./cors";
 import { sendMagicLinkEmail } from "./email/magic-link.handler";
+import { ensureUserWallets } from "../services/wallet.service";
+
+export const PROTOCOL_URL =
+  process.env.PROTOCOL_URL || `http://localhost:${process.env.PORT || 3001}`;
 
 export const auth = betterAuth({
-  baseURL: process.env.PROTOCOL_URL,
+  baseURL: PROTOCOL_URL,
   database: drizzleAdapter(db, {
     provider: "pg",
     schema: {
@@ -17,8 +21,20 @@ export const auth = betterAuth({
       session: schema.sessions,
       account: schema.accounts,
       verification: schema.verifications,
+      jwks: schema.jwks,
     },
   }),
+  databaseHooks: {
+    user: {
+      create: {
+        after: async (user) => {
+          try {
+            await ensureUserWallets(user.id);
+          } catch (_) { /* wallet generation failure shouldn't block registration */ }
+        },
+      },
+    },
+  },
   basePath: "/api/auth",
   emailAndPassword: { enabled: true },
   user: {
@@ -45,6 +61,17 @@ export const auth = betterAuth({
       expiresIn: 600,
     }),
     bearer(),
+    jwt({
+      jwt: {
+        issuer: PROTOCOL_URL,
+        expirationTime: "1h",
+        definePayload: ({ user }) => ({
+          id: user.id,
+          email: user.email,
+          name: user.name,
+        }),
+      },
+    }),
   ],
   advanced: {
     defaultCookieAttributes: {

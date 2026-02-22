@@ -9,6 +9,7 @@ import React, {
 } from "react";
 import { usePathname } from "next/navigation";
 import { useAIChatSessions } from "@/contexts/AIChatSessionsContext";
+import { apiClient } from "@/lib/api";
 import type { Suggestion } from "@/hooks/useSuggestions";
 
 interface ThinkingStep {
@@ -140,18 +141,9 @@ export function AIChatProvider({ children }: { children: React.ReactNode }) {
           ...(scopeIndexId ? { indexId: scopeIndexId } : {}),
         };
 
-        const response = await fetch(
-          `${process.env.NEXT_PUBLIC_API_URL}/chat/stream`,
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify(bodyPayload),
-            signal: abortControllerRef.current.signal,
-            credentials: "include",
-          },
-        );
+        const response = await apiClient.stream("/chat/stream", bodyPayload, {
+          signal: abortControllerRef.current.signal,
+        });
 
         // Get session ID from header (new session created)
         const newSessionId = response.headers.get("X-Session-Id");
@@ -316,17 +308,7 @@ export function AIChatProvider({ children }: { children: React.ReactNode }) {
 
   const loadSession = useCallback(async (id: string) => {
     try {
-      const base = process.env.NEXT_PUBLIC_API_URL || "";
-      const res = await fetch(`${base}/chat/session`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ sessionId: id }),
-        credentials: "include",
-      });
-      if (!res.ok) throw new Error("Failed to load session");
-      const data = (await res.json()) as {
+      const data = await apiClient.post<{
         session: {
           id: string;
           title?: string | null;
@@ -338,7 +320,7 @@ export function AIChatProvider({ children }: { children: React.ReactNode }) {
           content: string;
           createdAt: string;
         }>;
-      };
+      }>("/chat/session", { sessionId: id });
       setSessionId(data.session.id);
       setSessionTitle(data.session.title?.trim() ?? null);
       setSuggestions([]); // Session load does not return suggestions; next response will
@@ -364,16 +346,7 @@ export function AIChatProvider({ children }: { children: React.ReactNode }) {
       if (!trimmed) return false;
 
       try {
-        const base = process.env.NEXT_PUBLIC_API_URL || "";
-        const res = await fetch(`${base}/chat/session/title`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ sessionId: id, title: trimmed }),
-          credentials: "include",
-        });
-        if (!res.ok) return false;
+        await apiClient.post("/chat/session/title", { sessionId: id, title: trimmed });
         if (sessionId === id) {
           setSessionTitle(trimmed);
         }
