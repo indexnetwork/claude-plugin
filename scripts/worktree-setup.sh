@@ -35,14 +35,12 @@ for ws in "${WORKSPACES[@]}"; do
     continue
   fi
 
-  # Symlink node_modules
-  if [ -L "$ws_dst/node_modules" ]; then
-    echo "  [$ws] node_modules already linked"
-  elif [ -d "$ws_src/node_modules" ]; then
-    ln -s "$ws_src/node_modules" "$ws_dst/node_modules"
-    echo "  [$ws] node_modules -> linked"
+  # Install node_modules (symlinks break Turbopack in Next.js projects)
+  if [ -d "$ws_dst/node_modules" ]; then
+    echo "  [$ws] node_modules already installed"
   else
-    echo "  [$ws] node_modules -> warning: source not found (run bun install first)"
+    echo "  [$ws] node_modules -> installing..."
+    (cd "$ws_dst" && bun install --frozen-lockfile 2>&1 | tail -1)
   fi
 
   # Symlink .env* files (excluding .env.example)

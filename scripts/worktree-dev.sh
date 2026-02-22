@@ -23,7 +23,11 @@ if [ ! -d "$WORKTREE" ]; then
 fi
 
 # Auto-setup if not already done
-if ! ls "$WORKTREE"/*/node_modules >/dev/null 2>&1; then
+has_node_modules=false
+for ws in protocol frontend evaluator; do
+  [ -d "$WORKTREE/$ws/node_modules" ] && has_node_modules=true && break
+done
+if [ "$has_node_modules" = false ]; then
   echo "Worktree not set up yet — running worktree:setup first..."
   echo ""
   bash "$REPO_ROOT/scripts/worktree-setup.sh" "$1"

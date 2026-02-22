@@ -16,10 +16,10 @@ for wt in "$WORKTREES_DIR"/*/; do
   [ -d "$wt" ] || continue
   name="$(basename "$wt")"
 
-  # Check setup status by looking for any node_modules symlink
+  # Check setup status by looking for any node_modules directory
   setup="not set up"
   for ws in protocol frontend evaluator; do
-    if [ -L "$wt$ws/node_modules" ]; then
+    if [ -d "$wt$ws/node_modules" ]; then
       setup="set up"
       break
     fi
