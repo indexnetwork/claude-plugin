@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import Image from 'next/image';
 import Avatar from 'boring-avatars';
 
@@ -19,19 +20,7 @@ function resolveAvatarSrc(avatar: string): string {
   return `/storage/${cleanPath}`;
 }
 
-export default function UserAvatar({ id, name, avatar, size, className }: UserAvatarProps) {
-  if (avatar) {
-    return (
-      <Image
-        src={resolveAvatarSrc(avatar)}
-        alt={name || 'User'}
-        width={size}
-        height={size}
-        className={`rounded-full${className ? ` ${className}` : ''}`}
-      />
-    );
-  }
-
+function BoringFallback({ id, name, size, className }: Omit<UserAvatarProps, 'avatar'>) {
   return (
     <div
       className={`rounded-full overflow-hidden flex-shrink-0${className ? ` ${className}` : ''}`}
@@ -43,5 +32,24 @@ export default function UserAvatar({ id, name, avatar, size, className }: UserAv
         variant="bauhaus"
       />
     </div>
+  );
+}
+
+export default function UserAvatar({ id, name, avatar, size, className }: UserAvatarProps) {
+  const [imgError, setImgError] = useState(false);
+
+  if (!avatar || imgError) {
+    return <BoringFallback id={id} name={name} size={size} className={className} />;
+  }
+
+  return (
+    <Image
+      src={resolveAvatarSrc(avatar)}
+      alt={name || 'User'}
+      width={size}
+      height={size}
+      className={`rounded-full${className ? ` ${className}` : ''}`}
+      onError={() => setImgError(true)}
+    />
   );
 }
