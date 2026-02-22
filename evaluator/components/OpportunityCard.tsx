@@ -210,15 +210,14 @@ export default function OpportunityCard({ card }: { card: OpportunityCardData })
             <div className="relative shrink-0">
               {card.narratorChip.name === "Index" ? (
                 <Bot className="w-7 h-7 text-[#3D3D3D]" />
-              ) : (
-                {card.narratorChip.avatar ? (
+              ) : card.narratorChip.avatar ? (
                   <img src={card.narratorChip.avatar} alt={card.narratorChip.name} className="w-7 h-7 rounded-full object-cover" />
                 ) : (
                   <div className="w-7 h-7 rounded-full bg-black flex items-center justify-center text-[10px] font-semibold text-white overflow-hidden">
                     {getInitials(card.narratorChip.name)}
                   </div>
-                )}
-              )}
+                )
+              }
             </div>
             <span className="text-[13px] text-[#3D3D3D]">
               <span className="font-semibold">{card.narratorChip.name}:</span>{" "}
