@@ -36,7 +36,7 @@ import remarkGfm from "remark-gfm";
 import { useIndexFilter } from "@/contexts/IndexFilterContext";
 import { useIndexesState } from "@/contexts/IndexesContext";
 import { useSuggestions } from "@/hooks/useSuggestions";
-import Image from "next/image";
+
 import { mentionsToMarkdownLinks } from "@/lib/mentions";
 import type { HomeViewSection } from "@/services/opportunities";
 import { DynamicIcon, type IconName } from "lucide-react/dynamic";
@@ -368,7 +368,7 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
     meta: { totalOpportunities: number; totalSections: number };
   } | null>(null);
   const [homeViewLoading, setHomeViewLoading] = useState(false);
-  const [homeViewError, setHomeViewError] = useState<string | null>(null);
+  const [, setHomeViewError] = useState<string | null>(null);
   const [opportunityActionLoading, setOpportunityActionLoading] =
     useState<Record<string, boolean>>({});
 
@@ -421,7 +421,7 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
         setHomeViewData(null);
         setHomeViewLoading(false);
       });
-  }, [USE_HOME_API, messages.length, selectedIndexId, opportunitiesService]);
+  }, [messages.length, selectedIndexId, opportunitiesService]);
 
   const handleSuggestionClick = useCallback(
     (suggestion: {
@@ -656,7 +656,7 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
           <div className="mt-12 mb-6 flex justify-center">
             <div className="h-8 w-48 bg-gray-100 rounded-sm" />
           </div>
-          <div className="h-14 bg-gray-100 rounded-[32px] mb-6" />
+          <div className="h-14 bg-gray-100 rounded-4xl mb-6" />
           <div className="mt-12 space-y-3">
             <div className="flex items-center gap-2 mb-3">
               <div className="w-3.5 h-3.5 bg-gray-100 rounded-sm" />
@@ -680,7 +680,7 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
             {selectedFiles.map(({ id, file }) => (
               <span
                 key={id}
-                className="inline-flex items-center gap-1.5 px-2 py-1 rounded bg-gray-100 text-gray-800 text-sm font-ibm-plex-mono max-w-[200px]"
+                className="inline-flex items-center gap-1.5 px-2 py-1 rounded bg-gray-100 text-gray-800 text-sm font-ibm-plex-mono max-w-50"
               >
                 <span className="truncate" title={file.name}>
                   {file.name}
@@ -699,7 +699,7 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
         )}
         <form
           onSubmit={handleSubmit}
-          className="flex items-end gap-3 bg-[#F8F8F8] border border-[#E9E9E9] rounded-[32px] px-4 py-3"
+          className="flex items-end gap-3 bg-[#F8F8F8] border border-[#E9E9E9] rounded-4xl px-4 py-3"
         >
           <input
             ref={fileInputRef}
@@ -770,7 +770,7 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
               <div className="bg-[linear-gradient(to_bottom,transparent_50%,#ffffff_50%)]">
                 <form
                   onSubmit={handleSubmit}
-                  className="flex items-end gap-3 bg-[#F8F8F8] border border-[#E9E9E9] rounded-[32px] px-4 py-3 mb-6"
+                  className="flex items-end gap-3 bg-[#F8F8F8] border border-[#E9E9E9] rounded-4xl px-4 py-3 mb-6"
                 >
                   <input
                     ref={fileInputRef}
@@ -800,7 +800,7 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
                     inputRef={inputRef}
                   />
                   {indexes.length > 0 && (
-                    <div className="relative flex-shrink-0">
+                    <div className="relative shrink-0">
                       <button
                         type="button"
                         onClick={() =>
@@ -835,7 +835,7 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
                             className="fixed inset-0 z-10"
                             onClick={() => setIsIndexDropdownOpen(false)}
                           />
-                          <div className="absolute right-0 top-full mt-2 z-20 bg-white border border-gray-200 rounded-lg shadow-lg py-1 min-w-[160px]">
+                          <div className="absolute right-0 top-full mt-2 z-20 bg-white border border-gray-200 rounded-lg shadow-lg py-1 min-w-40">
                             <button
                               type="button"
                               onClick={() => {
@@ -892,9 +892,9 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
                                 >
                                   {index.permissions?.joinPolicy ===
                                   "invite_only" ? (
-                                    <Lock className="w-4 h-4 flex-shrink-0" />
+                                    <Lock className="w-4 h-4 shrink-0" />
                                   ) : (
-                                    <Globe className="w-4 h-4 flex-shrink-0" />
+                                    <Globe className="w-4 h-4 shrink-0" />
                                   )}
                                   <span className="truncate">
                                     {index.title}
@@ -1013,7 +1013,7 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
           <div className="bg-[linear-gradient(to_bottom,transparent_50%,#ffffff_50%)]">
             <form
               onSubmit={handleSubmit}
-              className="flex items-end gap-3 bg-[#F8F8F8] border border-[#E9E9E9] rounded-[32px] px-4 py-3"
+              className="flex items-end gap-3 bg-[#F8F8F8] border border-[#E9E9E9] rounded-4xl px-4 py-3"
             >
               <input
                 ref={fileInputRef}
@@ -1043,7 +1043,7 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
                 inputRef={inputRef}
               />
               {indexes.length > 0 && (
-                <div className="relative flex-shrink-0">
+                <div className="relative shrink-0">
                   <button
                     type="button"
                     onClick={() => setIsIndexDropdownOpen(!isIndexDropdownOpen)}
@@ -1073,7 +1073,7 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
                         className="fixed inset-0 z-10"
                         onClick={() => setIsIndexDropdownOpen(false)}
                       />
-                      <div className="absolute right-0 top-full mt-2 z-20 bg-white border border-gray-200 rounded-lg shadow-lg py-1 min-w-[160px]">
+                      <div className="absolute right-0 top-full mt-2 z-20 bg-white border border-gray-200 rounded-lg shadow-lg py-1 min-w-40">
                         <button
                           type="button"
                           onClick={() => {
@@ -1130,9 +1130,9 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
                             >
                               {index.permissions?.joinPolicy ===
                               "invite_only" ? (
-                                <Lock className="w-4 h-4 flex-shrink-0" />
+                                <Lock className="w-4 h-4 shrink-0" />
                               ) : (
-                                <Globe className="w-4 h-4 flex-shrink-0" />
+                                <Globe className="w-4 h-4 shrink-0" />
                               )}
                               <span className="truncate">{index.title}</span>
                             </button>
@@ -1162,7 +1162,7 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
               {selectedFiles.map(({ id, file }) => (
                 <span
                   key={id}
-                  className="inline-flex items-center gap-1.5 px-2 py-1 rounded bg-gray-100 text-gray-800 text-sm font-ibm-plex-mono max-w-[200px]"
+                  className="inline-flex items-center gap-1.5 px-2 py-1 rounded bg-gray-100 text-gray-800 text-sm font-ibm-plex-mono max-w-50"
                 >
                   <span className="truncate" title={file.name}>
                     {file.name}
@@ -1185,7 +1185,7 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
               loop
               muted
               playsInline
-              className="mb-8 w-[340px] h-[300px] object-contain"
+              className="mb-8 w-85 h-75 object-contain"
             />
             <h2 className="text-lg font-bold text-gray-900 font-ibm-plex-mono mb-3">
               It&apos;s quiet here, but your signal is in motion
@@ -1207,8 +1207,8 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
 
   return (
     <>
-      {/* Sticky header - full width, min-h-[68px] matches ChatView header height */}
-      <div className="sticky top-0 bg-white z-10 px-4 py-3 flex items-center gap-3 min-h-[68px]">
+      {/* Sticky header - full width, min-h-17 matches ChatView header height */}
+      <div className="sticky top-0 bg-white z-10 px-4 py-3 flex items-center gap-3 min-h-17">
         <button
           type="button"
           onClick={() => {
@@ -1282,7 +1282,7 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
                 ) : (
                   <Globe className="w-3 h-3" />
                 )}
-                <span className="truncate max-w-[120px]">
+                <span className="truncate max-w-30">
                   {boundIndex.title}
                 </span>
               </span>
@@ -1307,7 +1307,7 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
                     className={cn(
                       msg.role === "user" ? "max-w-[75%]" : "max-w-[90%]",
                       msg.role === "user"
-                        ? "bg-[#FAFAFA] text-gray-900 border border-[#E8E8E8] rounded-[32px] px-4 py-1 text-sm leading-relaxed"
+                        ? "bg-[#FAFAFA] text-gray-900 border border-[#E8E8E8] rounded-4xl px-4 py-1 text-sm leading-relaxed"
                         : "text-gray-900",
                     )}
                   >
