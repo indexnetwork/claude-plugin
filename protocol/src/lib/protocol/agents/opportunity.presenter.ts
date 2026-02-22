@@ -613,9 +613,10 @@ export async function gatherPresenterContext(
     otherPartyIds.length === 1 && otherProfiles[0]
       ? (otherProfiles[0] as { identity?: { name?: string } })?.identity?.name?.trim()
       : undefined;
+  const viewerNameForFilter = viewerProfile?.identity?.name?.trim();
   const matchReasoning =
     counterpartName && interp.reasoning
-      ? viewerCentricCardSummary(interp.reasoning, counterpartName, 400)
+      ? viewerCentricCardSummary(interp.reasoning, counterpartName, 400, viewerNameForFilter)
       : stripUuids(interp.reasoning);
 
   const result: PresenterInput = {

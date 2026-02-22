@@ -20,7 +20,7 @@ import {
   type HomeCardPresenterInput,
 } from "../agents/opportunity.presenter";
 import { MINIMAL_MAIN_TEXT_MAX_CHARS } from "./opportunity.constants";
-import { viewerCentricCardSummary } from "./opportunity.card-text";
+import { viewerCentricCardSummary, narratorRemarkFromReasoning } from "./opportunity.card-text";
 import { protocolLogger, withCallLogging } from "./protocol.logger";
 
 const logger = protocolLogger("OpportunityDiscover");
@@ -255,6 +255,34 @@ export async function runDiscoverFromQuery(
         }),
       );
 
+      // Batch-fetch user records (candidates + introducers) for name/avatar fallback.
+      // Moved before presentation so name fallback and viewerName are available.
+      const introducerUserIds = new Set<string>();
+      for (const item of baseEnriched) {
+        const introducer = item.opportunity.actors.find(
+          (a) => a.role === "introducer" && a.userId !== userId,
+        );
+        if (introducer?.userId) introducerUserIds.add(introducer.userId);
+      }
+      const candidateUserIds = [
+        ...new Set([
+          ...baseEnriched.map((item) => item.candidateUserId),
+          ...introducerUserIds,
+        ]),
+      ];
+      const [viewerUser, ...userResults] = await Promise.all([
+        database.getUser(userId),
+        ...candidateUserIds.map((id) => database.getUser(id)),
+      ]);
+      const avatarByUserId = new Map<string, string | null>();
+      const nameByUserId = new Map<string, string | null>();
+      candidateUserIds.forEach((id, i) => {
+        const user = userResults[i] ?? null;
+        avatarByUserId.set(id, user?.avatar ?? null);
+        nameByUserId.set(id, user?.name ?? null);
+      });
+      const viewerName = viewerUser?.name ?? undefined;
+
       let presentations: OpportunityPresentationResult[] | undefined;
       let homeCardPresentations: HomeCardPresentationResult[] | undefined;
       let presenterContexts:
@@ -265,19 +293,22 @@ export async function runDiscoverFromQuery(
         // Minimal path: no LLM, viewer-centric card text (introduce counterpart to viewer)
         const counterpartName = (n: {
           profile?: { identity?: { name?: string } } | null;
-        }) => n.profile?.identity?.name ?? "";
+          candidateUserId: string;
+        }) => n.profile?.identity?.name ?? nameByUserId.get(n.candidateUserId) ?? "";
         homeCardPresentations = baseEnriched.map((item) => {
           const name = counterpartName(item);
+          const reasoning = item.opportunity.interpretation?.reasoning ?? "";
           return {
             headline: `Connection with ${name}`,
             personalizedSummary:
               viewerCentricCardSummary(
-                item.opportunity.interpretation?.reasoning ?? "",
+                reasoning,
                 name,
                 MINIMAL_MAIN_TEXT_MAX_CHARS,
+                viewerName,
               ),
             suggestedAction: "Start a conversation to connect.",
-            narratorRemark: "Based on your overlap in this community.",
+            narratorRemark: narratorRemarkFromReasoning(reasoning, name, viewerName),
             primaryActionLabel: "Start Chat",
             secondaryActionLabel: "Skip",
             mutualIntentsLabel: "Suggested connection",
@@ -337,29 +368,6 @@ export async function runDiscoverFromQuery(
         }
       }
 
-      // Batch-fetch user avatars (candidates + introducers for narrator chip)
-      const introducerUserIds = new Set<string>();
-      for (const item of baseEnriched) {
-        const introducer = item.opportunity.actors.find(
-          (a) => a.role === "introducer" && a.userId !== userId,
-        );
-        if (introducer?.userId) introducerUserIds.add(introducer.userId);
-      }
-      const candidateUserIds = [
-        ...new Set([
-          ...baseEnriched.map((item) => item.candidateUserId),
-          ...introducerUserIds,
-        ]),
-      ];
-      const userResults = await Promise.all(
-        candidateUserIds.map((id) => database.getUser(id)),
-      );
-      const avatarByUserId = new Map<string, string | null>();
-      candidateUserIds.forEach((id, i) => {
-        const user = userResults[i] ?? null;
-        avatarByUserId.set(id, user?.avatar ?? null);
-      });
-
       const enriched: FormattedDiscoveryCandidate[] = baseEnriched.map(
         (item, idx) => {
           const homeCard = homeCardPresentations?.[idx];
@@ -390,7 +398,7 @@ export async function runDiscoverFromQuery(
           return {
             opportunityId: item.opportunity.id,
             userId: item.candidateUserId,
-            name: item.profile?.identity?.name ?? undefined,
+            name: item.profile?.identity?.name ?? nameByUserId.get(item.candidateUserId) ?? undefined,
             avatar: avatarByUserId.get(item.candidateUserId) ?? null,
             bio: truncateForChat(item.profile?.identity?.bio),
             matchReason:
