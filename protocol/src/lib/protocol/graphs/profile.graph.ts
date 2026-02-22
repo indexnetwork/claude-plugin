@@ -77,169 +77,169 @@ export class ProfileGraphFactory {
     // ─────────────────────────────────────────────────────────
     const checkStateNode = async (state: typeof ProfileGraphState.State) => {
       return timed("ProfileGraph.checkState", async () => {
-      if (!state.userId) {
-        logger.error("Missing userId");
-        return {
-          error: "userId is required"
-        };
-      }
-
-      logger.info("Checking profile state...", { 
-        userId: state.userId,
-        operationMode: state.operationMode,
-        forceUpdate: state.forceUpdate
-      });
-
-      try {
-        const profile = await this.database.getProfile(state.userId) as any;
-
-        // Query mode: Just return the profile (fast path)
-        if (state.operationMode === 'query') {
-          logger.info("🚀 Query mode - returning existing profile (fast path)", {
-            hasProfile: !!profile
-          });
-          const profileWithId = profile ? await this.database.getProfileByUserId(state.userId) : null;
+        if (!state.userId) {
+          logger.error("Missing userId");
           return {
-            profile: profile || undefined,
-            readResult: profile
-              ? {
-                  hasProfile: true,
-                  profile: {
-                    id: profileWithId?.id,
-                    name: profile.identity.name,
-                    bio: profile.identity.bio,
-                    location: profile.identity.location,
-                    skills: profile.attributes.skills,
-                    interests: profile.attributes.interests,
-                  },
-                }
-              : {
-                  hasProfile: false,
-                  message:
-                    "You don't have a profile yet. Would you like to create one? You can share your LinkedIn, GitHub, or X/Twitter profile, or just tell me about yourself.",
-                },
+            error: "userId is required"
           };
         }
 
-        // Write mode: Detect what needs generation
-        // Treat confirmation-only input (e.g. "Yes") as no input so we ask for info / use scraper
-        const hasMeaningfulInput = !!state.input && isMeaningfulProfileInput(state.input);
-        const needsProfileGeneration = !profile || (state.forceUpdate && hasMeaningfulInput);
-        const needsProfileEmbedding = profile && (!profile.embedding || profile.embedding.length === 0);
-        const existingHydeDoc = await this.database.getHydeDocument('profile', state.userId, 'mirror');
-        const needsHydeGeneration = !existingHydeDoc || (state.forceUpdate && hasMeaningfulInput);
-        const needsHydeEmbedding = false; // Profile HyDE lives in hyde_documents; no partial "text only" state
+        logger.info("Checking profile state...", {
+          userId: state.userId,
+          operationMode: state.operationMode,
+          forceUpdate: state.forceUpdate
+        });
 
-        // Check if we need to scrape (profile generation needed but no meaningful input provided)
-        const willNeedScraping = needsProfileGeneration && !hasMeaningfulInput;
-        
-        // If we need to scrape, check if we have sufficient user information
-        let needsUserInfo = false;
-        let missingUserInfo: string[] = [];
+        try {
+          const profile = await this.database.getProfile(state.userId) as any;
 
-        if (willNeedScraping) {
-          logger.info("Will need scraping - checking user information...");
-          
-          const user = await this.database.getUser(state.userId);
-          
-          if (!user) {
-            logger.error("User not found", { userId: state.userId });
+          // Query mode: Just return the profile (fast path)
+          if (state.operationMode === 'query') {
+            logger.info("🚀 Query mode - returning existing profile (fast path)", {
+              hasProfile: !!profile
+            });
+            const profileWithId = profile ? await this.database.getProfileByUserId(state.userId) : null;
             return {
-              error: `User not found: ${state.userId}`
+              profile: profile || undefined,
+              readResult: profile
+                ? {
+                    hasProfile: true,
+                    profile: {
+                      id: profileWithId?.id,
+                      name: profile.identity.name,
+                      bio: profile.identity.bio,
+                      location: profile.identity.location,
+                      skills: profile.attributes.skills,
+                      interests: profile.attributes.interests,
+                    },
+                  }
+                : {
+                    hasProfile: false,
+                    message:
+                      "You don't have a profile yet. Would you like to create one? You can share your LinkedIn, GitHub, or X/Twitter profile, or just tell me about yourself.",
+                  },
             };
           }
 
-          // Check what information we have from the user table (schema: users)
-          // Required fields: email, name (always present)
-          // Optional fields: intro, avatar, location, socials
-          
-          const hasSocials = !!(user.socials && (
-            user.socials.x || 
-            user.socials.linkedin || 
-            user.socials.github || 
-            (user.socials.websites && user.socials.websites.length > 0)
-          ));
-          
-          // Check if name is a full name (not just email username)
-          // For scraping to work well, we need first + last name
-          const hasMeaningfulName = user.name && 
-            user.name.trim() !== '' && 
-            !user.name.includes('@') && 
-            user.name.split(/\s+/).filter(Boolean).length >= 2;
-          
-          const hasLocation = !!(user.location && user.location.trim() !== '');
+          // Write mode: Detect what needs generation
+          // Treat confirmation-only input (e.g. "Yes") as no input so we ask for info / use scraper
+          const hasMeaningfulInput = !!state.input && isMeaningfulProfileInput(state.input);
+          const needsProfileGeneration = !profile || (state.forceUpdate && hasMeaningfulInput);
+          const needsProfileEmbedding = profile && (!profile.embedding || profile.embedding.length === 0);
+          const existingHydeDoc = await this.database.getHydeDocument('profile', state.userId, 'mirror');
+          const needsHydeGeneration = !existingHydeDoc || (state.forceUpdate && hasMeaningfulInput);
+          const needsHydeEmbedding = false; // Profile HyDE lives in hyde_documents; no partial "text only" state
 
-          // Minimum requirement for accurate scraping:
-          // - At least ONE social link (preferred - most reliable for finding the right person)
-          // - OR a full name (first + last) - less reliable but workable
-          // Location helps disambiguate but is not required
-          
-          const hasMinimumInfo = hasSocials || hasMeaningfulName;
+          // Check if we need to scrape (profile generation needed but no meaningful input provided)
+          const willNeedScraping = needsProfileGeneration && !hasMeaningfulInput;
 
-          if (!hasMinimumInfo) {
-            needsUserInfo = true;
-            
-            // Build precise list of what's missing and would help
-            if (!hasSocials) {
-              missingUserInfo.push('social_urls');
-            }
-            if (!hasMeaningfulName) {
-              missingUserInfo.push('full_name');
-            }
-            if (!hasLocation) {
-              missingUserInfo.push('location'); // Nice to have
+          // If we need to scrape, check if we have sufficient user information
+          let needsUserInfo = false;
+          let missingUserInfo: string[] = [];
+
+          if (willNeedScraping) {
+            logger.info("Will need scraping - checking user information...");
+
+            const user = await this.database.getUser(state.userId);
+
+            if (!user) {
+              logger.error("User not found", { userId: state.userId });
+              return {
+                error: `User not found: ${state.userId}`
+              };
             }
 
-            logger.info("⚠️ Insufficient user information for scraping", {
-              hasSocials,
-              hasMeaningfulName,
-              hasLocation,
-              currentName: user.name,
-              missingUserInfo
-            });
-          } else {
-            logger.info("✅ Sufficient user information for scraping", {
-              hasSocials,
-              hasMeaningfulName,
-              hasLocation,
-              willProceedWith: hasSocials ? 'social links' : 'full name'
-            });
+            // Check what information we have from the user table (schema: users)
+            // Required fields: email, name (always present)
+            // Optional fields: intro, avatar, location, socials
+
+            const hasSocials = !!(user.socials && (
+              user.socials.x ||
+              user.socials.linkedin ||
+              user.socials.github ||
+              (user.socials.websites && user.socials.websites.length > 0)
+            ));
+
+            // Check if name is a full name (not just email username)
+            // For scraping to work well, we need first + last name
+            const hasMeaningfulName = user.name &&
+              user.name.trim() !== '' &&
+              !user.name.includes('@') &&
+              user.name.split(/\s+/).filter(Boolean).length >= 2;
+
+            const hasLocation = !!(user.location && user.location.trim() !== '');
+
+            // Minimum requirement for accurate scraping:
+            // - At least ONE social link (preferred - most reliable for finding the right person)
+            // - OR a full name (first + last) - less reliable but workable
+            // Location helps disambiguate but is not required
+
+            const hasMinimumInfo = hasSocials || hasMeaningfulName;
+
+            if (!hasMinimumInfo) {
+              needsUserInfo = true;
+
+              // Build precise list of what's missing and would help
+              if (!hasSocials) {
+                missingUserInfo.push('social_urls');
+              }
+              if (!hasMeaningfulName) {
+                missingUserInfo.push('full_name');
+              }
+              if (!hasLocation) {
+                missingUserInfo.push('location'); // Nice to have
+              }
+
+              logger.info("⚠️ Insufficient user information for scraping", {
+                hasSocials,
+                hasMeaningfulName,
+                hasLocation,
+                currentName: user.name,
+                missingUserInfo
+              });
+            } else {
+              logger.info("✅ Sufficient user information for scraping", {
+                hasSocials,
+                hasMeaningfulName,
+                hasLocation,
+                willProceedWith: hasSocials ? 'social links' : 'full name'
+              });
+            }
           }
+
+          logger.info("📊 State detection complete", {
+            hasProfile: !!profile,
+            needsProfileGeneration,
+            needsProfileEmbedding,
+            needsHydeGeneration,
+            needsHydeEmbedding,
+            needsUserInfo,
+            missingUserInfo,
+            forceUpdate: state.forceUpdate,
+            hasInput: !!state.input,
+            hasMeaningfulInput,
+            hasHydeDocument: !!existingHydeDoc,
+          });
+
+          return {
+            profile: profile || undefined,
+            hydeDescription: existingHydeDoc?.hydeText ?? undefined,
+            needsProfileGeneration,
+            needsProfileEmbedding,
+            needsHydeGeneration,
+            needsHydeEmbedding,
+            needsUserInfo,
+            missingUserInfo
+          };
+        } catch (error) {
+          logger.error("Failed to load profile", {
+            error: error instanceof Error ? error.message : String(error)
+          });
+          return {
+            profile: undefined,
+            error: "Failed to load profile from database"
+          };
         }
-
-        logger.info("📊 State detection complete", {
-          hasProfile: !!profile,
-          needsProfileGeneration,
-          needsProfileEmbedding,
-          needsHydeGeneration,
-          needsHydeEmbedding,
-          needsUserInfo,
-          missingUserInfo,
-          forceUpdate: state.forceUpdate,
-          hasInput: !!state.input,
-          hasMeaningfulInput,
-          hasHydeDocument: !!existingHydeDoc,
-        });
-
-        return {
-          profile: profile || undefined,
-          hydeDescription: existingHydeDoc?.hydeText ?? undefined,
-          needsProfileGeneration,
-          needsProfileEmbedding,
-          needsHydeGeneration,
-          needsHydeEmbedding,
-          needsUserInfo,
-          missingUserInfo
-        };
-      } catch (error) {
-        logger.error("Failed to load profile", {
-          error: error instanceof Error ? error.message : String(error)
-        });
-        return {
-          profile: undefined,
-          error: "Failed to load profile from database"
-        };
-      }
       });
     };
 
@@ -249,82 +249,82 @@ export class ProfileGraphFactory {
     // ─────────────────────────────────────────────────────────
     const scrapeNode = async (state: typeof ProfileGraphState.State) => {
       return timed("ProfileGraph.scrape", async () => {
-      if (state.input && isMeaningfulProfileInput(state.input)) {
-        logger.info("Meaningful input already provided - skipping scrape");
-        return {};
-      }
+        if (state.input && isMeaningfulProfileInput(state.input)) {
+          logger.info("Meaningful input already provided - skipping scrape");
+          return {};
+        }
 
-      logger.info("Starting web scrape...", { 
-        userId: state.userId 
-      });
+        logger.info("Starting web scrape...", {
+          userId: state.userId
+        });
 
-      try {
-        // Fetch user details to construct objective for web scraping
-        const user = await this.database.getUser(state.userId);
+        try {
+          // Fetch user details to construct objective for web scraping
+          const user = await this.database.getUser(state.userId);
 
-        if (!user) {
-          logger.error("User not found", { userId: state.userId });
+          if (!user) {
+            logger.error("User not found", { userId: state.userId });
+            return {
+              error: `User not found: ${state.userId}`
+            };
+          }
+
+          // Build scraping objective from available user information
+          // Priority: social links (most reliable) > name + location > email
+          const socialParts: string[] = [];
+          if (user.socials) {
+            if (user.socials.x) socialParts.push(`X/Twitter: ${user.socials.x}`);
+            if (user.socials.linkedin) socialParts.push(`LinkedIn: ${user.socials.linkedin}`);
+            if (user.socials.github) socialParts.push(`GitHub: ${user.socials.github}`);
+            if (user.socials.websites && user.socials.websites.length > 0) {
+              user.socials.websites.forEach((url: string) => socialParts.push(`Website: ${url}`));
+            }
+          }
+
+          // Construct objective based on what we have
+          let objective = `Find information about ${user.name || 'this person'}`;
+
+          if (user.location) {
+            objective += ` located in ${user.location}`;
+          }
+
+          objective += '.\n\n';
+
+          if (socialParts.length > 0) {
+            objective += `Their social profiles:\n${socialParts.join('\n')}\n\n`;
+            objective += 'Use these links to find accurate information about their professional background, skills, and interests.';
+          } else if (user.email) {
+            objective += `Their email: ${user.email}\n\n`;
+            objective += 'Search for professional information, skills, and background about this person.';
+          } else {
+            objective += 'Search for professional information and background about this person.';
+          }
+
+          logger.info("Constructed scraping objective", {
+            hasSocials: socialParts.length > 0,
+            hasLocation: !!user.location,
+            objectivePreview: objective.substring(0, 100)
+          });
+
+          const scrapedData = await this.scraper.scrape(objective);
+
+          logger.info("✅ Scrape complete", {
+            dataLength: scrapedData?.length || 0
+          });
+
           return {
-            error: `User not found: ${state.userId}`
+            objective,
+            input: scrapedData,
+            operationsPerformed: { scraped: true }
+          };
+        } catch (error) {
+          logger.error("Scrape failed", {
+            error: error instanceof Error ? error.message : String(error)
+          });
+          return {
+            error: "Web scrape failed"
           };
         }
-
-        // Build scraping objective from available user information
-        // Priority: social links (most reliable) > name + location > email
-        const socialParts: string[] = [];
-        if (user.socials) {
-          if (user.socials.x) socialParts.push(`X/Twitter: ${user.socials.x}`);
-          if (user.socials.linkedin) socialParts.push(`LinkedIn: ${user.socials.linkedin}`);
-          if (user.socials.github) socialParts.push(`GitHub: ${user.socials.github}`);
-          if (user.socials.websites && user.socials.websites.length > 0) {
-            user.socials.websites.forEach((url: string) => socialParts.push(`Website: ${url}`));
-          }
-        }
-
-        // Construct objective based on what we have
-        let objective = `Find information about ${user.name || 'this person'}`;
-        
-        if (user.location) {
-          objective += ` located in ${user.location}`;
-        }
-        
-        objective += '.\n\n';
-        
-        if (socialParts.length > 0) {
-          objective += `Their social profiles:\n${socialParts.join('\n')}\n\n`;
-          objective += 'Use these links to find accurate information about their professional background, skills, and interests.';
-        } else if (user.email) {
-          objective += `Their email: ${user.email}\n\n`;
-          objective += 'Search for professional information, skills, and background about this person.';
-        } else {
-          objective += 'Search for professional information and background about this person.';
-        }
-
-        logger.info("Constructed scraping objective", { 
-          hasSocials: socialParts.length > 0,
-          hasLocation: !!user.location,
-          objectivePreview: objective.substring(0, 100) 
-        });
-        
-        const scrapedData = await this.scraper.scrape(objective);
-
-        logger.info("✅ Scrape complete", {
-          dataLength: scrapedData?.length || 0
-        });
-
-        return {
-          objective,
-          input: scrapedData,
-          operationsPerformed: { scraped: true }
-        };
-      } catch (error) {
-        logger.error("Scrape failed", {
-          error: error instanceof Error ? error.message : String(error)
-        });
-        return {
-          error: "Web scrape failed"
-        };
-      }
       });
     };
 
@@ -336,103 +336,103 @@ export class ProfileGraphFactory {
     // ─────────────────────────────────────────────────────────
     const autoGenerateNode = async (state: typeof ProfileGraphState.State) => {
       return timed("ProfileGraph.autoGenerate", async () => {
-      logger.info("Starting auto-generate via Parallels searchUser", {
-        userId: state.userId,
-      });
-
-      try {
-        // Load user from DB
-        const user = await this.database.getUser(state.userId);
-        if (!user) {
-          logger.error("User not found for auto-generate", { userId: state.userId });
-          return { error: `User not found: ${state.userId}` };
-        }
-
-        // Build structured request for searchUser
-        const request: {
-          name?: string;
-          email?: string;
-          linkedin?: string;
-          twitter?: string;
-          github?: string;
-          websites?: string[];
-        } = {};
-
-        if (user.name) request.name = user.name;
-        if (user.email) request.email = user.email;
-        if (user.socials?.linkedin) request.linkedin = user.socials.linkedin;
-        if (user.socials?.x) request.twitter = user.socials.x;
-        if (user.socials?.github) request.github = user.socials.github;
-        if (user.socials?.websites && user.socials.websites.length > 0) {
-          request.websites = user.socials.websites;
-        }
-
-        // Check minimum info
-        const hasSocials = !!(request.linkedin || request.twitter || request.github || (request.websites && request.websites.length > 0));
-        const hasMeaningfulName = request.name && request.name.trim() !== '' && !request.name.includes('@') && request.name.split(/\s+/).filter(Boolean).length >= 2;
-
-        if (!hasSocials && !hasMeaningfulName) {
-          logger.info("Insufficient user info for auto-generate", { userId: state.userId });
-          return {
-            needsUserInfo: true,
-            missingUserInfo: [
-              ...(hasSocials ? [] : ['social_urls']),
-              ...(hasMeaningfulName ? [] : ['full_name']),
-            ],
-          };
-        }
-
-        logger.info("Calling Parallels searchUser", {
-          hasName: !!request.name,
-          hasEmail: !!request.email,
-          hasSocials,
+        logger.info("Starting auto-generate via Parallels searchUser", {
+          userId: state.userId,
         });
 
-        const searchResult = await searchUser(request);
+        try {
+          // Load user from DB
+          const user = await this.database.getUser(state.userId);
+          if (!user) {
+            logger.error("User not found for auto-generate", { userId: state.userId });
+            return { error: `User not found: ${state.userId}` };
+          }
 
-        // Combine excerpts into input text for profile generation
-        const inputParts: string[] = [];
-        if (searchResult.results && searchResult.results.length > 0) {
-          for (const r of searchResult.results) {
-            if (r.excerpts && r.excerpts.length > 0) {
-              inputParts.push(`Source: ${r.title || r.url}\n${r.excerpts.join('\n')}`);
+          // Build structured request for searchUser
+          const request: {
+            name?: string;
+            email?: string;
+            linkedin?: string;
+            twitter?: string;
+            github?: string;
+            websites?: string[];
+          } = {};
+
+          if (user.name) request.name = user.name;
+          if (user.email) request.email = user.email;
+          if (user.socials?.linkedin) request.linkedin = user.socials.linkedin;
+          if (user.socials?.x) request.twitter = user.socials.x;
+          if (user.socials?.github) request.github = user.socials.github;
+          if (user.socials?.websites && user.socials.websites.length > 0) {
+            request.websites = user.socials.websites;
+          }
+
+          // Check minimum info
+          const hasSocials = !!(request.linkedin || request.twitter || request.github || (request.websites && request.websites.length > 0));
+          const hasMeaningfulName = request.name && request.name.trim() !== '' && !request.name.includes('@') && request.name.split(/\s+/).filter(Boolean).length >= 2;
+
+          if (!hasSocials && !hasMeaningfulName) {
+            logger.info("Insufficient user info for auto-generate", { userId: state.userId });
+            return {
+              needsUserInfo: true,
+              missingUserInfo: [
+                ...(hasSocials ? [] : ['social_urls']),
+                ...(hasMeaningfulName ? [] : ['full_name']),
+              ],
+            };
+          }
+
+          logger.info("Calling Parallels searchUser", {
+            hasName: !!request.name,
+            hasEmail: !!request.email,
+            hasSocials,
+          });
+
+          const searchResult = await searchUser(request);
+
+          // Combine excerpts into input text for profile generation
+          const inputParts: string[] = [];
+          if (searchResult.results && searchResult.results.length > 0) {
+            for (const r of searchResult.results) {
+              if (r.excerpts && r.excerpts.length > 0) {
+                inputParts.push(`Source: ${r.title || r.url}\n${r.excerpts.join('\n')}`);
+              }
             }
           }
-        }
 
-        if (inputParts.length === 0) {
-          logger.warn("Parallels searchUser returned no usable content", { userId: state.userId });
-          // Fall back to basic user info
-          const basicInfo = [
-            user.name ? `Name: ${user.name}` : '',
-            user.email ? `Email: ${user.email}` : '',
-            user.location ? `Location: ${user.location}` : '',
-            user.intro ? `Bio: ${user.intro}` : '',
-          ].filter(Boolean).join('\n');
+          if (inputParts.length === 0) {
+            logger.warn("Parallels searchUser returned no usable content", { userId: state.userId });
+            // Fall back to basic user info
+            const basicInfo = [
+              user.name ? `Name: ${user.name}` : '',
+              user.email ? `Email: ${user.email}` : '',
+              user.location ? `Location: ${user.location}` : '',
+              user.intro ? `Bio: ${user.intro}` : '',
+            ].filter(Boolean).join('\n');
+            return {
+              input: basicInfo || "No information available",
+              needsProfileGeneration: true,
+              operationsPerformed: { scraped: true },
+            };
+          }
+
+          const combinedInput = inputParts.join('\n\n');
+          logger.info("Auto-generate input ready", {
+            sourceCount: inputParts.length,
+            inputLength: combinedInput.length,
+          });
+
           return {
-            input: basicInfo || "No information available",
+            input: combinedInput,
             needsProfileGeneration: true,
             operationsPerformed: { scraped: true },
           };
+        } catch (err) {
+          logger.error("Auto-generate via Parallels failed", {
+            error: err instanceof Error ? err.message : String(err),
+          });
+          return { error: "Auto-generate failed. Please try again or provide your information manually." };
         }
-
-        const combinedInput = inputParts.join('\n\n');
-        logger.info("Auto-generate input ready", {
-          sourceCount: inputParts.length,
-          inputLength: combinedInput.length,
-        });
-
-        return {
-          input: combinedInput,
-          needsProfileGeneration: true,
-          operationsPerformed: { scraped: true },
-        };
-      } catch (err) {
-        logger.error("Auto-generate via Parallels failed", {
-          error: err instanceof Error ? err.message : String(err),
-        });
-        return { error: "Auto-generate failed. Please try again or provide your information manually." };
-      }
       });
     };
 
@@ -443,53 +443,53 @@ export class ProfileGraphFactory {
     // ─────────────────────────────────────────────────────────
     const generateProfileNode = async (state: typeof ProfileGraphState.State) => {
       return timed("ProfileGraph.generateProfile", async () => {
-      if (!state.input) {
-        logger.error("No input provided for profile generation");
-        return {
-          error: "Input required for profile generation"
-        };
-      }
-
-      logger.info("Starting profile generation...", {
-        hasExistingProfile: !!state.profile,
-        isUpdate: state.forceUpdate,
-        inputLength: state.input.length
-      });
-
-      try {
-        // If updating existing profile, include it in the input for context
-        let inputWithContext = state.input;
-        if (state.profile && state.forceUpdate) {
-          inputWithContext = `EXISTING PROFILE:\n${JSON.stringify(state.profile, null, 2)}\n\nUSER REQUEST:\n${state.input}\n\nApply the user's request to the existing profile. Preserve existing data unless the user asks to change or remove it. You may add, update, or remove skills and interests as requested. Output the full updated profile.`;
-          logger.info("Merging with existing profile");
+        if (!state.input) {
+          logger.error("No input provided for profile generation");
+          return {
+            error: "Input required for profile generation"
+          };
         }
 
-        const result = await profileGenerator.invoke(inputWithContext);
-
-        logger.info("✅ Profile generated successfully", {
-          name: result.output.identity.name,
-          skillsCount: result.output.attributes.skills.length,
-          interestsCount: result.output.attributes.interests.length
+        logger.info("Starting profile generation...", {
+          hasExistingProfile: !!state.profile,
+          isUpdate: state.forceUpdate,
+          inputLength: state.input.length
         });
 
-        return {
-          profile: {
-            ...result.output,
-            userId: state.userId,
-            embedding: [] as number[] | number[][]
-          },
-          // Mark that hyde needs regeneration since profile was updated
-          needsHydeGeneration: true,
-          operationsPerformed: { generatedProfile: true }
-        };
-      } catch (error) {
-        logger.error("Profile generation failed", {
-          error: error instanceof Error ? error.message : String(error)
-        });
-        return {
-          error: "Profile generation failed"
-        };
-      }
+        try {
+          // If updating existing profile, include it in the input for context
+          let inputWithContext = state.input;
+          if (state.profile && state.forceUpdate) {
+            inputWithContext = `EXISTING PROFILE:\n${JSON.stringify(state.profile, null, 2)}\n\nUSER REQUEST:\n${state.input}\n\nApply the user's request to the existing profile. Preserve existing data unless the user asks to change or remove it. You may add, update, or remove skills and interests as requested. Output the full updated profile.`;
+            logger.info("Merging with existing profile");
+          }
+
+          const result = await profileGenerator.invoke(inputWithContext);
+
+          logger.info("✅ Profile generated successfully", {
+            name: result.output.identity.name,
+            skillsCount: result.output.attributes.skills.length,
+            interestsCount: result.output.attributes.interests.length
+          });
+
+          return {
+            profile: {
+              ...result.output,
+              userId: state.userId,
+              embedding: [] as number[] | number[][]
+            },
+            // Mark that hyde needs regeneration since profile was updated
+            needsHydeGeneration: true,
+            operationsPerformed: { generatedProfile: true }
+          };
+        } catch (error) {
+          logger.error("Profile generation failed", {
+            error: error instanceof Error ? error.message : String(error)
+          });
+          return {
+            error: "Profile generation failed"
+          };
+        }
       });
     };
 
@@ -499,59 +499,59 @@ export class ProfileGraphFactory {
     // ─────────────────────────────────────────────────────────
     const embedSaveProfileNode = async (state: typeof ProfileGraphState.State) => {
       return timed("ProfileGraph.embedSaveProfile", async () => {
-      if (!state.profile) {
-        logger.error("Profile missing in embed step");
-        return {
-          error: "Profile missing in embed step"
-        };
-      }
+        if (!state.profile) {
+          logger.error("Profile missing in embed step");
+          return {
+            error: "Profile missing in embed step"
+          };
+        }
 
-      logger.info("Starting profile embedding...", {
-        userId: state.userId
-      });
-
-      try {
-        const profile = { ...state.profile };
-        const textToEmbed = [
-          '# Identity',
-          '## Name', profile.identity.name,
-          '## Bio', profile.identity.bio,
-          '## Location', profile.identity.location,
-          '# Narrative',
-          '## Context', profile.narrative.context,
-          '# Attributes',
-          '## Interests', profile.attributes.interests.join(', '),
-          '## Skills', profile.attributes.skills.join(', ')
-        ].join('\n');
-
-        logger.info("Generating embedding...", {
-          textLength: textToEmbed.length
-        });
-        
-        const embedding = await this.embedder.generate(textToEmbed);
-        profile.embedding = embedding;
-
-        logger.info("Saving profile to DB...", { 
-          userId: state.userId,
-          embeddingDimensions: Array.isArray(embedding[0]) ? embedding[0].length : embedding.length
+        logger.info("Starting profile embedding...", {
+          userId: state.userId
         });
 
-        await this.database.saveProfile(state.userId, profile);
+        try {
+          const profile = { ...state.profile };
+          const textToEmbed = [
+            '# Identity',
+            '## Name', profile.identity.name,
+            '## Bio', profile.identity.bio,
+            '## Location', profile.identity.location,
+            '# Narrative',
+            '## Context', profile.narrative.context,
+            '# Attributes',
+            '## Interests', profile.attributes.interests.join(', '),
+            '## Skills', profile.attributes.skills.join(', ')
+          ].join('\n');
 
-        logger.info("✅ Profile saved successfully");
+          logger.info("Generating embedding...", {
+            textLength: textToEmbed.length
+          });
 
-        return { 
-          profile,
-          operationsPerformed: { embeddedProfile: true }
-        };
-      } catch (error) {
-        logger.error("Failed to embed/save profile", {
-          error: error instanceof Error ? error.message : String(error)
-        });
-        return {
-          error: "Failed to embed/save profile"
-        };
-      }
+          const embedding = await this.embedder.generate(textToEmbed);
+          profile.embedding = embedding;
+
+          logger.info("Saving profile to DB...", {
+            userId: state.userId,
+            embeddingDimensions: Array.isArray(embedding[0]) ? embedding[0].length : embedding.length
+          });
+
+          await this.database.saveProfile(state.userId, profile);
+
+          logger.info("✅ Profile saved successfully");
+
+          return {
+            profile,
+            operationsPerformed: { embeddedProfile: true }
+          };
+        } catch (error) {
+          logger.error("Failed to embed/save profile", {
+            error: error instanceof Error ? error.message : String(error)
+          });
+          return {
+            error: "Failed to embed/save profile"
+          };
+        }
       });
     };
 
@@ -562,38 +562,38 @@ export class ProfileGraphFactory {
     // ─────────────────────────────────────────────────────────
     const generateHydeNode = async (state: typeof ProfileGraphState.State) => {
       return timed("ProfileGraph.generateHyde", async () => {
-      if (!state.profile) {
-        logger.error("Profile missing for HyDE generation");
-        return {
-          error: "Profile missing for HyDE generation"
-        };
-      }
+        if (!state.profile) {
+          logger.error("Profile missing for HyDE generation");
+          return {
+            error: "Profile missing for HyDE generation"
+          };
+        }
 
-      logger.info("Starting HyDE generation...", {
-        userId: state.userId,
-        profileName: state.profile.identity.name
-      });
-
-      try {
-        const profileString = JSON.stringify(state.profile, null, 2);
-        const result = await hydeGenerator.invoke(profileString);
-
-        logger.info("✅ HyDE generated successfully", {
-          descriptionLength: result.textToEmbed.length
+        logger.info("Starting HyDE generation...", {
+          userId: state.userId,
+          profileName: state.profile.identity.name
         });
 
-        return { 
-          hydeDescription: result.textToEmbed,
-          operationsPerformed: { generatedHyde: true }
-        };
-      } catch (error) {
-        logger.error("HyDE generation failed", {
-          error: error instanceof Error ? error.message : String(error)
-        });
-        return {
-          error: "HyDE generation failed"
-        };
-      }
+        try {
+          const profileString = JSON.stringify(state.profile, null, 2);
+          const result = await hydeGenerator.invoke(profileString);
+
+          logger.info("✅ HyDE generated successfully", {
+            descriptionLength: result.textToEmbed.length
+          });
+
+          return {
+            hydeDescription: result.textToEmbed,
+            operationsPerformed: { generatedHyde: true }
+          };
+        } catch (error) {
+          logger.error("HyDE generation failed", {
+            error: error instanceof Error ? error.message : String(error)
+          });
+          return {
+            error: "HyDE generation failed"
+          };
+        }
       });
     };
 
@@ -603,51 +603,51 @@ export class ProfileGraphFactory {
     // ─────────────────────────────────────────────────────────
     const embedSaveHydeNode = async (state: typeof ProfileGraphState.State) => {
       return timed("ProfileGraph.embedSaveHyde", async () => {
-      if (!state.hydeDescription) {
-        logger.error("HyDE description missing");
-        return {
-          error: "HyDE description missing"
-        };
-      }
+        if (!state.hydeDescription) {
+          logger.error("HyDE description missing");
+          return {
+            error: "HyDE description missing"
+          };
+        }
 
-      logger.info("Starting HyDE embedding...", {
-        userId: state.userId,
-        descriptionLength: state.hydeDescription.length
-      });
-
-      try {
-        const hydeEmbedding = await this.embedder.generate(state.hydeDescription);
-
-        // Normalize embedding if needed (Adapters usually handle this, but to be sure)
-        const flatHydeEmbedding = Array.isArray(hydeEmbedding[0]) 
-          ? (hydeEmbedding as number[][])[0] 
-          : (hydeEmbedding as number[]);
-
-        logger.info("Saving HyDE to hyde_documents...", {
+        logger.info("Starting HyDE embedding...", {
           userId: state.userId,
-          embeddingDimensions: flatHydeEmbedding.length
+          descriptionLength: state.hydeDescription.length
         });
 
-        await this.database.saveHydeDocument({
-          sourceType: 'profile',
-          sourceId: state.userId,
-          strategy: 'mirror',
-          targetCorpus: 'profiles',
-          hydeText: state.hydeDescription,
-          hydeEmbedding: flatHydeEmbedding,
-        });
+        try {
+          const hydeEmbedding = await this.embedder.generate(state.hydeDescription);
 
-        return {
-          operationsPerformed: { embeddedHyde: true }
-        };
-      } catch (error) {
-        logger.error("Failed to embed/save HyDE", {
-          error: error instanceof Error ? error.message : String(error)
-        });
-        return {
-          error: "Failed to embed/save HyDE"
-        };
-      }
+          // Normalize embedding if needed (Adapters usually handle this, but to be sure)
+          const flatHydeEmbedding = Array.isArray(hydeEmbedding[0])
+            ? (hydeEmbedding as number[][])[0]
+            : (hydeEmbedding as number[]);
+
+          logger.info("Saving HyDE to hyde_documents...", {
+            userId: state.userId,
+            embeddingDimensions: flatHydeEmbedding.length
+          });
+
+          await this.database.saveHydeDocument({
+            sourceType: 'profile',
+            sourceId: state.userId,
+            strategy: 'mirror',
+            targetCorpus: 'profiles',
+            hydeText: state.hydeDescription,
+            hydeEmbedding: flatHydeEmbedding,
+          });
+
+          return {
+            operationsPerformed: { embeddedHyde: true }
+          };
+        } catch (error) {
+          logger.error("Failed to embed/save HyDE", {
+            error: error instanceof Error ? error.message : String(error)
+          });
+          return {
+            error: "Failed to embed/save HyDE"
+          };
+        }
       });
     };
 

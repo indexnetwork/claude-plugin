@@ -48,54 +48,54 @@ export class HydeGraphFactory {
 
     const checkCacheNode = async (state: typeof HydeGraphState.State) => {
       return timed("HydeGraph.checkCache", async () => {
-      const { sourceType, sourceId, sourceText, strategies, forceRegenerate } =
-        state;
+        const { sourceType, sourceId, sourceText, strategies, forceRegenerate } =
+          state;
 
-      if (forceRegenerate) {
-        logger.info('Force regenerate - skipping cache');
-        return { hydeDocuments: {} };
-      }
-
-      const cached: Record<string, HydeDocumentState> = {};
-
-      for (const strategy of strategies) {
-        const key = cacheKey(
-          sourceType,
-          sourceId ?? undefined,
-          sourceText,
-          strategy
-        );
-
-        const fromCache = await self.cache.get<HydeDocumentState>(key);
-        if (fromCache?.hydeText && fromCache.hydeEmbedding?.length) {
-          logger.info('Cache hit', { strategy });
-          cached[strategy] = fromCache;
-          continue;
+        if (forceRegenerate) {
+          logger.info('Force regenerate - skipping cache');
+          return { hydeDocuments: {} };
         }
 
-        if (sourceId && HydeGenerator.shouldPersist(strategy)) {
-          const fromDb = await self.database.getHydeDocument(
+        const cached: Record<string, HydeDocumentState> = {};
+
+        for (const strategy of strategies) {
+          const key = cacheKey(
             sourceType,
-            sourceId,
+            sourceId ?? undefined,
+            sourceText,
             strategy
           );
-          if (fromDb) {
-            logger.info('DB hit', { strategy });
-            cached[strategy] = {
-              strategy: strategy as HydeStrategy,
-              targetCorpus: fromDb.targetCorpus as 'profiles' | 'intents',
-              hydeText: fromDb.hydeText,
-              hydeEmbedding: fromDb.hydeEmbedding,
-            };
+
+          const fromCache = await self.cache.get<HydeDocumentState>(key);
+          if (fromCache?.hydeText && fromCache.hydeEmbedding?.length) {
+            logger.info('Cache hit', { strategy });
+            cached[strategy] = fromCache;
+            continue;
+          }
+
+          if (sourceId && HydeGenerator.shouldPersist(strategy)) {
+            const fromDb = await self.database.getHydeDocument(
+              sourceType,
+              sourceId,
+              strategy
+            );
+            if (fromDb) {
+              logger.info('DB hit', { strategy });
+              cached[strategy] = {
+                strategy: strategy as HydeStrategy,
+                targetCorpus: fromDb.targetCorpus as 'profiles' | 'intents',
+                hydeText: fromDb.hydeText,
+                hydeEmbedding: fromDb.hydeEmbedding,
+              };
+            }
           }
         }
-      }
 
-      logger.info('Check cache done', {
-        found: Object.keys(cached).length,
-        requested: strategies.length,
-      });
-      return { hydeDocuments: cached };
+        logger.info('Check cache done', {
+          found: Object.keys(cached).length,
+          requested: strategies.length,
+        });
+        return { hydeDocuments: cached };
       });
     };
 
@@ -114,115 +114,115 @@ export class HydeGraphFactory {
       state: typeof HydeGraphState.State
     ) => {
       return timed("HydeGraph.generateMissing", async () => {
-      const { sourceText, strategies, hydeDocuments, context } = state;
-      const missing = strategies.filter((s) => !hydeDocuments[s]);
+        const { sourceText, strategies, hydeDocuments, context } = state;
+        const missing = strategies.filter((s) => !hydeDocuments[s]);
 
-      logger.info('Generating HyDE documents', {
-        count: missing.length,
-        strategies: missing,
-      });
+        logger.info('Generating HyDE documents', {
+          count: missing.length,
+          strategies: missing,
+        });
 
-      const generated: Record<string, HydeDocumentState> = {};
+        const generated: Record<string, HydeDocumentState> = {};
 
-      await Promise.all(
-        missing.map(async (strategy) => {
-          const out = await self.generator.generate(
-            sourceText,
-            strategy as HydeStrategy,
-            context
-          );
-          const targetCorpus = HydeGenerator.getTargetCorpus(
-            strategy as HydeStrategy
-          );
-          generated[strategy] = {
-            strategy: strategy as HydeStrategy,
-            targetCorpus,
-            hydeText: out.text,
-            hydeEmbedding: [],
-          };
-        })
-      );
+        await Promise.all(
+          missing.map(async (strategy) => {
+            const out = await self.generator.generate(
+              sourceText,
+              strategy as HydeStrategy,
+              context
+            );
+            const targetCorpus = HydeGenerator.getTargetCorpus(
+              strategy as HydeStrategy
+            );
+            generated[strategy] = {
+              strategy: strategy as HydeStrategy,
+              targetCorpus,
+              hydeText: out.text,
+              hydeEmbedding: [],
+            };
+          })
+        );
 
-      return { hydeDocuments: { ...state.hydeDocuments, ...generated } };
+        return { hydeDocuments: { ...state.hydeDocuments, ...generated } };
       });
     };
 
     const embedNode = async (state: typeof HydeGraphState.State) => {
       return timed("HydeGraph.embed", async () => {
-      const { hydeDocuments } = state;
-      const strategies = Object.keys(hydeDocuments);
-      const toEmbed: { strategy: string; doc: HydeDocumentState }[] = [];
-      const updated: Record<string, HydeDocumentState> = {};
-      const hydeEmbeddings: Record<string, number[]> = {};
+        const { hydeDocuments } = state;
+        const strategies = Object.keys(hydeDocuments);
+        const toEmbed: { strategy: string; doc: HydeDocumentState }[] = [];
+        const updated: Record<string, HydeDocumentState> = {};
+        const hydeEmbeddings: Record<string, number[]> = {};
 
-      for (const strategy of strategies) {
-        const doc = hydeDocuments[strategy];
-        if (!doc) continue;
-        if (doc.hydeEmbedding?.length) {
-          updated[strategy] = doc;
-          hydeEmbeddings[strategy] = doc.hydeEmbedding;
-        } else {
-          toEmbed.push({ strategy, doc });
+        for (const strategy of strategies) {
+          const doc = hydeDocuments[strategy];
+          if (!doc) continue;
+          if (doc.hydeEmbedding?.length) {
+            updated[strategy] = doc;
+            hydeEmbeddings[strategy] = doc.hydeEmbedding;
+          } else {
+            toEmbed.push({ strategy, doc });
+          }
         }
-      }
 
-      if (toEmbed.length > 0) {
-        logger.info('Embedding documents', { count: toEmbed.length });
-        const texts = toEmbed.map((t) => t.doc.hydeText);
-        const embeddings = await self.embedder.generate(texts);
-        const embeddingArray = Array.isArray(embeddings[0])
-          ? (embeddings as number[][])
-          : [embeddings as number[]];
+        if (toEmbed.length > 0) {
+          logger.info('Embedding documents', { count: toEmbed.length });
+          const texts = toEmbed.map((t) => t.doc.hydeText);
+          const embeddings = await self.embedder.generate(texts);
+          const embeddingArray = Array.isArray(embeddings[0])
+            ? (embeddings as number[][])
+            : [embeddings as number[]];
 
-        for (let i = 0; i < toEmbed.length; i++) {
-          const { strategy, doc } = toEmbed[i];
-          const embedding = embeddingArray[i] ?? [];
-          updated[strategy] = { ...doc, hydeEmbedding: embedding };
-          hydeEmbeddings[strategy] = embedding;
+          for (let i = 0; i < toEmbed.length; i++) {
+            const { strategy, doc } = toEmbed[i];
+            const embedding = embeddingArray[i] ?? [];
+            updated[strategy] = { ...doc, hydeEmbedding: embedding };
+            hydeEmbeddings[strategy] = embedding;
+          }
         }
-      }
 
-      return { hydeDocuments: updated, hydeEmbeddings };
+        return { hydeDocuments: updated, hydeEmbeddings };
       });
     };
 
     const cacheResultsNode = async (state: typeof HydeGraphState.State) => {
       return timed("HydeGraph.cacheResults", async () => {
-      const { sourceType, sourceId, sourceText, hydeDocuments } = state;
+        const { sourceType, sourceId, sourceText, hydeDocuments } = state;
 
-      for (const strategy of Object.keys(hydeDocuments)) {
-        const doc = hydeDocuments[strategy];
-        if (!doc) continue;
+        for (const strategy of Object.keys(hydeDocuments)) {
+          const doc = hydeDocuments[strategy];
+          if (!doc) continue;
 
-        const key = cacheKey(
-          sourceType,
-          sourceId ?? undefined,
-          sourceText,
-          strategy
-        );
-        const ttl = HydeGenerator.getCacheTTL(strategy as HydeStrategy);
-
-        await self.cache.set(key, doc, ttl ? { ttl } : undefined);
-
-        if (
-          sourceId &&
-          HydeGenerator.shouldPersist(strategy as HydeStrategy)
-        ) {
-          await self.database.saveHydeDocument({
+          const key = cacheKey(
             sourceType,
-            sourceId,
-            strategy,
-            targetCorpus: doc.targetCorpus,
-            hydeText: doc.hydeText,
-            hydeEmbedding: doc.hydeEmbedding,
-          });
-        }
-      }
+            sourceId ?? undefined,
+            sourceText,
+            strategy
+          );
+          const ttl = HydeGenerator.getCacheTTL(strategy as HydeStrategy);
 
-      logger.info('Cached results', {
-        count: Object.keys(hydeDocuments).length,
-      });
-      return {};
+          await self.cache.set(key, doc, ttl ? { ttl } : undefined);
+
+          if (
+            sourceId &&
+            HydeGenerator.shouldPersist(strategy as HydeStrategy)
+          ) {
+            await self.database.saveHydeDocument({
+              sourceType,
+              sourceId,
+              strategy,
+              targetCorpus: doc.targetCorpus,
+              hydeText: doc.hydeText,
+              hydeEmbedding: doc.hydeEmbedding,
+            });
+          }
+        }
+
+        logger.info('Cached results', {
+          count: Object.keys(hydeDocuments).length,
+        });
+        return {};
       });
     };
 
