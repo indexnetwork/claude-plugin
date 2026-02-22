@@ -2,6 +2,7 @@ import './startup.env';
 
 import { ChatController } from './controllers/chat.controller';
 import { getChatProvider } from './adapters/chat.adapter';
+import { S3StorageAdapter } from './adapters/storage.adapter';
 import { IndexController } from './controllers/index.controller';
 import { IntentController } from './controllers/intent.controller';
 import { FileController } from './controllers/file.controller';
@@ -58,6 +59,21 @@ logger.info('Initializing Server...');
 // Manually instantiate controllers if needed, or just let strict import handle registration (depends on how decorator works vs instantiation).
 // The decorators run when the class is defined (imported).
 // However, to invoke methods, we need instances.
+if (!process.env.S3_BUCKET || !process.env.S3_ACCESS_KEY_ID || !process.env.S3_SECRET_ACCESS_KEY) {
+  logger.error('Missing required S3 env vars: S3_BUCKET, S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY');
+  process.exit(1);
+}
+
+const storageAdapter = new S3StorageAdapter({
+  endpoint: process.env.S3_ENDPOINT,
+  region: process.env.S3_REGION,
+  credentials: {
+    accessKeyId: process.env.S3_ACCESS_KEY_ID,
+    secretAccessKey: process.env.S3_SECRET_ACCESS_KEY,
+  },
+  bucket: process.env.S3_BUCKET,
+});
+
 const controllerInstances = new Map();
 controllerInstances.set(AuthController, new AuthController());
 controllerInstances.set(ProfileController, new ProfileController());
@@ -68,7 +84,7 @@ controllerInstances.set(FileController, new FileController());
 controllerInstances.set(LinkController, new LinkController());
 controllerInstances.set(OpportunityController, new OpportunityController());
 controllerInstances.set(IndexOpportunityController, new IndexOpportunityController());
-controllerInstances.set(UploadController, new UploadController());
+controllerInstances.set(UploadController, new UploadController(storageAdapter));
 controllerInstances.set(UserController, new UserController());
 
 logger.info('Routes registered', { prefix: GLOBAL_PREFIX });
