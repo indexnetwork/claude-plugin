@@ -398,20 +398,6 @@ describe("ChatController Integration", () => {
       name: "Test Chat User",
     });
 
-    test("token should return 200 with token when Stream env is set", async () => {
-      const req = new Request("http://localhost/chat/token", { method: "POST" });
-      const res = await controller.token(req, mockUser());
-      const data = (await res.json()) as { token?: string; error?: string };
-
-      if (res.status === 200) {
-        expect(data.token).toBeDefined();
-        expect(typeof data.token).toBe("string");
-      } else {
-        expect([500, 503]).toContain(res.status);
-        expect(data.error ?? (data as any).message).toBeDefined();
-      }
-    });
-
     test("messageStream should return 400 when message is missing", async () => {
       const req = new Request("http://localhost/chat/stream", {
         method: "POST",

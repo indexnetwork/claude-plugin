@@ -15,20 +15,8 @@ export function getCorsHeaders(req: Request): Record<string, string> {
   return headers;
 }
 
-/** Trusted origins for Better Auth: TRUSTED_ORIGINS env + reflective Origin from request */
+/** Reflective trusted origins for Better Auth: echoes back the request Origin. */
 export async function getTrustedOrigins(request?: Request): Promise<string[]> {
-  const origins: string[] = [];
-
-  const trusted = (process.env.TRUSTED_ORIGINS ?? process.env.TRUSTED_ORIGINS)?.split(',')
-    .map((u) => u.trim())
-    .filter(Boolean) ?? [];
-  for (const u of trusted) {
-    const url = u.startsWith('http') ? u : `https://${u}`;
-    if (!origins.includes(url)) origins.push(url);
-  }
-
   const origin = request?.headers?.get?.('Origin');
-  if (origin && !origins.includes(origin)) origins.push(origin);
-
-  return origins;
+  return origin ? [origin] : [];
 }

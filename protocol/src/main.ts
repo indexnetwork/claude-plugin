@@ -1,7 +1,6 @@
 import './startup.env';
 
 import { ChatController } from './controllers/chat.controller';
-import { getChatProvider } from './adapters/chat.adapter';
 import { S3StorageAdapter } from './adapters/storage.adapter';
 import { IndexController } from './controllers/index.controller';
 import { IntentController } from './controllers/intent.controller';

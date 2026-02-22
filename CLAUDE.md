@@ -248,7 +248,7 @@ IntentEvents.onCreated({ intentId, userId, payload?, previousStatus? });
   - `/api/blog`, `/api/subscribe` - API routes for blog and subscription
   - Intents may be viewed in discover/chat or other contexts (no dedicated `/i/[id]` route)
 - `src/components/` - Reusable React components
-- `src/contexts/` - React Context providers (Auth, API, Notifications, StreamChat)
+- `src/contexts/` - React Context providers (Auth, API, Notifications, XMTP)
 - `src/services/` - Frontend API clients (typed fetch wrappers)
 - `src/lib/` - Utilities and shared logic
 
@@ -730,6 +730,5 @@ test/chat-controller
 - `react` / `react-dom` - UI library
 - `tailwindcss` - CSS framework
 - `@radix-ui/*` - Accessible UI primitives
-- `stream-chat` - Real-time chat
 - `react-markdown` - Markdown rendering
 

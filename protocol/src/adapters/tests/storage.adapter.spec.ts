@@ -2,7 +2,7 @@ import { config } from 'dotenv';
 config({ path: '.env.development', override: true });
 
 import { describe, expect, it, mock, beforeEach } from 'bun:test';
-import { S3StorageAdapter } from '../../src/adapters/storage.adapter';
+import { S3StorageAdapter } from '../storage.adapter';
 
 // Mock S3Client.send to avoid real S3 calls
 const mockSend = mock(() => Promise.resolve({}));
