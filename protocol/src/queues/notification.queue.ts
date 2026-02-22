@@ -3,10 +3,10 @@ import { log } from '../lib/log';
 import { QueueFactory } from '../lib/bullmq/bullmq';
 import { ChatDatabaseAdapter } from '../adapters/database.adapter';
 import { userService } from '../services/user.service';
-import { addEmailJob } from '../lib/email/queue/email.queue';
+import { emailQueue } from './email.queue';
 import { opportunityNotificationTemplate } from '../lib/email/templates/opportunity-notification.template';
 import { emitOpportunityNotification } from '../lib/notification-events';
-import { getRedisClient } from '../lib/redis';
+import { getRedisClient } from '../adapters/cache.adapter';
 
 /** BullMQ queue name for opportunity notification jobs. */
 export const QUEUE_NAME = 'notification-queue';
@@ -217,7 +217,7 @@ export class NotificationQueue {
       unsubscribeUrl
     );
 
-    await addEmailJob(
+    await emailQueue.addJob(
       {
         to: recipient.email,
         subject: template.subject,

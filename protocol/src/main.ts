@@ -22,11 +22,13 @@ import { intentQueue } from './queues/intent.queue';
 import { opportunityQueue } from './queues/opportunity.queue';
 import { notificationQueue } from './queues/notification.queue';
 import { hydeQueue } from './queues/hyde.queue';
+import { emailQueue } from './queues/email.queue';
 
 intentQueue.startWorker();
 opportunityQueue.startWorker();
 notificationQueue.startWorker();
 hydeQueue.startCrons();
+emailQueue.startWorker();
 
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3001;
 const GLOBAL_PREFIX = '/api';
