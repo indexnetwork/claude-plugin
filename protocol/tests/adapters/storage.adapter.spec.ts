@@ -84,5 +84,13 @@ describe('S3StorageAdapter', () => {
       const result = await adapter.uploadBase64Image('iVBOR');
       expect(result).toStartWith('/storage/feedback/');
     });
+
+    it('handles compound MIME subtypes like svg+xml', async () => {
+      const adapter = createAdapter();
+      const base64 = 'data:image/svg+xml;base64,PHN2Zz4=';
+      const result = await adapter.uploadBase64Image(base64, 'images');
+      expect(result).toStartWith('/storage/images/');
+      expect(result).toEndWith('.svg');
+    });
   });
 });

@@ -57,14 +57,19 @@ logger.info('Initializing Server...');
 // Manually instantiate controllers if needed, or just let strict import handle registration (depends on how decorator works vs instantiation).
 // The decorators run when the class is defined (imported).
 // However, to invoke methods, we need instances.
+if (!process.env.S3_BUCKET || !process.env.S3_ACCESS_KEY_ID || !process.env.S3_SECRET_ACCESS_KEY) {
+  logger.error('Missing required S3 env vars: S3_BUCKET, S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY');
+  process.exit(1);
+}
+
 const storageAdapter = new S3StorageAdapter({
   endpoint: process.env.S3_ENDPOINT,
   region: process.env.S3_REGION,
   credentials: {
-    accessKeyId: process.env.S3_ACCESS_KEY_ID || '',
-    secretAccessKey: process.env.S3_SECRET_ACCESS_KEY || '',
+    accessKeyId: process.env.S3_ACCESS_KEY_ID,
+    secretAccessKey: process.env.S3_SECRET_ACCESS_KEY,
   },
-  bucket: process.env.S3_BUCKET || '',
+  bucket: process.env.S3_BUCKET,
 });
 
 const controllerInstances = new Map();

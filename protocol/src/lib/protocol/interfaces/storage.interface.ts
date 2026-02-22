@@ -3,13 +3,6 @@
  * Implementations live in src/adapters (e.g. S3).
  */
 
-export interface StorageConfig {
-  /** S3-compatible bucket name */
-  bucket: string;
-  /** Base URL prefix for generated storage URLs (defaults to "/storage") */
-  baseUrl?: string;
-}
-
 export interface Storage {
   /**
    * Upload a buffer to storage.

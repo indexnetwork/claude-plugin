@@ -12,6 +12,22 @@ interface S3StorageConfig {
   baseUrl?: string;
 }
 
+const MIME_EXTENSIONS: Record<string, string> = {
+  'image/png': 'png',
+  'image/jpeg': 'jpeg',
+  'image/jpg': 'jpg',
+  'image/gif': 'gif',
+  'image/webp': 'webp',
+  'image/svg+xml': 'svg',
+  'image/vnd.microsoft.icon': 'ico',
+  'image/bmp': 'bmp',
+  'image/tiff': 'tiff',
+};
+
+function mimeToExtension(contentType: string): string {
+  return MIME_EXTENSIONS[contentType] ?? contentType.split('/')[1] ?? 'png';
+}
+
 /**
  * S3-compatible storage adapter.
  * Structurally aligns with the protocol Storage interface.
@@ -84,7 +100,7 @@ export class S3StorageAdapter {
       buffer = Buffer.from(base64Image, 'base64');
     }
 
-    const extension = contentType.split('/')[1] || 'png';
+    const extension = mimeToExtension(contentType);
     const key = `${folder}/${uuidv4()}.${extension}`;
     return this.uploadBuffer(buffer, key, contentType);
   }
