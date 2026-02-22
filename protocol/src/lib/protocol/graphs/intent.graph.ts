@@ -145,9 +145,9 @@ export class IntentGraphFactory {
         if (state.operationMode !== 'read') {
           const profile = await this.database.getProfile(state.userId);
           if (!profile) {
-            throw new Error(
-              "You need to create a profile before creating intents. Please set up your profile first."
-            );
+            const msg = "You need to create a profile before creating intents. Please set up your profile first.";
+            logger.error("Prep failed: no profile for user", { userId: state.userId });
+            return { error: msg };
           }
         }
 
@@ -682,6 +682,10 @@ export class IntentGraphFactory {
      * After prep: read mode → query; otherwise decide inference vs reconciler by operation mode.
      */
     const afterPrepRoute = (state: typeof IntentGraphState.State): string => {
+      if (state.error) {
+        logger.warn('Prep failed with error, short-circuiting to END', { error: state.error });
+        return '__end__';
+      }
       if (state.operationMode === 'read') {
         logger.info('Read mode - routing to query (fast path)');
         return 'query';
@@ -753,7 +757,8 @@ export class IntentGraphFactory {
       .addConditionalEdges("prep", afterPrepRoute, {
         query: "query",
         inference: "inference",
-        reconciler: "reconciler"
+        reconciler: "reconciler",
+        __end__: END,
       })
 
       // Query (read mode) always ends
