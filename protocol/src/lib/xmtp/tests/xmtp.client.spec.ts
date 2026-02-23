@@ -11,15 +11,17 @@ describe('createSigner', () => {
     expect(signer.type).toBe('EOA');
   });
 
-  it('should return a lowercase Ethereum address as identifier', () => {
-    const identity = signer.getIdentifier();
+  it('should return a lowercase Ethereum address as identifier', async () => {
+    const identity = await signer.getIdentifier();
     expect(identity.identifier).toMatch(/^0x[0-9a-f]{40}$/);
     expect(identity.identifierKind).toBe(0);
   });
 
-  it('should produce a deterministic address for the same key', () => {
+  it('should produce a deterministic address for the same key', async () => {
     const signer2 = createSigner(privateKey);
-    expect(signer.getIdentifier().identifier).toBe(signer2.getIdentifier().identifier);
+    const id1 = await signer.getIdentifier();
+    const id2 = await signer2.getIdentifier();
+    expect(id1.identifier).toBe(id2.identifier);
   });
 
   it('should sign a message and return bytes', async () => {

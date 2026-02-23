@@ -132,14 +132,17 @@ export class MessagingController {
 
       const wrappedStream = new ReadableStream({
         start(controller) {
+          let closed = false;
+          const safeClose = () => { if (!closed) { closed = true; controller.close(); } };
+
           controller.enqueue(encoder.encode(identityEvent));
           const reader = stream.getReader();
           function pump() {
             reader.read().then(({ done, value }) => {
-              if (done) { controller.close(); return; }
-              controller.enqueue(value);
+              if (done) { safeClose(); return; }
+              if (!closed) controller.enqueue(value);
               pump();
-            }).catch(() => controller.close());
+            }).catch(() => safeClose());
           }
           pump();
         },

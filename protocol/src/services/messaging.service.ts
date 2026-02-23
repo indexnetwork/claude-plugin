@@ -187,8 +187,12 @@ export class MessagingService {
 
     const stream = new ReadableStream({
       start(controller) {
+        let closed = false;
+        const safeEnqueue = (chunk: Uint8Array) => { if (!closed) controller.enqueue(chunk); };
+        const safeClose = () => { if (!closed) { closed = true; controller.close(); } };
+
         const interval = setInterval(() => {
-          try { controller.enqueue(encoder.encode(keepAlive)); } catch { clearInterval(interval); }
+          try { safeEnqueue(encoder.encode(keepAlive)); } catch { clearInterval(interval); }
         }, 15_000);
 
         client.conversations
@@ -202,8 +206,8 @@ export class MessagingService {
             onFail: () => {
               logger.warn('[streamMessages] Stream onFail — exhausted retries', { userId });
               clearInterval(interval);
-              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: 'Stream failed' })}\n\n`));
-              controller.close();
+              safeEnqueue(encoder.encode(`data: ${JSON.stringify({ error: 'Stream failed' })}\n\n`));
+              safeClose();
             },
           })
           .then(async (messageStream) => {
@@ -219,7 +223,7 @@ export class MessagingService {
                   content,
                   sentAt: message.sentAtNs?.toString(),
                 };
-                controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+                safeEnqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
               }
             } catch (err) {
               logger.error('[streamMessages] for-await error', {
@@ -228,7 +232,7 @@ export class MessagingService {
               });
             } finally {
               clearInterval(interval);
-              controller.close();
+              safeClose();
             }
           })
           .catch((err) => {
@@ -237,8 +241,8 @@ export class MessagingService {
               error: err instanceof Error ? err.message : String(err),
             });
             clearInterval(interval);
-            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: 'Stream init failed' })}\n\n`));
-            controller.close();
+            safeEnqueue(encoder.encode(`data: ${JSON.stringify({ error: 'Stream init failed' })}\n\n`));
+            safeClose();
           });
       },
     });
