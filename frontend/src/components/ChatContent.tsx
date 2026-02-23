@@ -733,7 +733,6 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
           </Button>
         </form>
       </div>
-      <div className="pb-3 bg-white" />
     </>
   );
 
@@ -908,8 +907,7 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
                   </Button>
                 </form>
               </div>
-              <div className="pb-3 bg-white" />
-              {homeViewLoading ? (
+                      {homeViewLoading ? (
                 <div className="animate-pulse">
                   {[1, 2].map((s) => (
                     <div key={s} className={s === 1 ? "mt-12" : "mt-6"}>
@@ -1144,8 +1142,7 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
               </Button>
             </form>
           </div>
-          <div className="pb-3 bg-white" />
-          {selectedFiles.length > 0 && (
+              {selectedFiles.length > 0 && (
             <div className="flex flex-wrap gap-2 mt-3">
               {selectedFiles.map(({ id, file }) => (
                 <span
