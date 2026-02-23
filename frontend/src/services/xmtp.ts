@@ -20,7 +20,6 @@ export interface XmtpPeerInfo {
 }
 
 export interface XmtpChatContext {
-  groupId: string | null;
   opportunities: {
     opportunityId: string;
     headline: string;
@@ -39,7 +38,7 @@ export const createXmtpService = (api: {
     api.get<{ conversations: XmtpConversation[] }>('/xmtp/conversations'),
 
   getChatContext: (peerUserId: string) =>
-    api.get<XmtpChatContext>(`/xmtp/chat-context?peerUserId=${encodeURIComponent(peerUserId)}`),
+    api.get<XmtpChatContext>(`/opportunities/chat-context?peerUserId=${encodeURIComponent(peerUserId)}`),
 
   getMessages: (groupId: string, limit?: number) =>
     api.post<{ messages: XmtpMessage[] }>('/xmtp/messages', { groupId, limit }),

@@ -9,5 +9,5 @@ import type { Opportunity } from '../interfaces/database.interface';
 export async function injectOpportunityIntoExistingChat(
   _opportunity: Opportunity,
 ): Promise<void> {
-  // No-op: opportunities are shown via GET /xmtp/chat-context
+  // No-op: opportunities are shown via GET /opportunities/chat-context
 }
