@@ -161,14 +161,14 @@ export default function UserProfilePage({ params }: UserProfilePageProps) {
                     name: 'Riley Park',
                     userId: 'mock-riley',
                     avatar: null,
-                    reason: `Riley is literally building what ${profileData?.name.split(' ')[0]} is actively trying to fund — this intro basically makes itself.`,
+                    reason: `Both ${profileData?.name.split(' ')[0]} and Riley are deep in agent infrastructure from different angles — they'd have a lot to stress-test together.`,
                   },
                   {
                     id: 'match-2',
                     name: 'Mia Chen',
                     userId: 'mock-mia',
                     avatar: null,
-                    reason: `${profileData?.name.split(' ')[0]} is seeking UX advisors. Mia led design at two DeFi startups and is open to advisory roles.`,
+                    reason: `Mia just relocated to the same city and is looking to plug into the local builder scene. ${profileData?.name.split(' ')[0]} would be a perfect first connection.`,
                   },
                 ].map((match) => (
                   <div key={match.id} className="bg-[#F8F8F8] rounded-md p-4">
@@ -204,20 +204,6 @@ export default function UserProfilePage({ params }: UserProfilePageProps) {
             </div>
           )}
 
-          {/* Shared ways of thinking */}
-          {<div>
-            <h3 className="text-base font-bold text-gray-900 font-ibm-plex-mono mb-3">Shared ways of thinking</h3>
-            <div className="space-y-1.5">
-              {[
-                'System-level framing',
-                'Primitives over features',
-                'Practical decentralization, strong UX',
-                'Social systems × computation × economics',
-              ].map((item) => (
-                <p key={item} className="text-sm text-gray-700">{item}</p>
-              ))}
-            </div>
-          </div>}
 
           {/* Affiliations */}
           {<div>
