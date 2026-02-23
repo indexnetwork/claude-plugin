@@ -153,7 +153,7 @@ export default function UserProfilePage({ params }: UserProfilePageProps) {
           {false && user?.id !== resolvedParams.id && (
             <div>
               <h3 className="text-base font-bold text-gray-900 font-ibm-plex-mono mb-0.5">You&apos;re the connector</h3>
-              <p className="text-xs text-gray-400 mb-3">Intros you could make with {profileData.name.split(' ')[0]}</p>
+              <p className="text-xs text-gray-400 mb-3">Intros you could make with {profileData?.name.split(' ')[0]}</p>
               <div className="space-y-2">
                 {[
                   {
@@ -161,14 +161,14 @@ export default function UserProfilePage({ params }: UserProfilePageProps) {
                     name: 'Riley Park',
                     userId: 'mock-riley',
                     avatar: null,
-                    reason: `Riley is literally building what ${profileData.name.split(' ')[0]} is actively trying to fund — this intro basically makes itself.`,
+                    reason: `Riley is literally building what ${profileData?.name.split(' ')[0]} is actively trying to fund — this intro basically makes itself.`,
                   },
                   {
                     id: 'match-2',
                     name: 'Mia Chen',
                     userId: 'mock-mia',
                     avatar: null,
-                    reason: `${profileData.name.split(' ')[0]} is seeking UX advisors. Mia led design at two DeFi startups and is open to advisory roles.`,
+                    reason: `${profileData?.name.split(' ')[0]} is seeking UX advisors. Mia led design at two DeFi startups and is open to advisory roles.`,
                   },
                 ].map((match) => (
                   <div key={match.id} className="bg-[#F8F8F8] rounded-md p-4">
@@ -177,8 +177,8 @@ export default function UserProfilePage({ params }: UserProfilePageProps) {
                       <div className="flex items-center gap-2 min-w-0">
                         <div className="flex items-center gap-2 shrink-0">
                           <div className="flex items-center gap-1.5">
-                            <UserAvatar id={profileData.id} name={profileData.name} avatar={profileData.avatar} size={24} />
-                            <span className="text-sm font-bold text-gray-900">{profileData.name.split(' ')[0]}</span>
+                            <UserAvatar id={profileData?.id ?? ''} name={profileData?.name ?? ''} avatar={profileData?.avatar ?? null} size={24} />
+                            <span className="text-sm font-bold text-gray-900">{profileData?.name.split(' ')[0]}</span>
                           </div>
                           <span className="text-gray-400 text-xs">&lt;&gt;</span>
                           <div className="flex items-center gap-1.5">
