@@ -187,12 +187,11 @@ export class MessagingService {
 
     const stream = new ReadableStream({
       start(controller) {
-        let closed = false;
-        const safeEnqueue = (chunk: Uint8Array) => { if (!closed) controller.enqueue(chunk); };
-        const safeClose = () => { if (!closed) { closed = true; controller.close(); } };
+        const tryEnqueue = (chunk: Uint8Array) => { try { controller.enqueue(chunk); } catch {} };
+        const tryClose = () => { try { controller.close(); } catch {} };
 
         const interval = setInterval(() => {
-          try { safeEnqueue(encoder.encode(keepAlive)); } catch { clearInterval(interval); }
+          try { tryEnqueue(encoder.encode(keepAlive)); } catch { clearInterval(interval); }
         }, 15_000);
 
         client.conversations
@@ -206,8 +205,8 @@ export class MessagingService {
             onFail: () => {
               logger.warn('[streamMessages] Stream onFail — exhausted retries', { userId });
               clearInterval(interval);
-              safeEnqueue(encoder.encode(`data: ${JSON.stringify({ error: 'Stream failed' })}\n\n`));
-              safeClose();
+              tryEnqueue(encoder.encode(`data: ${JSON.stringify({ error: 'Stream failed' })}\n\n`));
+              tryClose();
             },
           })
           .then(async (messageStream) => {
@@ -223,7 +222,7 @@ export class MessagingService {
                   content,
                   sentAt: message.sentAtNs?.toString(),
                 };
-                safeEnqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+                tryEnqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
               }
             } catch (err) {
               logger.error('[streamMessages] for-await error', {
@@ -232,7 +231,7 @@ export class MessagingService {
               });
             } finally {
               clearInterval(interval);
-              safeClose();
+              tryClose();
             }
           })
           .catch((err) => {
@@ -241,8 +240,8 @@ export class MessagingService {
               error: err instanceof Error ? err.message : String(err),
             });
             clearInterval(interval);
-            safeEnqueue(encoder.encode(`data: ${JSON.stringify({ error: 'Stream init failed' })}\n\n`));
-            safeClose();
+            tryEnqueue(encoder.encode(`data: ${JSON.stringify({ error: 'Stream init failed' })}\n\n`));
+            tryClose();
           });
       },
     });
