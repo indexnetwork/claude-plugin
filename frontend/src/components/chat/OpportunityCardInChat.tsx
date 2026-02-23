@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Bot, Check, Clock, X } from "lucide-react";
+import { Bot, Check, CheckCircle2, Clock, X } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import UserAvatar from "@/components/UserAvatar";
@@ -71,8 +71,6 @@ function getStatusMessage(status?: string): string | null {
 /** Tailwind classes for the card wrapper based on opportunity status. */
 function getCardWrapperClass(status?: string): string {
   switch (status) {
-    case "accepted":
-      return "bg-green-50/80 border border-green-200";
     case "rejected":
       return "bg-red-50/60 border border-red-200";
     case "expired":
@@ -85,8 +83,6 @@ function getCardWrapperClass(status?: string): string {
 /** Tailwind classes for the narrator chip based on opportunity status. */
 function getNarratorChipClass(status?: string): string {
   switch (status) {
-    case "accepted":
-      return "bg-green-100/80 border border-green-200";
     case "rejected":
       return "bg-red-100/60 border border-red-200";
     case "expired":
@@ -99,8 +95,6 @@ function getNarratorChipClass(status?: string): string {
 /** Hover class for the narrator chip when clickable (by status). */
 function getNarratorHoverClass(status?: string): string {
   switch (status) {
-    case "accepted":
-      return "hover:bg-green-200/50";
     case "rejected":
       return "hover:bg-red-200/40";
     case "expired":
@@ -328,17 +322,25 @@ export default function OpportunityCard({
           </div>
         )}
         {!actionTaken && showResolvedStatus && (
-          <div className="flex items-center gap-1.5 shrink-0 text-sm text-gray-600">
+          <div className="shrink-0">
             {effectiveStatus === "accepted" && (
-              <Check className="w-4 h-4 text-green-600 shrink-0" />
+              <span className="inline-flex items-center gap-1.5 text-green-600 text-xs font-semibold font-mono">
+                <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                Connected
+              </span>
             )}
             {effectiveStatus === "rejected" && (
-              <X className="w-4 h-4 text-red-600 shrink-0" />
+              <span className="inline-flex items-center gap-1 text-red-500 text-xs font-medium">
+                <X className="w-3 h-3" />
+                Declined
+              </span>
             )}
             {effectiveStatus === "expired" && (
-              <Clock className="w-4 h-4 text-amber-600 shrink-0" />
+              <span className="inline-flex items-center gap-1 text-amber-500 text-xs font-medium">
+                <Clock className="w-3 h-3" />
+                Expired
+              </span>
             )}
-            <span>{statusMessage}</span>
           </div>
         )}
       </div>
