@@ -748,7 +748,7 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
         (homeViewData && homeViewData.sections.length > 0)
       ) {
         return (
-          <div className="px-6 lg:px-8 min-h-full">
+          <div className="px-6 lg:px-8 pb-12">
             <ContentContainer className="text-left">
               <div className="mt-12 mb-6">
                 <h1 className="text-[28px] font-bold text-black font-ibm-plex-mono text-center">
@@ -908,8 +908,7 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
                   </Button>
                 </form>
               </div>
-              <div className="py-2"></div>
-                      {homeViewLoading ? (
+              {homeViewLoading ? (
                 <div className="animate-pulse">
                   {[1, 2].map((s) => (
                     <div key={s} className={s === 1 ? "mt-12" : "mt-6"}>
@@ -991,7 +990,7 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
 
     // Empty state — no opportunities to show
     return (
-      <div className="px-6 lg:px-8 bg-white min-h-full">
+      <div className="px-6 lg:px-8 bg-white pb-12">
         <ContentContainer className="text-left">
           <div className="mt-12 mb-6">
             <h1 className="text-[28px] font-bold text-black font-ibm-plex-mono text-center">
