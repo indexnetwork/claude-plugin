@@ -107,6 +107,8 @@ export interface OpportunityGraphOptions {
   hydeDescription?: string;
   /** Existing opportunities summary for evaluator deduplication */
   existingOpportunities?: string;
+  /** Chat session ID for draft opportunities; stored as context.conversationId for visibility filtering. */
+  conversationId?: string;
 }
 
 /**

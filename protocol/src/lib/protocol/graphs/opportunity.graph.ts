@@ -298,6 +298,7 @@ export class OpportunityGraphFactory {
      * Generates HyDE embeddings and performs semantic search (path A), or profile-as-source search (path B/C).
      */
     const discoveryNode = async (state: typeof OpportunityGraphState.State) => {
+      const self = this;
       return timed("OpportunityGraph.discovery", async () => {
         logger.info('[Graph:Discovery] Starting semantic search', {
           targetIndexesCount: state.targetIndexes.length,
@@ -321,7 +322,12 @@ export class OpportunityGraphFactory {
               : Array.isArray(embedding) && Array.isArray(embedding[0])
                 ? (embedding[0] as number[])
                 : null;
+            const chatQueryPath = state.options.conversationId && state.searchQuery?.trim();
             if (!vector || vector.length === 0) {
+              if (chatQueryPath) {
+                const queryCandidates = await runQueryHydeDiscovery();
+                return { candidates: queryCandidates };
+              }
               const isPathB = !state.resolvedTriggerIntentId;
               if (isPathB && state.searchQuery?.trim()) {
                 return {
@@ -374,6 +380,11 @@ export class OpportunityGraphFactory {
             const candidates = Array.from(byUserAndIndex.values());
             const isPathB = !state.resolvedTriggerIntentId;
             if (candidates.length === 0 && isPathB && state.searchQuery?.trim()) {
+              if (chatQueryPath) {
+                const queryCandidates = await runQueryHydeDiscovery();
+                logger.info('[Graph:Discovery] Chat query fallback complete', { candidatesFound: queryCandidates.length });
+                return { candidates: queryCandidates };
+              }
               return {
                 candidates: [],
                 createIntentSuggested: true,
@@ -382,6 +393,69 @@ export class OpportunityGraphFactory {
             }
             logger.info('[Graph:Discovery] Profile-as-source discovery complete', { candidatesFound: candidates.length });
             return { candidates };
+          }
+
+          async function runQueryHydeDiscovery(): Promise<CandidateMatch[]> {
+            const searchText = state.searchQuery?.trim() ?? '';
+            if (!searchText) return [];
+            const strategies = state.options.strategies ?? selectStrategies(searchText, {
+              indexId: state.targetIndexes[0].indexId,
+            });
+            const hydeResult = await self.hydeGenerator.invoke({
+              sourceType: 'query',
+              sourceText: searchText,
+              strategies,
+              context: state.targetIndexes[0] ? { indexId: state.targetIndexes[0].indexId } : undefined,
+              forceRegenerate: false,
+            });
+            const hydeEmbeddings = hydeResult.hydeEmbeddings as Record<string, number[]>;
+            if (!hydeEmbeddings || Object.keys(hydeEmbeddings).length === 0) return [];
+            const embeddingsMap = new Map<HydeStrategy, number[]>();
+            for (const [strategy, emb] of Object.entries(hydeEmbeddings)) {
+              if (emb?.length) embeddingsMap.set(strategy as HydeStrategy, emb);
+            }
+            const all: CandidateMatch[] = [];
+            await Promise.all(
+              state.targetIndexes.map(async (targetIndex) => {
+                const results = await self.embedder.searchWithHydeEmbeddings(embeddingsMap, {
+                  strategies,
+                  indexScope: [targetIndex.indexId],
+                  excludeUserId: state.userId,
+                  limitPerStrategy,
+                  limit: perIndexLimit,
+                  minScore: 0.5,
+                });
+                for (const r of results.filter((x) => x.type === 'intent')) {
+                  all.push({
+                    candidateUserId: r.userId as Id<'users'>,
+                    candidateIntentId: r.id as Id<'intents'>,
+                    indexId: targetIndex.indexId,
+                    similarity: r.score,
+                    strategy: r.matchedVia as HydeStrategy,
+                    candidatePayload: '',
+                    candidateSummary: undefined,
+                  });
+                }
+                for (const r of results.filter((x) => x.type === 'profile')) {
+                  all.push({
+                    candidateUserId: r.userId as Id<'users'>,
+                    indexId: targetIndex.indexId,
+                    similarity: r.score,
+                    strategy: r.matchedVia as HydeStrategy,
+                    candidatePayload: '',
+                    candidateSummary: undefined,
+                  });
+                }
+              })
+            );
+            const byKey = new Map<string, CandidateMatch>();
+            for (const c of all) {
+              const key = `${c.candidateUserId}:${c.indexId}`;
+              if (!byKey.has(key) || (byKey.get(key)?.candidateIntentId == null && c.candidateIntentId != null)) {
+                byKey.set(key, c);
+              }
+            }
+            return Array.from(byKey.values());
           }
 
           const resolvedIntent = state.resolvedTriggerIntentId
@@ -854,7 +928,10 @@ export class OpportunityGraphFactory {
                     },
                   ],
                 },
-                context: { indexId: state.indexId ?? indexIdForActors },
+                context: {
+                  indexId: state.indexId ?? indexIdForActors,
+                  ...(state.options.conversationId ? { conversationId: state.options.conversationId } : {}),
+                },
                 confidence: String(evaluated.score / 100),
                 status: initialStatus,
               };
@@ -909,6 +986,7 @@ export class OpportunityGraphFactory {
                 },
                 context: {
                   ...(state.indexId ? { indexId: state.indexId } : {}),
+                  ...(state.options.conversationId ? { conversationId: state.options.conversationId } : {}),
                 },
                 confidence: String(evaluated.score / 100),
                 status: initialStatus,
@@ -1165,7 +1243,7 @@ export class OpportunityGraphFactory {
     };
 
     /**
-     * Send Node: Promote latent opportunity to pending + queue notification.
+     * Send Node: Promote latent or draft opportunity to pending + queue notification.
      */
     const sendNode = async (state: typeof OpportunityGraphState.State) => {
       return timed("OpportunityGraph.send", async () => {
@@ -1183,11 +1261,12 @@ export class OpportunityGraphFactory {
           if (!opp) {
             return { mutationResult: { success: false, error: 'Opportunity not found.' } };
           }
-          if (opp.status !== 'latent') {
+          const canSendStatus = opp.status === 'latent' || opp.status === 'draft';
+          if (!canSendStatus) {
             return {
               mutationResult: {
                 success: false,
-                error: `Opportunity is already ${opp.status}; only draft (latent) opportunities can be sent.`,
+                error: `Opportunity is already ${opp.status}; only latent or draft opportunities can be sent.`,
               },
             };
           }
