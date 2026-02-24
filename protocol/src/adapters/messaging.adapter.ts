@@ -58,6 +58,14 @@ export class MessagingAdapter {
 
   /**
    * Create XMTP client; on 10/10 installation limit, revoke all installations and retry once.
+   *
+   * @remarks We revoke every installation (not just surplus) because client creation has already
+   * failed—there is no active client to preserve. Revoking all plus deleting the local DB ensures
+   * the retry creates a new installation ID and avoids "Replay detected" from re-publishing the
+   * same identity update. In multi-instance deployments this invalidates all other active clients
+   * for this inbox until they re-register; that trade-off is accepted for single-server and
+   * dev flows.
+   *
    * @param signer - Signer for the user's wallet.
    * @param dbEncryptionKey - Derived DB encryption key.
    * @param xmtpEnv - XMTP environment.
