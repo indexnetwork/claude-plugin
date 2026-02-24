@@ -13,6 +13,7 @@ import type { Id } from '../../../../types/common.types';
 import type {
   OpportunityGraphDatabase,
   OpportunityActor,
+  Opportunity,
 } from '../../interfaces/database.interface';
 import type { Embedder } from '../../interfaces/embedder.interface';
 import type { EvaluatedOpportunityWithActors } from '../../agents/opportunity.evaluator';
@@ -698,6 +699,40 @@ describe('Opportunity Graph', () => {
 
       expect(result.opportunities.length).toBe(1);
       expect(result.error).toBeUndefined();
+    });
+  });
+
+  describe('send path', () => {
+    test('when opportunity is draft and user is party actor, promotes to pending and returns success', async () => {
+      const opportunityId = 'opp-draft-send-test';
+      const draftOpportunity = {
+        id: opportunityId,
+        status: 'draft' as const,
+        actors: [
+          { indexId: 'idx-1', userId: 'user-source', role: 'party' as const },
+          { indexId: 'idx-1', userId: 'user-other', role: 'party' as const },
+        ],
+        detection: { source: 'opportunity_graph' as const, timestamp: new Date().toISOString() },
+        interpretation: { category: 'collaboration', reasoning: 'Match', confidence: 0.8 },
+        context: { indexId: 'idx-1', conversationId: 'chat-1' },
+        confidence: '0.8',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        expiresAt: null,
+      };
+      const { compiledGraph, mockDb } = createMockGraph();
+      spyOn(mockDb, 'getOpportunity').mockResolvedValue(draftOpportunity as Opportunity);
+      const updateStatusSpy = spyOn(mockDb, 'updateOpportunityStatus').mockResolvedValue(null);
+
+      const result = (await compiledGraph.invoke({
+        operationMode: 'send',
+        userId: 'user-source' as Id<'users'>,
+        opportunityId,
+      } as OpportunityGraphInvokeInput)) as OpportunityGraphInvokeResult;
+
+      expect(result.mutationResult?.success).toBe(true);
+      expect(result.mutationResult?.opportunityId).toBe(opportunityId);
+      expect(updateStatusSpy).toHaveBeenCalledWith(opportunityId, 'pending');
     });
   });
 });
