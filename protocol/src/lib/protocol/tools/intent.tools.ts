@@ -1,10 +1,18 @@
 import { z } from "zod";
 import type { DefineTool, ToolDeps } from "./tool.helpers";
 import { success, error, UUID_REGEX } from "./tool.helpers";
-import type { ExecutionResult } from "../states/intent.state";
+import type { ExecutionResult, VerifiedIntent } from "../states/intent.state";
 import { protocolLogger } from "../support/protocol.logger";
 
 const logger = protocolLogger("ChatTools:Intent");
+
+/**
+ * Sanitize JSON string for use inside a markdown code fence (```). Escapes backticks
+ * so embedded ``` cannot close the fence prematurely.
+ */
+function sanitizeJsonForCodeFence(json: string): string {
+  return json.replace(/`/g, "\\u0060");
+}
 
 /** When context is index-scoped, verifies the caller is still a member of that index. Returns error message or null. */
 async function ensureScopedMembership(
@@ -164,22 +172,18 @@ export function createIntentTools(defineTool: DefineTool, deps: ToolDeps) {
       }
 
       // Build intent_proposal code fences for each verified intent
-      const proposalBlocks = verified.map((v: {
-        description: string;
-        score?: number;
-        verification?: { classification?: string; semantic_entropy?: number };
-      }) => {
+      const proposalBlocks = verified.map((v: VerifiedIntent) => {
         const proposalId = crypto.randomUUID();
         const data = {
           proposalId,
           description: v.description,
           ...(effectiveIndexId ? { indexId: effectiveIndexId } : {}),
-          confidence: v.score ? Math.round((v.score / 100) * 100) / 100 : null,
+          confidence: v.score != null ? Math.round((v.score / 100) * 100) / 100 : null,
           speechActType: v.verification?.classification ?? null,
         };
         return (
           "```intent_proposal\n" +
-          JSON.stringify(data) +
+          sanitizeJsonForCodeFence(JSON.stringify(data)) +
           "\n```"
         );
       });
