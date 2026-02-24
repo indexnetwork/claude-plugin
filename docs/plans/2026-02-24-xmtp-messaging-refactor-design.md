@@ -18,7 +18,7 @@ Controller → Service → Adapter → Lib
 
 - Services import only from adapters
 - Adapters import only from libs
-- Libs import nothing except basics (logging, node builtins)
+- Libs import only external SDKs (viem, @xmtp/node-sdk), node builtins (crypto), and logging
 - DB access in adapters is via dependency injection (not direct drizzle import)
 
 ## Design
@@ -72,7 +72,7 @@ Imports only from `lib/xmtp/`. Receives `MessagingStore` via constructor injecti
 
 Imports only from adapter.
 
-- Constructor: `new MessagingService(adapter: MessagingAdapter)`
+- Constructor: `new MessagingService(store: MessagingStore, config: MessagingAdapterConfig)` — creates `MessagingAdapter` internally
 - `listConversations(userId)` — client from adapter, hidden-message filtering, peer resolution
 - `getMessages(userId, conversationId, limit)` — messages + hidden-timestamp filtering
 - `sendMessage(userId, groupId?, peerUserId?, text)` — orchestrates DM creation + send
@@ -88,7 +88,15 @@ Renamed from `xmtp.controller.ts`. Same endpoints, but all logic delegated to se
 
 ### Wiring (main.ts)
 
-Create `MessagingStore` implementation (backed by Drizzle), inject into adapter → service → controller.
+Create `MessagingStore` implementation (backed by Drizzle), inject into service → controller.
+
+Wallet provisioning for new users uses a lazy hook to avoid circular imports between `auth.ts` and the messaging layer. `auth.ts` exports `setWalletHook(fn)` instead of importing `wallet.service` directly. In `main.ts`, after creating the store:
+
+```typescript
+setWalletHook((userId) => messagingStore.ensureWallet(userId));
+```
+
+This lets the Better Auth `user.create.after` hook call the injected function without `auth.ts` knowing about the messaging adapter.
 
 ## Migrations
 
