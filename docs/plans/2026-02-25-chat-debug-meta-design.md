@@ -32,7 +32,7 @@ Single format for “Copy debug”: **JSON** (pretty-printed), e.g.:
 ```json
 {
   "sessionId": "...",
-  "exportedAt": "2025-02-25T...",
+  "exportedAt": "2026-02-25T...",
   "messages": [ { "role": "user" | "assistant", "content": "..." }, ... ],
   "turns": [
     {

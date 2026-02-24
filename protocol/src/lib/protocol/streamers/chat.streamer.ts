@@ -204,7 +204,10 @@ export class ChatStreamer {
           const debugMeta = agentOutput?.debugMeta as
             | { graph: string; iterations: number; tools?: DebugMetaToolCall[] }
             | undefined;
-          if (debugMeta?.graph != null) {
+          if (
+            debugMeta?.graph != null &&
+            typeof debugMeta.iterations === "number"
+          ) {
             yield createDebugMetaEvent(
               sessionId,
               debugMeta.graph,

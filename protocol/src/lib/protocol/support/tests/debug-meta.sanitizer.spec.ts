@@ -1,5 +1,11 @@
+import { config } from "dotenv";
+config({ path: ".env.development", override: true });
+
 import { describe, it, expect } from "bun:test";
-import { sanitizeForDebugMeta } from "../debug-meta.sanitizer";
+import {
+  sanitizeForDebugMeta,
+  SANITIZATION_ERROR_PLACEHOLDER,
+} from "../debug-meta.sanitizer";
 
 describe("sanitizeForDebugMeta", () => {
   it("replaces embedding array with placeholder", () => {
@@ -44,9 +50,12 @@ describe("sanitizeForDebugMeta", () => {
     const circular: Record<string, unknown> = { a: 1 };
     circular.self = circular;
     const out = sanitizeForDebugMeta(circular);
-    expect(out).toBeDefined();
-    expect(typeof out === "string" ? out : "[sanitization error]").toMatch(
-      /sanitization error|placeholder/,
-    );
+    if (typeof out === "string") {
+      expect(out).toBe(SANITIZATION_ERROR_PLACEHOLDER);
+    } else {
+      const obj = out as Record<string, unknown>;
+      expect(obj.a).toBe(1);
+      expect(obj.self).toBe(SANITIZATION_ERROR_PLACEHOLDER);
+    }
   });
 });

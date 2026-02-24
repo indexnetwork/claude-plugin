@@ -348,7 +348,7 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
     }
   }, [sessionId, showError]);
 
-  const handleCopyDebug = useCallback(() => {
+  const handleCopyDebug = useCallback(async () => {
     const exportedAt = new Date().toISOString();
     const exportMessages = messages.map((m) => ({
       role: m.role,
@@ -373,15 +373,13 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
       turns,
     };
     const json = JSON.stringify(payload, null, 2);
-    navigator.clipboard
-      .writeText(json)
-      .then(() => {
-        setDebugCopied(true);
-        setTimeout(() => setDebugCopied(false), 2000);
-      })
-      .catch(() => {
-        showError("Failed to copy debug to clipboard");
-      });
+    try {
+      await navigator.clipboard.writeText(json);
+      setDebugCopied(true);
+      setTimeout(() => setDebugCopied(false), 2000);
+    } catch {
+      showError("Failed to copy debug to clipboard");
+    }
   }, [messages, debugMetaByTurn, sessionId, showError]);
 
   // Keep ref in sync with sessionId

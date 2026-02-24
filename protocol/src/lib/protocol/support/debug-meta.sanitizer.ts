@@ -11,7 +11,8 @@ const BLOCKLIST_KEYS = new Set([
 const BLOCKLIST_SUFFIXES = ["Embedding", "Vector"];
 const EMBEDDING_ARRAY_THRESHOLD = 100;
 const DEFAULT_MAX_STRING_LENGTH = 2048;
-const SANITIZATION_ERROR_PLACEHOLDER = "[sanitization error]";
+/** Exported for tests that assert on circular-ref placeholder. */
+export const SANITIZATION_ERROR_PLACEHOLDER = "[sanitization error]";
 
 function isBlocklistedKey(key: string): boolean {
   if (BLOCKLIST_KEYS.has(key)) return true;

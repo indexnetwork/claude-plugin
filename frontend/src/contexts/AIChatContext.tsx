@@ -285,8 +285,8 @@ export function AIChatProvider({ children }: { children: React.ReactNode }) {
                     setDebugMetaByTurn((prev) => [
                       ...prev,
                       {
-                        graph: event.graph,
-                        iterations: event.iterations,
+                        graph: event.graph ?? "",
+                        iterations: event.iterations ?? 0,
                         tools: event.tools ?? [],
                       },
                     ]);
