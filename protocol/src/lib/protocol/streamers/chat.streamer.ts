@@ -2,8 +2,12 @@ import { BaseMessage, HumanMessage } from "@langchain/core/messages";
 import { MemorySaver } from "@langchain/langgraph";
 import { PostgresSaver } from "@langchain/langgraph-checkpoint-postgres";
 import { protocolLogger } from "../support/protocol.logger";
-import type { ChatStreamEvent } from "../../../types/chat-streaming.types";
+import type {
+  ChatStreamEvent,
+  DebugMetaToolCall,
+} from "../../../types/chat-streaming.types";
 import {
+  createDebugMetaEvent,
   createErrorEvent,
   createResponseCompleteEvent,
   createStatusEvent,
@@ -196,6 +200,18 @@ export class ChatStreamer {
             ? (agentOutput.responseText as string)
             : "";
           yield createResponseCompleteEvent(sessionId, responseText);
+
+          const debugMeta = agentOutput?.debugMeta as
+            | { graph: string; iterations: number; tools: DebugMetaToolCall[] }
+            | undefined;
+          if (debugMeta?.graph != null && Array.isArray(debugMeta.tools)) {
+            yield createDebugMetaEvent(
+              sessionId,
+              debugMeta.graph,
+              debugMeta.iterations,
+              debugMeta.tools,
+            );
+          }
 
           logger.info("Agent loop complete (updates)", {
             responseLength: responseText.length,
