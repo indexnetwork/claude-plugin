@@ -329,6 +329,10 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
         );
       }
 
+      const toolDebugSteps: Array<{ step: string; detail?: string }> = [
+        { step: "resolve_index_scope", detail: `${indexScope.length} index(es)` },
+      ];
+
       const triggerIntentId = query.intentId?.trim() || undefined;
       if (triggerIntentId != null && !UUID_REGEX.test(triggerIntentId)) {
         return error("Invalid intent ID format.");
@@ -345,6 +349,11 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
         triggerIntentId,
       });
 
+      const allDebugSteps = [
+        ...toolDebugSteps,
+        ...(result.debugSteps ?? []),
+      ];
+
       if (result.createIntentSuggested && result.suggestedIntentDescription) {
         return success({
           found: false,
@@ -353,6 +362,7 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
           suggestedIntentDescription: result.suggestedIntentDescription,
           message:
             "No matching opportunities found. Call create_intent with the suggested description, then create_opportunities again.",
+          debugSteps: allDebugSteps,
         });
       }
 
@@ -361,6 +371,7 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
           found: false,
           count: 0,
           message: result.message ?? "No matching opportunities found.",
+          debugSteps: allDebugSteps,
         });
       }
 
@@ -400,6 +411,7 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
         found: true,
         count: result.count,
         message: `Found ${result.count} potential connection(s). IMPORTANT: Include the following \`\`\`opportunity code blocks EXACTLY as-is in your response (they render as interactive cards):\n\n${blocksText}`,
+        debugSteps: allDebugSteps,
       });
     },
   });
