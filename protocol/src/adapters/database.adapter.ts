@@ -407,7 +407,11 @@ export class IntentDatabaseAdapter {
   }
 
   /**
-   * Associate an intent with an index (inserts intent_indexes row).
+   * Associates an intent with an index (inserts intent_indexes row).
+   * @param intentId - The intent identifier.
+   * @param indexId - The index identifier.
+   * @returns Promise that resolves when the row is inserted.
+   * @throws May throw on database insertion errors (db.insert/schema.intentIndexes).
    */
   async assignIntentToIndex(intentId: string, indexId: string): Promise<void> {
     await db.insert(schema.intentIndexes).values({ intentId, indexId });

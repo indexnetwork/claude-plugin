@@ -180,7 +180,7 @@ export function createIntentTools(defineTool: DefineTool, deps: ToolDeps) {
           proposalId,
           description: v.description,
           ...(effectiveIndexId ? { indexId: effectiveIndexId } : {}),
-          confidence: v.score != null ? Math.round((v.score / 100) * 100) / 100 : null,
+          confidence: v.score != null ? Math.round(v.score * 100) / 100 : null,
           speechActType: v.verification?.classification ?? null,
         };
         return (
