@@ -27,7 +27,7 @@ function isInstallationLimitError(err: unknown): boolean {
 /** Extract inbox ID from the installation-limit error message if present (e.g. "InboxID <hex> has already..."). */
 function parseInboxIdFromError(err: unknown): string | null {
   const msg = err instanceof Error ? err.message : String(err);
-  const match = msg.match(/InboxID\s+([a-f0-9]{64})\s+has\s+already/);
+  const match = msg.match(/InboxID\s+([a-fA-F0-9]{64})\s+has\s+already/);
   return match?.[1] ?? null;
 }
 
