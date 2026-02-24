@@ -417,6 +417,15 @@ See `frontend/.env.example` for frontend-specific configuration (Better Auth, AP
 
 ## Testing
 
+### Never commit without testing
+
+Before committing any change:
+
+1. **Automated testing**: Run the relevant test suite (e.g. `bun test path/to/affected.spec.ts` in protocol). Do not commit if tests fail or are skipped without good reason.
+2. **Smoke test**: Manually verify the change works as intended (e.g. run the app, hit the changed flow, or run a quick manual check). Do not commit on "assumption" only.
+
+If you cannot run tests yourself (e.g. agent cannot execute `bun test`), provide the exact commands for the user to run and ask them to confirm results before committing.
+
 ### Do not run bun test yourself
 
 When tests need to be run (e.g. after changes, to verify fixes, or when the user asks to run tests):
@@ -700,6 +709,15 @@ export class IntentService {
 ## Git Workflow
 
 Follow these conventions for version control operations.
+
+### Always use worktrees for fixes and new features
+
+**Use a worktree** for any new feature or bugfix work. Do not do feature or fix work on the main working tree (e.g. on `dev` at repo root). Create a worktree, do the work there, then open PRs from that branch. This keeps `dev` stable and isolates changes.
+
+- **New feature** → create worktree (e.g. `feat/my-feature`), implement and test there.
+- **Bug fix** → create worktree (e.g. `fix/issue-name`), fix and test there.
+
+Only use the main working tree for small docs/config edits, dependency bumps, or when explicitly told otherwise.
 
 ### Worktrees
 
