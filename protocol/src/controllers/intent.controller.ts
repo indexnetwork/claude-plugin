@@ -1,5 +1,6 @@
 import { AuthGuard, type AuthenticatedUser } from '../guards/auth.guard';
 import { log } from '../lib/log';
+import type { ExecutionResult } from '../lib/protocol/states/intent.state';
 import { Controller, Get, Patch, Post, UseGuards } from '../lib/router/router.decorators';
 import { intentService } from '../services/intent.service';
 import { userService } from '../services/user.service';
@@ -60,24 +61,25 @@ export class IntentController {
 
     logger.info('Intent confirm requested', { userId: user.id, proposalId: body.proposalId });
 
-    const userWithGraph = await userService.findWithGraph(user.id);
-    const userProfile = userWithGraph?.profile ? JSON.stringify(userWithGraph.profile) : '{}';
-    const result = await intentService.processIntent(user.id, userProfile, body.description);
+    try {
+      const userWithGraph = await userService.findWithGraph(user.id);
+      const userProfile = userWithGraph?.profile ? JSON.stringify(userWithGraph.profile) : '{}';
+      const result = await intentService.processIntent(user.id, userProfile, body.description);
 
-    const created = (result.executionResults as Array<{
-      actionType: string;
-      success: boolean;
-      intentId?: string;
-      payload?: string;
-    }> ?? []).filter(
-      (r) => r.actionType === 'create' && r.success && r.intentId
-    );
+      const execResults = (result.executionResults ?? []) as ExecutionResult[];
+      const created = execResults.filter(
+        (r) => r.actionType === 'create' && r.success && r.intentId
+      );
 
-    return Response.json({
-      success: true,
-      proposalId: body.proposalId,
-      intents: created,
-    });
+      return Response.json({
+        success: true,
+        proposalId: body.proposalId,
+        intents: created,
+      });
+    } catch (err) {
+      logger.error('Intent confirm failed', { userId: user.id, proposalId: body.proposalId, error: err });
+      return Response.json({ error: 'Failed to process intent confirmation' }, { status: 500 });
+    }
   }
 
   /**
