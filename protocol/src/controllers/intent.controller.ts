@@ -40,6 +40,68 @@ export class IntentController {
   }
 
   /**
+   * Confirm a proposed intent from chat and persist it via the full intent graph.
+   * @param req - Request with body `{ proposalId?: string; description?: string; indexId?: string }`
+   * @param user - Authenticated user from AuthGuard
+   * @returns The created intents extracted from execution results
+   */
+  @Post('/confirm')
+  @UseGuards(AuthGuard)
+  async confirm(req: Request, user: AuthenticatedUser) {
+    const body = await req.json().catch(() => ({})) as {
+      proposalId?: string;
+      description?: string;
+      indexId?: string;
+    };
+
+    if (!body.description?.trim()) {
+      return Response.json({ error: 'description is required' }, { status: 400 });
+    }
+
+    logger.info('Intent confirm requested', { userId: user.id, proposalId: body.proposalId });
+
+    const userWithGraph = await userService.findWithGraph(user.id);
+    const userProfile = userWithGraph?.profile ? JSON.stringify(userWithGraph.profile) : '{}';
+    const result = await intentService.processIntent(user.id, userProfile, body.description);
+
+    const created = (result.executionResults as Array<{
+      actionType: string;
+      success: boolean;
+      intentId?: string;
+      payload?: string;
+    }> ?? []).filter(
+      (r) => r.actionType === 'create' && r.success && r.intentId
+    );
+
+    return Response.json({
+      success: true,
+      proposalId: body.proposalId,
+      intents: created,
+    });
+  }
+
+  /**
+   * Reject a proposed intent from chat. Logs the rejection for analytics.
+   * @param req - Request with body `{ proposalId?: string }`
+   * @param user - Authenticated user from AuthGuard
+   * @returns Acknowledgement with the proposal ID
+   */
+  @Post('/reject')
+  @UseGuards(AuthGuard)
+  async reject(req: Request, user: AuthenticatedUser) {
+    const body = await req.json().catch(() => ({})) as {
+      proposalId?: string;
+    };
+
+    logger.info('Intent proposal rejected', { userId: user.id, proposalId: body.proposalId });
+
+    return Response.json({
+      success: true,
+      proposalId: body.proposalId,
+    });
+  }
+
+  /**
    * Get a single intent by ID.
    */
   @Get('/:id')
