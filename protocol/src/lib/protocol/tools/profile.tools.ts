@@ -30,23 +30,25 @@ export function createProfileTools(defineTool: DefineTool, deps: ToolDeps) {
       if (nameQuery) {
         const pattern = nameQuery.toLowerCase();
         const MAX_RESULTS = 20;
+        // When chat is index-scoped, restrict name search to that index
+        const searchIndexId = effectiveIndexId || context.indexId || undefined;
 
         let candidates: Array<{ userId: string; name: string; avatar: string | null }>;
 
-        if (effectiveIndexId) {
+        if (searchIndexId) {
           // Scoped to a specific index
-          if (context.indexId && effectiveIndexId !== context.indexId) {
+          if (context.indexId && searchIndexId !== context.indexId) {
             return error(
               context.indexName
                 ? `This chat is scoped to ${context.indexName}. You can only look up people in this community.`
                 : `This chat is scoped to this index. You can only look up people in this community.`
             );
           }
-          const callerIsMember = await systemDb.isIndexMember(effectiveIndexId, context.userId);
+          const callerIsMember = await systemDb.isIndexMember(searchIndexId, context.userId);
           if (!callerIsMember) {
             return error("You can only look up people in indexes you are a member of.");
           }
-          const members = await systemDb.getIndexMembers(effectiveIndexId);
+          const members = await systemDb.getIndexMembers(searchIndexId);
           candidates = members.map((m) => ({ userId: m.userId, name: m.name, avatar: m.avatar ?? null }));
         } else {
           // Search across all user's indexes
