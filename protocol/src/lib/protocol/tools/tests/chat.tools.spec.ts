@@ -1103,20 +1103,20 @@ describe("read_user_profiles tool (query parameter — name search)", () => {
   const indexB = "a1b2c3d4-0000-4000-8000-000000000031";
 
   const allMembers = [
-    { userId: "user-alice", name: "Alice Wonderland", avatar: null },
-    { userId: "user-bob", name: "Bob Builder", avatar: null },
-    { userId: "user-chad", name: "Chad Fowler", avatar: null },
+    { userId: "user-mei", name: "Mei Lin", avatar: null },
+    { userId: "user-diego", name: "Diego Alvarez", avatar: null },
+    { userId: "user-priya", name: "Priya Nair", avatar: null },
     { userId: testUserId, name: "Test User", avatar: null },
   ];
 
-  const chadProfile = {
-    identity: { name: "Chad Fowler", bio: "CTO and Ruby enthusiast", location: "Berlin" },
-    attributes: { skills: ["Ruby", "Leadership"], interests: ["Music", "Programming"] },
+  const priyaProfile = {
+    identity: { name: "Priya Nair", bio: "Full-stack engineer and open-source contributor", location: "Berlin" },
+    attributes: { skills: ["TypeScript", "React"], interests: ["DevTools", "OSS"] },
     embedding: [],
   };
 
-  const aliceProfile = {
-    identity: { name: "Alice Wonderland", bio: "AI researcher", location: "London" },
+  const meiProfile = {
+    identity: { name: "Mei Lin", bio: "AI researcher", location: "London" },
     attributes: { skills: ["Python", "ML"], interests: ["NLP"] },
     embedding: [],
   };
@@ -1131,8 +1131,8 @@ describe("read_user_profiles tool (query parameter — name search)", () => {
           ? allMembers.map((m) => ({ ...m, email: null, permissions: ["member"], memberPrompt: null, autoAssign: false, joinedAt: new Date(), intentCount: 0 }))
           : [],
       getProfile: async (userId: string) => {
-        if (userId === "user-chad") return chadProfile;
-        if (userId === "user-alice") return aliceProfile;
+        if (userId === "user-priya") return priyaProfile;
+        if (userId === "user-mei") return meiProfile;
         return null;
       },
       isIndexMember: async () => true,
@@ -1147,15 +1147,15 @@ describe("read_user_profiles tool (query parameter — name search)", () => {
     const context: ToolContext = { userId: testUserId, database: mockDb, embedder: mockEmbedder, scraper: mockScraper, systemDb: mockSystemDb };
     const tools = await createChatTools(context);
     const tool = tools.find((t: { name: string }) => t.name === "read_user_profiles") as { invoke: (args: { query?: string }) => Promise<string> };
-    const result = await tool.invoke({ query: "Chad" });
+    const result = await tool.invoke({ query: "Priya" });
     const parsed = JSON.parse(result);
     expect(parsed.success).toBe(true);
     expect(parsed.data.matchCount).toBe(1);
     expect(parsed.data.profiles).toHaveLength(1);
-    expect(parsed.data.profiles[0].userId).toBe("user-chad");
-    expect(parsed.data.profiles[0].name).toBe("Chad Fowler");
+    expect(parsed.data.profiles[0].userId).toBe("user-priya");
+    expect(parsed.data.profiles[0].name).toBe("Priya Nair");
     expect(parsed.data.profiles[0].hasProfile).toBe(true);
-    expect(parsed.data.profiles[0].profile.bio).toBe("CTO and Ruby enthusiast");
+    expect(parsed.data.profiles[0].profile.bio).toBe("Full-stack engineer and open-source contributor");
   });
 
   test("query is case-insensitive", async () => {
@@ -1164,11 +1164,11 @@ describe("read_user_profiles tool (query parameter — name search)", () => {
     const context: ToolContext = { userId: testUserId, database: mockDb, embedder: mockEmbedder, scraper: mockScraper, systemDb: mockSystemDb };
     const tools = await createChatTools(context);
     const tool = tools.find((t: { name: string }) => t.name === "read_user_profiles") as { invoke: (args: { query?: string }) => Promise<string> };
-    const result = await tool.invoke({ query: "chad fowler" });
+    const result = await tool.invoke({ query: "priya nair" });
     const parsed = JSON.parse(result);
     expect(parsed.success).toBe(true);
     expect(parsed.data.matchCount).toBe(1);
-    expect(parsed.data.profiles[0].userId).toBe("user-chad");
+    expect(parsed.data.profiles[0].userId).toBe("user-priya");
   });
 
   test("query with indexId scopes to that index", async () => {
@@ -1177,11 +1177,11 @@ describe("read_user_profiles tool (query parameter — name search)", () => {
     const context: ToolContext = { userId: testUserId, database: mockDb, embedder: mockEmbedder, scraper: mockScraper, systemDb: mockSystemDb };
     const tools = await createChatTools(context);
     const tool = tools.find((t: { name: string }) => t.name === "read_user_profiles") as { invoke: (args: { query?: string; indexId?: string }) => Promise<string> };
-    const result = await tool.invoke({ query: "Alice", indexId: indexA });
+    const result = await tool.invoke({ query: "Mei", indexId: indexA });
     const parsed = JSON.parse(result);
     expect(parsed.success).toBe(true);
     expect(parsed.data.matchCount).toBe(1);
-    expect(parsed.data.profiles[0].userId).toBe("user-alice");
+    expect(parsed.data.profiles[0].userId).toBe("user-mei");
   });
 
   test("query returns empty when no name matches", async () => {
@@ -1216,11 +1216,11 @@ describe("read_user_profiles tool (query parameter — name search)", () => {
     const context: ToolContext = { userId: testUserId, database: mockDb, embedder: mockEmbedder, scraper: mockScraper, systemDb: mockSystemDb };
     const tools = await createChatTools(context);
     const tool = tools.find((t: { name: string }) => t.name === "read_user_profiles") as { invoke: (args: { query?: string }) => Promise<string> };
-    const result = await tool.invoke({ query: "Bob" });
+    const result = await tool.invoke({ query: "Diego" });
     const parsed = JSON.parse(result);
     expect(parsed.success).toBe(true);
     expect(parsed.data.matchCount).toBe(1);
-    expect(parsed.data.profiles[0].userId).toBe("user-bob");
+    expect(parsed.data.profiles[0].userId).toBe("user-diego");
     expect(parsed.data.profiles[0].hasProfile).toBe(false);
     expect(parsed.data.profiles[0].profile).toBeUndefined();
   });
