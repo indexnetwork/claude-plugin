@@ -94,7 +94,7 @@ type MessageSegment =
 
 function parseAllBlocks(content: string): MessageSegment[] {
   const segments: MessageSegment[] = [];
-  const regex = /```(opportunity|intent_proposal)\s*\n([\s\S]*?)```/g;
+  const regex = /```(opportunity|intent_proposal)\s*\n([\s\S]*?)\n```/g;
   let lastIndex = 0;
   let match;
 
@@ -128,7 +128,13 @@ function parseAllBlocks(content: string): MessageSegment[] {
   const remainingContent = content.slice(lastIndex);
   const partialOpp = remainingContent.match(/```opportunity/);
   const partialIntent = remainingContent.match(/```intent_proposal/);
-  const partialMatch = partialOpp || partialIntent;
+
+  let partialMatch: RegExpMatchArray | null = null;
+  if (partialOpp && partialIntent) {
+    partialMatch = partialOpp.index! <= partialIntent.index! ? partialOpp : partialIntent;
+  } else {
+    partialMatch = partialOpp ?? partialIntent;
+  }
 
   if (partialMatch) {
     const partialIndex = partialMatch.index!;
@@ -136,7 +142,8 @@ function parseAllBlocks(content: string): MessageSegment[] {
     if (textBefore.trim()) {
       segments.push({ type: "text", content: textBefore });
     }
-    segments.push(partialOpp
+    const isOpp = partialMatch === partialOpp;
+    segments.push(isOpp
       ? { type: "opportunity_loading" as const }
       : { type: "intent_proposal_loading" as const }
     );
@@ -402,9 +409,6 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
   const [intentProposalStatusMap, setIntentProposalStatusMap] = useState<
     Record<string, "pending" | "created" | "rejected">
   >({});
-  const [intentProposalLoadingMap, setIntentProposalLoadingMap] = useState<
-    Record<string, boolean>
-  >({});
 
   // Index filter
   const { selectedIndexIds, setSelectedIndexIds } = useIndexFilter();
@@ -582,34 +586,26 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
 
   const handleIntentProposalApprove = useCallback(
     async (proposalId: string, description: string, indexId?: string) => {
-      setIntentProposalLoadingMap((prev) => ({ ...prev, [proposalId]: true }));
       try {
         await apiClient.post("/intents/confirm", { proposalId, description, indexId });
         setIntentProposalStatusMap((prev) => ({ ...prev, [proposalId]: "created" }));
       } catch (err) {
-        showError(err instanceof Error ? err.message : "Failed to create intent");
-        throw err;
-      } finally {
-        setIntentProposalLoadingMap((prev) => ({ ...prev, [proposalId]: false }));
+        throw err; // Card's inline error UI handles display
       }
     },
-    [showError],
+    [],
   );
 
   const handleIntentProposalReject = useCallback(
     async (proposalId: string) => {
-      setIntentProposalLoadingMap((prev) => ({ ...prev, [proposalId]: true }));
       try {
         await apiClient.post("/intents/reject", { proposalId });
         setIntentProposalStatusMap((prev) => ({ ...prev, [proposalId]: "rejected" }));
       } catch (err) {
-        showError(err instanceof Error ? err.message : "Failed to dismiss proposal");
-        throw err;
-      } finally {
-        setIntentProposalLoadingMap((prev) => ({ ...prev, [proposalId]: false }));
+        throw err; // Card's inline error UI handles display
       }
     },
-    [showError],
+    [],
   );
 
   const canSend = input.trim() || selectedFiles.length > 0;
