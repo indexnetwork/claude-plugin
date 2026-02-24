@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Check, Lightbulb, X } from "lucide-react";
+
 import { cn } from "@/lib/utils";
 
 /** Format a speech act type for display (e.g. "DIRECTIVE" -> "Directive"). */

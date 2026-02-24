@@ -389,8 +389,11 @@ export class IntentDatabaseAdapter {
   }
 
   /**
-   * Find an intent by its sourceId (e.g. proposalId) and userId.
-   * Used to check if a chat proposal has already been confirmed.
+   * Finds an intent by sourceId and userId (e.g. for idempotent proposal confirmation).
+   * @param sourceId - The source identifier (e.g. proposalId from chat).
+   * @param userId - The owning user's ID.
+   * @returns The intent id if found, otherwise null.
+   * @throws May throw database/query errors.
    */
   async getIntentBySourceId(sourceId: string, userId: string): Promise<{ id: string } | null> {
     const rows = await db.select({ id: schema.intents.id })
@@ -401,6 +404,13 @@ export class IntentDatabaseAdapter {
       ))
       .limit(1);
     return rows[0] ?? null;
+  }
+
+  /**
+   * Associate an intent with an index (inserts intent_indexes row).
+   */
+  async assignIntentToIndex(intentId: string, indexId: string): Promise<void> {
+    await db.insert(schema.intentIndexes).values({ intentId, indexId });
   }
 
   /**

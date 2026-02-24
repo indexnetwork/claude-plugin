@@ -114,18 +114,36 @@ export class IntentService {
   /**
    * Create an intent directly from a confirmed chat proposal.
    * Bypasses the full intent graph (no LLM re-inference/verification).
-   * Generates embedding, inserts into DB, and enqueues HyDE job.
+   * Idempotent: if an intent already exists for this proposalId + userId, returns it.
+   * Generates embedding, inserts into DB, optionally associates with index, and enqueues HyDE job.
+   * Embedder and queue failures are logged but do not abort creation.
    *
    * @param userId - The user ID
    * @param description - The pre-verified intent description
    * @param proposalId - The proposal ID (stored as sourceId for status tracking)
    * @param indexId - Optional index to associate the intent with
-   * @returns The created intent record
+   * @returns The created or existing intent record (at least { id }).
    */
-  async createFromProposal(userId: string, description: string, proposalId: string, _indexId?: string) {
+  async createFromProposal(userId: string, description: string, proposalId: string, indexId?: string) {
     logger.info('[IntentService] Creating intent from proposal', { userId, proposalId });
 
-    const embedding = await this.embedder.generate(description) as number[];
+    const existing = await this.adapter.getIntentBySourceId(proposalId, userId);
+    if (existing) {
+      return existing;
+    }
+
+    const EMBEDDING_DIMS = 2000;
+    let embedding: number[];
+    try {
+      embedding = (await this.embedder.generate(description)) as number[];
+    } catch (err) {
+      logger.warn('[IntentService] Embedding generation failed (intent will be created with zero vector)', {
+        userId,
+        proposalId,
+        error: err,
+      });
+      embedding = new Array(EMBEDDING_DIMS).fill(0);
+    }
 
     const created = await this.adapter.createIntent({
       userId,
@@ -135,8 +153,23 @@ export class IntentService {
       sourceId: proposalId,
     });
 
-    // Enqueue HyDE generation asynchronously (non-blocking)
-    await intentQueue.addGenerateHydeJob({ intentId: created.id, userId });
+    if (indexId) {
+      try {
+        await this.adapter.assignIntentToIndex(created.id, indexId);
+      } catch (err) {
+        logger.warn('[IntentService] Failed to associate intent with index', {
+          intentId: created.id,
+          indexId,
+          error: err,
+        });
+      }
+    }
+
+    try {
+      await intentQueue.addGenerateHydeJob({ intentId: created.id, userId });
+    } catch (err) {
+      logger.warn('[IntentService] Failed to enqueue HyDE job', { intentId: created.id, userId, error: err });
+    }
 
     return created;
   }

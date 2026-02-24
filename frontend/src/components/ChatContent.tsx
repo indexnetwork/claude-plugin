@@ -113,7 +113,11 @@ function parseAllBlocks(content: string): MessageSegment[] {
 
       if (blockType === "opportunity" && data.opportunityId && data.userId) {
         segments.push({ type: "opportunity", data: data as OpportunityCardData });
-      } else if (blockType === "intent_proposal" && data.proposalId && data.description) {
+      } else if (
+        blockType === "intent_proposal" &&
+        data.proposalId &&
+        (typeof data.description === "string" || !("description" in data))
+      ) {
         segments.push({ type: "intent_proposal", data: data as IntentProposalData });
       } else {
         segments.push({ type: "text", content: match[0] });
