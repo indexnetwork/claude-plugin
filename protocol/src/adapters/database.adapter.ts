@@ -2127,7 +2127,7 @@ export class ChatDatabaseAdapter {
   }
   async updateOpportunityStatus(
     id: string,
-    status: 'latent' | 'pending' | 'viewed' | 'accepted' | 'rejected' | 'expired'
+    status: 'latent' | 'draft' | 'pending' | 'viewed' | 'accepted' | 'rejected' | 'expired'
   ): Promise<OpportunityRow | null> {
     return this.opportunityAdapter.updateOpportunityStatus(id, status);
   }
@@ -2136,7 +2136,7 @@ export class ChatDatabaseAdapter {
   }
   async findOverlappingOpportunities(
     actorUserIds: Id<'users'>[],
-    options?: { excludeStatuses?: ('latent' | 'pending' | 'viewed' | 'accepted' | 'rejected' | 'expired')[] }
+    options?: { excludeStatuses?: ('latent' | 'draft' | 'pending' | 'viewed' | 'accepted' | 'rejected' | 'expired')[] }
   ): Promise<OpportunityRow[]> {
     return this.opportunityAdapter.findOverlappingOpportunities(actorUserIds, options);
   }
@@ -2371,7 +2371,7 @@ interface OpportunityRow {
   interpretation: schema.OpportunityInterpretation;
   context: schema.OpportunityContext;
   confidence: string;
-  status: 'latent' | 'pending' | 'viewed' | 'accepted' | 'rejected' | 'expired';
+  status: 'latent' | 'draft' | 'pending' | 'viewed' | 'accepted' | 'rejected' | 'expired';
   createdAt: Date;
   updatedAt: Date;
   expiresAt: Date | null;
@@ -2384,7 +2384,7 @@ interface CreateOpportunityInput {
   interpretation: schema.OpportunityInterpretation;
   context: schema.OpportunityContext;
   confidence: string;
-  status?: 'latent' | 'pending' | 'viewed' | 'accepted' | 'rejected' | 'expired';
+  status?: 'latent' | 'draft' | 'pending' | 'viewed' | 'accepted' | 'rejected' | 'expired';
   expiresAt?: Date;
 }
 
@@ -2504,7 +2504,7 @@ export class OpportunityDatabaseAdapter {
 
   async updateOpportunityStatus(
     id: string,
-    status: 'latent' | 'pending' | 'viewed' | 'accepted' | 'rejected' | 'expired'
+    status: 'latent' | 'draft' | 'pending' | 'viewed' | 'accepted' | 'rejected' | 'expired'
   ): Promise<OpportunityRow | null> {
     const [row] = await db
       .update(opportunities)
@@ -2622,12 +2622,12 @@ export class OpportunityDatabaseAdapter {
 
   async findOverlappingOpportunities(
     actorUserIds: Id<'users'>[],
-    options?: { excludeStatuses?: ('latent' | 'pending' | 'viewed' | 'accepted' | 'rejected' | 'expired')[] }
+    options?: { excludeStatuses?: ('latent' | 'draft' | 'pending' | 'viewed' | 'accepted' | 'rejected' | 'expired')[] }
   ): Promise<OpportunityRow[]> {
     if (actorUserIds.length === 0) return [];
     const mergedExcludeStatuses = [
       ...new Set([...(options?.excludeStatuses ?? [])]),
-    ] as ('latent' | 'pending' | 'viewed' | 'accepted' | 'rejected' | 'expired')[];
+    ] as ('latent' | 'draft' | 'pending' | 'viewed' | 'accepted' | 'rejected' | 'expired')[];
     const statusCondition =
       mergedExcludeStatuses.length > 0
         ? notInArray(opportunities.status, mergedExcludeStatuses)

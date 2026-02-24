@@ -320,7 +320,7 @@ export type {
   OpportunitySignal,
 } from '../../../schemas/database.schema';
 
-export type OpportunityStatus = 'latent' | 'pending' | 'viewed' | 'accepted' | 'rejected' | 'expired';
+export type OpportunityStatus = 'latent' | 'draft' | 'pending' | 'viewed' | 'accepted' | 'rejected' | 'expired';
 
 export interface Opportunity {
   id: string;
