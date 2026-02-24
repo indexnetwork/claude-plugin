@@ -609,11 +609,32 @@ export class ChatAgent {
             });
 
             // Build brief summary for the activity event. Prefer tool-provided
-            // top-level summary to avoid coupling the agent to tool response shape.
+            // summary. Tools use success(data) → { success: true, data: { ... } }, so read from data when present.
             let summary = "Done";
+            let debugSteps: Array<{ step: string; detail?: string }> | undefined;
             try {
-              const parsed = JSON.parse(resultStr) as { summary?: string };
-              summary = parsed.summary ?? "Done";
+              const parsed = JSON.parse(resultStr) as {
+                success?: boolean;
+                data?: {
+                  summary?: string;
+                  debugSteps?: Array<{ step: string; detail?: string }>;
+                };
+                summary?: string;
+                debugSteps?: Array<{ step: string; detail?: string }>;
+              };
+              const payload = parsed.success && parsed.data != null ? parsed.data : parsed;
+              summary = payload.summary ?? parsed.summary ?? "Done";
+              const rawSteps = payload.debugSteps ?? parsed.debugSteps;
+              if (Array.isArray(rawSteps) && rawSteps.length > 0) {
+                const maxDetail = 300;
+                debugSteps = rawSteps.map((s) => ({
+                  step: String(s.step ?? "").slice(0, 100),
+                  detail:
+                    s.detail != null
+                      ? String(s.detail).slice(0, maxDetail)
+                      : undefined,
+                }));
+              }
             } catch {
               /* not JSON, keep default */
             }
@@ -623,6 +644,7 @@ export class ChatAgent {
               args: sanitizeForDebugMeta(tc.args) as Record<string, unknown>,
               resultSummary: summary,
               success: true,
+              ...(debugSteps?.length ? { steps: debugSteps } : {}),
             });
             emit({
               type: "tool_activity",

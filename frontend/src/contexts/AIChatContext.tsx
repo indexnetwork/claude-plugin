@@ -40,6 +40,8 @@ export interface DebugTurnMeta {
     args: Record<string, unknown>;
     resultSummary: string;
     success: boolean;
+    /** Internal steps (subgraphs, subtasks) when tool reports debugSteps. */
+    steps?: Array<{ step: string; detail?: string }>;
   }>;
 }
 

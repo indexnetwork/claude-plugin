@@ -245,13 +245,23 @@ export interface ResponseCompleteEvent extends ChatStreamEventBase {
 }
 
 /**
- * One tool call entry in debug meta (sanitized args and result summary).
+ * One internal step reported by a tool for debug visibility (e.g. subgraph, subtask).
+ */
+export interface DebugMetaStep {
+  step: string;
+  detail?: string;
+}
+
+/**
+ * One tool call entry in debug meta (sanitized args, result summary, optional steps).
  */
 export interface DebugMetaToolCall {
   name: string;
   args: Record<string, unknown>;
   resultSummary: string;
   success: boolean;
+  /** Internal steps (subgraphs, subtasks) when the tool reports debugSteps in its result. */
+  steps?: DebugMetaStep[];
 }
 
 /**
