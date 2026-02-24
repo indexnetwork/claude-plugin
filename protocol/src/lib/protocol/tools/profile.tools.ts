@@ -11,7 +11,7 @@ export function createProfileTools(defineTool: DefineTool, deps: ToolDeps) {
   const readUserProfiles = defineTool({
     name: "read_user_profiles",
     description:
-      "Fetches user profiles. With `query`: finds members by name (case-insensitive) across the user's indexes (or a specific index if `indexId` also provided). With `userId`: returns that user's profile. With `indexId` alone: returns profiles of all members in that index. In an index-scoped chat, no args returns the current user's profile. Outside an index-scoped chat, at least one parameter is required.",
+      "Find or read user profiles. When the user asks to find, look up, or learn about a specific person by name, use `query` — this is the primary way to look up people by name. With `query`: finds members by name (case-insensitive) across the user's indexes (or a specific index if `indexId` also provided). With `userId`: returns that user's profile. With `indexId` alone: returns profiles of all members in that index. In an index-scoped chat, no args returns the current user's profile. Outside an index-scoped chat, at least one parameter is required.",
     querySchema: z.object({
       userId: z.string().optional().describe("Optional user ID to fetch a specific user's profile"),
       indexId: z.string().optional().describe("Optional index ID to fetch profiles of all members in that index"),
@@ -52,6 +52,13 @@ export function createProfileTools(defineTool: DefineTool, deps: ToolDeps) {
           // Search across all user's indexes
           candidates = await systemDb.getMembersFromScope();
         }
+
+        logger.info("Name search candidates", {
+          query: nameQuery,
+          pattern,
+          candidateCount: candidates.length,
+          userId: context.userId,
+        });
 
         // Filter by name (case-insensitive substring), exclude self
         const matched = candidates
