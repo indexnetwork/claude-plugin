@@ -202,14 +202,14 @@ export class ChatStreamer {
           yield createResponseCompleteEvent(sessionId, responseText);
 
           const debugMeta = agentOutput?.debugMeta as
-            | { graph: string; iterations: number; tools: DebugMetaToolCall[] }
+            | { graph: string; iterations: number; tools?: DebugMetaToolCall[] }
             | undefined;
-          if (debugMeta?.graph != null && Array.isArray(debugMeta.tools)) {
+          if (debugMeta?.graph != null) {
             yield createDebugMetaEvent(
               sessionId,
               debugMeta.graph,
               debugMeta.iterations,
-              debugMeta.tools,
+              Array.isArray(debugMeta.tools) ? debugMeta.tools : [],
             );
           }
 

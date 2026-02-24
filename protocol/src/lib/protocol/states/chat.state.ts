@@ -1,5 +1,6 @@
 import { Annotation, messagesStateReducer } from "@langchain/langgraph";
 import type { BaseMessage } from "@langchain/core/messages";
+import type { DebugMetaToolCall } from "../../../types/chat-streaming.types";
 
 // ══════════════════════════════════════════════════════════════════════════════
 // TYPES (used by legacy subgraph nodes; agent-loop graph does not set these)
@@ -128,6 +129,15 @@ export const ChatGraphState = Annotation.Root({
    * Error message if the agent loop fails.
    */
   error: Annotation<string | undefined>({
+    reducer: (curr, next) => next,
+    default: () => undefined,
+  }),
+
+  /**
+   * Per-turn debug meta (graph, iterations, tool calls) for copy-debug.
+   * Not persisted; only used so the streamer receives it in the updates chunk.
+   */
+  debugMeta: Annotation<{ graph: string; iterations: number; tools: DebugMetaToolCall[] } | undefined>({
     reducer: (curr, next) => next,
     default: () => undefined,
   }),

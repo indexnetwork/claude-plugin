@@ -5,7 +5,6 @@ import {
   ToolMessage,
   AIMessageChunk,
 } from "@langchain/core/messages";
-import { concat } from "@langchain/core/utils/stream";
 import {
   createChatTools,
   type ToolContext,
@@ -526,8 +525,8 @@ export class ChatAgent {
 
       const stream = await this.model.stream(fullMessages);
       for await (const chunk of stream) {
-        // Accumulate full message (text + tool_calls)
-        accumulated = accumulated ? concat(accumulated, chunk) : chunk;
+        // Accumulate using AIMessageChunk.concat() so tool_call_chunks merge and tool_calls is populated
+        accumulated = accumulated ? accumulated.concat(chunk) : chunk;
 
         // Emit text content tokens to the user immediately
         const textPart = extractTextFromChunk(chunk);
@@ -716,7 +715,7 @@ export class ChatAgent {
     const forceStream = await this.model.stream(forceMessages);
     for await (const chunk of forceStream) {
       forcedAccumulated = forcedAccumulated
-        ? concat(forcedAccumulated, chunk)
+        ? forcedAccumulated.concat(chunk)
         : chunk;
       const textPart = extractTextFromChunk(chunk);
       if (textPart) {
