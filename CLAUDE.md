@@ -74,7 +74,7 @@ bun run lint                                # Run ESLint
 bun install
 
 # Development (from repo root)
-bun run dev                                # Shows current branch, lists worktrees (→ worktree:dev <name>), runs build, then starts dev servers
+bun run dev                                # Interactive list: select active branch (root) or a worktree to run dev (root runs build then dev; worktree runs worktree:dev)
 
 # Git worktrees
 bun run worktree:list                       # List worktrees and their setup status
@@ -713,7 +713,7 @@ bun run worktree:setup feat-foo
 bun run worktree:dev feat-foo
 ```
 
-Root `bun run dev` prints the current branch, lists each worktree with `bun run worktree:dev <name>`, runs a full build, then starts dev servers. `worktree:dev` auto-runs setup if the worktree hasn't been set up yet. Use `bun run worktree:list` to see available worktrees and whether they've been set up. Use `bun run worktree:build` (at root) or `bun run worktree:build <name>` to build a specific worktree.
+Root `bun run dev` shows an interactive list to select either the active branch (root) or one of the worktrees; choosing root runs a full build then starts dev servers, choosing a worktree runs `worktree:dev` for that worktree. `worktree:dev` auto-runs setup if the worktree hasn't been set up yet. Use `bun run worktree:list` to see available worktrees and whether they've been set up. Use `bun run worktree:build` (at root) or `bun run worktree:build <name>` to build a specific worktree.
 
 ### Conventional Commits
 
