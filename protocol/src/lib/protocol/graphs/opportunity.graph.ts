@@ -864,7 +864,7 @@ export class OpportunityGraphFactory {
         return {
           evaluatedOpportunities: [evaluatedOpportunity],
           introductionContext: { createdByName: introducerName },
-          options: { ...state.options, initialStatus: 'latent' as const },
+          options: { ...state.options, initialStatus: state.options.initialStatus ?? 'latent' },
         };
       });
     };
@@ -924,10 +924,13 @@ export class OpportunityGraphFactory {
                 role: a.role,
                 ...(a.intentId ? { intent: a.intentId } : {}),
               }));
-              actors = [
-                ...evaluatorActors,
-                { indexId: indexIdForActors, userId: state.userId, role: 'introducer' as const },
-              ];
+              const viewerAlreadyInActors = evaluatorActors.some(a => a.userId === state.userId);
+              actors = viewerAlreadyInActors
+                ? evaluatorActors
+                : [
+                    ...evaluatorActors,
+                    { indexId: indexIdForActors, userId: state.userId, role: 'introducer' as const },
+                  ];
               data = {
                 detection: {
                   source: 'manual',
