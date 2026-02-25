@@ -332,6 +332,8 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
   const navigatingToHomeRef = useRef(false);
   const sessionIdRef = useRef(sessionId);
   const [isIndexDropdownOpen, setIsIndexDropdownOpen] = useState(false);
+  const [isInputMultiline, setIsInputMultiline] = useState(false);
+  const [isTextareaMultiline, setIsTextareaMultiline] = useState(false);
   const [shareCopied, setShareCopied] = useState(false);
   const [debugCopied, setDebugCopied] = useState(false);
 
@@ -691,6 +693,28 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
   );
 
   const canSend = input.trim() || selectedFiles.length > 0;
+
+  useEffect(() => {
+    const el = inputRef.current;
+    if (!input) {
+      setIsInputMultiline(false);
+      setIsTextareaMultiline(false);
+      return;
+    }
+    if (!el) return;
+    // Detect actual line wrapping: single line = paddingTop(6) + lineHeight(20) + paddingBottom(6) = 32px
+    setIsTextareaMultiline(el.scrollHeight > 34);
+    // Network selector compression: only triggers at 75% width, never reverts mid-typing
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.font = window.getComputedStyle(el).font;
+    const textWidth = ctx.measureText(input).width;
+    const availableWidth = el.clientWidth;
+    if (availableWidth > 0 && textWidth / availableWidth > 0.75) {
+      setIsInputMultiline(true);
+    }
+  }, [input]);
   const isBusy = isLoading || isUploadingFiles;
 
   const handleFileSelect = useCallback(
@@ -838,7 +862,7 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
         )}
         <form
           onSubmit={handleSubmit}
-          className="flex items-end gap-3 bg-[#F8F8F8] border border-[#E9E9E9] rounded-4xl px-4 py-3"
+          className={cn("flex gap-3 bg-[#FCFCFC] border border-[#E9E9E9] rounded-4xl px-4 py-3", isTextareaMultiline ? "items-end" : "items-center")}
         >
           <input
             ref={fileInputRef}
@@ -909,7 +933,7 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
               <div className="bg-[linear-gradient(to_bottom,transparent_50%,#ffffff_50%)]">
                 <form
                   onSubmit={handleSubmit}
-                  className="flex items-end gap-3 bg-[#F8F8F8] border border-[#E9E9E9] rounded-4xl px-4 py-3 mb-6"
+                  className={cn("flex gap-3 bg-[#FCFCFC] border border-[#E9E9E9] rounded-4xl px-4 py-3 mb-6", isTextareaMultiline ? "items-end" : "items-center")}
                 >
                   <input
                     ref={fileInputRef}
@@ -945,22 +969,25 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
                         onClick={() =>
                           setIsIndexDropdownOpen(!isIndexDropdownOpen)
                         }
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium text-black transition-colors hover:bg-gray-100"
+                        className={cn(
+                          "inline-flex items-center gap-1.5 py-1.5 rounded-full text-sm font-medium text-black transition-all hover:bg-gray-100",
+                          isInputMultiline ? "px-1.5" : "px-3",
+                        )}
                       >
                         {selectedIndexIds.includes("my-network") ||
                         selectedIndex?.permissions?.joinPolicy ===
                           "invite_only" ? (
                           <Lock className="w-4 h-4" />
-                        ) : selectedIndex ? (
-                          <Globe className="w-4 h-4" />
                         ) : (
                           <Globe className="w-4 h-4" />
                         )}
-                        <span>
-                          {selectedIndexIds.includes("my-network")
-                            ? "My network"
-                            : selectedIndex?.title || "Everywhere"}
-                        </span>
+                        {!isInputMultiline && (
+                          <span>
+                            {selectedIndexIds.includes("my-network")
+                              ? "My network"
+                              : selectedIndex?.title || "Everywhere"}
+                          </span>
+                        )}
                         <ChevronDown
                           className={cn(
                             "w-4 h-4 transition-transform",
@@ -1151,7 +1178,7 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
           <div className="bg-[linear-gradient(to_bottom,transparent_50%,#ffffff_50%)]">
             <form
               onSubmit={handleSubmit}
-              className="flex items-end gap-3 bg-[#F8F8F8] border border-[#E9E9E9] rounded-4xl px-4 py-3"
+              className={cn("flex gap-3 bg-[#FCFCFC] border border-[#E9E9E9] rounded-4xl px-4 py-3", isTextareaMultiline ? "items-end" : "items-center")}
             >
               <input
                 ref={fileInputRef}
@@ -1185,7 +1212,10 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
                   <button
                     type="button"
                     onClick={() => setIsIndexDropdownOpen(!isIndexDropdownOpen)}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium text-black transition-colors hover:bg-gray-100"
+                    className={cn(
+                      "inline-flex items-center gap-1.5 py-1.5 rounded-full text-sm font-medium text-black transition-all hover:bg-gray-100",
+                      isInputMultiline ? "px-1.5" : "px-3",
+                    )}
                   >
                     {selectedIndexIds.includes("my-network") ||
                     selectedIndex?.permissions?.joinPolicy === "invite_only" ? (
@@ -1193,11 +1223,13 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
                     ) : (
                       <Globe className="w-4 h-4" />
                     )}
-                    <span>
-                      {selectedIndexIds.includes("my-network")
-                        ? "My network"
-                        : selectedIndex?.title || "Everywhere"}
-                    </span>
+                    {!isInputMultiline && (
+                      <span>
+                        {selectedIndexIds.includes("my-network")
+                          ? "My network"
+                          : selectedIndex?.title || "Everywhere"}
+                      </span>
+                    )}
                     <ChevronDown
                       className={cn(
                         "w-4 h-4 transition-transform",
