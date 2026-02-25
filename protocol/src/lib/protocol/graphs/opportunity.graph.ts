@@ -625,6 +625,7 @@ export class OpportunityGraphFactory {
             discovererId: state.userId,
             entities,
             existingOpportunities: state.options.existingOpportunities,
+            ...(state.searchQuery?.trim() ? { discoveryQuery: state.searchQuery.trim() } : {}),
           };
 
           const minScore = state.options.minScore ?? 70;
@@ -720,9 +721,9 @@ export class OpportunityGraphFactory {
           const primaryIndexId = (state.indexId ?? entities[0]?.indexId) as Id<'indexes'> | undefined;
           const partyUserIds = [...new Set(entities.map((e) => e.userId).filter((id) => id !== state.userId))];
 
-          if (!primaryIndexId || partyUserIds.length < 2) {
+          if (!primaryIndexId || partyUserIds.length < 1) {
             return {
-              error: 'Introduction requires indexId and at least two entities (profiles + intents per party).',
+              error: 'Introduction requires indexId and at least two entities (introducer + one counterpart).',
             };
           }
 
