@@ -162,6 +162,10 @@ export default function PublicJoinPage({ params }: PublicJoinPageProps) {
   };
 
   const handleLogin = () => {
+    // Store index ID to auto-join after authentication
+    if (typeof window !== 'undefined' && state.index?.id) {
+      localStorage.setItem('pending_index_join', state.index.id);
+    }
     openLoginModal();
   };
 
