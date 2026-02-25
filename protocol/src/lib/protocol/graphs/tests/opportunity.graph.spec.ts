@@ -649,6 +649,31 @@ describe('Opportunity Graph', () => {
       expect(result.opportunities.length).toBe(1);
       expect(result.existingBetweenActors.length).toBe(0);
     });
+
+    test('when existing draft opportunity exists between actors, allows creation (does not dedup)', async () => {
+      // Draft opportunities are excluded via excludeStatuses in the DB query,
+      // so findOverlappingOpportunities returns [] when only drafts exist.
+      const { compiledGraph, mockDb, mockEmbedder } = createMockGraph();
+      const createSpy = spyOn(mockDb, 'createOpportunity');
+      const findOverlappingSpy = spyOn(mockDb, 'findOverlappingOpportunities').mockResolvedValue([]);
+      spyOn(mockEmbedder, 'searchWithHydeEmbeddings').mockResolvedValue([
+        { type: 'intent' as const, id: 'intent-bob', userId: 'user-bob', score: 0.9, matchedVia: 'mirror' as const, indexId: 'idx-1' },
+      ]);
+
+      const result = (await compiledGraph.invoke({
+        userId: 'user-source' as Id<'users'>,
+        searchQuery: 'co-founder',
+        options: { minScore: 70 },
+      } as OpportunityGraphInvokeInput)) as OpportunityGraphInvokeResult;
+
+      expect(findOverlappingSpy).toHaveBeenCalledWith(
+        expect.arrayContaining(['user-source', 'user-bob']),
+        { excludeStatuses: ['draft', 'latent'] },
+      );
+      expect(createSpy).toHaveBeenCalled();
+      expect(result.opportunities.length).toBe(1);
+      expect(result.existingBetweenActors.length).toBe(0);
+    });
   });
 
   describe('Conditional routing: early exit', () => {

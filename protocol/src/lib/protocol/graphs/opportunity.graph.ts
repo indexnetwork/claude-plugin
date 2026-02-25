@@ -918,6 +918,7 @@ export class OpportunityGraphFactory {
           }> = [];
           const now = new Date().toISOString();
           const initialStatus = state.options.initialStatus ?? 'pending';
+          const DEDUP_SKIP_STATUSES: Array<'draft' | 'latent'> = ['draft', 'latent'];
 
           for (const evaluated of state.evaluatedOpportunities) {
             const indexIdForActors = state.indexId ?? evaluated.actors[0]?.indexId;
@@ -1018,6 +1019,7 @@ export class OpportunityGraphFactory {
               const overlapping = candidateUserId
                 ? await this.database.findOverlappingOpportunities(
                     [state.userId as Id<'users'>, candidateUserId as Id<'users'>],
+                    { excludeStatuses: DEDUP_SKIP_STATUSES },
                   )
                 : [];
               logger.info('[Graph:Persist:Dedup] findOverlappingOpportunities result', {
