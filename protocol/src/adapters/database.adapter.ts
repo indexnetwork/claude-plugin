@@ -12,6 +12,7 @@ import type { Id } from '../types/common.types';
 import type { MessagingStore } from '../lib/xmtp';
 import { generateWallet, decryptKey } from '../lib/xmtp';
 import { log } from '../lib/log';
+import { IndexMembershipEvents } from '../events/index_membership.event';
 
 // Local types used by adapters (shapes only; protocol layer defines the contracts)
 interface ActiveIntentRow {
@@ -1827,6 +1828,9 @@ export class ChatDatabaseAdapter {
       autoAssign: true,
     }).onConflictDoNothing({ target: [indexMembers.indexId, indexMembers.userId] }).returning();
 
+    if (result.length > 0) {
+      IndexMembershipEvents.onMemberAdded(userId, indexId);
+    }
     return { success: true, alreadyMember: result.length === 0 };
   }
 
