@@ -150,9 +150,9 @@ export class EmbedderAdapter {
       strategies,
       indexScope,
       excludeUserId,
-      limitPerStrategy = 10,
-      limit = 20,
-      minScore = 0.5,
+      limitPerStrategy = 40,
+      limit = 80,
+      minScore = 0.30,
     } = options;
 
     const filter = { indexScope, excludeUserId };
@@ -192,9 +192,9 @@ export class EmbedderAdapter {
     const {
       indexScope,
       excludeUserId,
-      limitPerStrategy = 10,
-      limit = 20,
-      minScore = 0.5,
+      limitPerStrategy = 40,
+      limit = 80,
+      minScore = 0.30,
     } = options;
     const filter = { indexScope, excludeUserId };
     const [profileResults, intentResults] = await Promise.all([
@@ -216,37 +216,50 @@ export class EmbedderAdapter {
     minScore: number,
     strategy: HydeStrategy
   ): Promise<HydeCandidate[]> {
+    // Search userProfiles directly with the HyDE-generated embedding
+    // This finds profiles that match the hypothetical document (e.g., investor profile)
     if (filter.indexScope?.length === 0) return [];
     const vectorStr = `[${embedding.join(',')}]`;
-    const { hydeDocuments, indexMembers } = schema;
+    const { userProfiles, indexMembers } = schema;
 
     const conditions = [
-      eq(hydeDocuments.sourceType, 'profile'),
-      eq(hydeDocuments.strategy, strategy),
       inArray(indexMembers.indexId, filter.indexScope),
-      isNotNull(hydeDocuments.hydeEmbedding),
-      sql`1 - (${hydeDocuments.hydeEmbedding} <=> ${vectorStr}::vector) >= ${minScore}`,
-      ...(filter.excludeUserId ? [ne(hydeDocuments.sourceId, filter.excludeUserId)] : []),
+      isNotNull(userProfiles.embedding),
+      sql`1 - (${userProfiles.embedding} <=> ${vectorStr}::vector) >= ${minScore}`,
+      ...(filter.excludeUserId ? [ne(userProfiles.userId, filter.excludeUserId)] : []),
     ];
 
+    // Overfetch then dedupe: indexMembers join returns multiple rows per user
+    const fetchLimit = Math.min(limit * OVERFETCH_MULTIPLIER, MAX_OVERFETCH_ROWS);
     const results = await db
       .select({
-        userId: hydeDocuments.sourceId,
-        similarity: sql<number>`1 - (${hydeDocuments.hydeEmbedding} <=> ${vectorStr}::vector)`,
+        userId: userProfiles.userId,
+        similarity: sql<number>`1 - (${userProfiles.embedding} <=> ${vectorStr}::vector)`,
         indexId: indexMembers.indexId,
       })
-      .from(hydeDocuments)
-      .innerJoin(indexMembers, eq(hydeDocuments.sourceId, indexMembers.userId))
+      .from(userProfiles)
+      .innerJoin(indexMembers, eq(userProfiles.userId, indexMembers.userId))
       .where(and(...conditions))
-      .orderBy(sql`${hydeDocuments.hydeEmbedding} <=> ${vectorStr}::vector`)
-      .limit(limit);
+      .orderBy(sql`${userProfiles.embedding} <=> ${vectorStr}::vector`)
+      .limit(fetchLimit);
 
-    return results
-      .filter((r) => r.userId != null)
+    // Dedupe by userId, keep highest similarity
+    const byUser = new Map<string, { userId: string; similarity: number; indexId: string }>();
+    for (const r of results) {
+      if (r.userId == null) continue;
+      const existing = byUser.get(r.userId);
+      if (!existing || r.similarity > existing.similarity) {
+        byUser.set(r.userId, { userId: r.userId, similarity: r.similarity, indexId: r.indexId });
+      }
+    }
+
+    return [...byUser.values()]
+      .sort((a, b) => b.similarity - a.similarity)
+      .slice(0, limit)
       .map((r) => ({
         type: 'profile' as const,
-        id: r.userId!,
-        userId: r.userId!,
+        id: r.userId,
+        userId: r.userId,
         score: r.similarity,
         matchedVia: strategy,
         indexId: r.indexId,
