@@ -4,6 +4,7 @@ import { tool } from "@langchain/core/tools";
 import { z } from "zod/v4";
 import { protocolLogger } from "../support/protocol.logger";
 import { config } from "dotenv";
+import { Timed } from "../../performance";
 
 config({ path: '.env.development', override: true });
 
@@ -64,6 +65,7 @@ export class ProfileGenerator {
     return textToEmbed;
   }
 
+  @Timed()
   public async invoke(input: string) {
     logger.info("Received input", { inputLength: input?.length });
     const messages = [

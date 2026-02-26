@@ -1,7 +1,7 @@
 import './startup.env';
 
 import { ChatController } from './controllers/chat.controller';
-import { getChatProvider } from './adapters/chat.adapter';
+import { S3StorageAdapter } from './adapters/storage.adapter';
 import { IndexController } from './controllers/index.controller';
 import { IntentController } from './controllers/intent.controller';
 import { FileController } from './controllers/file.controller';
@@ -11,21 +11,37 @@ import { AuthController } from './controllers/auth.controller';
 import { ProfileController } from './controllers/profile.controller';
 import { UploadController } from './controllers/upload.controller';
 import { UserController } from './controllers/user.controller';
+import { MessagingController } from './controllers/messaging.controller';
+import { MessagingDatabaseAdapter } from './adapters/database.adapter';
+import { MessagingService } from './services/messaging.service';
+import path from 'path';
 import { RouteRegistry } from './lib/router/router.decorators';
 import { log } from './lib/log';
-import { auth } from './lib/auth';
+import { auth, setWalletHook } from './lib/auth';
 import { getCorsHeaders } from './lib/cors';
 import { adminQueuesApp } from './controllers/queues.controller';
+import { getStats } from './lib/performance';
 // Bootstrap queue workers and HyDE crons (only in this process, not in CLI e.g. db:seed)
 import { intentQueue } from './queues/intent.queue';
 import { opportunityQueue } from './queues/opportunity.queue';
 import { notificationQueue } from './queues/notification.queue';
 import { hydeQueue } from './queues/hyde.queue';
+import { emailQueue } from './queues/email.queue';
+import { profileQueue } from './queues/profile.queue';
+import { IndexMembershipEvents } from './events/index_membership.event';
 
 intentQueue.startWorker();
 opportunityQueue.startWorker();
 notificationQueue.startWorker();
+profileQueue.startWorker();
 hydeQueue.startCrons();
+emailQueue.startWorker();
+
+IndexMembershipEvents.onMemberAdded = (userId: string) => {
+  profileQueue.addEnsureProfileHydeJob({ userId }).catch((err) => {
+    log.job.from('IndexMembership').error('Failed to enqueue ensure_profile_hyde', { userId, error: err });
+  });
+};
 
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3001;
 const GLOBAL_PREFIX = '/api';
@@ -55,18 +71,49 @@ logger.info('Initializing Server...');
 // Manually instantiate controllers if needed, or just let strict import handle registration (depends on how decorator works vs instantiation).
 // The decorators run when the class is defined (imported).
 // However, to invoke methods, we need instances.
+if (!process.env.S3_BUCKET || !process.env.S3_ACCESS_KEY_ID || !process.env.S3_SECRET_ACCESS_KEY) {
+  logger.error('Missing required S3 env vars: S3_BUCKET, S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY');
+  process.exit(1);
+}
+
+const storageAdapter = new S3StorageAdapter({
+  endpoint: process.env.S3_ENDPOINT,
+  region: process.env.S3_REGION,
+  credentials: {
+    accessKeyId: process.env.S3_ACCESS_KEY_ID,
+    secretAccessKey: process.env.S3_SECRET_ACCESS_KEY,
+  },
+  bucket: process.env.S3_BUCKET,
+});
+
+const walletMasterKeyHex = process.env.WALLET_ENCRYPTION_KEY;
+if (!walletMasterKeyHex || walletMasterKeyHex.length !== 64) {
+  logger.error('WALLET_ENCRYPTION_KEY must be a 64-char hex string (32 bytes)');
+  process.exit(1);
+}
+const walletMasterKey = Buffer.from(walletMasterKeyHex, 'hex');
+
+const messagingStore = new MessagingDatabaseAdapter(walletMasterKey);
+setWalletHook((userId) => messagingStore.ensureWallet(userId));
+const messagingService = new MessagingService(messagingStore, {
+  xmtpEnv: (process.env.XMTP_ENV as 'dev' | 'production' | 'local') || 'dev',
+  xmtpDbDir: path.resolve(import.meta.dir, '../.xmtp'),
+  walletMasterKey,
+});
+
 const controllerInstances = new Map();
 controllerInstances.set(AuthController, new AuthController());
 controllerInstances.set(ProfileController, new ProfileController());
-controllerInstances.set(ChatController, new ChatController(getChatProvider()));
+controllerInstances.set(ChatController, new ChatController());
 controllerInstances.set(IndexController, new IndexController());
 controllerInstances.set(IntentController, new IntentController());
 controllerInstances.set(FileController, new FileController());
 controllerInstances.set(LinkController, new LinkController());
 controllerInstances.set(OpportunityController, new OpportunityController());
 controllerInstances.set(IndexOpportunityController, new IndexOpportunityController());
-controllerInstances.set(UploadController, new UploadController());
+controllerInstances.set(UploadController, new UploadController(storageAdapter));
 controllerInstances.set(UserController, new UserController());
+controllerInstances.set(MessagingController, new MessagingController(messagingService));
 
 logger.info('Routes registered', { prefix: GLOBAL_PREFIX });
 
@@ -107,17 +154,23 @@ Bun.serve({
       return new Response(res.body, { status: res.status, statusText: res.statusText, headers: newHeaders });
     }
 
+    // Performance stats at /dev/performance (dev only, alongside Bull Board)
+    if (!IS_PRODUCTION && url.pathname === '/dev/performance') {
+      return Response.json(getStats(), { headers: corsHeaders });
+    }
+
     // Better Auth handles its own /api/auth/* routes (sign-in, sign-up, session, etc.)
     // Our custom auth routes (/api/auth/me, /api/auth/profile/update) fall through to controllers
     const betterAuthPaths = [
       '/api/auth/sign-in', '/api/auth/sign-up', '/api/auth/sign-out',
       '/api/auth/session', '/api/auth/callback', '/api/auth/error',
       '/api/auth/get-session', '/api/auth/forget-password',
-      '/api/auth/reset-password', '/api/auth/verify-email',
+      '/api/auth/magic-link', '/api/auth/reset-password', '/api/auth/verify-email',
       '/api/auth/change-password', '/api/auth/change-email',
       '/api/auth/delete-user', '/api/auth/list-sessions',
       '/api/auth/revoke-session', '/api/auth/revoke-other-sessions',
       '/api/auth/update-user',
+      '/api/auth/token', '/api/auth/jwks',
     ];
     const isBetterAuthRoute = betterAuthPaths.some(p => url.pathname.startsWith(p));
     if (isBetterAuthRoute) {

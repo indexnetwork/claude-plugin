@@ -20,7 +20,11 @@ export type ChatStreamEventType =
   | "tool_end"
   | "agent_thinking"
   // Streaming narration events
-  | "tool_activity";
+  | "tool_activity"
+  // Internal response tracking events
+  | "response_complete"
+  // Debug meta (per-turn graph/tool usage for copy debug)
+  | "debug_meta";
 
 /**
  * Base interface for all chat stream events.
@@ -231,6 +235,46 @@ export interface ToolActivityEvent extends ChatStreamEventBase {
 }
 
 /**
+ * Internal event carrying the agent's authoritative final response text.
+ * Emitted by the streamer after the graph completes. Not forwarded to the frontend SSE stream.
+ */
+export interface ResponseCompleteEvent extends ChatStreamEventBase {
+  type: "response_complete";
+  /** The agent's final response text (from the last iteration only) */
+  response: string;
+}
+
+/**
+ * One internal step reported by a tool for debug visibility (e.g. subgraph, subtask).
+ */
+export interface DebugMetaStep {
+  step: string;
+  detail?: string;
+}
+
+/**
+ * One tool call entry in debug meta (sanitized args, result summary, optional steps).
+ */
+export interface DebugMetaToolCall {
+  name: string;
+  args: Record<string, unknown>;
+  resultSummary: string;
+  success: boolean;
+  /** Internal steps (subgraphs, subtasks) when the tool reports debugSteps in its result. */
+  steps?: DebugMetaStep[];
+}
+
+/**
+ * Debug meta event - per-turn graph and tool usage for copy debug.
+ */
+export interface DebugMetaEvent extends ChatStreamEventBase {
+  type: "debug_meta";
+  graph: string;
+  iterations: number;
+  tools: DebugMetaToolCall[];
+}
+
+/**
  * Union type of all chat stream events.
  */
 export type ChatStreamEvent =
@@ -247,7 +291,11 @@ export type ChatStreamEvent =
   | ToolEndEvent
   | AgentThinkingEvent
   // Streaming narration events
-  | ToolActivityEvent;
+  | ToolActivityEvent
+  // Internal response tracking events
+  | ResponseCompleteEvent
+  // Debug meta
+  | DebugMetaEvent;
 
 /**
  * Formats a chat stream event as an SSE message. If JSON.stringify throws (e.g. circular ref,
@@ -491,5 +539,39 @@ export function createToolActivityEvent(
     phase,
     success,
     summary,
+  });
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// INTERNAL RESPONSE TRACKING EVENT CREATORS
+// ════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Creates a formatted response complete event.
+ */
+export function createResponseCompleteEvent(
+  sessionId: string,
+  response: string,
+): ResponseCompleteEvent {
+  return createStreamEvent<ResponseCompleteEvent>("response_complete", sessionId, { response });
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// DEBUG META EVENT CREATORS
+// ════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Creates a formatted debug meta event (per-turn graph and tool usage).
+ */
+export function createDebugMetaEvent(
+  sessionId: string,
+  graph: string,
+  iterations: number,
+  tools: DebugMetaToolCall[],
+): DebugMetaEvent {
+  return createStreamEvent<DebugMetaEvent>("debug_meta", sessionId, {
+    graph,
+    iterations,
+    tools,
   });
 }

@@ -20,6 +20,7 @@ import {
   type HomeCardPresenterInput,
 } from "../agents/opportunity.presenter";
 import { MINIMAL_MAIN_TEXT_MAX_CHARS } from "./opportunity.constants";
+import { viewerCentricCardSummary, narratorRemarkFromReasoning } from "./opportunity.card-text";
 import { protocolLogger, withCallLogging } from "./protocol.logger";
 
 const logger = protocolLogger("OpportunityDiscover");
@@ -52,6 +53,8 @@ export interface DiscoverInput {
    * Sets homeCardPresentation and narratorChip from static labels and match reason.
    */
   minimalForChat?: boolean;
+  /** When set (e.g. from chat), create opportunities as draft with context.conversationId = chatSessionId. */
+  chatSessionId?: string;
 }
 
 /** Context used by the minimal (no-LLM) path; only introducerName is needed for narrator chip. */
@@ -95,15 +98,38 @@ export interface FormattedDiscoveryCandidate {
   };
 }
 
+/** One step for debug visibility (subgraph/subtask). */
+export interface DiscoverDebugStep {
+  step: string;
+  detail?: string;
+}
+
+/** One existing connection (no new opportunity created; user already has one with this person). */
+export interface ExistingConnection {
+  userId: string;
+  name: string;
+  status?: string;
+  opportunityId?: string;
+}
+
+/** Statuses for which an existing connection may be shown as a card; others (pending, viewed, accepted, rejected, expired) are only mentioned in text. */
+const EXISTING_CONNECTION_CARD_STATUSES = ['draft', 'latent'] as const;
+
 export interface DiscoverResult {
   found: boolean;
   count: number;
   message?: string;
   opportunities?: FormattedDiscoveryCandidate[];
+  /** Existing connections eligible for card display (draft or latent only). Others are mention-only. */
+  existingConnections?: ExistingConnection[];
+  /** All existing connections for mention text (e.g. "You already have a connection with: X (pending), Y (draft)."). */
+  existingConnectionsForMention?: ExistingConnection[];
   /** When true, the chat agent should call create_intent(suggestedIntentDescription) and retry discovery. */
   createIntentSuggested?: boolean;
   /** Description to pass to create_intent when createIntentSuggested is true. */
   suggestedIntentDescription?: string;
+  /** Internal steps for copy-debug (select_strategies, opportunity_graph, enrich, etc.). */
+  debugSteps?: DiscoverDebugStep[];
 }
 
 /**
@@ -168,6 +194,7 @@ export async function runDiscoverFromQuery(
     indexScope,
     limit = 5,
     triggerIntentId,
+    chatSessionId,
   } = input;
 
   if (indexScope.length === 0) {
@@ -179,14 +206,21 @@ export async function runDiscoverFromQuery(
     };
   }
 
+  const debugSteps: DiscoverDebugStep[] = [];
+
   // When query is empty, the opportunity graph uses the user's intents in scope (indexedIntents[0].payload) and derives strategies from that
   const queryOrEmpty = query?.trim() ?? "";
   const options: OpportunityGraphOptions = {
     limit,
-    initialStatus: "latent",
+    initialStatus: chatSessionId ? "draft" : "latent",
+    ...(chatSessionId ? { conversationId: chatSessionId } : {}),
   };
   if (queryOrEmpty) {
     options.strategies = selectStrategiesFromQuery(queryOrEmpty);
+    debugSteps.push({
+      step: "select_strategies",
+      detail: (options.strategies ?? []).join(", "),
+    });
   }
 
   return withCallLogging(
@@ -210,6 +244,13 @@ export async function runDiscoverFromQuery(
       });
 
       if (result.createIntentSuggested && result.suggestedIntentDescription) {
+        if (chatSessionId) {
+          return {
+            found: false,
+            count: 0,
+            message: "No matching opportunities found. Try a different query.",
+          };
+        }
         return {
           found: false,
           count: 0,
@@ -217,18 +258,72 @@ export async function runDiscoverFromQuery(
           suggestedIntentDescription: result.suggestedIntentDescription,
           message:
             "No matching opportunities; add an intent with the suggested description to improve discovery.",
+          debugSteps,
         };
       }
 
-      const opportunities: Opportunity[] = Array.isArray(result.opportunities)
+      let opportunities: Opportunity[] = Array.isArray(result.opportunities)
         ? result.opportunities
         : [];
+      const rawExistingBetweenActors = Array.isArray(result.existingBetweenActors)
+        ? result.existingBetweenActors
+        : [];
+      // Enrich existing-between-actors with names so the tool can say "You already have a connection with X (pending)."
+      const existingConnections: ExistingConnection[] = await Promise.all(
+        rawExistingBetweenActors.map(async (item) => {
+          const user = await database.getUser(item.candidateUserId);
+          return {
+            userId: item.candidateUserId,
+            name: user?.name ?? "Someone",
+            ...(item.existingStatus ? { status: item.existingStatus } : {}),
+            ...(item.existingOpportunityId ? { opportunityId: item.existingOpportunityId } : {}),
+          };
+        }),
+      );
+      if (existingConnections.length > 0) {
+        logger.info("[runDiscoverFromQuery] Skipped duplicates; existing connections", {
+          count: existingConnections.length,
+          userIds: existingConnections.map((c) => c.userId),
+        });
+      }
+      // Only expose existing connections as cards when status is in EXISTING_CONNECTION_CARD_STATUSES (draft, latent); others are mention-only.
+      const existingConnectionsForCards = existingConnections.filter((c) =>
+        c.status != null && EXISTING_CONNECTION_CARD_STATUSES.includes(c.status as typeof EXISTING_CONNECTION_CARD_STATUSES[number])
+      );
+      // Chat discovery: when we have chatSessionId we just invoked the graph; all result.opportunities
+      // were created in this call and belong to this session. Do not filter by status: the enricher
+      // may set status to pending/latent when merging with related opportunities, so filtering to
+      // "draft" would incorrectly drop them.
+      if (chatSessionId && (result.opportunities?.length ?? 0) > 0) {
+        logger.info("[runDiscoverFromQuery] Chat session opportunities from graph", {
+          count: opportunities.length,
+          statuses: opportunities.map((o) => o.status),
+        });
+      }
+      debugSteps.push({
+        step: "opportunity_graph",
+        detail: `${opportunities.length} opportunity(ies)${existingConnections.length > 0 ? `, ${existingConnections.length} existing` : ""}`,
+      });
       if (opportunities.length === 0) {
+        if (existingConnections.length > 0) {
+          return {
+            found: true,
+            count: 0,
+            message:
+              "No new opportunities created; you already have a connection with: " +
+              existingConnections.map((c) => `${c.name}${c.status ? ` (${c.status})` : ""}`).join(", ") +
+              ". View on your home page.",
+            existingConnections: existingConnectionsForCards,
+            existingConnectionsForMention: existingConnections,
+            debugSteps,
+          };
+        }
         return {
           found: false,
           count: 0,
           message:
-            "No matching opportunities found. Try a different search or create intents to improve matching.",
+            "No matching opportunities found. Try a different query or create intents to improve matching.",
+          debugSteps,
         };
       }
 
@@ -253,6 +348,38 @@ export async function runDiscoverFromQuery(
           };
         }),
       );
+      debugSteps.push({
+        step: "enrich_profiles",
+        detail: `${baseEnriched.length} profile(s)`,
+      });
+
+      // Batch-fetch user records (candidates + introducers) for name/avatar fallback.
+      // Moved before presentation so name fallback and viewerName are available.
+      const introducerUserIds = new Set<string>();
+      for (const item of baseEnriched) {
+        const introducer = item.opportunity.actors.find(
+          (a) => a.role === "introducer" && a.userId !== userId,
+        );
+        if (introducer?.userId) introducerUserIds.add(introducer.userId);
+      }
+      const candidateUserIds = [
+        ...new Set([
+          ...baseEnriched.map((item) => item.candidateUserId),
+          ...introducerUserIds,
+        ]),
+      ];
+      const [viewerUser, ...userResults] = await Promise.all([
+        database.getUser(userId),
+        ...candidateUserIds.map((id) => database.getUser(id)),
+      ]);
+      const avatarByUserId = new Map<string, string | null>();
+      const nameByUserId = new Map<string, string | null>();
+      candidateUserIds.forEach((id, i) => {
+        const user = userResults[i] ?? null;
+        avatarByUserId.set(id, user?.avatar ?? null);
+        nameByUserId.set(id, user?.name ?? null);
+      });
+      const viewerName = viewerUser?.name ?? undefined;
 
       let presentations: OpportunityPresentationResult[] | undefined;
       let homeCardPresentations: HomeCardPresentationResult[] | undefined;
@@ -261,20 +388,30 @@ export async function runDiscoverFromQuery(
         | undefined;
 
       if (input.minimalForChat && baseEnriched.length > 0) {
-        // Minimal path: no LLM, static labels and match reason only
-        homeCardPresentations = baseEnriched.map((item) => ({
-          headline: `Connection with ${item.profile?.identity?.name ?? "someone"}`,
-          personalizedSummary:
-            truncateForChat(
-              item.opportunity.interpretation?.reasoning ?? "",
-              MINIMAL_MAIN_TEXT_MAX_CHARS,
-            ) ?? "A suggested connection.",
-          suggestedAction: "Start a conversation to connect.",
-          narratorRemark: "Based on your overlap in this community.",
-          primaryActionLabel: "Start Chat",
-          secondaryActionLabel: "Skip",
-          mutualIntentsLabel: "Suggested connection",
-        }));
+        // Minimal path: no LLM, viewer-centric card text (introduce counterpart to viewer)
+        const counterpartName = (n: {
+          profile?: { identity?: { name?: string } } | null;
+          candidateUserId: string;
+        }) => n.profile?.identity?.name ?? nameByUserId.get(n.candidateUserId) ?? "";
+        homeCardPresentations = baseEnriched.map((item) => {
+          const name = counterpartName(item);
+          const reasoning = item.opportunity.interpretation?.reasoning ?? "";
+          return {
+            headline: `Connection with ${name}`,
+            personalizedSummary:
+              viewerCentricCardSummary(
+                reasoning,
+                name,
+                MINIMAL_MAIN_TEXT_MAX_CHARS,
+                viewerName,
+              ),
+            suggestedAction: "Start a conversation to connect.",
+            narratorRemark: narratorRemarkFromReasoning(reasoning, name, viewerName),
+            primaryActionLabel: "Start Chat",
+            secondaryActionLabel: "Skip",
+            mutualIntentsLabel: "Suggested connection",
+          };
+        });
         presenterContexts = baseEnriched.map((item) => ({
           introducerName: item.opportunity.detection.createdByName ?? undefined,
         })) as MinimalPresenterContext[];
@@ -329,29 +466,6 @@ export async function runDiscoverFromQuery(
         }
       }
 
-      // Batch-fetch user avatars (candidates + introducers for narrator chip)
-      const introducerUserIds = new Set<string>();
-      for (const item of baseEnriched) {
-        const introducer = item.opportunity.actors.find(
-          (a) => a.role === "introducer" && a.userId !== userId,
-        );
-        if (introducer?.userId) introducerUserIds.add(introducer.userId);
-      }
-      const candidateUserIds = [
-        ...new Set([
-          ...baseEnriched.map((item) => item.candidateUserId),
-          ...introducerUserIds,
-        ]),
-      ];
-      const userResults = await Promise.all(
-        candidateUserIds.map((id) => database.getUser(id)),
-      );
-      const avatarByUserId = new Map<string, string | null>();
-      candidateUserIds.forEach((id, i) => {
-        const user = userResults[i] ?? null;
-        avatarByUserId.set(id, user?.avatar ?? null);
-      });
-
       const enriched: FormattedDiscoveryCandidate[] = baseEnriched.map(
         (item, idx) => {
           const homeCard = homeCardPresentations?.[idx];
@@ -382,7 +496,7 @@ export async function runDiscoverFromQuery(
           return {
             opportunityId: item.opportunity.id,
             userId: item.candidateUserId,
-            name: item.profile?.identity?.name ?? undefined,
+            name: item.profile?.identity?.name ?? nameByUserId.get(item.candidateUserId) ?? undefined,
             avatar: avatarByUserId.get(item.candidateUserId) ?? null,
             bio: truncateForChat(item.profile?.identity?.bio),
             matchReason:
@@ -390,7 +504,7 @@ export async function runDiscoverFromQuery(
                 item.opportunity.interpretation?.reasoning ?? "",
               ) ?? "",
             score: item.confidence,
-            status: item.opportunity.status,
+            status: chatSessionId ? "draft" : item.opportunity.status,
             viewerRole: item.viewerRole,
             ...(presentations?.[idx] && { presentation: presentations[idx] }),
             ...(homeCard && { homeCardPresentation: homeCard }),
@@ -398,11 +512,18 @@ export async function runDiscoverFromQuery(
           };
         },
       );
+      debugSteps.push({
+        step: "format_cards",
+        detail: `${enriched.length} card(s)`,
+      });
 
       return {
         found: true,
         count: enriched.length,
         opportunities: enriched,
+        ...(existingConnectionsForCards.length > 0 ? { existingConnections: existingConnectionsForCards } : {}),
+        ...(existingConnections.length > 0 ? { existingConnectionsForMention: existingConnections } : {}),
+        debugSteps,
       };
     },
     { context: { userId }, logOutput: false },
@@ -410,7 +531,7 @@ export async function runDiscoverFromQuery(
     return {
       found: false,
       count: 0,
-      message: "Failed to search for opportunities. Please try again.",
+      message: "Failed to find opportunities. Please try again.",
     };
   });
 }

@@ -10,11 +10,18 @@ import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import { UploadController } from "../upload.controller";
 import type { AuthenticatedUser } from "../../guards/auth.guard";
 import { UserDatabaseAdapter, FileDatabaseAdapter } from "../../adapters/database.adapter";
+import { S3StorageAdapter } from "../../adapters/storage.adapter";
 import { getUploadsPath } from '../../lib/paths';
 import * as fs from 'fs';
 
+const mockStorage = {
+  async uploadAvatar(buffer: Buffer, userId: string, extension: string, contentType: string) {
+    return `/storage/avatars/${userId}/mock.${extension}`;
+  },
+};
+
 describe("UploadController Integration", () => {
-  const controller = new UploadController();
+  const controller = new UploadController(mockStorage);
   const userAdapter = new UserDatabaseAdapter();
   const fileAdapter = new FileDatabaseAdapter();
   let testUserId: string;

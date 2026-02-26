@@ -15,6 +15,7 @@ config({ path: '.env.development' });
 import type { HomeSectionProposal } from '../states/home.state';
 import { getIconNamesForPrompt, DEFAULT_HOME_SECTION_ICON } from '../support/lucide.icon-catalog';
 import { protocolLogger } from '../support/protocol.logger';
+import { Timed } from "../../performance";
 
 const logger = protocolLogger('HomeCategorizer');
 
@@ -128,6 +129,7 @@ export class HomeCategorizerAgent {
   /**
    * Categorize presenter-produced cards into 1–5 sections with CTA-style titles and icons.
    */
+  @Timed()
   async categorize(cards: CategorizerInputItem[]): Promise<CategorizerResult> {
     if (cards.length === 0) {
       return { sections: [] };

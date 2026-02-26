@@ -139,7 +139,7 @@ mock.module("../../graphs/intent.graph", () => ({
 
 import { describe, test, expect, beforeAll } from "bun:test";
 import { createChatTools, type ToolContext } from "..";
-import type { ChatGraphCompositeDatabase, Opportunity } from "../../interfaces/database.interface";
+import type { ChatGraphCompositeDatabase, Opportunity, SystemDatabase } from "../../interfaces/database.interface";
 import type { ActiveIntent, IndexMemberDetails, IndexedIntentDetails } from "../../interfaces/database.interface";
 import type { Embedder } from "../../interfaces/embedder.interface";
 import type { Scraper } from "../../interfaces/scraper.interface";
@@ -177,6 +177,7 @@ function createMockDatabase(
     archiveIntent: async () => ({ success: true }),
     getUserIndexIds: noopArray,
     getIndexMemberships: noopArray,
+    getPublicIndexesNotJoined: async () => ({ indexes: [] }),
     getIndexMembership: noopNull,
     getIndexWithPermissions: async () => null,
     getIntentForIndexing: noopNull,
@@ -238,6 +239,15 @@ describe("createChatTools", () => {
     expect(tools.find((t: { name: string }) => t.name === "read_intents")).toBeDefined();
     expect(tools.find((t: { name: string }) => t.name === "read_indexes")).toBeDefined();
     expect(tools.find((t: { name: string }) => t.name === "read_index_memberships")).toBeDefined();
+  });
+
+  test("does not include list_opportunities (chat only proposes opportunities from create_opportunities; home shows the rest)", async () => {
+    const mockDb = createMockDatabase(async () => []);
+    const context: ToolContext = { userId: testUserId, database: mockDb, embedder: mockEmbedder, scraper: mockScraper };
+    const tools = await createChatTools(context);
+    expect(tools.find((t: { name: string }) => t.name === "list_opportunities")).toBeUndefined();
+    expect(tools.find((t: { name: string }) => t.name === "create_opportunities")).toBeDefined();
+    expect(tools.find((t: { name: string }) => t.name === "update_opportunity")).toBeDefined();
   });
 });
 
@@ -991,6 +1001,53 @@ describe("create_opportunities tool", () => {
     expect(parsed.data).toBeDefined();
     expect(Array.isArray(parsed.data.opportunities) ? parsed.data.opportunities : []).toBeDefined();
   });
+
+  test("introduction mode: entities only (no partyUserIds) derives partyUserIds and creates opportunity", async () => {
+    const mockDb = createMockDatabase(async () => [], {
+      isIndexMember: async () => true,
+      opportunityExistsBetweenActors: async () => false,
+      findOverlappingOpportunities: async () => [],
+      createOpportunity: async (data) =>
+        ({
+          id: "opp-from-entities-only",
+          detection: data.detection,
+          actors: data.actors,
+          interpretation: data.interpretation,
+          context: data.context,
+          confidence: data.confidence,
+          status: data.status ?? "latent",
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          expiresAt: null,
+        }) as Opportunity,
+    });
+    const context: ToolContext = { userId: testUserId, database: mockDb, embedder: mockEmbedder, scraper: mockScraper };
+    const tools = await createChatTools(context);
+    const tool = tools.find((t: { name: string }) => t.name === "create_opportunities") as {
+      invoke: (args: {
+        entities?: Array<{ userId: string; profile?: Record<string, unknown>; indexId: string }>;
+      }) => Promise<string>;
+    };
+    const result = await tool.invoke({
+      entities: [
+        { userId: testUserId, profile: { name: "Me" }, indexId: "idx-1" },
+        { userId: "other-user-id", profile: { name: "Other" }, indexId: "idx-1" },
+      ],
+    });
+    const parsed = JSON.parse(result);
+    expect(parsed.success).toBe(true);
+    expect(parsed.data).toBeDefined();
+    expect(Array.isArray(parsed.data.opportunities)).toBe(true);
+    expect(parsed.data.opportunities.length).toBe(1);
+    const opp = parsed.data.opportunities[0];
+    expect(opp.id).toBe("opp-from-entities-only");
+    expect(opp.actors).toBeDefined();
+    expect(opp.actors.some((a: { userId: string }) => a.userId === testUserId)).toBe(true);
+    expect(opp.actors.some((a: { userId: string }) => a.userId === "other-user-id")).toBe(true);
+    expect(opp.detection).toBeDefined();
+    expect(opp.interpretation).toBeDefined();
+    expect(opp.confidence).toBeDefined();
+  });
 });
 
 describe("update_opportunity tool (send via status pending)", () => {
@@ -1028,6 +1085,38 @@ describe("update_opportunity tool (send via status pending)", () => {
     expect(updateStatusSpy).toHaveBeenCalledWith(opportunityId, "pending");
   });
 
+  test("when opportunity is draft and user is actor, status pending promotes to pending and returns success", async () => {
+    const draftOpportunity = {
+      id: opportunityId,
+      status: "draft" as const,
+      actors: [
+        { indexId: "idx-1", userId: testUserId, role: "party" as const },
+        { indexId: "idx-1", userId: "other-user-id", role: "party" as const },
+      ],
+      detection: { source: "opportunity_graph" as const, timestamp: new Date().toISOString() },
+      interpretation: { category: "collaboration", reasoning: "Match", confidence: 0.8 },
+      context: { indexId: "idx-1" },
+      confidence: "0.8",
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      expiresAt: null,
+    };
+    const updateStatusSpy = mock(async () => null);
+    const mockDb = createMockDatabase(async () => [], {
+      getOpportunity: async () => draftOpportunity,
+      updateOpportunityStatus: updateStatusSpy,
+    });
+    const context: ToolContext = { userId: testUserId, database: mockDb, embedder: mockEmbedder, scraper: mockScraper };
+    const tools = await createChatTools(context);
+    const tool = tools.find((t: { name: string }) => t.name === "update_opportunity") as { invoke: (args: { opportunityId: string; status: string }) => Promise<string> };
+    const result = await tool.invoke({ opportunityId, status: "pending" });
+    const parsed = JSON.parse(result);
+    expect(parsed.success).toBe(true);
+    expect(parsed.data.opportunityId).toBe(opportunityId);
+    expect(parsed.data.status).toBe("pending");
+    expect(updateStatusSpy).toHaveBeenCalledWith(opportunityId, "pending");
+  });
+
   test("when opportunity not found, returns error", async () => {
     const mockDb = createMockDatabase(async () => [], {
       getOpportunity: async () => null,
@@ -1041,7 +1130,7 @@ describe("update_opportunity tool (send via status pending)", () => {
     expect(parsed.error).toMatch(/Opportunity not found|not found|Valid opportunityId/i);
   });
 
-  test("when opportunity status is not latent, returns error", async () => {
+  test("when opportunity status is not latent or draft (e.g. already pending), returns error", async () => {
     const pendingOpportunity = {
       id: opportunityId,
       status: "pending" as const,
@@ -1095,5 +1184,133 @@ describe("update_opportunity tool (send via status pending)", () => {
     const parsed = JSON.parse(result);
     expect(parsed.success).toBe(false);
     expect(parsed.error).toMatch(/not part of this opportunity|not part|Valid opportunityId/i);
+  });
+});
+
+describe("read_user_profiles tool (query parameter — name search)", () => {
+  const indexA = "a1b2c3d4-0000-4000-8000-000000000030";
+  const indexB = "a1b2c3d4-0000-4000-8000-000000000031";
+
+  const allMembers = [
+    { userId: "user-mei", name: "Mei Lin", avatar: null },
+    { userId: "user-diego", name: "Diego Alvarez", avatar: null },
+    { userId: "user-priya", name: "Priya Nair", avatar: null },
+    { userId: testUserId, name: "Test User", avatar: null },
+  ];
+
+  const priyaProfile = {
+    identity: { name: "Priya Nair", bio: "Full-stack engineer and open-source contributor", location: "Berlin" },
+    attributes: { skills: ["TypeScript", "React"], interests: ["DevTools", "OSS"] },
+    embedding: [],
+  };
+
+  const meiProfile = {
+    identity: { name: "Mei Lin", bio: "AI researcher", location: "London" },
+    attributes: { skills: ["Python", "ML"], interests: ["NLP"] },
+    embedding: [],
+  };
+
+  function createMockSystemDb(overrides?: Partial<SystemDatabase>): SystemDatabase {
+    return {
+      authUserId: testUserId,
+      indexScope: [indexA, indexB],
+      getMembersFromScope: async () => allMembers,
+      getIndexMembers: async (indexId: string) =>
+        indexId === indexA
+          ? allMembers.map((m) => ({ ...m, email: null, permissions: ["member"], memberPrompt: null, autoAssign: false, joinedAt: new Date(), intentCount: 0 }))
+          : [],
+      getProfile: async (userId: string) => {
+        if (userId === "user-priya") return priyaProfile;
+        if (userId === "user-mei") return meiProfile;
+        return null;
+      },
+      isIndexMember: async () => true,
+      isIndexOwner: async () => false,
+      ...overrides,
+    } as unknown as SystemDatabase;
+  }
+
+  test("query finds a member by name across all indexes", async () => {
+    const mockDb = createMockDatabase(async () => []);
+    const mockSystemDb = createMockSystemDb();
+    const context: ToolContext = { userId: testUserId, database: mockDb, embedder: mockEmbedder, scraper: mockScraper, systemDb: mockSystemDb };
+    const tools = await createChatTools(context);
+    const tool = tools.find((t: { name: string }) => t.name === "read_user_profiles") as { invoke: (args: { query?: string }) => Promise<string> };
+    const result = await tool.invoke({ query: "Priya" });
+    const parsed = JSON.parse(result);
+    expect(parsed.success).toBe(true);
+    expect(parsed.data.matchCount).toBe(1);
+    expect(parsed.data.profiles).toHaveLength(1);
+    expect(parsed.data.profiles[0].userId).toBe("user-priya");
+    expect(parsed.data.profiles[0].name).toBe("Priya Nair");
+    expect(parsed.data.profiles[0].hasProfile).toBe(true);
+    expect(parsed.data.profiles[0].profile.bio).toBe("Full-stack engineer and open-source contributor");
+  });
+
+  test("query is case-insensitive", async () => {
+    const mockDb = createMockDatabase(async () => []);
+    const mockSystemDb = createMockSystemDb();
+    const context: ToolContext = { userId: testUserId, database: mockDb, embedder: mockEmbedder, scraper: mockScraper, systemDb: mockSystemDb };
+    const tools = await createChatTools(context);
+    const tool = tools.find((t: { name: string }) => t.name === "read_user_profiles") as { invoke: (args: { query?: string }) => Promise<string> };
+    const result = await tool.invoke({ query: "priya nair" });
+    const parsed = JSON.parse(result);
+    expect(parsed.success).toBe(true);
+    expect(parsed.data.matchCount).toBe(1);
+    expect(parsed.data.profiles[0].userId).toBe("user-priya");
+  });
+
+  test("query with indexId scopes to that index", async () => {
+    const mockDb = createMockDatabase(async () => []);
+    const mockSystemDb = createMockSystemDb();
+    const context: ToolContext = { userId: testUserId, database: mockDb, embedder: mockEmbedder, scraper: mockScraper, systemDb: mockSystemDb };
+    const tools = await createChatTools(context);
+    const tool = tools.find((t: { name: string }) => t.name === "read_user_profiles") as { invoke: (args: { query?: string; indexId?: string }) => Promise<string> };
+    const result = await tool.invoke({ query: "Mei", indexId: indexA });
+    const parsed = JSON.parse(result);
+    expect(parsed.success).toBe(true);
+    expect(parsed.data.matchCount).toBe(1);
+    expect(parsed.data.profiles[0].userId).toBe("user-mei");
+  });
+
+  test("query returns empty when no name matches", async () => {
+    const mockDb = createMockDatabase(async () => []);
+    const mockSystemDb = createMockSystemDb();
+    const context: ToolContext = { userId: testUserId, database: mockDb, embedder: mockEmbedder, scraper: mockScraper, systemDb: mockSystemDb };
+    const tools = await createChatTools(context);
+    const tool = tools.find((t: { name: string }) => t.name === "read_user_profiles") as { invoke: (args: { query?: string }) => Promise<string> };
+    const result = await tool.invoke({ query: "Nonexistent Person" });
+    const parsed = JSON.parse(result);
+    expect(parsed.success).toBe(true);
+    expect(parsed.data.matchCount).toBe(0);
+    expect(parsed.data.profiles).toHaveLength(0);
+    expect(parsed.data.message).toMatch(/No members found/i);
+  });
+
+  test("query excludes the current user from results", async () => {
+    const mockDb = createMockDatabase(async () => []);
+    const mockSystemDb = createMockSystemDb();
+    const context: ToolContext = { userId: testUserId, database: mockDb, embedder: mockEmbedder, scraper: mockScraper, systemDb: mockSystemDb };
+    const tools = await createChatTools(context);
+    const tool = tools.find((t: { name: string }) => t.name === "read_user_profiles") as { invoke: (args: { query?: string }) => Promise<string> };
+    const result = await tool.invoke({ query: "Test User" });
+    const parsed = JSON.parse(result);
+    expect(parsed.success).toBe(true);
+    expect(parsed.data.matchCount).toBe(0);
+  });
+
+  test("query returns profile as undefined when user has no profile", async () => {
+    const mockDb = createMockDatabase(async () => []);
+    const mockSystemDb = createMockSystemDb();
+    const context: ToolContext = { userId: testUserId, database: mockDb, embedder: mockEmbedder, scraper: mockScraper, systemDb: mockSystemDb };
+    const tools = await createChatTools(context);
+    const tool = tools.find((t: { name: string }) => t.name === "read_user_profiles") as { invoke: (args: { query?: string }) => Promise<string> };
+    const result = await tool.invoke({ query: "Diego" });
+    const parsed = JSON.parse(result);
+    expect(parsed.success).toBe(true);
+    expect(parsed.data.matchCount).toBe(1);
+    expect(parsed.data.profiles[0].userId).toBe("user-diego");
+    expect(parsed.data.profiles[0].hasProfile).toBe(false);
+    expect(parsed.data.profiles[0].profile).toBeUndefined();
   });
 });

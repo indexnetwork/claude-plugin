@@ -1,6 +1,6 @@
 import { useCallback, useMemo } from 'react';
 
-import { authClient } from './auth-client';
+import { authClient, getJwtToken } from './auth-client';
 
 // API Configuration
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL!;
@@ -27,20 +27,25 @@ class APIClient {
 
   private async request<T>(
     endpoint: string,
-    options: RequestInit = {}
+    options: RequestInit & { skipAuth?: boolean } = {}
   ): Promise<T> {
     const url = `${this.baseURL}${endpoint}`;
+    const { skipAuth, ...fetchOptions } = options;
 
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
-      ...(options.headers as Record<string, string>),
+      ...(fetchOptions.headers as Record<string, string>),
     };
+
+    if (!skipAuth) {
+      const token = await getJwtToken();
+      headers['Authorization'] = `Bearer ${token}`;
+    }
 
     try {
       const response = await fetch(url, {
-        ...options,
+        ...fetchOptions,
         headers,
-        credentials: 'include',
       });
 
       if (!response.ok) {
@@ -86,6 +91,15 @@ class APIClient {
     });
   }
 
+  // GET request without authentication (for public endpoints)
+  async getPublic<T>(endpoint: string, options?: { signal?: AbortSignal }): Promise<T> {
+    return this.request<T>(endpoint, {
+      method: 'GET',
+      signal: options?.signal,
+      skipAuth: true,
+    });
+  }
+
   // POST request
   async post<T>(endpoint: string, data?: unknown): Promise<T> {
     return this.request<T>(endpoint, {
@@ -117,6 +131,48 @@ class APIClient {
     });
   }
 
+  /** POST that returns the raw Response (for SSE / streaming). */
+  async stream(
+    endpoint: string,
+    data?: unknown,
+    options?: { signal?: AbortSignal }
+  ): Promise<Response> {
+    const url = `${this.baseURL}${endpoint}`;
+    const token = await getJwtToken();
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+      body: data ? JSON.stringify(data) : undefined,
+      signal: options?.signal,
+    });
+    return response;
+  }
+
+  /** POST a FormData body (multiple files / fields). */
+  async uploadFormData<T>(endpoint: string, formData: FormData): Promise<T> {
+    const url = `${this.baseURL}${endpoint}`;
+    const token = await getJwtToken();
+    const response = await fetch(url, {
+      method: 'POST',
+      body: formData,
+      headers: { 'Authorization': `Bearer ${token}` },
+    });
+
+    if (!response.ok) {
+      let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+      try {
+        const errorData = await response.json();
+        errorMessage = errorData.error || errorData.message || errorMessage;
+      } catch { /* keep default */ }
+      throw new APIError(errorMessage, response.status);
+    }
+
+    return response.json();
+  }
+
   // File upload
   async uploadFile<T>(
     endpoint: string,
@@ -134,10 +190,11 @@ class APIClient {
       });
     }
 
+    const token = await getJwtToken();
     const response = await fetch(`${this.baseURL}${endpoint}`, {
       method: 'POST',
       body: formData,
-      credentials: 'include',
+      headers: { 'Authorization': `Bearer ${token}` },
     });
 
     if (!response.ok) {
@@ -210,7 +267,7 @@ export function useAuthenticatedAPI() {
   );
 }
 
-// Utility function for non-authenticated requests
+// Legacy alias - uses authenticated requests, may fail if not logged in
 export const api = {
   get: <T>(endpoint: string) => apiClient.get<T>(endpoint),
   post: <T>(endpoint: string, data?: unknown) => apiClient.post<T>(endpoint, data),

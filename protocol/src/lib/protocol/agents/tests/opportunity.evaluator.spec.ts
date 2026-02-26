@@ -3,7 +3,8 @@ import { config } from "dotenv";
 config({ path: '.env.test' });
 
 import { describe, expect, it } from "bun:test";
-import { OpportunityEvaluator, CandidateProfile } from "../opportunity.evaluator";
+import type { Runnable } from "@langchain/core/runnables";
+import { OpportunityEvaluator, CandidateProfile, EvaluatorInput } from "../opportunity.evaluator";
 
 describe('OpportunityEvaluator', () => {
   const evaluator = new OpportunityEvaluator();
@@ -52,4 +53,68 @@ describe('OpportunityEvaluator', () => {
     const charlieMatch = result.find(r => r.candidateId === "user-charlie");
     expect(charlieMatch).toBeUndefined();
   }, 60000);
+
+  describe('invokeEntityBundle', () => {
+    it('returns no opportunities when entity-bundle model returns empty (e.g. already know each other)', async () => {
+      const mockEntityBundleModel = {
+        invoke: async () => ({ opportunities: [] }),
+      } as unknown as Runnable;
+      const evaluatorWithMock = new OpportunityEvaluator({
+        entityBundleModel: mockEntityBundleModel,
+      });
+      const input: EvaluatorInput = {
+        discovererId: 'discoverer-1',
+        entities: [
+          {
+            userId: 'user-a',
+            profile: {
+              name: 'Alice',
+              bio: 'Co-founder at Acme Corp.',
+              context: 'Building Acme Corp. with Bob.',
+            },
+            indexId: 'index-1',
+          },
+          {
+            userId: 'user-b',
+            profile: {
+              name: 'Bob',
+              bio: 'Co-founder at Acme Corp.',
+              context: 'Building Acme Corp. with Alice.',
+            },
+            indexId: 'index-1',
+          },
+        ],
+      };
+      const result = await evaluatorWithMock.invokeEntityBundle(input, { minScore: 70 });
+      expect(result).toHaveLength(0);
+    });
+
+    it.skip('returns no opportunity when entities clearly already know each other (e.g. co-founders) [integration: live LLM]', async () => {
+      const input: EvaluatorInput = {
+        discovererId: 'discoverer-1',
+        entities: [
+          {
+            userId: 'user-a',
+            profile: {
+              name: 'Alice',
+              bio: 'Co-founder at Acme Corp.',
+              context: 'Building Acme Corp. with Bob.',
+            },
+            indexId: 'index-1',
+          },
+          {
+            userId: 'user-b',
+            profile: {
+              name: 'Bob',
+              bio: 'Co-founder at Acme Corp.',
+              context: 'Building Acme Corp. with Alice.',
+            },
+            indexId: 'index-1',
+          },
+        ],
+      };
+      const result = await evaluator.invokeEntityBundle(input, { minScore: 70 });
+      expect(result).toHaveLength(0);
+    }, 30000);
+  });
 });

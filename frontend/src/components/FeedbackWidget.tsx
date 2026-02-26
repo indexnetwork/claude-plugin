@@ -4,6 +4,7 @@ import { useState, useRef, useEffect } from "react";
 import { Loader2, MessageSquare } from "lucide-react";
 import { useAIChat } from "@/contexts/AIChatContext";
 import { useSaveBarVisible } from "@/contexts/SaveBarContext";
+import { getJwtToken } from "@/lib/auth-client";
 
 export default function FeedbackWidget() {
   const [isOpen, setIsOpen] = useState(false);
@@ -35,12 +36,13 @@ export default function FeedbackWidget() {
     try {
       const evaluatorUrl =
         process.env.NEXT_PUBLIC_EVALUATOR_URL || "http://localhost:3002";
+      const jwt = await getJwtToken();
       const response = await fetch(`${evaluatorUrl}/api/eval/feedback`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          "Authorization": `Bearer ${jwt}`,
         },
-        credentials: "include",
         body: JSON.stringify({
           feedback,
           sessionId: sessionId ?? undefined,

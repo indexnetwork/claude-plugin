@@ -71,10 +71,11 @@ export const IntentGraphState = Annotation.Root({
    * - 'update': Skip verification if no new intents (prep → inference → reconciliation → execution)
    * - 'delete': Skip inference and verification (prep → reconciliation → execution)
    * - 'read': Fast path (prep → queryNode → END) — reads intents without LLM calls
+   * - 'propose': Inference + verification only, stops before reconciliation (no DB writes)
    *
    * Defaults to 'create' for backward compatibility.
    */
-  operationMode: Annotation<'create' | 'update' | 'delete' | 'read'>({
+  operationMode: Annotation<'create' | 'update' | 'delete' | 'read' | 'propose'>({
     reducer: (curr, next) => next ?? curr,
     default: () => 'create' as const,
   }),
@@ -145,6 +146,17 @@ export const IntentGraphState = Annotation.Root({
   executionResults: Annotation<ExecutionResult[]>({
     reducer: (curr, next) => next,
     default: () => [],
+  }),
+
+  // --- Error State ---
+
+  /**
+   * If set, indicates a fatal error that should short-circuit the graph to END.
+   * Populated by prep when a precondition fails (e.g. missing profile).
+   */
+  error: Annotation<string | undefined>({
+    reducer: (curr, next) => next ?? curr,
+    default: () => undefined,
   }),
 
   // --- Read Mode Fields ---

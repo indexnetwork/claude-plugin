@@ -4,7 +4,6 @@ import { AuthGuard } from '../guards/auth.guard';
 import type { AuthenticatedUser } from '../guards/auth.guard';
 import { queueOpportunityNotification } from '../queues/notification.queue';
 import { log } from '../lib/log';
-import type { OpportunityStatus } from '../lib/protocol/interfaces/database.interface';
 
 const logger = log.controller.from('opportunity');
 
@@ -37,6 +36,33 @@ export class OpportunityController {
     const list = await opportunityService.getOpportunitiesForUser(user.id, options);
     logger.info('Opportunities listed', { userId: user.id, count: list.length });
     return Response.json({ opportunities: list });
+  }
+
+  /**
+   * GET /opportunities/chat-context — get shared accepted opportunities between the
+   * authenticated user and a peer, used as context for chat conversations.
+   *
+   * @param req - Must include `peerUserId` query parameter
+   * @param user - Authenticated user from AuthGuard
+   * @returns JSON with opportunity cards for the chat context
+   */
+  @Get('/chat-context')
+  @UseGuards(AuthGuard)
+  async getChatContext(req: Request, user: AuthenticatedUser) {
+    const url = new URL(req.url, `http://${req.headers.get('host') || 'localhost'}`);
+    const peerUserId = url.searchParams.get('peerUserId');
+    if (!peerUserId) {
+      return Response.json({ error: 'peerUserId query param is required' }, { status: 400 });
+    }
+
+    try {
+      const result = await opportunityService.getChatContext(user.id, peerUserId);
+      return Response.json(result);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      logger.error('[getChatContext] Error', { userId: user.id, error: message });
+      return Response.json({ error: 'Internal server error' }, { status: 500 });
+    }
   }
 
   /**
@@ -121,8 +147,8 @@ export class OpportunityController {
       });
     }
     
-    const status = body.status as 'latent' | 'pending' | 'viewed' | 'accepted' | 'rejected' | 'expired' | undefined;
-    const allowed = ['latent', 'pending', 'viewed', 'accepted', 'rejected', 'expired'];
+    const status = body.status as 'latent' | 'draft' | 'pending' | 'viewed' | 'accepted' | 'rejected' | 'expired' | undefined;
+    const allowed = ['latent', 'draft', 'pending', 'viewed', 'accepted', 'rejected', 'expired'];
     if (!status || !allowed.includes(status)) {
       return new Response(JSON.stringify({ error: 'Invalid status; use one of: ' + allowed.join(', ') }), {
         status: 400,

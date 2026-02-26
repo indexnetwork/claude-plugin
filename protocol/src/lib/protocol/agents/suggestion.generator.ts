@@ -3,6 +3,7 @@ import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { z } from "zod";
 import type { ChatSuggestion } from "../../../types/chat-streaming.types";
 import { protocolLogger } from "../support/protocol.logger";
+import { Timed } from "../../performance";
 
 const logger = protocolLogger("SuggestionGenerator");
 
@@ -63,6 +64,7 @@ export class SuggestionGenerator {
    * Generate follow-up suggestions from the last exchange.
    * Returns empty array on failure (graceful degradation).
    */
+  @Timed()
   async generate(input: SuggestionGeneratorInput): Promise<ChatSuggestion[]> {
     const { messages, indexContext } = input;
     if (messages.length === 0) return [];

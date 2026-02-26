@@ -1,4 +1,4 @@
-import { auth } from '../lib/auth';
+import { jwtVerify, createRemoteJWKSet } from 'jose';
 
 export interface AuthenticatedUser {
   id: string;
@@ -6,24 +6,36 @@ export interface AuthenticatedUser {
   name: string;
 }
 
+const JWKS = createRemoteJWKSet(
+  new URL(`http://localhost:${process.env.PORT || 3001}/api/auth/jwks`)
+);
+
 /**
- * AuthGuard: Validates the request against Better Auth session.
- * session.user.id IS the domain user ID (unified table).
+ * AuthGuard: Verifies JWT tokens statelessly via the local JWKS endpoint.
+ * Expects `Authorization: Bearer <jwt>` header.
  */
 export const AuthGuard = async (req: Request): Promise<AuthenticatedUser> => {
-  const session = await auth.api.getSession({ headers: req.headers });
+  let token: string | null = null;
 
-  if (!session || !session.user) {
-    const authHeader = req.headers.get('Authorization');
-    if (!authHeader) {
-      throw new Error('Access token required');
-    }
-    throw new Error('Invalid or expired access token');
+  const authHeader = req.headers.get('Authorization');
+  if (authHeader?.startsWith('Bearer ')) {
+    token = authHeader.slice(7);
+  } else {
+    const url = new URL(req.url, 'http://localhost');
+    token = url.searchParams.get('token');
   }
 
-  return {
-    id: session.user.id,
-    email: session.user.email,
-    name: session.user.name,
-  };
+  if (!token) {
+    throw new Error('Access token required');
+  }
+  try {
+    const { payload } = await jwtVerify(token, JWKS);
+    return {
+      id: payload.id as string,
+      email: (payload.email as string) ?? null,
+      name: payload.name as string,
+    };
+  } catch {
+    throw new Error('Invalid or expired access token');
+  }
 };

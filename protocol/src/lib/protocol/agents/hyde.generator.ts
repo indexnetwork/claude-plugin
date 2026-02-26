@@ -12,6 +12,7 @@ import {
   HYDE_STRATEGIES,
   type HydeTargetCorpus,
 } from './hyde.strategies';
+import { Timed } from "../../performance";
 
 const SYSTEM_PROMPT = `You are a Hypothetical Document Generator for semantic search.
 
@@ -45,6 +46,7 @@ export class HydeGenerator extends BaseLangChainAgent {
   /**
    * Generate a hypothetical document for the given source text and strategy.
    */
+  @Timed()
   async generate(
     sourceText: string,
     strategy: HydeStrategy,

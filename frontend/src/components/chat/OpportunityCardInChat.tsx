@@ -2,11 +2,10 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import Image from "next/image";
-import { Bot, Check, Clock, X } from "lucide-react";
+import { Bot, Check, CheckCircle2, Clock, X } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { getAvatarUrl } from "@/lib/file-utils";
+import UserAvatar from "@/components/UserAvatar";
 import { cn } from "@/lib/utils";
 
 /**
@@ -47,7 +46,7 @@ export interface OpportunityCardData {
 }
 
 /** Status values that allow user actions (accept/reject). Matches DB opportunity_status enum. */
-const ACTIONABLE_STATUSES = new Set(["latent", "pending", "viewed"]);
+const ACTIONABLE_STATUSES = new Set(["latent", "draft", "pending", "viewed"]);
 
 /** Determine if a status allows actions. */
 function isActionableStatus(status?: string): boolean {
@@ -72,8 +71,6 @@ function getStatusMessage(status?: string): string | null {
 /** Tailwind classes for the card wrapper based on opportunity status. */
 function getCardWrapperClass(status?: string): string {
   switch (status) {
-    case "accepted":
-      return "bg-green-50/80 border border-green-200";
     case "rejected":
       return "bg-red-50/60 border border-red-200";
     case "expired":
@@ -86,8 +83,6 @@ function getCardWrapperClass(status?: string): string {
 /** Tailwind classes for the narrator chip based on opportunity status. */
 function getNarratorChipClass(status?: string): string {
   switch (status) {
-    case "accepted":
-      return "bg-green-100/80 border border-green-200";
     case "rejected":
       return "bg-red-100/60 border border-red-200";
     case "expired":
@@ -100,8 +95,6 @@ function getNarratorChipClass(status?: string): string {
 /** Hover class for the narrator chip when clickable (by status). */
 function getNarratorHoverClass(status?: string): string {
   switch (status) {
-    case "accepted":
-      return "hover:bg-green-200/50";
     case "rejected":
       return "hover:bg-red-200/40";
     case "expired":
@@ -199,11 +192,6 @@ export default function OpportunityCard({
   const canTakeAction = isActionableStatus(effectiveStatus);
   const statusMessage = getStatusMessage(effectiveStatus);
 
-  const avatarUrl = getAvatarUrl({
-    id: card.userId,
-    name: card.name || "User",
-    avatar: card.avatar || null,
-  });
 
   const handlePrimaryAction = async () => {
     if (onPrimaryAction) {
@@ -265,20 +253,7 @@ export default function OpportunityCard({
     );
   }
 
-  // If action was already taken (in chat context), show a minimal confirmation
-  if (actionTaken) {
-    return (
-      <div className="bg-gray-50 rounded-lg p-4 my-2 text-center text-sm text-gray-500">
-        {actionTaken === "accepted" ? (
-          <span>✓ You accepted this connection</span>
-        ) : (
-          <span>This opportunity was dismissed</span>
-        )}
-      </div>
-    );
-  }
-
-  const hasActions = canTakeAction && (onPrimaryAction || onSecondaryAction);
+  const hasActions = !actionTaken && canTakeAction && (onPrimaryAction || onSecondaryAction);
   const showResolvedStatus = !canTakeAction && statusMessage;
 
   return (
@@ -298,15 +273,13 @@ export default function OpportunityCard({
           }}
           aria-label={`View profile of ${card.name || "Someone"}`}
         >
-          <div className="w-8 h-8 rounded-full overflow-hidden bg-gray-300/80 flex items-center justify-center shrink-0">
-            <Image
-              src={avatarUrl}
-              alt={card.name || "User"}
-              width={32}
-              height={32}
-              className="w-full h-full object-cover"
-            />
-          </div>
+          <UserAvatar
+            id={card.userId}
+            name={card.name || "User"}
+            avatar={card.avatar || null}
+            size={32}
+            className="shrink-0"
+          />
           <div className="min-w-0">
             <h4 className="font-bold text-gray-900 text-sm hover:underline">
               {card.name || "Someone"}
@@ -326,7 +299,7 @@ export default function OpportunityCard({
                 onClick={handlePrimaryAction}
               >
                 {isLoading
-                  ? "Working..."
+                  ? "On it..."
                   : card.primaryActionLabel || "Start Chat"}
               </button>
             )}
@@ -342,18 +315,32 @@ export default function OpportunityCard({
             )}
           </div>
         )}
-        {showResolvedStatus && (
-          <div className="flex items-center gap-1.5 shrink-0 text-sm text-gray-600">
+        {actionTaken && (
+          <div className="flex items-center gap-1.5 shrink-0 text-sm text-gray-500">
+            <Check className="w-4 h-4 text-green-600 shrink-0" />
+            <span>{actionTaken === "accepted" ? "Sent" : "Dismissed"}</span>
+          </div>
+        )}
+        {!actionTaken && showResolvedStatus && (
+          <div className="shrink-0">
             {effectiveStatus === "accepted" && (
-              <Check className="w-4 h-4 text-green-600 shrink-0" />
+              <span className="inline-flex items-center gap-1.5 text-green-600 text-xs font-semibold font-mono">
+                <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                Connected
+              </span>
             )}
             {effectiveStatus === "rejected" && (
-              <X className="w-4 h-4 text-red-600 shrink-0" />
+              <span className="inline-flex items-center gap-1 text-red-500 text-xs font-medium">
+                <X className="w-3 h-3" />
+                Declined
+              </span>
             )}
             {effectiveStatus === "expired" && (
-              <Clock className="w-4 h-4 text-amber-600 shrink-0" />
+              <span className="inline-flex items-center gap-1 text-amber-500 text-xs font-medium">
+                <Clock className="w-3 h-3" />
+                Expired
+              </span>
             )}
-            <span>{statusMessage}</span>
           </div>
         )}
       </div>
@@ -403,15 +390,10 @@ export default function OpportunityCard({
               {card.narratorChip.name === "Index" ? (
                 <Bot className="w-7 h-7 text-[#3D3D3D]" />
               ) : (
-                <Image
-                  src={getAvatarUrl({
-                    name: card.narratorChip.name,
-                    avatar: card.narratorChip.avatar ?? null,
-                  })}
-                  alt=""
-                  width={28}
-                  height={28}
-                  className="w-7 h-7 rounded-full object-cover"
+                <UserAvatar
+                  name={card.narratorChip.name}
+                  avatar={card.narratorChip.avatar ?? null}
+                  size={28}
                 />
               )}
             </div>

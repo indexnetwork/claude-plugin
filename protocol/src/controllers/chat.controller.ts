@@ -1,5 +1,3 @@
-import type { ChatControllerChatProvider } from "../lib/protocol/interfaces/chat.interface";
-import { getChatProvider } from "../adapters/chat.adapter";
 import { AuthGuard, type AuthenticatedUser } from "../guards/auth.guard";
 import { log } from "../lib/log";
 import {
@@ -30,89 +28,6 @@ function getSuggestionGenerator(): SuggestionGenerator {
 
 @Controller("/chat")
 export class ChatController {
-  private readonly chatProvider: ChatControllerChatProvider | null;
-
-  constructor(chatProvider?: ChatControllerChatProvider | null) {
-    this.chatProvider = chatProvider ?? getChatProvider();
-  }
-
-  /**
-   * Generate a Stream Chat token for the authenticated user.
-   */
-  @Post("/token")
-  @UseGuards(AuthGuard)
-  async token(_req: Request, user: AuthenticatedUser) {
-    if (!this.chatProvider) {
-      return Response.json(
-        { error: "Chat provider is not configured" },
-        { status: 503 },
-      );
-    }
-    const token = this.chatProvider.createToken(user.id);
-    return Response.json({ token });
-  }
-
-  /**
-   * Upsert a user in Stream Chat so they exist before creating a channel.
-   * Called by the frontend when opening a DM with a user who may not yet exist in Stream.
-   * Callers may only upsert their own profile (body.userId must match the authenticated user).
-   */
-  @Post("/user")
-  @UseGuards(AuthGuard)
-  async upsertStreamUser(req: Request, user: AuthenticatedUser) {
-    if (!this.chatProvider) {
-      return Response.json(
-        { error: "Chat provider is not configured" },
-        { status: 503 },
-      );
-    }
-    let body: { userId?: string; userName?: string; userAvatar?: string };
-    try {
-      body = (await req.json()) as {
-        userId?: string;
-        userName?: string;
-        userAvatar?: string;
-      };
-    } catch {
-      return Response.json(
-        {
-          error:
-            "Invalid request body. Expected { userId: string, userName?: string, userAvatar?: string }",
-        },
-        { status: 400 },
-      );
-    }
-    const userId = body.userId?.trim();
-    if (!userId) {
-      return Response.json({ error: "userId is required" }, { status: 400 });
-    }
-    if (userId !== user.id) {
-      return Response.json(
-        { error: "You may only upsert your own Stream profile" },
-        { status: 403 },
-      );
-    }
-    try {
-      await this.chatProvider.upsertUsers([
-        {
-          id: userId,
-          name: body.userName?.trim() || "Unknown",
-          image: body.userAvatar?.trim() || undefined,
-        },
-      ]);
-      return Response.json({ success: true });
-    } catch (error) {
-      logger.warn("Failed to upsert Stream user", { userId, error });
-      return Response.json(
-        {
-          error:
-            error instanceof Error ? error.message : "Failed to upsert user",
-        },
-        { status: 500 },
-      );
-    }
-  }
-
   /**
    * Send a message to the chat graph for processing.
    * The graph routes to appropriate subgraphs based on intent analysis.
@@ -323,12 +238,15 @@ export class ChatController {
             checkpointer,
           )) {
             if (event) {
-              controller.enqueue(encoder.encode(formatSSEEvent(event)));
+              // response_complete is an internal event carrying the agent's
+              // authoritative final text — don't forward it to the SSE client.
+              if (event.type === "response_complete") {
+                fullResponse = event.response;
+              } else {
+                controller.enqueue(encoder.encode(formatSSEEvent(event)));
+              }
 
-              // Accumulate response for persistence
-              if (event.type === "token") {
-                fullResponse += event.content;
-              } else if (event.type === "routing") {
+              if (event.type === "routing") {
                 routingDecision = {
                   target: event.target,
                   reasoning: event.reasoning,
@@ -544,5 +462,90 @@ export class ChatController {
     }
 
     return Response.json({ success: true, title });
+  }
+
+  @Post("/session/share")
+  @UseGuards(AuthGuard)
+  async shareSession(req: Request, user: AuthenticatedUser) {
+    let body: { sessionId?: string };
+    try {
+      body = (await req.json()) as { sessionId?: string };
+    } catch {
+      return Response.json(
+        { error: "Invalid request body. Expected { sessionId: string }" },
+        { status: 400 },
+      );
+    }
+
+    if (!body.sessionId) {
+      return Response.json({ error: "sessionId is required" }, { status: 400 });
+    }
+
+    const shareToken = await chatSessionService.shareSession(
+      body.sessionId,
+      user.id,
+    );
+    if (!shareToken) {
+      return Response.json({ error: "Session not found" }, { status: 404 });
+    }
+
+    return Response.json({ shareToken });
+  }
+
+  @Post("/session/unshare")
+  @UseGuards(AuthGuard)
+  async unshareSession(req: Request, user: AuthenticatedUser) {
+    let body: { sessionId?: string };
+    try {
+      body = (await req.json()) as { sessionId?: string };
+    } catch {
+      return Response.json(
+        { error: "Invalid request body. Expected { sessionId: string }" },
+        { status: 400 },
+      );
+    }
+
+    if (!body.sessionId) {
+      return Response.json({ error: "sessionId is required" }, { status: 400 });
+    }
+
+    const unshared = await chatSessionService.unshareSession(
+      body.sessionId,
+      user.id,
+    );
+    if (!unshared) {
+      return Response.json({ error: "Session not found" }, { status: 404 });
+    }
+
+    return Response.json({ success: true });
+  }
+
+  @Get("/shared/:token")
+  async getSharedSession(
+    _req: Request,
+    _user: unknown,
+    params: { token: string },
+  ) {
+    const result = await chatSessionService.getSharedSession(params.token);
+    if (!result) {
+      return Response.json(
+        { error: "Shared session not found" },
+        { status: 404 },
+      );
+    }
+
+    return Response.json({
+      session: {
+        id: result.session.id,
+        title: result.session.title,
+        createdAt: result.session.createdAt,
+      },
+      messages: result.messages.map((m) => ({
+        id: m.id,
+        role: m.role,
+        content: m.content,
+        createdAt: m.createdAt,
+      })),
+    });
   }
 }

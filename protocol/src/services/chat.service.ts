@@ -144,7 +144,7 @@ export class ChatSessionService {
    * @param limit - Maximum number of sessions to return (default: 20)
    * @returns List of sessions
    */
-  async getUserSessions(userId: string, limit = 20) {
+  async getUserSessions(userId: string, limit = 10) {
     logger.info('Getting user sessions', { userId, limit });
     
     return this.db.getUserSessions(userId, limit);
@@ -192,10 +192,10 @@ export class ChatSessionService {
    * Get messages for a session in chronological order.
    * 
    * @param sessionId - The session ID
-   * @param limit - Maximum number of messages to return (default: 50)
+   * @param limit - Maximum number of messages to return (all if omitted)
    * @returns List of messages
    */
-  async getSessionMessages(sessionId: string, limit = 50) {
+  async getSessionMessages(sessionId: string, limit?: number) {
     logger.info('Getting session messages', { sessionId, limit });
     
     return this.db.getSessionMessages(sessionId, limit);
@@ -242,6 +242,35 @@ export class ChatSessionService {
     await this.db.updateSessionTitle(sessionId, title);
     
     return true;
+  }
+
+  async shareSession(sessionId: string, userId: string): Promise<string | null> {
+    const session = await this.getSession(sessionId, userId);
+    if (!session) return null;
+
+    if (session.shareToken) return session.shareToken;
+
+    const token = crypto.randomUUID();
+    await this.db.setShareToken(sessionId, token);
+    logger.info('Session shared', { sessionId, shareToken: token });
+    return token;
+  }
+
+  async unshareSession(sessionId: string, userId: string): Promise<boolean> {
+    const session = await this.getSession(sessionId, userId);
+    if (!session) return false;
+
+    await this.db.setShareToken(sessionId, null);
+    logger.info('Session unshared', { sessionId });
+    return true;
+  }
+
+  async getSharedSession(shareToken: string) {
+    const session = await this.db.getSessionByShareToken(shareToken);
+    if (!session) return null;
+
+    const messages = await this.db.getSessionMessages(session.id, 200);
+    return { session, messages };
   }
 
   /**

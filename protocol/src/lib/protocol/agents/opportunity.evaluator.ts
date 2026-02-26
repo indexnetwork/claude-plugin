@@ -6,6 +6,8 @@ import { z } from "zod";
 import { protocolLogger } from "../support/protocol.logger";
 import type { HydeStrategy } from "./hyde.strategies";
 import type { OpportunityStatus } from "../interfaces/database.interface";
+import { Timed } from "../../performance";
+import { stripUuids } from "../support/opportunity.sanitize";
 
 const logger = protocolLogger("OpportunityEvaluator");
 
@@ -72,6 +74,7 @@ const systemPrompt = `
     3. COMPREHENSIVE: The single opportunity must capture ALL the value of the connection.
     4. Be specific about the "Why" for BOTH sides in the reasoning.
     5. DEDUPLICATION: Do NOT suggest opportunities that duplicate "Existing Opportunities".
+    6. Do not suggest an opportunity if the source and candidate clearly already know each other (e.g. same company, co-founders, same team).
 `;
 
 // Entity-bundle system prompt (C2): entities + four match patterns + actors output
@@ -114,6 +117,7 @@ Rules:
 3. DEDUPLICATION: Do not suggest opportunities that duplicate Existing Opportunities.
 4. Write reasoning from an objective observer's perspective; be specific about the "Why" for each side.
 5. When in introduction mode, each opportunity must have exactly two actors — the two people being introduced. The discoverer (introducer) is added by the system and must not be included in your actors list.
+6. ALREADY KNOW EACH OTHER: Do NOT suggest an opportunity if the entities clearly already know each other. Examples: co-founders of the same company, same team at the same organization, same employer, or any relationship that is obviously existing from their profiles (bio, context). When in doubt, if both profiles mention the same company/org/team in a way that implies they work together, return an empty list for that pair.
 `;
 
 // ──────────────────────────────────────────────────────────────
@@ -167,6 +171,8 @@ export interface EvaluatorInput {
   introducerName?: string;
   /** Optional hint/context from the introducer about why these people should meet. */
   introductionHint?: string;
+  /** Optional discovery query (e.g. from chat). When set, only suggest opportunities where candidates clearly match this request. */
+  discoveryQuery?: string;
 }
 
 const ActorSchema = z.object({
@@ -221,15 +227,20 @@ interface OpportunityEvaluatorOptions {
 // 4. CLASS DEFINITION
 // ──────────────────────────────────────────────────────────────
 
+/** Optional test double for entity-bundle model (avoids live LLM in unit tests). */
+export type OpportunityEvaluatorOptionsConstructor = {
+  entityBundleModel?: Runnable;
+};
+
 export class OpportunityEvaluator {
   private model: Runnable;
   private entityBundleModel: Runnable;
 
-  constructor() {
+  constructor(options?: OpportunityEvaluatorOptionsConstructor) {
     this.model = model.withStructuredOutput(responseFormat, {
       name: "opportunity_evaluator"
     });
-    this.entityBundleModel = model.withStructuredOutput(entityBundleResponseFormat, {
+    this.entityBundleModel = options?.entityBundleModel ?? model.withStructuredOutput(entityBundleResponseFormat, {
       name: "opportunity_evaluator_entity_bundle"
     });
   }
@@ -242,6 +253,7 @@ export class OpportunityEvaluator {
    * @param options - Config (minScore, valid types, etc).
    * @returns A sorted list of high-value `Opportunity` objects.
    */
+  @Timed()
   public async invoke(
     sourceProfileContext: string,
     candidates: CandidateProfile[],
@@ -317,6 +329,7 @@ export class OpportunityEvaluator {
 
       const mappedOpportunities = output.opportunities.map((op: Opportunity) => ({
         ...op,
+        reasoning: stripUuids(op.reasoning),
         candidateId: candidateUserId,
       }));
 
@@ -331,6 +344,7 @@ export class OpportunityEvaluator {
   /**
    * Entity-bundle entry point (C3): single LLM call with all entities, returns 0..N opportunities with actors.
    */
+  @Timed()
   public async invokeEntityBundle(
     input: EvaluatorInput,
     options: { minScore?: number } = {}
@@ -357,6 +371,12 @@ CRITICAL REASONING INSTRUCTIONS FOR INTRODUCTIONS:
 - Be generous with scoring (70+ for any introduction with a plausible basis, since a human made the judgment).
 `
       : '';
+    const discoveryQueryPart = input.discoveryQuery?.trim()
+      ? `\nDISCOVERY REQUEST: The user asked: "${input.discoveryQuery.trim()}"
+
+Only suggest opportunities where the candidates clearly match this request. Down-rank or exclude candidates who do not fit (e.g. if the user asked for visual artists, do not suggest people who are only engineers or product designers unless they are also visual artists). Score relevance to the request as well as general match quality.
+`
+      : '';
     const entitiesBlock = input.entities.map((e) => {
       const intentsPart = e.intents?.length
         ? `\n  INTENTS:\n${e.intents.map((i) => `    - ${i.intentId}: ${i.payload}`).join('\n')}`
@@ -368,7 +388,7 @@ CRITICAL REASONING INSTRUCTIONS FOR INTRODUCTIONS:
   RAG SCORE: ${e.ragScore ?? '—'}
   MATCHED VIA: ${e.matchedVia ?? '—'}`;
     }).join('\n');
-    const humanContent = `DISCOVERER: ${input.discovererId}${introModePart}\n\nENTITIES:\n${entitiesBlock}${existingPart}`;
+    const humanContent = `DISCOVERER: ${input.discovererId}${introModePart}${discoveryQueryPart}\n\nENTITIES:\n${entitiesBlock}${existingPart}`;
     const messages = [
       new SystemMessage(entityBundleSystemPrompt),
       new HumanMessage(humanContent),
@@ -377,6 +397,9 @@ CRITICAL REASONING INSTRUCTIONS FOR INTRODUCTIONS:
     try {
       const result = await this.entityBundleModel.invoke(messages);
       const parsed = entityBundleResponseFormat.parse(result);
+      for (const op of parsed.opportunities) {
+        op.reasoning = stripUuids(op.reasoning);
+      }
       parsedTotal = parsed.opportunities.length;
       const introGuard =
         input.introductionMode

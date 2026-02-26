@@ -5,6 +5,7 @@ import type {
   OpportunityInterpretation,
   OpportunityContext,
   UserSocials,
+  OnboardingState,
 } from '../../../schemas/database.schema';
 import type { Id } from '../../../types/common.types';
 
@@ -17,6 +18,7 @@ export interface UserRecord {
   avatar?: string | null;
   location?: string | null;
   socials?: UserSocials | null;
+  onboarding?: OnboardingState | null;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -318,7 +320,7 @@ export type {
   OpportunitySignal,
 } from '../../../schemas/database.schema';
 
-export type OpportunityStatus = 'latent' | 'pending' | 'viewed' | 'accepted' | 'rejected' | 'expired';
+export type OpportunityStatus = 'latent' | 'draft' | 'pending' | 'viewed' | 'accepted' | 'rejected' | 'expired';
 
 export interface Opportunity {
   id: string;
@@ -349,6 +351,8 @@ export interface OpportunityQueryOptions {
   role?: string;
   limit?: number;
   offset?: number;
+  /** When set, include draft opportunities for this chat session. When unset, exclude all draft opportunities (e.g. home view, API). */
+  conversationId?: string;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -395,7 +399,7 @@ export interface Database {
    * @param data - Partial user fields to update
    * @returns The updated user record or null if not found
    */
-  updateUser(userId: string, data: { name?: string; location?: string; socials?: UserSocials }): Promise<UserRecord | null>;
+  updateUser(userId: string, data: { name?: string; location?: string; socials?: UserSocials; onboarding?: OnboardingState }): Promise<UserRecord | null>;
 
   // ─────────────────────────────────────────────────────────────────────────────
   // Pre-Graph Operations (State Population)
@@ -695,6 +699,23 @@ export interface Database {
    * @returns Array of owned indexes with counts
    */
   getOwnedIndexes(userId: string): Promise<OwnedIndex[]>;
+
+  /**
+   * Get public indexes (joinPolicy 'anyone') that the user has not joined.
+   * Used for discovering communities available to join.
+   *
+   * @param userId - The user ID to check memberships against
+   * @returns Object containing array of public indexes with owner info
+   */
+  getPublicIndexesNotJoined(userId: string): Promise<{
+    indexes: Array<{
+      id: string;
+      title: string;
+      prompt: string | null;
+      memberCount: number;
+      owner: { id: string; name: string; avatar: string | null } | null;
+    }>;
+  }>;
 
   /**
    * Check if user is an owner of a specific index.
@@ -1025,6 +1046,19 @@ export interface Database {
   ): Promise<boolean>;
 
   /**
+   * Return one non-expired opportunity between the given actors in the index, if any.
+   * Used to avoid creating a duplicate and to surface existing opportunity id/status.
+   *
+   * @param actorIds - Array of user IDs that would be actors
+   * @param indexId - Index ID
+   * @returns The first matching opportunity's id and status, or null
+   */
+  getOpportunityBetweenActors(
+    actorIds: string[],
+    indexId: string
+  ): Promise<{ id: Id<'opportunities'>; status: OpportunityStatus } | null>;
+
+  /**
    * Find opportunities whose non-introducer actor set exactly matches the given user IDs.
    * Overlap semantics: exact actor-set equality — an opportunity is returned only if its set of
    * non-introducer actor userIds (ignoring introducers) equals the set of actorUserIds. Index-agnostic;
@@ -1134,7 +1168,7 @@ export interface UserDatabase {
   getUser(): Promise<UserRecord | null>;
 
   /** Update the authenticated user's account fields. */
-  updateUser(data: { name?: string; location?: string; socials?: UserSocials }): Promise<UserRecord | null>;
+  updateUser(data: { name?: string; location?: string; socials?: UserSocials; onboarding?: OnboardingState }): Promise<UserRecord | null>;
 
   // ─────────────────────────────────────────────────────────────────────────────
   // Intent Operations (own only, ALL intents - not index-scoped)
@@ -1226,6 +1260,24 @@ export interface UserDatabase {
 
   /** Soft-delete an index (owner only). */
   softDeleteIndex(indexId: string): Promise<void>;
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Public Index Discovery (joinable indexes the user is not a member of)
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  /** Get public indexes (joinPolicy 'anyone') that the user has not joined. */
+  getPublicIndexesNotJoined(): Promise<{
+    indexes: Array<{
+      id: string;
+      title: string;
+      prompt: string | null;
+      memberCount: number;
+      owner: { id: string; name: string; avatar: string | null } | null;
+    }>;
+  }>;
+
+  /** Join a public index (validates joinPolicy === 'anyone'). */
+  joinPublicIndex(indexId: string): Promise<{ success: boolean; alreadyMember?: boolean }>;
 
   // ─────────────────────────────────────────────────────────────────────────────
   // Opportunity Operations (where user is actor)
@@ -1366,6 +1418,9 @@ export interface SystemDatabase {
   /** Check if opportunity exists between actors in an index. */
   opportunityExistsBetweenActors(actorIds: string[], indexId: string): Promise<boolean>;
 
+  /** Return one opportunity between actors in the index (id + status), or null. */
+  getOpportunityBetweenActors(actorIds: string[], indexId: string): Promise<{ id: Id<'opportunities'>; status: OpportunityStatus } | null>;
+
   /** Find overlapping opportunities by actor set. */
   findOverlappingOpportunities(actorUserIds: Id<'users'>[], options?: { excludeStatuses?: OpportunityStatus[] }): Promise<Opportunity[]>;
 
@@ -1458,6 +1513,7 @@ export type ChatGraphCompositeDatabase = Pick<
   | 'createOpportunity'
   | 'getOpportunity'
   | 'opportunityExistsBetweenActors'
+  | 'getOpportunityBetweenActors'
   | 'findOverlappingOpportunities'
   | 'getOpportunitiesForUser'
   | 'updateOpportunityStatus'
@@ -1467,6 +1523,7 @@ export type ChatGraphCompositeDatabase = Pick<
   | 'saveHydeDocument'
   | 'getIntent'
   // IndexGraph subgraph requirements (index created intents in user's indexes)
+  | 'getPublicIndexesNotJoined'
   | 'getUserIndexIds'
   | 'getIndexMemberships'
   | 'getIndexMembership'
@@ -1509,6 +1566,7 @@ export type OpportunityGraphDatabase = Pick<
   | 'getProfile'
   | 'createOpportunity'
   | 'opportunityExistsBetweenActors'
+  | 'getOpportunityBetweenActors'
   | 'findOverlappingOpportunities'
   | 'getUserIndexIds'
   | 'getActiveIntents'
@@ -1583,6 +1641,7 @@ export type IndexGraphDatabase = Pick<
   Database,
   | 'getIndexMemberships'
   | 'getOwnedIndexes'
+  | 'getPublicIndexesNotJoined'
   | 'isIndexOwner'
   | 'isIndexMember'
   | 'getIndex'

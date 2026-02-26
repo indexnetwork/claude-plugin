@@ -14,7 +14,8 @@ import { Hono } from 'hono';
 import { notificationQueue } from '../queues/notification.queue';
 import { intentQueue } from '../queues/intent.queue';
 import { opportunityQueue } from '../queues/opportunity.queue';
-import { emailQueue } from '../lib/email/queue/email.queue';
+import { profileQueue } from '../queues/profile.queue';
+import { emailQueue } from '../queues/email.queue';
 import { log } from '../lib/log';
 
 const logger = log.controller.from('dev/queues');
@@ -31,7 +32,8 @@ createBullBoard({
     new BullMQAdapter(notificationQueue.queue),
     new BullMQAdapter(intentQueue.queue),
     new BullMQAdapter(opportunityQueue.queue),
-    new BullMQAdapter(emailQueue),
+    new BullMQAdapter(profileQueue.queue),
+    new BullMQAdapter(emailQueue.queue),
   ],
   serverAdapter,
 });

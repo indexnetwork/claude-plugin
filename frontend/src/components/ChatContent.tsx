@@ -12,6 +12,9 @@ import {
   ChevronDown,
   Lock,
   ChevronLeft,
+  Share2,
+  Check,
+  Bug,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { MentionsTextInput } from "@/components/MentionsInput";
@@ -25,6 +28,10 @@ import OpportunityCard, {
   type OpportunityCardData,
   OpportunitySkeleton,
 } from "@/components/chat/OpportunityCardInChat";
+import IntentProposalCard, {
+  type IntentProposalData,
+  IntentProposalSkeleton,
+} from "@/components/chat/IntentProposalCard";
 import { SuggestionChips } from "@/components/chat/SuggestionChips";
 import ThinkingDropdown from "@/components/chat/ThinkingDropdown";
 import { ContentContainer } from "@/components/layout";
@@ -33,8 +40,9 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useIndexFilter } from "@/contexts/IndexFilterContext";
 import { useIndexesState } from "@/contexts/IndexesContext";
+import { apiClient } from "@/lib/api";
 import { useSuggestions } from "@/hooks/useSuggestions";
-import Image from "next/image";
+
 import { mentionsToMarkdownLinks } from "@/lib/mentions";
 import type { HomeViewSection } from "@/services/opportunities";
 import { DynamicIcon, type IconName } from "lucide-react/dynamic";
@@ -81,17 +89,17 @@ function normalizeBlockquotes(text: string): string {
 type MessageSegment =
   | { type: "text"; content: string }
   | { type: "opportunity"; data: OpportunityCardData }
-  | { type: "opportunity_loading" };
+  | { type: "opportunity_loading" }
+  | { type: "intent_proposal"; data: IntentProposalData }
+  | { type: "intent_proposal_loading" };
 
-function parseOpportunityBlocks(content: string): MessageSegment[] {
+function parseAllBlocks(content: string): MessageSegment[] {
   const segments: MessageSegment[] = [];
-  // Match ```opportunity followed by JSON and closing ```
-  const regex = /```opportunity\s*\n([\s\S]*?)```/g;
+  const regex = /```(opportunity|intent_proposal)\s*\n([\s\S]*?)\n```/g;
   let lastIndex = 0;
   let match;
 
   while ((match = regex.exec(content)) !== null) {
-    // Add text before this match
     if (match.index > lastIndex) {
       const textBefore = content.slice(lastIndex, match.index);
       if (textBefore.trim()) {
@@ -99,36 +107,51 @@ function parseOpportunityBlocks(content: string): MessageSegment[] {
       }
     }
 
-    // Try to parse the opportunity JSON
+    const blockType = match[1];
     try {
-      const jsonStr = match[1].trim();
-      const data = JSON.parse(jsonStr) as OpportunityCardData;
-      // Ensure required fields exist
-      if (data.opportunityId && data.userId) {
-        segments.push({ type: "opportunity", data });
+      const jsonStr = match[2].trim();
+      const data = JSON.parse(jsonStr);
+
+      if (blockType === "opportunity" && data.opportunityId && data.userId) {
+        segments.push({ type: "opportunity", data: data as OpportunityCardData });
+      } else if (
+        blockType === "intent_proposal" &&
+        data.proposalId &&
+        (typeof data.description === "string" || !("description" in data))
+      ) {
+        segments.push({ type: "intent_proposal", data: data as IntentProposalData });
       } else {
-        // Invalid opportunity data, treat as text
         segments.push({ type: "text", content: match[0] });
       }
     } catch {
-      // Invalid JSON, treat as regular code block
       segments.push({ type: "text", content: match[0] });
     }
 
     lastIndex = match.index + match[0].length;
   }
 
-  // Check for partial block at the end (start of block found but no closing triple backticks)
   const remainingContent = content.slice(lastIndex);
-  const partialStartMatch = remainingContent.match(/```opportunity/);
+  const partialOpp = remainingContent.match(/```opportunity/);
+  const partialIntent = remainingContent.match(/```intent_proposal/);
 
-  if (partialStartMatch) {
-    const partialIndex = partialStartMatch.index!;
+  let partialMatch: RegExpMatchArray | null = null;
+  if (partialOpp && partialIntent) {
+    partialMatch = partialOpp.index! <= partialIntent.index! ? partialOpp : partialIntent;
+  } else {
+    partialMatch = partialOpp ?? partialIntent;
+  }
+
+  if (partialMatch) {
+    const partialIndex = partialMatch.index!;
     const textBefore = remainingContent.slice(0, partialIndex);
     if (textBefore.trim()) {
       segments.push({ type: "text", content: textBefore });
     }
-    segments.push({ type: "opportunity_loading" });
+    const isOpp = partialMatch === partialOpp;
+    segments.push(isOpp
+      ? { type: "opportunity_loading" as const }
+      : { type: "intent_proposal_loading" as const }
+    );
   } else if (lastIndex < content.length) {
     const remaining = content.slice(lastIndex);
     if (remaining.trim()) {
@@ -136,12 +159,29 @@ function parseOpportunityBlocks(content: string): MessageSegment[] {
     }
   }
 
-  // If no segments found, return the whole content as text
   if (segments.length === 0 && content.trim()) {
     segments.push({ type: "text", content });
   }
 
   return segments;
+}
+
+function dedupeSegments(segments: MessageSegment[]): MessageSegment[] {
+  const seenOpps = new Set<string>();
+  const seenProposals = new Set<string>();
+  return segments.filter((seg) => {
+    if (seg.type === "opportunity") {
+      if (seenOpps.has(seg.data.opportunityId)) return false;
+      seenOpps.add(seg.data.opportunityId);
+      return true;
+    }
+    if (seg.type === "intent_proposal") {
+      if (seenProposals.has(seg.data.proposalId)) return false;
+      seenProposals.add(seg.data.proposalId);
+      return true;
+    }
+    return true;
+  });
 }
 
 function AssistantMessageContent({
@@ -151,6 +191,9 @@ function AssistantMessageContent({
   onOpportunitySecondaryAction,
   opportunityLoadingMap,
   currentStatusMap,
+  onIntentProposalApprove,
+  onIntentProposalReject,
+  intentProposalStatusMap,
 }: {
   content: string;
   isStreaming: boolean;
@@ -169,6 +212,9 @@ function AssistantMessageContent({
   opportunityLoadingMap?: Record<string, boolean>;
   /** Map of opportunityId -> current status from server */
   currentStatusMap?: Record<string, string>;
+  onIntentProposalApprove?: (proposalId: string, description: string, indexId?: string) => void;
+  onIntentProposalReject?: (proposalId: string) => void;
+  intentProposalStatusMap?: Record<string, "pending" | "created" | "rejected">;
 }) {
   const { text: displayedContent, isAnimating } = useTypewriter(
     normalizeBlockquotes(mentionsToMarkdownLinks(content)),
@@ -185,8 +231,8 @@ function AssistantMessageContent({
     return <span className="inline-block w-2 h-4 bg-current animate-pulse" />;
   }
 
-  // Parse opportunity blocks from the displayed content
-  const segments = parseOpportunityBlocks(displayedContent);
+  // Parse opportunity and intent_proposal blocks from the displayed content; dedupe
+  const segments = dedupeSegments(parseAllBlocks(displayedContent));
 
   return (
     <div>
@@ -195,7 +241,7 @@ function AssistantMessageContent({
           const isLast = idx === segments.length - 1;
           return (
             <div
-              key={idx}
+              key={`text-${idx}`}
               className={cn(
                 "chat-markdown max-w-none",
                 isStreaming && "chat-markdown-streaming",
@@ -209,9 +255,11 @@ function AssistantMessageContent({
           );
         } else if (segment.type === "opportunity") {
           return (
-            <div key={idx} className="my-3">
+            <div
+              key={segment.data.opportunityId}
+              className="my-3"
+            >
               <OpportunityCard
-
                 card={segment.data}
                 onPrimaryAction={onOpportunityPrimaryAction}
                 onSecondaryAction={onOpportunitySecondaryAction}
@@ -222,11 +270,28 @@ function AssistantMessageContent({
               />
             </div>
           );
-        } else {
-          // opportunity_loading
+        } else if (segment.type === "opportunity_loading") {
           return (
-            <div key={idx} className="my-3">
+            <div key={`loading-${idx}`} className="my-3">
               <OpportunitySkeleton />
+            </div>
+          );
+        } else if (segment.type === "intent_proposal") {
+          return (
+            <div key={segment.data.proposalId} className="my-3">
+              <IntentProposalCard
+                card={segment.data}
+                onApprove={onIntentProposalApprove}
+                onReject={onIntentProposalReject}
+                currentStatus={intentProposalStatusMap?.[segment.data.proposalId]}
+              />
+            </div>
+          );
+        } else {
+          // intent_proposal_loading
+          return (
+            <div key={`intent-loading-${idx}`} className="my-3">
+              <IntentProposalSkeleton />
             </div>
           );
         }
@@ -250,6 +315,7 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
     setScopeIndexId,
     sessionIndexId,
     updateSessionTitle,
+    debugMetaByTurn,
   } = useAIChat();
   const uploadServiceV2 = useUploadServiceV2();
   const { error: showError, success: showSuccess } = useNotifications();
@@ -266,6 +332,57 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
   const navigatingToHomeRef = useRef(false);
   const sessionIdRef = useRef(sessionId);
   const [isIndexDropdownOpen, setIsIndexDropdownOpen] = useState(false);
+  const [isInputMultiline, setIsInputMultiline] = useState(false);
+  const [isTextareaMultiline, setIsTextareaMultiline] = useState(false);
+  const [shareCopied, setShareCopied] = useState(false);
+  const [debugCopied, setDebugCopied] = useState(false);
+
+  const handleShare = useCallback(async () => {
+    if (!sessionId) return;
+    try {
+      const { shareToken } = await apiClient.post<{ shareToken: string }>("/chat/session/share", { sessionId });
+      const shareUrl = `${window.location.origin}/s/${shareToken}`;
+      await navigator.clipboard.writeText(shareUrl);
+      setShareCopied(true);
+      setTimeout(() => setShareCopied(false), 2000);
+    } catch {
+      showError("Failed to create share link");
+    }
+  }, [sessionId, showError]);
+
+  const handleCopyDebug = useCallback(async () => {
+    const exportedAt = new Date().toISOString();
+    const exportMessages = messages.map((m) => ({
+      role: m.role,
+      content: m.content,
+    }));
+    const assistantIndices = messages
+      .map((msg, i) => (msg.role === "assistant" ? i : -1))
+      .filter((i) => i >= 0);
+    const turns = assistantIndices.map((msgIdx, idx) => {
+      const meta = debugMetaByTurn[idx] ?? null;
+      return {
+        messageIndex: msgIdx,
+        graph: meta?.graph ?? null,
+        iterations: meta?.iterations ?? null,
+        tools: meta?.tools ?? null,
+      };
+    });
+    const payload = {
+      sessionId: sessionId ?? null,
+      exportedAt,
+      messages: exportMessages,
+      turns,
+    };
+    const json = JSON.stringify(payload, null, 2);
+    try {
+      await navigator.clipboard.writeText(json);
+      setDebugCopied(true);
+      setTimeout(() => setDebugCopied(false), 2000);
+    } catch {
+      showError("Failed to copy debug to clipboard");
+    }
+  }, [messages, debugMetaByTurn, sessionId, showError]);
 
   // Keep ref in sync with sessionId
   useEffect(() => {
@@ -284,7 +401,7 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
     const ids = new Set<string>();
     for (const msg of messages) {
       if (msg.role === "assistant" && msg.content) {
-        const segments = parseOpportunityBlocks(msg.content);
+        const segments = parseAllBlocks(msg.content);
         for (const seg of segments) {
           if (seg.type === "opportunity" && seg.data.opportunityId) {
             ids.add(seg.data.opportunityId);
@@ -327,9 +444,55 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
     meta: { totalOpportunities: number; totalSections: number };
   } | null>(null);
   const [homeViewLoading, setHomeViewLoading] = useState(false);
-  const [homeViewError, setHomeViewError] = useState<string | null>(null);
+  const [, setHomeViewError] = useState<string | null>(null);
   const [opportunityActionLoading, setOpportunityActionLoading] =
     useState<Record<string, boolean>>({});
+
+  // Intent proposal status tracking
+  const [intentProposalStatusMap, setIntentProposalStatusMap] = useState<
+    Record<string, "pending" | "created" | "rejected">
+  >({});
+
+  // Stable list of proposal IDs from assistant messages
+  const proposalIdsArray = useMemo(() => {
+    const ids = new Set<string>();
+    for (const msg of messages) {
+      if (msg.role === "assistant" && msg.content) {
+        const segments = parseAllBlocks(msg.content);
+        for (const seg of segments) {
+          if (seg.type === "intent_proposal" && seg.data.proposalId) {
+            ids.add(seg.data.proposalId);
+          }
+        }
+      }
+    }
+    return [...ids].sort();
+  }, [messages]);
+
+  const proposalIdsKey = proposalIdsArray.join(",");
+
+  // Fetch confirmed proposal statuses from server on chat load
+  useEffect(() => {
+    const ids = proposalIdsKey ? proposalIdsKey.split(",") : [];
+    if (ids.length === 0) return;
+
+    const fetchStatuses = async () => {
+      try {
+        const res = await apiClient.post<{ statuses: Record<string, "created"> }>(
+          "/intents/proposals/status",
+          { proposalIds: ids },
+        );
+        if (res.statuses && Object.keys(res.statuses).length > 0) {
+          setIntentProposalStatusMap((prev) => ({ ...prev, ...res.statuses }));
+        }
+      } catch {
+        // Non-critical — cards will default to pending
+      }
+    };
+
+    const timeoutId = setTimeout(fetchStatuses, 200);
+    return () => clearTimeout(timeoutId);
+  }, [proposalIdsKey]);
 
   // Index filter
   const { selectedIndexIds, setSelectedIndexIds } = useIndexFilter();
@@ -370,7 +533,7 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
     setHomeViewLoading(true);
     setHomeViewError(null);
     opportunitiesService
-      .getHomeView({ indexId: selectedIndexId ?? undefined, limit: 50 })
+      .getHomeView({ indexId: selectedIndexId ?? undefined, limit: 5 })
       .then((res) => {
         setHomeViewData(res);
         setHomeViewLoading(false);
@@ -380,7 +543,7 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
         setHomeViewData(null);
         setHomeViewLoading(false);
       });
-  }, [USE_HOME_API, messages.length, selectedIndexId, opportunitiesService]);
+  }, [messages.length, selectedIndexId, opportunitiesService]);
 
   const handleSuggestionClick = useCallback(
     (suggestion: {
@@ -465,19 +628,14 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
           [opportunityId]: effectiveStatus,
         }));
 
-        // Only redirect to chat for non-introducer accepts (introducers don't get a chat)
         const counterpartUserId =
-          result.chat?.counterpartUserId ?? fallbackUserId;
+          result.counterpartUserId ?? fallbackUserId;
         if (action === "accepted" && !isIntroducer && counterpartUserId) {
-          const channelId = result.chat?.channelId;
-          const query = channelId
-            ? `?channelId=${encodeURIComponent(channelId)}`
-            : "";
-          router.push(`/u/${counterpartUserId}/chat${query}`);
+          router.push(`/u/${counterpartUserId}/chat`);
         } else if (action === "accepted" && isIntroducer) {
           showSuccess(
-            "Opportunity sent",
-            `Sent to ${counterpartName || "them"}. They can accept to start the conversation.`,
+            "Introduction sent",
+            `${counterpartName || "They"} will be notified and can accept to start the conversation.`,
           );
         }
         setHomeViewData((prev) => {
@@ -510,7 +668,53 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
     [opportunitiesService, router, showError, showSuccess],
   );
 
+  const handleIntentProposalApprove = useCallback(
+    async (proposalId: string, description: string, indexId?: string) => {
+      try {
+        await apiClient.post("/intents/confirm", { proposalId, description, indexId });
+        setIntentProposalStatusMap((prev) => ({ ...prev, [proposalId]: "created" }));
+      } catch (err) {
+        throw err; // Card's inline error UI handles display
+      }
+    },
+    [],
+  );
+
+  const handleIntentProposalReject = useCallback(
+    async (proposalId: string) => {
+      try {
+        await apiClient.post("/intents/reject", { proposalId });
+        setIntentProposalStatusMap((prev) => ({ ...prev, [proposalId]: "rejected" }));
+      } catch (err) {
+        throw err; // Card's inline error UI handles display
+      }
+    },
+    [],
+  );
+
   const canSend = input.trim() || selectedFiles.length > 0;
+
+  useEffect(() => {
+    const el = inputRef.current;
+    if (!input) {
+      setIsInputMultiline(false);
+      setIsTextareaMultiline(false);
+      return;
+    }
+    if (!el) return;
+    // Detect actual line wrapping: single line = paddingTop(6) + lineHeight(20) + paddingBottom(6) = 32px
+    setIsTextareaMultiline(el.scrollHeight > 34);
+    // Network selector compression: only triggers at 75% width, never reverts mid-typing
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.font = window.getComputedStyle(el).font;
+    const textWidth = ctx.measureText(input).width;
+    const availableWidth = el.clientWidth;
+    if (availableWidth > 0 && textWidth / availableWidth > 0.75) {
+      setIsInputMultiline(true);
+    }
+  }, [input]);
   const isBusy = isLoading || isUploadingFiles;
 
   const handleFileSelect = useCallback(
@@ -615,7 +819,7 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
           <div className="mt-12 mb-6 flex justify-center">
             <div className="h-8 w-48 bg-gray-100 rounded-sm" />
           </div>
-          <div className="h-14 bg-gray-100 rounded-[32px] mb-6" />
+          <div className="h-14 bg-gray-100 rounded-4xl mb-6" />
           <div className="mt-12 space-y-3">
             <div className="flex items-center gap-2 mb-3">
               <div className="w-3.5 h-3.5 bg-gray-100 rounded-sm" />
@@ -639,7 +843,7 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
             {selectedFiles.map(({ id, file }) => (
               <span
                 key={id}
-                className="inline-flex items-center gap-1.5 px-2 py-1 rounded bg-gray-100 text-gray-800 text-sm font-ibm-plex-mono max-w-[200px]"
+                className="inline-flex items-center gap-1.5 px-2 py-1 rounded bg-gray-100 text-gray-800 text-sm font-ibm-plex-mono max-w-50"
               >
                 <span className="truncate" title={file.name}>
                   {file.name}
@@ -658,7 +862,7 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
         )}
         <form
           onSubmit={handleSubmit}
-          className="flex items-end gap-3 bg-[#F8F8F8] border border-[#E9E9E9] rounded-[32px] px-4 py-3"
+          className={cn("flex gap-3 bg-[#FCFCFC] border border-[#E9E9E9] rounded-4xl px-4 py-3", isTextareaMultiline ? "items-end" : "items-center")}
         >
           <input
             ref={fileInputRef}
@@ -704,7 +908,7 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
           </Button>
         </form>
       </div>
-      <div className="pb-3 bg-white" />
+      <div className="py-2"></div>
     </>
   );
 
@@ -719,7 +923,7 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
         (homeViewData && homeViewData.sections.length > 0)
       ) {
         return (
-          <div className="px-6 lg:px-8 min-h-full">
+          <div className="px-6 lg:px-8 pb-12">
             <ContentContainer className="text-left">
               <div className="mt-12 mb-6">
                 <h1 className="text-[28px] font-bold text-black font-ibm-plex-mono text-center">
@@ -729,7 +933,7 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
               <div className="bg-[linear-gradient(to_bottom,transparent_50%,#ffffff_50%)]">
                 <form
                   onSubmit={handleSubmit}
-                  className="flex items-end gap-3 bg-[#F8F8F8] border border-[#E9E9E9] rounded-[32px] px-4 py-3 mb-6"
+                  className={cn("flex gap-3 bg-[#FCFCFC] border border-[#E9E9E9] rounded-4xl px-4 py-3 mb-6", isTextareaMultiline ? "items-end" : "items-center")}
                 >
                   <input
                     ref={fileInputRef}
@@ -759,28 +963,31 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
                     inputRef={inputRef}
                   />
                   {indexes.length > 0 && (
-                    <div className="relative flex-shrink-0">
+                    <div className="relative shrink-0">
                       <button
                         type="button"
                         onClick={() =>
                           setIsIndexDropdownOpen(!isIndexDropdownOpen)
                         }
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium text-black transition-colors hover:bg-gray-100"
+                        className={cn(
+                          "inline-flex items-center gap-1.5 py-1.5 rounded-full text-sm font-medium text-black transition-all hover:bg-gray-100",
+                          isInputMultiline ? "px-1.5" : "px-3",
+                        )}
                       >
                         {selectedIndexIds.includes("my-network") ||
                         selectedIndex?.permissions?.joinPolicy ===
                           "invite_only" ? (
                           <Lock className="w-4 h-4" />
-                        ) : selectedIndex ? (
-                          <Globe className="w-4 h-4" />
                         ) : (
                           <Globe className="w-4 h-4" />
                         )}
-                        <span>
-                          {selectedIndexIds.includes("my-network")
-                            ? "My network"
-                            : selectedIndex?.title || "Everywhere"}
-                        </span>
+                        {!isInputMultiline && (
+                          <span>
+                            {selectedIndexIds.includes("my-network")
+                              ? "My network"
+                              : selectedIndex?.title || "Everywhere"}
+                          </span>
+                        )}
                         <ChevronDown
                           className={cn(
                             "w-4 h-4 transition-transform",
@@ -794,7 +1001,7 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
                             className="fixed inset-0 z-10"
                             onClick={() => setIsIndexDropdownOpen(false)}
                           />
-                          <div className="absolute right-0 top-full mt-2 z-20 bg-white border border-gray-200 rounded-lg shadow-lg py-1 min-w-[160px]">
+                          <div className="absolute right-0 top-full mt-2 z-20 bg-white border border-gray-200 rounded-lg shadow-lg py-1 min-w-40">
                             <button
                               type="button"
                               onClick={() => {
@@ -851,9 +1058,9 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
                                 >
                                   {index.permissions?.joinPolicy ===
                                   "invite_only" ? (
-                                    <Lock className="w-4 h-4 flex-shrink-0" />
+                                    <Lock className="w-4 h-4 shrink-0" />
                                   ) : (
-                                    <Globe className="w-4 h-4 flex-shrink-0" />
+                                    <Globe className="w-4 h-4 shrink-0" />
                                   )}
                                   <span className="truncate">
                                     {index.title}
@@ -879,7 +1086,6 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
                   </Button>
                 </form>
               </div>
-              <div className="pb-3 bg-white" />
               {homeViewLoading ? (
                 <div className="animate-pulse">
                   {[1, 2].map((s) => (
@@ -962,7 +1168,7 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
 
     // Empty state — no opportunities to show
     return (
-      <div className="px-6 lg:px-8 bg-white min-h-full">
+      <div className="px-6 lg:px-8 bg-white pb-12">
         <ContentContainer className="text-left">
           <div className="mt-12 mb-6">
             <h1 className="text-[28px] font-bold text-black font-ibm-plex-mono text-center">
@@ -972,7 +1178,7 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
           <div className="bg-[linear-gradient(to_bottom,transparent_50%,#ffffff_50%)]">
             <form
               onSubmit={handleSubmit}
-              className="flex items-end gap-3 bg-[#F8F8F8] border border-[#E9E9E9] rounded-[32px] px-4 py-3"
+              className={cn("flex gap-3 bg-[#FCFCFC] border border-[#E9E9E9] rounded-4xl px-4 py-3", isTextareaMultiline ? "items-end" : "items-center")}
             >
               <input
                 ref={fileInputRef}
@@ -1002,11 +1208,14 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
                 inputRef={inputRef}
               />
               {indexes.length > 0 && (
-                <div className="relative flex-shrink-0">
+                <div className="relative shrink-0">
                   <button
                     type="button"
                     onClick={() => setIsIndexDropdownOpen(!isIndexDropdownOpen)}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium text-black transition-colors hover:bg-gray-100"
+                    className={cn(
+                      "inline-flex items-center gap-1.5 py-1.5 rounded-full text-sm font-medium text-black transition-all hover:bg-gray-100",
+                      isInputMultiline ? "px-1.5" : "px-3",
+                    )}
                   >
                     {selectedIndexIds.includes("my-network") ||
                     selectedIndex?.permissions?.joinPolicy === "invite_only" ? (
@@ -1014,11 +1223,13 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
                     ) : (
                       <Globe className="w-4 h-4" />
                     )}
-                    <span>
-                      {selectedIndexIds.includes("my-network")
-                        ? "My network"
-                        : selectedIndex?.title || "Everywhere"}
-                    </span>
+                    {!isInputMultiline && (
+                      <span>
+                        {selectedIndexIds.includes("my-network")
+                          ? "My network"
+                          : selectedIndex?.title || "Everywhere"}
+                      </span>
+                    )}
                     <ChevronDown
                       className={cn(
                         "w-4 h-4 transition-transform",
@@ -1032,7 +1243,7 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
                         className="fixed inset-0 z-10"
                         onClick={() => setIsIndexDropdownOpen(false)}
                       />
-                      <div className="absolute right-0 top-full mt-2 z-20 bg-white border border-gray-200 rounded-lg shadow-lg py-1 min-w-[160px]">
+                      <div className="absolute right-0 top-full mt-2 z-20 bg-white border border-gray-200 rounded-lg shadow-lg py-1 min-w-40">
                         <button
                           type="button"
                           onClick={() => {
@@ -1089,9 +1300,9 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
                             >
                               {index.permissions?.joinPolicy ===
                               "invite_only" ? (
-                                <Lock className="w-4 h-4 flex-shrink-0" />
+                                <Lock className="w-4 h-4 shrink-0" />
                               ) : (
-                                <Globe className="w-4 h-4 flex-shrink-0" />
+                                <Globe className="w-4 h-4 shrink-0" />
                               )}
                               <span className="truncate">{index.title}</span>
                             </button>
@@ -1115,13 +1326,13 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
               </Button>
             </form>
           </div>
-          <div className="pb-3 bg-white" />
-          {selectedFiles.length > 0 && (
+          <div className="py-2"></div>
+              {selectedFiles.length > 0 && (
             <div className="flex flex-wrap gap-2 mt-3">
               {selectedFiles.map(({ id, file }) => (
                 <span
                   key={id}
-                  className="inline-flex items-center gap-1.5 px-2 py-1 rounded bg-gray-100 text-gray-800 text-sm font-ibm-plex-mono max-w-[200px]"
+                  className="inline-flex items-center gap-1.5 px-2 py-1 rounded bg-gray-100 text-gray-800 text-sm font-ibm-plex-mono max-w-50"
                 >
                   <span className="truncate" title={file.name}>
                     {file.name}
@@ -1144,7 +1355,7 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
               loop
               muted
               playsInline
-              className="mb-8 w-[340px] h-[300px] object-contain"
+              className="mb-8 w-85 h-75 object-contain"
             />
             <h2 className="text-lg font-bold text-gray-900 font-ibm-plex-mono mb-3">
               It&apos;s quiet here, but your signal is in motion
@@ -1166,8 +1377,8 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
 
   return (
     <>
-      {/* Sticky header - full width, min-h-[68px] matches ChatView header height */}
-      <div className="sticky top-0 bg-white z-10 px-4 py-3 flex items-center gap-3 min-h-[68px]">
+      {/* Sticky header - full width, min-h-17 matches ChatView header height */}
+      <div className="sticky top-0 bg-white z-10 px-4 py-3 flex items-center gap-3 min-h-17">
         <button
           type="button"
           onClick={() => {
@@ -1209,15 +1420,43 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
               {displayTitle}
             </button>
             {sessionId && (
-              <button
-                type="button"
-                onClick={startEditingTitle}
-                title="Rename conversation"
-                className="shrink-0 p-1 rounded text-gray-500 hover:text-[#4091BB] hover:bg-gray-100 focus:outline-none"
-                aria-label="Rename conversation"
-              >
-                <Pencil className="h-4 w-4" />
-              </button>
+              <>
+                <button
+                  type="button"
+                  onClick={startEditingTitle}
+                  title="Rename conversation"
+                  className="shrink-0 p-1 rounded text-gray-500 hover:text-[#4091BB] hover:bg-gray-100 focus:outline-none"
+                  aria-label="Rename conversation"
+                >
+                  <Pencil className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={handleShare}
+                  title={shareCopied ? "Link copied!" : "Share conversation"}
+                  className="shrink-0 p-1 rounded text-gray-500 hover:text-[#4091BB] hover:bg-gray-100 focus:outline-none"
+                  aria-label="Share conversation"
+                >
+                  {shareCopied ? (
+                    <Check className="h-4 w-4 text-green-500" />
+                  ) : (
+                    <Share2 className="h-4 w-4" />
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCopyDebug}
+                  title={debugCopied ? "Copied!" : "Copy debug (conversation + meta)"}
+                  className="shrink-0 p-1 rounded text-gray-500 hover:text-[#4091BB] hover:bg-gray-100 focus:outline-none"
+                  aria-label="Copy debug"
+                >
+                  {debugCopied ? (
+                    <Check className="h-4 w-4 text-green-500" />
+                  ) : (
+                    <Bug className="h-4 w-4" />
+                  )}
+                </button>
+              </>
             )}
             {boundIndex && (
               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600 ml-2">
@@ -1226,7 +1465,7 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
                 ) : (
                   <Globe className="w-3 h-3" />
                 )}
-                <span className="truncate max-w-[120px]">
+                <span className="truncate max-w-30">
                   {boundIndex.title}
                 </span>
               </span>
@@ -1251,7 +1490,7 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
                     className={cn(
                       msg.role === "user" ? "max-w-[75%]" : "max-w-[90%]",
                       msg.role === "user"
-                        ? "bg-[#FAFAFA] text-gray-900 border border-[#E8E8E8] rounded-[32px] px-4 py-1 text-sm leading-relaxed"
+                        ? "bg-[#FAFAFA] text-gray-900 border border-[#E8E8E8] rounded-4xl px-4 py-1 text-sm leading-relaxed"
                         : "text-gray-900",
                     )}
                   >
@@ -1302,6 +1541,9 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
                             }
                             opportunityLoadingMap={opportunityActionLoading}
                             currentStatusMap={opportunityStatusMap}
+                            onIntentProposalApprove={handleIntentProposalApprove}
+                            onIntentProposalReject={handleIntentProposalReject}
+                            intentProposalStatusMap={intentProposalStatusMap}
                           />
                         </>
                       ) : (

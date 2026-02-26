@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useEffect, useState, useCallback, ReactNode } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
-import { authClient } from '@/lib/auth-client';
+import { authClient, clearJwtToken } from '@/lib/auth-client';
 import { useAuthenticatedAPI } from '../lib/api';
 import { useAuthService } from '../services/auth';
 import { User, APIResponse } from '../lib/types';
@@ -18,6 +18,7 @@ type AuthContextType = {
   refetchUser: () => Promise<void>;
   updateUser: (user: User) => void;
   openLoginModal: () => void;
+  signOut: () => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -46,6 +47,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const openLoginModal = useCallback(() => {
     setLoginModalOpen(true);
   }, []);
+
+  const signOut = useCallback(async () => {
+    clearJwtToken();
+    await authClient.signOut();
+    router.push('/');
+  }, [router]);
 
   const fetchUser = useCallback(async () => {
     if (!authenticated || !ready) return;
@@ -105,7 +112,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (authenticated && !user && !userFetchAttempted) return;
 
     const isHomePage = pathname === '/';
-    const isPublicPage = pathname.startsWith('/simulation') || pathname.startsWith('/l') || pathname.startsWith('/index/') || pathname.startsWith('/blog') || pathname.startsWith('/pages') || pathname.startsWith('/about') || pathname.startsWith('/login');
+    const isPublicPage = pathname.startsWith('/simulation') || pathname.startsWith('/l') || pathname.startsWith('/index/') || pathname.startsWith('/blog') || pathname.startsWith('/pages') || pathname.startsWith('/about') || pathname.startsWith('/login') || pathname.startsWith('/s/');
     const isProtectedPage = pathname.startsWith('/i/');
 
     const shouldRedirectToHome = !authenticated && (isProtectedPage || (!isHomePage && !isPublicPage));
@@ -130,6 +137,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         refetchUser: fetchUser,
         updateUser,
         openLoginModal,
+        signOut,
       }}
     >
       {isLoading ? (

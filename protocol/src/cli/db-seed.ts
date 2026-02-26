@@ -1,18 +1,21 @@
 #!/usr/bin/env node
 import dotenv from 'dotenv';
 import path from 'path';
+import { eq } from 'drizzle-orm';
 
 const envFile = `.env.development`;
 dotenv.config({ path: path.resolve(process.cwd(), envFile) });
 
-import { eq } from 'drizzle-orm';
 import db, { closeDb } from '../lib/drizzle/drizzle';
 import { indexMembers, indexes, userProfiles, users } from '../schemas/database.schema';
 import { setLevel } from '../lib/log';
 import { intentService } from '../services/intent.service';
-import { TESTABLE_TEST_ACCOUNTS, TESTER_PERSONAS, TESTER_PERSONAS_MAX } from './test-data';
-import type { SeedProfile, TesterPersona } from './test-data';
+import { profileService } from '../services/profile.service';
+import { profileQueue } from '../queues/profile.queue';
 import type { Id } from '../types/common.types';
+
+import { TESTER_PERSONAS, TESTER_PERSONAS_MAX } from './test-data';
+import type { SeedProfile } from './test-data';
 
 /** Minimal account shape for user creation (real or synthetic). */
 interface SeedAccount {
@@ -238,9 +241,13 @@ async function seedDatabase(): Promise<{ ok: boolean; error?: string }> {
   try {
     if (!silent) console.log('Seeding indexes and users...');
     if (!silent && DB_SEED_TESTER_PERSONAS.length > 0) console.log(`  Personas to seed: ${personasToSeed.length} (--personas=${personasLimit}, max ${TESTER_PERSONAS_MAX})`);
+    if (!silent) console.log('Creating indexes...');
 
     // Create all indexes
-    for (const idx of SEED_INDEXES) {
+    let _indexesCreated = 0;
+    let _indexesExisted = 0;
+    for (let i = 0; i < SEED_INDEXES.length; i++) {
+      const idx = SEED_INDEXES[i];
       try {
         await db.insert(indexes).values({
           id: idx.id,
@@ -253,25 +260,18 @@ async function seedDatabase(): Promise<{ ok: boolean; error?: string }> {
             allowGuestVibeCheck: false,
           },
         });
-      } catch {
-        /* already exists */
+        _indexesCreated++;
+        if (!silent) console.log(`  Index ${i + 1}/${SEED_INDEXES.length}: ${idx.title} — created`);
+      } catch (err) {
+        _indexesExisted++;
+        if (!silent) console.log(`  Index ${i + 1}/${SEED_INDEXES.length}: ${idx.title} — already exists`);
       }
     }
 
     if (!silent) console.log(`  ${SEED_INDEXES.length} indexes ready`);
 
-    // Real test accounts (first is owner of all indexes)
-    const realAccounts: SeedAccount[] = TESTABLE_TEST_ACCOUNTS.map((acc) => ({
-      email: acc.email,
-      name: acc.name,
-      linkedin: acc.linkedin ?? null,
-      github: acc.github ?? null,
-      x: acc.x ?? null,
-      website: acc.website ?? null,
-    }));
-    const realUsers = await ensureUsersAndMemberships(realAccounts, { ownerIndex: 0 });
-
-    // Synthetic tester personas (all members); count controlled by --personas
+    if (!silent) console.log(`Creating synthetic persona users (1..${personasToSeed.length})...`);
+    // Synthetic tester personas (first is owner of all indexes); count controlled by --personas
     const personaAccounts: SeedAccount[] = personasToSeed.map((p) => ({
       email: p.email,
       name: p.name,
@@ -280,25 +280,49 @@ async function seedDatabase(): Promise<{ ok: boolean; error?: string }> {
       x: p.x ?? null,
       website: p.website ?? null,
     }));
-    const personaUsers = await ensureUsersAndMemberships(personaAccounts);
+    const personaUsers = await ensureUsersAndMemberships(personaAccounts, { ownerIndex: 0 });
+    if (!silent) console.log(`  Persona users: ${personaUsers.length} ready`);
 
+    if (!silent) console.log('Upserting tester profiles...');
     // Upsert profiles for synthetic testers (required for intent graph write mode)
     let profilesUpserted = 0;
     for (let i = 0; i < personaUsers.length && i < personasToSeed.length; i++) {
       await upsertUserProfile(personaUsers[i].id, personasToSeed[i].profile);
       profilesUpserted++;
+      if (!silent) console.log(`  Profile ${i + 1}/${personaUsers.length}: ${personasToSeed[i].name}`);
     }
+    if (!silent) console.log(`  Profiles upserted: ${profilesUpserted}`);
 
-    // Create intents for synthetic testers via intent graph (enqueues HyDE + opportunity discovery)
+    if (!silent) console.log('Enqueueing profile HyDE jobs for index members...');
+    let successfulEnqueues = 0;
+    for (const user of personaUsers) {
+      try {
+        await profileQueue.addEnsureProfileHydeJob({ userId: user.id });
+        successfulEnqueues++;
+      } catch (err) {
+        if (!silent) console.warn(`  Failed to enqueue ensure_profile_hyde for ${user.id}:`, err);
+      }
+    }
+    if (!silent) console.log(`  Enqueued ${successfulEnqueues} profile HyDE job(s). Run workers (e.g. bun run dev) to process them.`);
+
+    if (!silent) console.log('Embedding profiles (and generating HyDE)...');
+    for (let i = 0; i < personaUsers.length && i < personasToSeed.length; i++) {
+      if (!silent) console.log(`  Embedding ${i + 1}/${personaUsers.length}: ${personasToSeed[i].name}`);
+    }
+    const { embedded, embedFailures } = await profileService.embedTesterProfiles(personaUsers, personasToSeed);
+    if (!silent) console.log(`  Profiles embedded: ${embedded}${embedFailures > 0 ? ` (${embedFailures} failed)` : ''}`);
+
+    // Create intents with embedding + HyDE inline (no intent graph, no opportunity discovery)
+    if (!silent) console.log('Creating intents (embed + HyDE, no opportunity matching)...');
     let intentsProcessed = 0;
     let intentFailures = 0;
     for (let i = 0; i < personaUsers.length && i < personasToSeed.length; i++) {
       const userId = personaUsers[i].id;
       const persona = personasToSeed[i];
-      const userProfileJson = JSON.stringify(persona.profile);
+      if (!silent) console.log(`  Persona ${i + 1}/${personaUsers.length}: ${persona.name} — intents 1..${persona.intents.length}`);
       for (const intentText of persona.intents) {
         try {
-          await intentService.processIntent(userId, userProfileJson, intentText);
+          await intentService.createIntentForSeed(userId, intentText);
           intentsProcessed++;
         } catch (err) {
           intentFailures++;
@@ -310,20 +334,16 @@ async function seedDatabase(): Promise<{ ok: boolean; error?: string }> {
     }
 
     if (!silent) {
-      console.log(`  ${realUsers.length} real users ready`);
       console.log(`  ${personaUsers.length} synthetic tester users ready`);
       console.log(`  ${profilesUpserted} tester profiles upserted`);
-      console.log(`  ${intentsProcessed} intents processed via graph${intentFailures > 0 ? ` (${intentFailures} failed)` : ''}`);
-      console.log('\nLogin credentials (real accounts):');
-      TESTABLE_TEST_ACCOUNTS.forEach(
-        (acc) => console.log(`  ${acc.name}: ${acc.email} | ${acc.phoneNumber} | OTP: ${acc.otpCode}`)
-      );
+      console.log(`  ${embedded} profiles embedded (profile + HyDE)${embedFailures > 0 ? ` (${embedFailures} failed)` : ''}`);
+      console.log(`  ${intentsProcessed} intents created (embed + HyDE, no opportunities)${intentFailures > 0 ? ` (${intentFailures} failed)` : ''}`);
       console.log('\nIndexes:');
       for (const idx of SEED_INDEXES) {
         const label = idx.prompt ? `prompt: "${idx.prompt}"` : 'no prompt (auto-assign)';
         console.log(`  ${idx.title} [${idx.joinPolicy}] -- ${label}`);
       }
-      console.log('\nNote: Queue workers (e.g. via `bun run dev`) must be running for intent HyDE and opportunity-discovery jobs to run after seed.');
+      console.log('\nNote: Seed does not run opportunity discovery (no matching between test users).');
     }
 
     return { ok: true };

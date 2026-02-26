@@ -2,7 +2,7 @@ export function getCorsHeaders(req: Request): Record<string, string> {
   const headers: Record<string, string> = {
     'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Requested-With, Accept',
-    'Access-Control-Expose-Headers': 'X-Session-Id',
+    'Access-Control-Expose-Headers': 'X-Session-Id, set-auth-jwt',
     'Access-Control-Max-Age': '86400',
   };
 
@@ -15,8 +15,20 @@ export function getCorsHeaders(req: Request): Record<string, string> {
   return headers;
 }
 
-/** Reflective trusted origins for Better Auth: trusts request's Origin when present */
+/** Trusted origins for Better Auth from TRUSTED_ORIGINS env var plus request Origin. */
 export async function getTrustedOrigins(request?: Request): Promise<string[]> {
-  const origin = request?.headers?.get?.('Origin');
-  return origin ? [origin] : [];
+  const origins = new Set<string>();
+
+  const envOrigins = process.env.TRUSTED_ORIGINS;
+  if (envOrigins) {
+    for (const o of envOrigins.split(',')) {
+      const trimmed = o.trim();
+      if (trimmed) origins.add(trimmed);
+    }
+  }
+
+  const reqOrigin = request?.headers?.get?.('Origin');
+  if (reqOrigin) origins.add(reqOrigin);
+
+  return [...origins];
 }

@@ -2,9 +2,14 @@ import { BaseMessage, HumanMessage } from "@langchain/core/messages";
 import { MemorySaver } from "@langchain/langgraph";
 import { PostgresSaver } from "@langchain/langgraph-checkpoint-postgres";
 import { protocolLogger } from "../support/protocol.logger";
-import type { ChatStreamEvent } from "../../../types/chat-streaming.types";
+import type {
+  ChatStreamEvent,
+  DebugMetaToolCall,
+} from "../../../types/chat-streaming.types";
 import {
+  createDebugMetaEvent,
   createErrorEvent,
+  createResponseCompleteEvent,
   createStatusEvent,
   createTokenEvent,
 } from "../../../types/chat-streaming.types";
@@ -130,11 +135,13 @@ export class ChatStreamer {
         userId: string;
         messages: BaseMessage[];
         indexId?: string;
+        sessionId?: string;
       } = {
         userId: input.userId,
         messages: input.messages,
       };
       if (input.indexId) initialState.indexId = input.indexId;
+      initialState.sessionId = sessionId;
 
       // Use graph.stream() with custom + updates modes.
       // Custom events come from config.writer() inside agentLoopNode.
@@ -189,11 +196,30 @@ export class ChatStreamer {
             );
           }
 
+          // Yield the agent's authoritative response text so the
+          // controller can persist it without relying on token accumulation.
+          const responseText = typeof agentOutput?.responseText === "string"
+            ? (agentOutput.responseText as string)
+            : "";
+          yield createResponseCompleteEvent(sessionId, responseText);
+
+          const debugMeta = agentOutput?.debugMeta as
+            | { graph: string; iterations: number; tools?: DebugMetaToolCall[] }
+            | undefined;
+          if (
+            debugMeta?.graph != null &&
+            typeof debugMeta.iterations === "number"
+          ) {
+            yield createDebugMetaEvent(
+              sessionId,
+              debugMeta.graph,
+              debugMeta.iterations,
+              Array.isArray(debugMeta.tools) ? debugMeta.tools : [],
+            );
+          }
+
           logger.info("Agent loop complete (updates)", {
-            responseLength:
-              typeof agentOutput?.responseText === "string"
-                ? (agentOutput.responseText as string).length
-                : 0,
+            responseLength: responseText.length,
           });
         }
       }

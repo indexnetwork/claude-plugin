@@ -13,9 +13,14 @@ import {
   Circle,
   Download,
   Minus,
+  ChevronDown,
+  ChevronRight,
+  Database,
 } from "lucide-react";
+import type { GeneratedSeedData } from "@/lib/seed/seed.types";
 import { EvaluatorShell } from "@/components/EvaluatorShell";
 import { ConversationView } from "@/components/ConversationView";
+import { apiFetch } from "@/lib/api";
 
 type ReviewFlag = "pass" | "fail" | "needs_review" | "skipped";
 
@@ -43,6 +48,125 @@ interface ScenarioState {
   };
   reviewFlag?: ReviewFlag;
   reviewNote?: string;
+  seedData?: GeneratedSeedData | null;
+}
+
+function SeedDataPanel({ seedData }: { seedData: GeneratedSeedData }) {
+  const [open, setOpen] = useState(false);
+  const { testUser, intents, indexes, otherUsers, opportunities } = seedData;
+
+  return (
+    <div className="bg-white rounded-lg shadow-sm">
+      <button
+        onClick={() => setOpen(!open)}
+        className="w-full flex items-center gap-2 p-4 text-left hover:bg-gray-50 rounded-lg"
+      >
+        <Database className="w-4 h-4 text-gray-500" />
+        <span className="text-base font-semibold flex-1">Seed Data</span>
+        {open ? (
+          <ChevronDown className="w-4 h-4 text-gray-400" />
+        ) : (
+          <ChevronRight className="w-4 h-4 text-gray-400" />
+        )}
+      </button>
+      {open && (
+        <div className="px-6 pb-6 space-y-4">
+          {testUser?.profile && (
+            <div>
+              <div className="text-xs font-semibold text-gray-500 uppercase mb-2">Test User</div>
+              <div className="p-3 bg-gray-50 rounded-lg text-sm space-y-1">
+                <div><span className="font-medium">Name:</span> {testUser.profile.identity?.name}</div>
+                <div><span className="font-medium">Email:</span> {testUser.email}</div>
+                {testUser.profile.identity?.bio && (
+                  <div><span className="font-medium">Bio:</span> {testUser.profile.identity.bio}</div>
+                )}
+                {testUser.profile.identity?.location && (
+                  <div><span className="font-medium">Location:</span> {testUser.profile.identity.location}</div>
+                )}
+                {testUser.profile.attributes?.skills?.length > 0 && (
+                  <div className="flex items-center gap-1 flex-wrap">
+                    <span className="font-medium">Skills:</span>
+                    {testUser.profile.attributes.skills.map((s: string) => (
+                      <span key={s} className="px-1.5 py-0.5 bg-blue-100 text-blue-800 rounded text-xs">{s}</span>
+                    ))}
+                  </div>
+                )}
+                {testUser.profile.attributes?.interests?.length > 0 && (
+                  <div className="flex items-center gap-1 flex-wrap">
+                    <span className="font-medium">Interests:</span>
+                    {testUser.profile.attributes.interests.map((i: string) => (
+                      <span key={i} className="px-1.5 py-0.5 bg-purple-100 text-purple-800 rounded text-xs">{i}</span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {intents.length > 0 && (
+            <div>
+              <div className="text-xs font-semibold text-gray-500 uppercase mb-2">Intents ({intents.length})</div>
+              <div className="space-y-1">
+                {intents.map((intent, i) => (
+                  <div key={i} className="p-2 bg-gray-50 rounded text-sm">{intent}</div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {indexes.length > 0 && (
+            <div>
+              <div className="text-xs font-semibold text-gray-500 uppercase mb-2">Indexes ({indexes.length})</div>
+              <div className="space-y-1">
+                {indexes.map((idx, i) => (
+                  <div key={i} className="p-2 bg-gray-50 rounded text-sm">
+                    <span className="font-medium">{idx.title}</span>
+                    {idx.prompt && <span className="text-gray-500"> — {idx.prompt}</span>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {otherUsers && otherUsers.length > 0 && (
+            <div>
+              <div className="text-xs font-semibold text-gray-500 uppercase mb-2">Network Users ({otherUsers.length})</div>
+              <div className="space-y-2">
+                {otherUsers.map((u, i) => (
+                  <div key={i} className="p-3 bg-gray-50 rounded-lg text-sm space-y-1">
+                    <div className="font-medium">{u.name} <span className="text-gray-400 font-normal text-xs">{u.email}</span></div>
+                    {u.profile?.identity?.bio && <div className="text-gray-600 text-xs">{u.profile.identity.bio}</div>}
+                    {u.intents.length > 0 && (
+                      <div className="flex items-center gap-1 flex-wrap text-xs">
+                        {u.intents.map((intent, j) => (
+                          <span key={j} className="px-1.5 py-0.5 bg-green-100 text-green-800 rounded">{intent}</span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {opportunities && opportunities.length > 0 && (
+            <div>
+              <div className="text-xs font-semibold text-gray-500 uppercase mb-2">Opportunities ({opportunities.length})</div>
+              <div className="space-y-1">
+                {opportunities.map((opp, i) => (
+                  <div key={i} className="p-2 bg-gray-50 rounded text-sm flex items-center gap-2">
+                    <span className="px-1.5 py-0.5 bg-amber-100 text-amber-800 rounded text-xs">{opp.status}</span>
+                    <span>{opp.category}</span>
+                    <span className="text-gray-400 text-xs">({Math.round(opp.confidence * 100)}%)</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
 export default function RunPage() {
@@ -54,6 +178,7 @@ export default function RunPage() {
   const [globalStatus, setGlobalStatus] = useState<"idle" | "loading" | "running" | "completed">("loading");
   const [filterPersona, setFilterPersona] = useState<string>("DIRECT_REQUESTER");
   const [filterCategory, setFilterCategory] = useState<string>("all");
+  const [filterSource, setFilterSource] = useState<string>("all");
   const [filterReview, setFilterReview] = useState<string>("all");
   const cancelRef = useRef(false);
   const noteDebounceRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
@@ -64,9 +189,7 @@ export default function RunPage() {
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch(`/api/eval/runs/${runId}`, {
-          credentials: "include",
-        });
+        const res = await apiFetch(`/api/eval/runs/${runId}`);
         if (!res.ok) throw new Error("Failed to load run");
         const data = await res.json();
         if (cancelled) return;
@@ -86,6 +209,7 @@ export default function RunPage() {
             result: s.result as ScenarioState["result"],
             reviewFlag: s.reviewFlag as ScenarioState["reviewFlag"],
             reviewNote: s.reviewNote as string | undefined,
+            seedData: (s.seedData as GeneratedSeedData) ?? null,
           })
         );
         setScenarios(list);
@@ -108,11 +232,9 @@ export default function RunPage() {
       id: string,
       payload: { reviewFlag?: ReviewFlag | null; reviewNote?: string | null }
     ) => {
-      await fetch(`/api/eval/runs/${runId}/scenarios/${id}`, {
+      await apiFetch(`/api/eval/runs/${runId}/scenarios/${id}`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify(payload),
+        json: payload,
       });
     },
     [runId]
@@ -135,6 +257,7 @@ export default function RunPage() {
     return scenarios.filter((s) => {
       if (filterPersona !== "all" && s.personaId !== filterPersona) return false;
       if (filterCategory !== "all" && s.category !== filterCategory) return false;
+      if (filterSource !== "all" && s.source !== filterSource) return false;
       if (filterReview !== "all") {
         if (filterReview === "unreviewed") {
           if (s.reviewFlag) return false;
@@ -142,11 +265,12 @@ export default function RunPage() {
       }
       return true;
     });
-  }, [scenarios, filterPersona, filterCategory, filterReview]);
+  }, [scenarios, filterPersona, filterCategory, filterSource, filterReview]);
 
   const hasActiveFilters =
     filterPersona !== "all" ||
     filterCategory !== "all" ||
+    filterSource !== "all" ||
     filterReview !== "all";
 
   const selectedScenario = scenarios.find((s) => s.id === selectedScenarioId);
@@ -222,16 +346,14 @@ export default function RunPage() {
     )?.scenarioId ?? scenarioId;
 
     try {
-      const res = await fetch("/api/eval/run", {
+      const res = await apiFetch("/api/eval/run", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({
+        json: {
           runId,
           scenarioId: actualScenarioId,
           apiUrl,
           useSeeding: true,
-        }),
+        },
       });
       const data = await res.json();
       const result = data.results?.[0];
@@ -338,7 +460,11 @@ export default function RunPage() {
 
     const exportData = {
       exportedAt: new Date().toISOString(),
-      filters: { persona: filterPersona, category: filterCategory },
+      filters: {
+        persona: filterPersona,
+        category: filterCategory,
+        source: filterSource,
+      },
       summary: {
         total: metrics.total,
         completed: metrics.completed,
@@ -496,6 +622,7 @@ export default function RunPage() {
                       onClick={() => {
                         setFilterPersona("DIRECT_REQUESTER");
                         setFilterCategory("all");
+                        setFilterSource("all");
                         setFilterReview("all");
                       }}
                       className="text-xs text-blue-600 hover:text-blue-800"
@@ -539,6 +666,16 @@ export default function RunPage() {
                   <option value="fail">Fail</option>
                   <option value="needs_review">Needs Review</option>
                   <option value="skipped">Skipped</option>
+                </select>
+                <select
+                  value={filterSource}
+                  onChange={(e) => setFilterSource(e.target.value)}
+                  className="w-full text-xs border border-gray-200 rounded-md px-2 py-1.5 bg-white"
+                >
+                  <option value="all">All sources</option>
+                  <option value="predefined">Predefined</option>
+                  <option value="feedback">Feedback</option>
+                  <option value="generated">Generated</option>
                 </select>
               </div>
 
@@ -741,6 +878,10 @@ export default function RunPage() {
                   </div>
                 </div>
               </div>
+
+              {selectedScenario.seedData && (
+                <SeedDataPanel seedData={selectedScenario.seedData} />
+              )}
 
               {selectedScenario.conversation &&
                 selectedScenario.conversation.length > 0 && (

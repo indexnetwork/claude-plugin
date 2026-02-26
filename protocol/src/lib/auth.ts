@@ -1,21 +1,24 @@
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
-import { magicLink } from "better-auth/plugins";
+import { magicLink, bearer, jwt } from "better-auth/plugins";
 
 import db from "./drizzle/drizzle";
 import * as schema from "../schemas/database.schema";
 import { getTrustedOrigins } from "./cors";
 import { sendMagicLinkEmail } from "./email/magic-link.handler";
 
-// Use BETTER_AUTH_URL only when it's not localhost; otherwise infer from request.
-// Fixes prod when env was copied from dev (localhost) - request host will be correct.
-const authBaseUrl =
-  process.env.PROTOCOL_URL?.includes("localhost")
-    ? undefined
-    : process.env.PROTOCOL_URL;
+let _ensureWallet: ((userId: string) => Promise<void>) | null = null;
+
+/** Register the wallet-creation hook (called from main.ts after messaging store is ready). */
+export function setWalletHook(fn: (userId: string) => Promise<void>) {
+  _ensureWallet = fn;
+}
+
+export const PROTOCOL_URL =
+  process.env.PROTOCOL_URL || `http://localhost:${process.env.PORT || 3001}`;
 
 export const auth = betterAuth({
-  baseURL: authBaseUrl,
+  baseURL: PROTOCOL_URL,
   database: drizzleAdapter(db, {
     provider: "pg",
     schema: {
@@ -24,8 +27,20 @@ export const auth = betterAuth({
       session: schema.sessions,
       account: schema.accounts,
       verification: schema.verifications,
+      jwks: schema.jwks,
     },
   }),
+  databaseHooks: {
+    user: {
+      create: {
+        after: async (user) => {
+          try {
+            if (_ensureWallet) await _ensureWallet(user.id);
+          } catch (_) { /* wallet generation failure shouldn't block registration */ }
+        },
+      },
+    },
+  },
   basePath: "/api/auth",
   emailAndPassword: { enabled: true },
   user: {
@@ -51,11 +66,23 @@ export const auth = betterAuth({
       },
       expiresIn: 600,
     }),
+    bearer(),
+    jwt({
+      jwt: {
+        issuer: PROTOCOL_URL,
+        expirationTime: "1h",
+        definePayload: ({ user }) => ({
+          id: user.id,
+          email: user.email,
+          name: user.name,
+        }),
+      },
+    }),
   ],
   advanced: {
-    trustedProxyHeaders: true,
     defaultCookieAttributes: {
-      sameSite: "lax",
+      sameSite: "none",
+      secure: true,
     },
   },
 });

@@ -4,11 +4,15 @@
  */
 
 import { eq, and, or, isNull, isNotNull, sql, count, desc, lt, lte, ne, inArray, ilike, notInArray } from 'drizzle-orm';
+
 import * as schema from '../schemas/database.schema';
 import db from '../lib/drizzle/drizzle';
-import type { User, NotificationPreferences } from '../schemas/database.schema';
+import type { User, NotificationPreferences, OnboardingState } from '../schemas/database.schema';
 import type { Id } from '../types/common.types';
+import type { MessagingStore } from '../lib/xmtp';
+import { generateWallet, decryptKey } from '../lib/xmtp';
 import { log } from '../lib/log';
+import { IndexMembershipEvents } from '../events/index_membership.event';
 
 // Local types used by adapters (shapes only; protocol layer defines the contracts)
 interface ActiveIntentRow {
@@ -101,7 +105,7 @@ interface IndexMembershipRow {
   joinedAt: Date;
 }
 
-const { intents, indexes, indexMembers, intentIndexes, users, hydeDocuments, opportunities, chatSessions, chatMessages, userNotificationSettings, userProfiles, files, links } = schema;
+const { intents, indexes, indexMembers, intentIndexes, users, hydeDocuments, opportunities, userNotificationSettings, userProfiles, files, links } = schema;
 
 // HyDE row to document shape (embedding may come as number[] or pg vector)
 type HydeSourceTypeLocal = 'intent' | 'profile' | 'query';
@@ -329,8 +333,9 @@ export class IntentDatabaseAdapter {
     } else {
       conditions.push(isNull(schema.intents.archivedAt));
     }
-    if (options.sourceType) {
-      conditions.push(eq(schema.intents.sourceType, options.sourceType as any));
+    const validSourceTypes: SourceType[] = ['file', 'integration', 'link', 'discovery_form', 'enrichment'];
+    if (options.sourceType && validSourceTypes.includes(options.sourceType as SourceType)) {
+      conditions.push(eq(schema.intents.sourceType, options.sourceType as SourceType));
     }
     const where = and(...conditions);
 
@@ -385,6 +390,35 @@ export class IntentDatabaseAdapter {
   }
 
   /**
+   * Finds an intent by sourceId and userId (e.g. for idempotent proposal confirmation).
+   * @param sourceId - The source identifier (e.g. proposalId from chat).
+   * @param userId - The owning user's ID.
+   * @returns The intent id if found, otherwise null.
+   * @throws May throw database/query errors.
+   */
+  async getIntentBySourceId(sourceId: string, userId: string): Promise<{ id: string } | null> {
+    const rows = await db.select({ id: schema.intents.id })
+      .from(schema.intents)
+      .where(and(
+        eq(schema.intents.sourceId, sourceId),
+        eq(schema.intents.userId, userId),
+      ))
+      .limit(1);
+    return rows[0] ?? null;
+  }
+
+  /**
+   * Associates an intent with an index (inserts intent_indexes row).
+   * @param intentId - The intent identifier.
+   * @param indexId - The index identifier.
+   * @returns Promise that resolves when the row is inserted.
+   * @throws May throw on database insertion errors (db.insert/schema.intentIndexes).
+   */
+  async assignIntentToIndex(intentId: string, indexId: string): Promise<void> {
+    await db.insert(schema.intentIndexes).values({ intentId, indexId });
+  }
+
+  /**
    * Delete all intents for a user (for test teardown).
    */
   async deleteByUserId(userId: string): Promise<void> {
@@ -426,6 +460,7 @@ export class IntentDatabaseAdapter {
       avatar: user.avatar ?? null,
       location: user.location ?? null,
       socials: user.socials ?? null,
+      onboarding: user.onboarding ?? null,
     };
   }
 
@@ -499,6 +534,7 @@ interface ChatSession {
   userId: string;
   title: string | null;
   indexId: string | null;
+  shareToken: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -619,6 +655,20 @@ export class ChatDatabaseAdapter {
       .where(eq(schema.chatSessions.id, sessionId));
   }
 
+  async setShareToken(sessionId: string, token: string | null): Promise<void> {
+    await db.update(schema.chatSessions)
+      .set({ shareToken: token, updatedAt: new Date() })
+      .where(eq(schema.chatSessions.id, sessionId));
+  }
+
+  async getSessionByShareToken(token: string): Promise<ChatSession | null> {
+    const [session] = await db.select()
+      .from(schema.chatSessions)
+      .where(eq(schema.chatSessions.shareToken, token))
+      .limit(1);
+    return session || null;
+  }
+
   // ─────────────────────────────────────────────────────────────────────────────
   // Chat Message Methods
   // ─────────────────────────────────────────────────────────────────────────────
@@ -642,12 +692,13 @@ export class ChatDatabaseAdapter {
   /**
    * Get messages for a session
    */
-  async getSessionMessages(sessionId: string, limit: number): Promise<ChatMessage[]> {
-    const messages = await db.select()
+  async getSessionMessages(sessionId: string, limit?: number): Promise<ChatMessage[]> {
+    let query = db.select()
       .from(schema.chatMessages)
       .where(eq(schema.chatMessages.sessionId, sessionId))
-      .orderBy(schema.chatMessages.createdAt)
-      .limit(limit);
+      .orderBy(schema.chatMessages.createdAt);
+    
+    const messages = limit ? await query.limit(limit) : await query;
     
     // Cast unknown fields to proper types
     return messages.map(msg => ({
@@ -777,7 +828,7 @@ export class ChatDatabaseAdapter {
 
   async updateUser(
     userId: string,
-    data: { name?: string; location?: string; socials?: { x?: string; linkedin?: string; github?: string; websites?: string[] } }
+    data: { name?: string; location?: string; socials?: { x?: string; linkedin?: string; github?: string; websites?: string[] }; onboarding?: OnboardingState }
   ) {
     // Delegate to ProfileDatabaseAdapter which has the merge logic
     const profileAdapter = new ProfileDatabaseAdapter();
@@ -1122,7 +1173,7 @@ export class ChatDatabaseAdapter {
         createdAt: row.createdAt,
         permissions: row.permissions,
         memberCount: Number(countResult?.count ?? 0),
-        user: ownerMember ? {
+        owner: ownerMember ? {
           id: ownerMember.userId,
           name: ownerMember.userName,
           avatar: ownerMember.userAvatar,
@@ -1764,32 +1815,27 @@ export class ChatDatabaseAdapter {
     userId: string,
     role: 'owner' | 'admin' | 'member'
   ): Promise<{ success: boolean; alreadyMember?: boolean }> {
-    const logger = log.lib.from('database.adapter');
-    const existing = await db
-      .select()
-      .from(indexMembers)
-      .where(and(eq(indexMembers.indexId, indexId), eq(indexMembers.userId, userId)))
-      .limit(1);
-    if (existing.length > 0) {
-      return { success: true, alreadyMember: true };
-    }
     let memberPrompt: string | null = null;
     const [indexRow] = await db.select({ prompt: indexes.prompt }).from(indexes).where(eq(indexes.id, indexId)).limit(1);
     if (indexRow) memberPrompt = indexRow.prompt;
 
     const finalPermissions = role === 'owner' ? ['owner'] : role === 'admin' ? ['admin', 'member'] : ['member'];
-    await db.insert(indexMembers).values({
+    const result = await db.insert(indexMembers).values({
       indexId,
       userId,
       permissions: finalPermissions,
       prompt: memberPrompt,
       autoAssign: true,
-    });
+    }).onConflictDoNothing({ target: [indexMembers.indexId, indexMembers.userId] }).returning();
 
-    // TODO: Events system removed - need to implement alternative notification mechanism
-    // for triggering member indexing when settings are updated
-
-    return { success: true, alreadyMember: false };
+    if (result.length > 0) {
+      try {
+        IndexMembershipEvents.onMemberAdded(userId, indexId);
+      } catch (err) {
+        console.error('[addMemberToIndex] Event hook failed (non-fatal)', { indexId, userId, error: err });
+      }
+    }
+    return { success: true, alreadyMember: result.length === 0 };
   }
 
   async removeMemberFromIndex(
@@ -1833,6 +1879,53 @@ export class ChatDatabaseAdapter {
    * Get a single index with owner info and member count.
    * Checks that the requesting user is a member; throws "Access denied" if not.
    */
+  async getPublicIndexDetail(indexId: string) {
+    const rows = await db
+      .select({
+        id: indexes.id,
+        title: indexes.title,
+        prompt: indexes.prompt,
+        permissions: indexes.permissions,
+        isPersonal: indexes.isPersonal,
+        createdAt: indexes.createdAt,
+        updatedAt: indexes.updatedAt,
+        ownerId: indexMembers.userId,
+        userName: users.name,
+        userAvatar: users.avatar,
+      })
+      .from(indexes)
+      .innerJoin(
+        indexMembers,
+        and(
+          eq(indexes.id, indexMembers.indexId),
+          sql`'owner' = ANY(${indexMembers.permissions})`
+        )
+      )
+      .innerJoin(users, eq(indexMembers.userId, users.id))
+      .where(and(eq(indexes.id, indexId), isNull(indexes.deletedAt)))
+      .limit(1);
+
+    const row = rows[0];
+    if (!row) return null;
+
+    const perms = row.permissions as { joinPolicy?: string } | null;
+    if (perms?.joinPolicy !== 'anyone') return null;
+
+    const memberCount = await this.getIndexMemberCount(indexId);
+
+    return {
+      id: row.id,
+      title: row.title,
+      prompt: row.prompt,
+      permissions: row.permissions,
+      isPersonal: row.isPersonal,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+      user: { id: row.ownerId, name: row.userName, avatar: row.userAvatar },
+      _count: { members: memberCount },
+    };
+  }
+
   async getIndexDetail(indexId: string, requestingUserId: string) {
     const rows = await db
       .select({
@@ -2059,7 +2152,7 @@ export class ChatDatabaseAdapter {
   }
   async getOpportunitiesForUser(
     userId: string,
-    options?: { status?: string; indexId?: string; role?: string; limit?: number; offset?: number }
+    options?: { status?: string; indexId?: string; role?: string; limit?: number; offset?: number; conversationId?: string }
   ): Promise<OpportunityRow[]> {
     return this.opportunityAdapter.getOpportunitiesForUser(userId, options);
   }
@@ -2071,16 +2164,22 @@ export class ChatDatabaseAdapter {
   }
   async updateOpportunityStatus(
     id: string,
-    status: 'latent' | 'pending' | 'viewed' | 'accepted' | 'rejected' | 'expired'
+    status: 'latent' | 'draft' | 'pending' | 'viewed' | 'accepted' | 'rejected' | 'expired'
   ): Promise<OpportunityRow | null> {
     return this.opportunityAdapter.updateOpportunityStatus(id, status);
   }
   async opportunityExistsBetweenActors(actorIds: string[], indexId: string): Promise<boolean> {
     return this.opportunityAdapter.opportunityExistsBetweenActors(actorIds, indexId);
   }
+  async getOpportunityBetweenActors(
+    actorIds: string[],
+    indexId: string
+  ): Promise<{ id: Id<'opportunities'>; status: 'latent' | 'draft' | 'pending' | 'viewed' | 'accepted' | 'rejected' | 'expired' } | null> {
+    return this.opportunityAdapter.getOpportunityBetweenActors(actorIds, indexId);
+  }
   async findOverlappingOpportunities(
     actorUserIds: Id<'users'>[],
-    options?: { excludeStatuses?: ('latent' | 'pending' | 'viewed' | 'accepted' | 'rejected' | 'expired')[] }
+    options?: { excludeStatuses?: ('latent' | 'draft' | 'pending' | 'viewed' | 'accepted' | 'rejected' | 'expired')[] }
   ): Promise<OpportunityRow[]> {
     return this.opportunityAdapter.findOverlappingOpportunities(actorUserIds, options);
   }
@@ -2172,8 +2271,8 @@ export class ProfileDatabaseAdapter {
    */
   async updateUser(
     userId: string,
-    data: { name?: string; location?: string; socials?: { x?: string; linkedin?: string; github?: string; websites?: string[] } }
-  ): Promise<{ id: string; name: string; email: string; intro?: string | null; avatar?: string | null; location?: string | null; socials?: { x?: string; linkedin?: string; github?: string; websites?: string[] } | null } | null> {
+    data: { name?: string; location?: string; socials?: { x?: string; linkedin?: string; github?: string; websites?: string[] }; onboarding?: OnboardingState }
+  ): Promise<{ id: string; name: string; email: string; intro?: string | null; avatar?: string | null; location?: string | null; socials?: { x?: string; linkedin?: string; github?: string; websites?: string[] } | null; onboarding?: OnboardingState | null } | null> {
     // Load current user to merge socials
     const current = await this.getUser(userId);
     if (!current) return null;
@@ -2182,16 +2281,22 @@ export class ProfileDatabaseAdapter {
 
     if (data.name !== undefined) updateFields.name = data.name;
     if (data.location !== undefined) updateFields.location = data.location;
+    if (data.onboarding !== undefined) updateFields.onboarding = data.onboarding;
 
     if (data.socials) {
       // Merge with existing socials instead of overwriting
-      const existingSocials = (current as any).socials ?? {};
+      const existingSocials = current.socials ?? {};
       const merged = { ...existingSocials };
       if (data.socials.x !== undefined) merged.x = data.socials.x;
       if (data.socials.linkedin !== undefined) merged.linkedin = data.socials.linkedin;
       if (data.socials.github !== undefined) merged.github = data.socials.github;
       if (data.socials.websites !== undefined) merged.websites = data.socials.websites;
       updateFields.socials = merged;
+    }
+
+    if (data.onboarding !== undefined) {
+      const existingOnboarding = current.onboarding ?? {};
+      updateFields.onboarding = { ...existingOnboarding, ...data.onboarding };
     }
 
     const result = await db.update(schema.users)
@@ -2209,6 +2314,7 @@ export class ProfileDatabaseAdapter {
       avatar: updated.avatar,
       location: updated.location,
       socials: updated.socials as { x?: string; linkedin?: string; github?: string; websites?: string[] } | null,
+      onboarding: (updated as { onboarding?: unknown }).onboarding as OnboardingState | null,
     };
   }
 
@@ -2308,7 +2414,7 @@ interface OpportunityRow {
   interpretation: schema.OpportunityInterpretation;
   context: schema.OpportunityContext;
   confidence: string;
-  status: 'latent' | 'pending' | 'viewed' | 'accepted' | 'rejected' | 'expired';
+  status: 'latent' | 'draft' | 'pending' | 'viewed' | 'accepted' | 'rejected' | 'expired';
   createdAt: Date;
   updatedAt: Date;
   expiresAt: Date | null;
@@ -2321,7 +2427,7 @@ interface CreateOpportunityInput {
   interpretation: schema.OpportunityInterpretation;
   context: schema.OpportunityContext;
   confidence: string;
-  status?: 'latent' | 'pending' | 'viewed' | 'accepted' | 'rejected' | 'expired';
+  status?: 'latent' | 'draft' | 'pending' | 'viewed' | 'accepted' | 'rejected' | 'expired';
   expiresAt?: Date;
 }
 
@@ -2386,7 +2492,7 @@ export class OpportunityDatabaseAdapter {
 
   async getOpportunitiesForUser(
     userId: string,
-    options?: { status?: string; indexId?: string; role?: string; limit?: number; offset?: number }
+    options?: { status?: string; indexId?: string; role?: string; limit?: number; offset?: number; conversationId?: string }
   ): Promise<OpportunityRow[]> {
     // Role-based visibility: who can see depends on actor role and status (and whether introducer exists)
     const visibilityGuard = sql`(
@@ -2394,21 +2500,29 @@ export class OpportunityDatabaseAdapter {
       OR ${opportunities.actors} @> ${JSON.stringify([{ userId, role: 'peer' }])}::jsonb
       OR (
         ${opportunities.actors} @> ${JSON.stringify([{ userId, role: 'patient' }])}::jsonb
-        AND (${opportunities.status} != 'latent' OR NOT (${opportunities.actors} @> '[{"role":"introducer"}]'::jsonb))
+        AND (${opportunities.status} NOT IN ('latent', 'draft') OR NOT (${opportunities.actors} @> '[{"role":"introducer"}]'::jsonb))
       )
       OR (
         ${opportunities.actors} @> ${JSON.stringify([{ userId, role: 'agent' }])}::jsonb
         AND (
           ${opportunities.status} IN ('accepted', 'rejected', 'expired')
-          OR (${opportunities.status} != 'latent' AND NOT (${opportunities.actors} @> '[{"role":"introducer"}]'::jsonb))
+          OR (${opportunities.status} NOT IN ('latent', 'draft') AND NOT (${opportunities.actors} @> '[{"role":"introducer"}]'::jsonb))
         )
       )
       OR (
         ${opportunities.actors} @> ${JSON.stringify([{ userId, role: 'party' }])}::jsonb
-        AND (${opportunities.status} != 'latent' OR NOT (${opportunities.actors} @> '[{"role":"introducer"}]'::jsonb))
+        AND (${opportunities.status} NOT IN ('latent', 'draft') OR NOT (${opportunities.actors} @> '[{"role":"introducer"}]'::jsonb))
       )
     )`;
     const conditions = [visibilityGuard];
+    // Draft visibility: without conversationId exclude all draft; with conversationId include draft only for that session
+    if (options?.conversationId == null) {
+      conditions.push(sql`${opportunities.status} != 'draft'`);
+    } else {
+      conditions.push(
+        sql`(${opportunities.status} != 'draft' OR (${opportunities.context}->>'conversationId') = ${options.conversationId})`
+      );
+    }
     if (options?.status) conditions.push(eq(opportunities.status, options.status as typeof opportunities.$inferSelect.status));
     if (options?.indexId) conditions.push(sql`${opportunities.context}->>'indexId' = ${options.indexId}`);
     let q = db
@@ -2441,7 +2555,7 @@ export class OpportunityDatabaseAdapter {
 
   async updateOpportunityStatus(
     id: string,
-    status: 'latent' | 'pending' | 'viewed' | 'accepted' | 'rejected' | 'expired'
+    status: 'latent' | 'draft' | 'pending' | 'viewed' | 'accepted' | 'rejected' | 'expired'
   ): Promise<OpportunityRow | null> {
     const [row] = await db
       .update(opportunities)
@@ -2557,35 +2671,56 @@ export class OpportunityDatabaseAdapter {
     return rows.length > 0;
   }
 
+  async getOpportunityBetweenActors(
+    actorIds: string[],
+    indexId: string
+  ): Promise<{ id: Id<'opportunities'>; status: (typeof opportunities.$inferSelect)['status'] } | null> {
+    if (actorIds.length === 0) return null;
+    const expired = 'expired';
+    const conditions = [
+      sql`${opportunities.context}->>'indexId' = ${indexId}`,
+      ne(opportunities.status, expired),
+    ];
+    for (const actorId of actorIds) {
+      conditions.push(
+        sql`${opportunities.actors} @> ${JSON.stringify([{ userId: actorId }])}::jsonb`
+      );
+    }
+    const rows = await db
+      .select({ id: opportunities.id, status: opportunities.status })
+      .from(opportunities)
+      .where(and(...conditions))
+      .limit(1);
+    const row = rows[0];
+    return row ? { id: row.id as Id<'opportunities'>, status: row.status } : null;
+  }
+
   async findOverlappingOpportunities(
     actorUserIds: Id<'users'>[],
-    options?: { excludeStatuses?: ('latent' | 'pending' | 'viewed' | 'accepted' | 'rejected' | 'expired')[] }
+    options?: { excludeStatuses?: ('latent' | 'draft' | 'pending' | 'viewed' | 'accepted' | 'rejected' | 'expired')[] }
   ): Promise<OpportunityRow[]> {
     if (actorUserIds.length === 0) return [];
     const mergedExcludeStatuses = [
       ...new Set([...(options?.excludeStatuses ?? [])]),
-    ] as ('latent' | 'pending' | 'viewed' | 'accepted' | 'rejected' | 'expired')[];
+    ] as ('latent' | 'draft' | 'pending' | 'viewed' | 'accepted' | 'rejected' | 'expired')[];
     const statusCondition =
       mergedExcludeStatuses.length > 0
         ? notInArray(opportunities.status, mergedExcludeStatuses)
         : undefined;
-    // Exact match: opportunity's set of non-introducer userIds must equal actorUserIds (same people only)
-    const sortedActorUserIds = [...actorUserIds].sort();
-    const overlapCondition = sql`(
-      SELECT array_agg(uid ORDER BY uid)
-      FROM (
-        SELECT elem->>'userId' AS uid
-        FROM jsonb_array_elements(${opportunities.actors}) AS elem
-        WHERE elem->>'role' IS DISTINCT FROM 'introducer' AND elem->>'userId' IS NOT NULL AND elem->>'userId' != ''
-      ) sub
-    ) = ARRAY[${sql.join(sortedActorUserIds.map((uid) => sql`${uid}`), sql`, `)}]::text[]`;
+    const containmentConditions = actorUserIds.map(
+      (uid) => sql`EXISTS (
+        SELECT 1 FROM jsonb_array_elements(${opportunities.actors}) elem
+        WHERE elem->>'userId' = ${uid}
+          AND elem->>'role' IS DISTINCT FROM 'introducer'
+      )`
+    );
+    const overlapCondition = and(...containmentConditions)!;
     const rows = await db
       .select()
       .from(opportunities)
       .where(statusCondition ? and(statusCondition, overlapCondition) : overlapCondition)
       .orderBy(desc(opportunities.updatedAt));
-    const result = rows.map(toOpportunityRow);
-    return result;
+    return rows.map(toOpportunityRow);
   }
 
   async expireOpportunitiesByIntent(intentId: string): Promise<number> {
@@ -2596,7 +2731,6 @@ export class OpportunityDatabaseAdapter {
         sql`${opportunities.actors} @> ${JSON.stringify([{ intent: intentId }])}::jsonb`
       );
     if (rows.length === 0) return 0;
-    const ids = rows.map((r) => r.id);
     const updated = await db
       .update(opportunities)
       .set({ status: 'expired', updatedAt: new Date() })
@@ -3429,17 +3563,99 @@ import type { VectorStore } from '../lib/protocol/interfaces/embedder.interface'
 import type {
   UserDatabase,
   SystemDatabase,
-  CreateIntentData,
-  UpdateIntentData,
   SimilarIntent,
-  SimilarIntentSearchOptions,
-  OpportunityQueryOptions,
-  OpportunityStatus,
-  CreateOpportunityData,
-  HydeSourceType,
-  CreateHydeDocumentData,
-  UpdateIndexSettingsData,
 } from '../lib/protocol/interfaces/database.interface';
+
+const messagingLogger = log.lib.from('messaging.db');
+
+/**
+ * Drizzle-backed implementation of the MessagingStore interface.
+ * Provides wallet management, conversation visibility, and user resolution for XMTP.
+ */
+export class MessagingDatabaseAdapter implements MessagingStore {
+  constructor(private readonly masterKey: Buffer) {}
+
+  async getWalletKey(userId: string) {
+    const [user] = await db.select({
+      walletEncryptedKey: schema.users.walletEncryptedKey,
+      walletAddress: schema.users.walletAddress,
+    }).from(schema.users).where(eq(schema.users.id, userId)).limit(1);
+
+    if (!user?.walletEncryptedKey || !user.walletAddress) return null;
+    return {
+      privateKey: decryptKey(user.walletEncryptedKey, this.masterKey),
+      walletAddress: user.walletAddress,
+    };
+  }
+
+  async ensureWallet(userId: string) {
+    const [user] = await db.select({ walletAddress: schema.users.walletAddress })
+      .from(schema.users).where(eq(schema.users.id, userId)).limit(1);
+    if (!user) { messagingLogger.warn('[ensureWallet] User not found', { userId }); return; }
+    if (user.walletAddress) return;
+
+    const w = generateWallet(this.masterKey);
+    await db.update(schema.users).set({
+      walletAddress: w.address,
+      walletEncryptedKey: w.encryptedKey,
+    }).where(eq(schema.users.id, userId));
+    messagingLogger.info('[ensureWallet] Wallet generated', { userId });
+  }
+
+  async setInboxId(userId: string, inboxId: string) {
+    await db.update(schema.users).set({ xmtpInboxId: inboxId }).where(eq(schema.users.id, userId));
+  }
+
+  async getPublicInfo(userId: string) {
+    const [user] = await db.select({
+      walletAddress: schema.users.walletAddress,
+      xmtpInboxId: schema.users.xmtpInboxId,
+    }).from(schema.users).where(eq(schema.users.id, userId)).limit(1);
+    return user ?? null;
+  }
+
+  async getHiddenConversations(userId: string) {
+    return db.select({
+      conversationId: schema.hiddenConversations.conversationId,
+      hiddenAt: schema.hiddenConversations.hiddenAt,
+    }).from(schema.hiddenConversations).where(eq(schema.hiddenConversations.userId, userId));
+  }
+
+  async getHiddenAt(userId: string, conversationId: string) {
+    const [row] = await db.select({ hiddenAt: schema.hiddenConversations.hiddenAt })
+      .from(schema.hiddenConversations)
+      .where(and(
+        eq(schema.hiddenConversations.userId, userId),
+        eq(schema.hiddenConversations.conversationId, conversationId),
+      ))
+      .limit(1);
+    return row?.hiddenAt ?? null;
+  }
+
+  async hideConversation(userId: string, conversationId: string) {
+    await db.insert(schema.hiddenConversations)
+      .values({ userId, conversationId })
+      .onConflictDoUpdate({
+        target: [schema.hiddenConversations.userId, schema.hiddenConversations.conversationId],
+        set: { hiddenAt: new Date() },
+      });
+  }
+
+  async resolveUsersByInboxIds(inboxIds: string[]) {
+    const matched = await db.select({
+      id: schema.users.id,
+      name: schema.users.name,
+      avatar: schema.users.avatar,
+      xmtpInboxId: schema.users.xmtpInboxId,
+    }).from(schema.users).where(inArray(schema.users.xmtpInboxId, inboxIds));
+
+    const map = new Map<string, { id: string; name: string; avatar: string | null }>();
+    for (const u of matched) {
+      if (u.xmtpInboxId) map.set(u.xmtpInboxId, { id: u.id, name: u.name, avatar: u.avatar });
+    }
+    return map;
+  }
+}
 
 /**
  * Creates a UserDatabase bound to the authenticated user.
@@ -3534,6 +3750,12 @@ export function createUserDatabase(db: ChatDatabaseAdapter, authUserId: string):
     createIndex: (data) => db.createIndex(data),
     updateIndexSettings: (indexId, data) => db.updateIndexSettings(indexId, authUserId, data),
     softDeleteIndex: (indexId) => db.softDeleteIndex(indexId),
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // Public Index Discovery
+    // ─────────────────────────────────────────────────────────────────────────────
+    getPublicIndexesNotJoined: () => db.getPublicIndexesNotJoined(authUserId),
+    joinPublicIndex: (indexId) => db.joinPublicIndex(indexId, authUserId),
 
     // ─────────────────────────────────────────────────────────────────────────────
     // Opportunity Operations
@@ -3706,6 +3928,10 @@ export function createSystemDatabase(
     opportunityExistsBetweenActors: (actorIds, indexId) => {
       verifyScope(indexId);
       return db.opportunityExistsBetweenActors(actorIds, indexId);
+    },
+    getOpportunityBetweenActors: (actorIds, indexId) => {
+      verifyScope(indexId);
+      return db.getOpportunityBetweenActors(actorIds, indexId);
     },
     findOverlappingOpportunities: (actorUserIds, options) => db.findOverlappingOpportunities(actorUserIds, options),
     expireOpportunitiesByIntent: (intentId) => db.expireOpportunitiesByIntent(intentId),

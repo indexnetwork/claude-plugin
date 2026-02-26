@@ -10,7 +10,7 @@ import { Readable } from 'stream';
 import { v4 as uuidv4 } from 'uuid';
 
 import { validateFileByMetadata, FILE_SIZE_LIMITS } from '../lib/uploads.config';
-import { uploadAvatarToS3 } from '../lib/s3';
+
 import type { FileRecord } from '../types';
 
 const logger = log.controller.from("upload");
@@ -81,6 +81,12 @@ function parseMultipartFile(req: Request, fieldName = 'file', sizeLimit = FILE_S
 
 @Controller('/uploads')
 export class UploadController {
+  private storage: { uploadAvatar(buffer: Buffer, userId: string, extension: string, contentType: string): Promise<string> };
+
+  constructor(storage: { uploadAvatar(buffer: Buffer, userId: string, extension: string, contentType: string): Promise<string> }) {
+    this.storage = storage;
+  }
+
   /**
    * Upload a single file to the user's library.
    * Does not trigger intent generation. File is stored and returned so it appears in Library.
@@ -206,7 +212,7 @@ export class UploadController {
 
     try {
       const ext = path.extname(filename).replace('.', '');
-      const avatarUrl = await uploadAvatarToS3(buffer, user.id, ext, mimeType);
+      const avatarUrl = await this.storage.uploadAvatar(buffer, user.id, ext, mimeType);
 
       logger.info('Avatar uploaded', { userId: user.id, avatarUrl });
 

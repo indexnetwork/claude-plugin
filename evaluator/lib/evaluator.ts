@@ -16,7 +16,7 @@ import {
 import type { SeedRequirement, GeneratedSeedData } from "./seed/seed.types";
 import { resolveSeedRequirements } from "./seed/seed.types";
 import { generateSeedData } from "./seed/seed.generator";
-import { seedProtocol, cleanupSeed } from "./seed/protocol.seeder";
+import { seedProtocol, cleanupSeed, cleanupNoseedUser } from "./seed/protocol.seeder";
 import { signIn, createAuthSession } from "./seed/auth.session";
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -80,6 +80,7 @@ export interface GeneratedScenario {
   generatedMessage: string;
   seedRequirements?: SeedRequirement | null;
   category?: string;
+  seedData?: GeneratedSeedData;
 }
 
 export function scenarioToGenerated(s: Scenario): GeneratedScenario {
@@ -141,6 +142,41 @@ export function dbScenarioToGenerated(row: {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// SEED DATA CONTEXT FORMATTER
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function formatSeedDataContext(seedData?: GeneratedSeedData): string {
+  if (!seedData) return "";
+
+  const lines: string[] = ["## YOUR DATA IN THE SYSTEM"];
+
+  if (seedData.testUser.profile) {
+    const p = seedData.testUser.profile;
+    lines.push(`- Your name: ${p.identity?.name ?? seedData.testUser.name}`);
+    if (p.identity?.bio) lines.push(`- Your bio: ${p.identity.bio}`);
+    if (p.identity?.location) lines.push(`- Location: ${p.identity.location}`);
+    if (p.attributes?.skills?.length)
+      lines.push(`- Skills: ${p.attributes.skills.join(", ")}`);
+    if (p.attributes?.interests?.length)
+      lines.push(`- Interests: ${p.attributes.interests.join(", ")}`);
+  }
+
+  if (seedData.intents.length > 0)
+    lines.push(`- Your intents: ${seedData.intents.map((i, idx) => `${idx + 1}. "${i}"`).join("; ")}`);
+
+  if (seedData.indexes.length > 0)
+    lines.push(`- Your indexes: ${seedData.indexes.map((i) => `"${i.title}"`).join(", ")}`);
+
+  if (seedData.otherUsers?.length)
+    lines.push(`- Other users in network: ${seedData.otherUsers.map((u) => `${u.name} (intents: ${u.intents.join(", ")})`).join("; ")}`);
+
+  if (seedData.opportunities?.length)
+    lines.push(`- Opportunities: ${seedData.opportunities.map((o) => `${o.category} [${o.status}] (${Math.round(o.confidence * 100)}%)`).join("; ")}`);
+
+  return lines.length > 1 ? "\n" + lines.join("\n") + "\n" : "";
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // SIMULATED USER
 // ═══════════════════════════════════════════════════════════════════════════════
 
@@ -185,6 +221,8 @@ export class ChatSimulatedUser {
     if (this.turnCount >= this.maxTurns)
       return { message: "", shouldContinue: false, reason: "max_turns_reached" };
 
+    const seedContext = formatSeedDataContext(this.scenario.seedData);
+
     const prompt = `You are simulating a user with a SPECIFIC GOAL. STAY FOCUSED on your original need!
 
 ## YOUR ORIGINAL NEED
@@ -192,7 +230,7 @@ ${this.scenario.need.question}
 
 ## What You Expect
 ${this.scenario.need.expectation}
-
+${seedContext}
 ## Your Initial Message
 ${this.scenario.generatedMessage}
 
@@ -207,6 +245,7 @@ ${assistantMessage.slice(0, 500)}
 1. If agent addresses your ORIGINAL need → shouldContinue: false, reason: "need_fulfilled"
 2. If agent is off-topic → Redirect: "No, I wanted to [restate your need]", shouldContinue: true
 3. If misunderstood → Try once to clarify, then give up
+4. If agent shows data, verify it matches YOUR DATA above. If wrong → clarify with correct data.
 
 Respond ONLY with JSON:
 {"shouldContinue": boolean, "reason": string, "message": string}`;
@@ -251,7 +290,7 @@ export class NeedFulfillmentEvaluator {
   async evaluate(
     scenario: GeneratedScenario,
     conversation: Array<{ role: "user" | "assistant"; content: string }>,
-    metadata: { candidatesFound?: number }
+    metadata: { candidatesFound?: number; seedData?: GeneratedSeedData }
   ): Promise<{
     needFulfilled: boolean;
     fulfillmentScore: number;
@@ -265,6 +304,8 @@ export class NeedFulfillmentEvaluator {
     const conversationText = conversation
       .map((m) => `${m.role.toUpperCase()}: ${m.content}`)
       .join("\n\n");
+
+    const seedContext = formatSeedDataContext(metadata.seedData || scenario.seedData);
 
     const prompt = `Evaluate this conversation:
 
@@ -280,11 +321,12 @@ ${scenario.generatedMessage}
 ## User Persona
 ${scenario.persona.description}
 Style: ${scenario.persona.communicationStyle}
-
+${seedContext ? `\n## Ground Truth Data (what was actually in the database)\n${seedContext}` : ""}
 ## Conversation
 ${conversationText}
 
 Evaluate whether the agent fulfilled the user's need based on the expected outcome above.
+${seedContext ? "Also verify whether the agent returned CORRECT data matching the ground truth above. If the agent showed wrong names, intents, or other data, flag it as a failure signal." : ""}
 
 Respond in JSON:
 {"needFulfilled": boolean, "fulfillmentScore": number, "successSignalsMatched": string[], "failureSignalsTriggered": string[], "qualityScore": number, "qualityNotes": string[], "overallVerdict": "success"|"partial"|"failure"|"blocked", "reasoning": string}`;
@@ -381,13 +423,14 @@ export async function runChatEvaluation(
 // ═══════════════════════════════════════════════════════════════════════════════
 
 export async function runSeededEvaluation(
-  scenario: GeneratedScenario,
+  scenarioInput: GeneratedScenario,
   options: {
     apiUrl: string;
     maxTurns?: number;
     timeoutMs?: number;
   }
 ): Promise<ChatEvaluationResult> {
+  let scenario = scenarioInput;
   const requirements = resolveSeedRequirements(
     scenario.category || "meta",
     scenario.need.id,
@@ -401,6 +444,7 @@ export async function runSeededEvaluation(
     requirements.indexes.count > 0;
 
   let seedData: GeneratedSeedData | undefined;
+  let noseedEmail: string | undefined;
   let cookie: string | undefined;
 
   try {
@@ -412,6 +456,7 @@ export async function runSeededEvaluation(
       });
 
       await seedProtocol(seedData, options.apiUrl);
+      scenario = { ...scenario, seedData };
 
       const session = await signIn(
         options.apiUrl,
@@ -420,9 +465,10 @@ export async function runSeededEvaluation(
       );
       cookie = session.cookie;
     } else {
+      noseedEmail = `eval-noseed-${crypto.randomUUID().slice(0, 8)}@test.indexnetwork.io`;
       const session = await createAuthSession(
         options.apiUrl,
-        `eval-noseed-${crypto.randomUUID().slice(0, 8)}@test.indexnetwork.io`,
+        noseedEmail,
         `EvalTest!${crypto.randomUUID().slice(0, 8)}`,
         "Eval User"
       );
@@ -444,6 +490,13 @@ export async function runSeededEvaluation(
         await cleanupSeed(seedData.seedTag);
       } catch (err) {
         console.error("Seed cleanup failed:", err);
+      }
+    }
+    if (noseedEmail) {
+      try {
+        await cleanupNoseedUser(noseedEmail);
+      } catch (err) {
+        console.error("Noseed cleanup failed:", err);
       }
     }
   }
@@ -513,7 +566,7 @@ async function _runConversation(
   const evaluation = await evaluator.evaluate(
     scenario,
     fullConversation,
-    { candidatesFound: 0 }
+    { candidatesFound: 0, seedData: scenario.seedData }
   );
 
   return {

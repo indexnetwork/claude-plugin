@@ -1,4 +1,4 @@
-// no external type imports needed here
+import { apiClient } from '@/lib/api';
 
 // Discover-specific types
 export interface DiscoverIntent {
@@ -83,40 +83,11 @@ export const createDiscoverService = (api: ReturnType<typeof import('../lib/api'
     return response;
   },
 
-  // Submit discovery request with files and text
-  // This returns a function that accepts the getAccessToken callback
-  submitDiscoveryRequest: (files: File[], payload?: string) => async (getAccessToken: () => Promise<string | null>): Promise<DiscoveryRequestResponse> => {
+  submitDiscoveryRequest: async (files: File[], payload?: string): Promise<DiscoveryRequestResponse> => {
     const formData = new FormData();
+    files.forEach((file) => formData.append('files', file));
+    if (payload) formData.append('payload', payload);
 
-    // Add files
-    files.forEach((file) => {
-      formData.append('files', file);
-    });
-
-    // Add payload if provided
-    if (payload) {
-      formData.append('payload', payload);
-    }
-
-    const accessToken = await getAccessToken();
-    if (!accessToken) {
-      throw new Error('No access token available');
-    }
-
-    const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL!;
-    const response = await fetch(`${API_BASE_URL}/discover/new`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${accessToken}`
-      },
-      body: formData,
-    });
-
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.error || 'Failed to submit discovery request');
-    }
-
-    return response.json();
+    return apiClient.uploadFormData<DiscoveryRequestResponse>('/discover/new', formData);
   },
 });

@@ -12,8 +12,11 @@ import type { Runnable } from "@langchain/core/runnables";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { z } from "zod";
 import { protocolLogger } from "../support/protocol.logger";
+import { viewerCentricCardSummary } from "../support/opportunity.card-text";
 import type { Opportunity } from "../interfaces/database.interface";
 import type { ChatGraphCompositeDatabase } from "../interfaces/database.interface";
+import { Timed } from "../../performance";
+import { stripUuids } from "../support/opportunity.sanitize";
 
 /**
  * Minimal database interface required by gatherPresenterContext.
@@ -276,6 +279,7 @@ export class OpportunityPresenter {
   /**
    * Generate personalized presentation for a single opportunity.
    */
+  @Timed()
   public async present(
     input: PresenterInput,
   ): Promise<OpportunityPresentationResult> {
@@ -308,6 +312,7 @@ Produce headline, personalizedSummary (2-3 sentences in "you" language), and sug
       ];
       const result = await this.invokeWithTimeout(this.model, messages);
       const parsed = responseFormat.parse(result);
+      parsed.presentation.personalizedSummary = stripUuids(parsed.presentation.personalizedSummary);
       return parsed.presentation;
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
@@ -321,7 +326,7 @@ Produce headline, personalizedSummary (2-3 sentences in "you" language), and sug
       );
       return {
         headline: "A promising connection",
-        personalizedSummary: input.matchReasoning.slice(0, 300),
+        personalizedSummary: stripUuids(input.matchReasoning.slice(0, 300)),
         suggestedAction: "Take a look and decide whether to reach out.",
       };
     }
@@ -330,6 +335,7 @@ Produce headline, personalizedSummary (2-3 sentences in "you" language), and sug
   /**
    * Generate full home-card display contract (headline, body, narrator remark, action labels, mutual-intent label).
    */
+  @Timed()
   public async presentHomeCard(
     input: HomeCardPresenterInput,
   ): Promise<HomeCardPresentationResult> {
@@ -368,6 +374,8 @@ Produce headline, personalizedSummary, suggestedAction, narratorRemark, primaryA
       ];
       const result = await this.invokeWithTimeout(this.homeCardModel, messages);
       const parsed = homeCardResponseFormat.parse(result);
+      parsed.presentation.personalizedSummary = stripUuids(parsed.presentation.personalizedSummary);
+      parsed.presentation.narratorRemark = stripUuids(parsed.presentation.narratorRemark);
       return parsed.presentation;
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
@@ -382,7 +390,7 @@ Produce headline, personalizedSummary, suggestedAction, narratorRemark, primaryA
       const isIntroducer = input.viewerRole === "introducer";
       return {
         headline: "A promising connection",
-        personalizedSummary: input.matchReasoning.slice(0, 300),
+        personalizedSummary: stripUuids(input.matchReasoning.slice(0, 300)),
         suggestedAction: isIntroducer
           ? "Share this introduction to get things started."
           : "Take a look and decide whether to reach out.",
@@ -401,6 +409,7 @@ Produce headline, personalizedSummary, suggestedAction, narratorRemark, primaryA
   /**
    * Process multiple opportunities in parallel with bounded concurrency.
    */
+  @Timed()
   public async presentBatch(
     inputs: PresenterInput[],
     options?: { concurrency?: number },
@@ -421,6 +430,7 @@ Produce headline, personalizedSummary, suggestedAction, narratorRemark, primaryA
    * Process multiple opportunities as home cards in parallel with bounded concurrency.
    * Returns full home-card display contracts (headline, body, narrator remark, action labels, mutual-intent label).
    */
+  @Timed()
   public async presentHomeCardBatch(
     inputs: HomeCardPresenterInput[],
     options?: { concurrency?: number },
@@ -445,11 +455,14 @@ Produce headline, personalizedSummary, suggestedAction, narratorRemark, primaryA
 /**
  * Gather all context needed for the presenter from the database.
  * Fetches viewer profile, viewer intents, other party profile(s), and index in parallel.
+ *
+ * @param displayCounterpartUserId - When set (e.g. for home card), only this counterpart is included in otherPartyContext so the presenter writes about the person on the card. Omitted for introducer view (card shows both parties).
  */
 export async function gatherPresenterContext(
   database: PresenterDatabase,
   opportunity: Opportunity,
   viewerId: string,
+  displayCounterpartUserId?: string,
 ): Promise<PresenterInput> {
   const myActor = opportunity.actors.find((a) => a.userId === viewerId);
   if (!myActor) {
@@ -458,7 +471,14 @@ export async function gatherPresenterContext(
 
   const isIntroducer = myActor.role === "introducer";
   const otherActors = opportunity.actors.filter((a) => a.userId !== viewerId);
-  const otherPartyIds = [...new Set(otherActors.map((a) => a.userId))];
+  let otherPartyIds = [...new Set(otherActors.map((a) => a.userId))];
+  if (
+    displayCounterpartUserId &&
+    !isIntroducer &&
+    otherPartyIds.includes(displayCounterpartUserId)
+  ) {
+    otherPartyIds = [displayCounterpartUserId];
+  }
 
   const contextIndexId = opportunity.context?.indexId;
 
@@ -589,10 +609,20 @@ export async function gatherPresenterContext(
     }
   }
 
+  const counterpartName =
+    otherPartyIds.length === 1 && otherProfiles[0]
+      ? (otherProfiles[0] as { identity?: { name?: string } })?.identity?.name?.trim()
+      : undefined;
+  const viewerNameForFilter = viewerProfile?.identity?.name?.trim();
+  const matchReasoning =
+    counterpartName && interp.reasoning
+      ? viewerCentricCardSummary(interp.reasoning, counterpartName, 400, viewerNameForFilter)
+      : stripUuids(interp.reasoning);
+
   const result: PresenterInput = {
     viewerContext,
     otherPartyContext,
-    matchReasoning: interp.reasoning,
+    matchReasoning,
     category: interp.category ?? "connection",
     confidence:
       typeof interp.confidence === "number"

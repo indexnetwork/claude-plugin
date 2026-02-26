@@ -6,11 +6,11 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { Compass, MessagesSquare, Loader2, ChevronDown, User as UserIcon, LogOut, Library, History, Network } from 'lucide-react';
 import { useAuthContext } from '@/contexts/AuthContext';
-import { useStreamChat } from '@/contexts/StreamChatContext';
+import { useXMTP } from '@/contexts/XMTPContext';
 import { useAIChatSessions } from '@/contexts/AIChatSessionsContext';
 import { useAIChat } from '@/contexts/AIChatContext';
-import { authClient } from '@/lib/auth-client';
-import { getAvatarUrl } from '@/lib/file-utils';
+import { apiClient } from '@/lib/api';
+import UserAvatar from '@/components/UserAvatar';
 import { useIndexesState } from '@/contexts/IndexesContext';
 import { useIndexes } from '@/contexts/APIContext';
 import { useOpportunities } from '@/contexts/APIContext';
@@ -29,8 +29,8 @@ interface ChatSession {
 export default function Sidebar() {
   const router = useRouter();
   const pathname = usePathname();
-  const { user, updateUser, refetchUser } = useAuthContext();
-  const { client, isReady, requestBrowserNotifications } = useStreamChat();
+  const { user, updateUser, refetchUser, signOut } = useAuthContext();
+  const { isConnected: isReady, totalUnreadCount: xmtpUnreadCount } = useXMTP();
   const { sessionsVersion } = useAIChatSessions();
   const { clearChat } = useAIChat();
   const indexesService = useIndexes();
@@ -46,7 +46,6 @@ export default function Sidebar() {
   const [userDropdownOpen, setUserDropdownOpen] = useState(false);
   const [historyExpanded, setHistoryExpanded] = useState(true);
   const userDropdownRef = useRef<HTMLDivElement>(null);
-  const unreadRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const isMessagesView = pathname === '/chat' || (pathname?.includes('/chat') && pathname?.startsWith('/u/'));
   const isLibraryView = pathname?.startsWith('/library');
@@ -85,7 +84,7 @@ export default function Sidebar() {
       return;
     }
 
-    void requestBrowserNotifications();
+    // Browser notifications will be handled by XMTP context
 
     const isMobile = typeof window !== 'undefined' && !window.matchMedia('(min-width: 1024px)').matches;
     if (isMobile) {
@@ -131,12 +130,8 @@ export default function Sidebar() {
       try {
         if (isInitialLoad) setLoadingSessions(true);
 
-        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/chat/sessions`, {
-          credentials: 'include',
-        });
-        if (!res.ok) throw new Error('Failed to fetch sessions');
-        const data = await res.json() as { sessions: ChatSession[] };
-        setChatSessions(data.sessions.slice(0, 5));
+        const data = await apiClient.get<{ sessions: ChatSession[] }>('/chat/sessions');
+        setChatSessions(data.sessions.slice(0, 10));
       } catch (error) {
         console.error('Failed to fetch chat sessions:', error);
       } finally {
@@ -148,62 +143,10 @@ export default function Sidebar() {
   }, [sessionsVersion, user?.id]);
 
 
-  // Track unread message count
+  // Sync unread count from XMTP context
   useEffect(() => {
-    if (!isReady || !client) return;
-
-    const fetchUnreadCount = async () => {
-      try {
-        const channels = await client.queryChannels(
-          {
-            type: 'messaging',
-            members: { $in: [client.userID || ''] },
-          },
-          {},
-          { limit: 50, watch: false, state: true }
-        );
-        const total = channels.reduce((sum, channel) => sum + channel.countUnread(), 0);
-        setTotalUnreadCount(total);
-      } catch (error) {
-        console.error('Failed to fetch unread count:', error);
-      }
-    };
-
-    void fetchUnreadCount();
-
-    // Stream emits total_unread_count on many events; prefer that, with API fallback.
-    const scheduleUnreadRefresh = () => {
-      if (unreadRefreshTimerRef.current) return;
-      unreadRefreshTimerRef.current = setTimeout(() => {
-        unreadRefreshTimerRef.current = null;
-        void fetchUnreadCount();
-      }, 250);
-    };
-    const handleEvent = (event?: { total_unread_count?: number; type?: string }) => {
-      if (typeof event?.total_unread_count === 'number') {
-        setTotalUnreadCount(event.total_unread_count);
-        return;
-      }
-      scheduleUnreadRefresh();
-    };
-    client.on('message.new', handleEvent);
-    client.on('notification.message_new', handleEvent);
-    client.on('message.read', handleEvent);
-    client.on('notification.mark_read', handleEvent);
-    client.on('notification.mark_unread', handleEvent);
-
-    return () => {
-      if (unreadRefreshTimerRef.current) {
-        clearTimeout(unreadRefreshTimerRef.current);
-        unreadRefreshTimerRef.current = null;
-      }
-      client.off('message.new', handleEvent);
-      client.off('notification.message_new', handleEvent);
-      client.off('message.read', handleEvent);
-      client.off('notification.mark_read', handleEvent);
-      client.off('notification.mark_unread', handleEvent);
-    };
-  }, [isReady, client]);
+    setTotalUnreadCount(xmtpUnreadCount);
+  }, [xmtpUnreadCount]);
 
   // Close menus when clicking outside
   useEffect(() => {
@@ -288,7 +231,7 @@ export default function Sidebar() {
               ) : chatSessions.length === 0 ? (
                 <div className="text-sm text-gray-400 py-2">No conversations yet</div>
               ) : (
-                chatSessions.slice(0, 4).map((session) => {
+                chatSessions.slice(0, 10).map((session) => {
                   const isSelected = currentSessionId === session.id;
                   const sessionIndex = session.indexId ? indexes.find(i => i.id === session.indexId) : null;
                   return (
@@ -326,12 +269,12 @@ export default function Sidebar() {
             onClick={() => setUserDropdownOpen(!userDropdownOpen)}
             className="w-full flex items-center gap-3 hover:bg-gray-50 rounded-md p-2 -m-2 transition-colors"
           >
-            <Image
-              src={getAvatarUrl(user)}
-              alt={user.name || 'User'}
-              width={40}
-              height={40}
-              className="rounded-full flex-shrink-0"
+            <UserAvatar
+              id={user.id}
+              name={user.name || 'User'}
+              avatar={user.avatar}
+              size={40}
+              className="flex-shrink-0"
             />
             <div className="flex-1 min-w-0 text-left">
               <div className="text-sm font-medium text-black truncate">
@@ -381,7 +324,7 @@ export default function Sidebar() {
               <div className="border-t border-gray-100 py-1.5">
                 <button
                   className="w-full px-4 py-2 text-left flex items-center gap-2.5 text-sm text-red-500 hover:bg-red-50 hover:text-red-600 transition-colors"
-                  onClick={() => { setUserDropdownOpen(false); authClient.signOut(); }}
+                  onClick={() => { setUserDropdownOpen(false); signOut(); }}
                 >
                   <LogOut className="h-4 w-4 flex-shrink-0" />
                   Log out

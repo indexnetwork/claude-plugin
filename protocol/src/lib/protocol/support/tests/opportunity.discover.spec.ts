@@ -222,6 +222,28 @@ describe("opportunity.discover", () => {
       expect((capturedInvokeArg.options as { initialStatus?: string }).initialStatus).toBe("latent");
     });
 
+    test("invokes opportunity graph with initialStatus 'draft' and conversationId when chatSessionId provided", async () => {
+      let capturedInvokeArg: Record<string, unknown> = {};
+      const mockGraph = {
+        invoke: async (arg: Record<string, unknown>) => {
+          capturedInvokeArg = arg;
+          return { opportunities: [] };
+        },
+      };
+      await runDiscoverFromQuery({
+        opportunityGraph: mockGraph as any,
+        database: mockDatabase,
+        userId: "u1",
+        query: "find a co-founder",
+        indexScope: ["idx1"],
+        chatSessionId: "session-abc",
+      });
+      expect(capturedInvokeArg.options).toBeDefined();
+      const options = capturedInvokeArg.options as { initialStatus?: string; conversationId?: string };
+      expect(options.initialStatus).toBe("draft");
+      expect(options.conversationId).toBe("session-abc");
+    });
+
     test("passes triggerIntentId to graph when provided", async () => {
       let capturedInvokeArg: Record<string, unknown> = {};
       const mockGraph = {
@@ -239,6 +261,55 @@ describe("opportunity.discover", () => {
         triggerIntentId: "intent-123",
       });
       expect(capturedInvokeArg.triggerIntentId).toBe("intent-123");
+    });
+
+    test("falls back to user record name when profile has no identity.name", async () => {
+      const candidateId = "candidate-no-profile-name";
+      const mockGraph = {
+        invoke: async () => ({
+          opportunities: [
+            {
+              id: "opp-fallback",
+              actors: [
+                { indexId: "idx-1", userId: "u1", role: "patient" },
+                { indexId: "idx-1", userId: candidateId, role: "agent" },
+              ],
+              interpretation: {
+                reasoning: "Yuki Tanaka is a visual artist looking for clients.",
+                confidence: 0.8,
+              },
+              detection: { source: "opportunity_graph", createdBy: "agent", timestamp: new Date().toISOString() },
+              status: "latent",
+            },
+          ],
+        }),
+      };
+      // Profile exists but has NO identity.name; user record has name
+      const dbWithUserFallback = {
+        ...mockDatabase,
+        getProfile: async (userId: string) =>
+          userId === candidateId
+            ? { identity: { bio: "Visual artist and illustrator." }, attributes: {}, narrative: {} }
+            : null,
+        getUser: async (userId: string) =>
+          userId === candidateId
+            ? { name: "Yuki Tanaka", avatar: "https://example.com/yuki.jpg" }
+            : null,
+      } as unknown as ChatGraphCompositeDatabase;
+
+      const result = await runDiscoverFromQuery({
+        opportunityGraph: mockGraph as any,
+        database: dbWithUserFallback,
+        userId: "u1",
+        query: "find designers",
+        indexScope: ["idx1"],
+        minimalForChat: true,
+      });
+
+      expect(result.found).toBe(true);
+      expect(result.opportunities).toHaveLength(1);
+      // Should use the user record name, not undefined/"Someone"
+      expect(result.opportunities![0].name).toBe("Yuki Tanaka");
     });
 
     test("returns createIntentSuggested and suggestedIntentDescription when graph returns create-intent signal", async () => {

@@ -1,4 +1,4 @@
-import { pgTable, pgEnum, text, timestamp, bigint, boolean, json, jsonb, varchar, integer, uniqueIndex, index, doublePrecision, numeric } from 'drizzle-orm/pg-core';
+import { pgTable, pgEnum, text, timestamp, bigint, boolean, json, jsonb, varchar, integer, uniqueIndex, index, doublePrecision, numeric, primaryKey } from 'drizzle-orm/pg-core';
 import { vector } from 'drizzle-orm/pg-core';
 import { relations } from 'drizzle-orm';
 import type { Id } from '../types/common.types';
@@ -8,7 +8,7 @@ export const sourceType = pgEnum('source_type', ['file', 'integration', 'link', 
 export const intentModeEnum = pgEnum('intent_mode', ['REFERENTIAL', 'ATTRIBUTIVE']);
 export const speechActTypeEnum = pgEnum('speech_act_type', ['COMMISSIVE', 'DIRECTIVE']);
 export const intentStatusEnum = pgEnum('intent_status', ['ACTIVE', 'PAUSED', 'FULFILLED', 'EXPIRED']);
-export const opportunityStatusEnum = pgEnum('opportunity_status', ['latent', 'pending', 'viewed', 'accepted', 'rejected', 'expired']);
+export const opportunityStatusEnum = pgEnum('opportunity_status', ['latent', 'draft', 'pending', 'viewed', 'accepted', 'rejected', 'expired']);
 
 export interface OnboardingState {
   completedAt?: string;
@@ -86,6 +86,12 @@ export const users = pgTable('users', {
   onboarding: json('onboarding').$type<OnboardingState>().default({}),
   timezone: text('timezone').default('UTC'),
   lastWeeklyEmailSentAt: timestamp('last_weekly_email_sent_at'),
+
+  // XMTP wallet
+  walletAddress: text('wallet_address').unique(),
+  walletEncryptedKey: text('wallet_encrypted_key'),
+  xmtpInboxId: text('xmtp_inbox_id'),
+
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
   deletedAt: timestamp('deleted_at'),
@@ -131,6 +137,13 @@ export const verifications = pgTable('verifications', {
   expiresAt: timestamp('expires_at').notNull(),
   createdAt: timestamp('created_at'),
   updatedAt: timestamp('updated_at'),
+});
+
+export const jwks = pgTable('jwks', {
+  id: text('id').primaryKey(),
+  publicKey: text('public_key').notNull(),
+  privateKey: text('private_key').notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -286,7 +299,7 @@ export const indexMembers = pgTable('index_members', {
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 }, (table) => ({
-  pk: { name: 'index_members_pkey', columns: [table.indexId, table.userId] }
+  pk: primaryKey({ columns: [table.indexId, table.userId] }),
 }));
 
 export const files = pgTable('files', {
@@ -329,11 +342,13 @@ export const chatSessions = pgTable('chat_sessions', {
   userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
   title: text('title'),
   indexId: text('index_id').references(() => indexes.id, { onDelete: 'set null' }),
+  shareToken: text('share_token'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   metadata: jsonb('metadata'),
 }, (table) => ({
   userIdx: index('chat_sessions_user_idx').on(table.userId),
+  shareTokenUnique: uniqueIndex('chat_sessions_share_token_unique').on(table.shareToken),
 }));
 
 export const chatMessages = pgTable('chat_messages', {
@@ -474,6 +489,18 @@ export const chatMessagesRelations = relations(chatMessages, ({ one }) => ({
     fields: [chatMessages.sessionId],
     references: [chatSessions.id],
   }),
+}));
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Hidden conversations (persistent chat deletion)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+export const hiddenConversations = pgTable('hidden_conversations', {
+  userId: text('user_id').notNull().references(() => users.id),
+  conversationId: text('conversation_id').notNull(),
+  hiddenAt: timestamp('hidden_at').defaultNow().notNull(),
+}, (table) => ({
+  pk: primaryKey({ columns: [table.userId, table.conversationId] }),
 }));
 
 // ═══════════════════════════════════════════════════════════════════════════════

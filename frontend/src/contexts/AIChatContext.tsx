@@ -9,6 +9,7 @@ import React, {
 } from "react";
 import { usePathname } from "next/navigation";
 import { useAIChatSessions } from "@/contexts/AIChatSessionsContext";
+import { apiClient } from "@/lib/api";
 import type { Suggestion } from "@/hooks/useSuggestions";
 
 interface ThinkingStep {
@@ -29,6 +30,20 @@ export interface DiscoveryOpportunity {
  * Re-export OpportunityCardData for consumers that import from this context.
  */
 export type { OpportunityCardData } from "@/components/chat/OpportunityCardInChat";
+
+/** Per-turn debug meta (graph + tool calls) for copy debug. */
+export interface DebugTurnMeta {
+  graph: string;
+  iterations: number;
+  tools: Array<{
+    name: string;
+    args: Record<string, unknown>;
+    resultSummary: string;
+    success: boolean;
+    /** Internal steps (subgraphs, subtasks) when tool reports debugSteps. */
+    steps?: Array<{ step: string; detail?: string }>;
+  }>;
+}
 
 interface ChatMessage {
   id: string;
@@ -56,6 +71,8 @@ interface AIChatContextType {
   setScopeIndexId: (indexId: string | null) => void;
   /** Context-aware suggestions from the last done event; empty when no messages or after clear/load. */
   suggestions: Suggestion[];
+  /** Per-turn debug meta (one entry per assistant message, null for loaded history). */
+  debugMetaByTurn: (DebugTurnMeta | null)[];
   isLoading: boolean;
   sendMessage: (
     message: string,
@@ -93,6 +110,7 @@ export function AIChatProvider({ children }: { children: React.ReactNode }) {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [sessionTitle, setSessionTitle] = useState<string | null>(null);
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
+  const [debugMetaByTurn, setDebugMetaByTurn] = useState<(DebugTurnMeta | null)[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const { refetchSessions } = useAIChatSessions();
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -104,6 +122,12 @@ export function AIChatProvider({ children }: { children: React.ReactNode }) {
       const displayContent =
         message.trim() || (fileIds?.length ? "Attached file(s)." : "");
       if (!displayContent) return;
+
+      // A new sendMessage call is always intentional — reset the skip flag
+      // so the session ID from the response header is captured correctly.
+      // (clearChat with abortStream:false sets this flag for in-flight streams
+      // that should finish silently, but it must not carry over to new calls.)
+      skipSessionUpdateForRequestRef.current = false;
 
       // Add user message (include attachment names for display)
       const userMessage: ChatMessage = {
@@ -140,18 +164,9 @@ export function AIChatProvider({ children }: { children: React.ReactNode }) {
           ...(scopeIndexId ? { indexId: scopeIndexId } : {}),
         };
 
-        const response = await fetch(
-          `${process.env.NEXT_PUBLIC_API_URL}/chat/stream`,
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify(bodyPayload),
-            signal: abortControllerRef.current.signal,
-            credentials: "include",
-          },
-        );
+        const response = await apiClient.stream("/chat/stream", bodyPayload, {
+          signal: abortControllerRef.current.signal,
+        });
 
         // Get session ID from header (new session created)
         const newSessionId = response.headers.get("X-Session-Id");
@@ -266,6 +281,16 @@ export function AIChatProvider({ children }: { children: React.ReactNode }) {
                       ),
                     );
                     break;
+                  case "debug_meta":
+                    setDebugMetaByTurn((prev) => [
+                      ...prev,
+                      {
+                        graph: event.graph ?? "",
+                        iterations: event.iterations ?? 0,
+                        tools: event.tools ?? [],
+                      },
+                    ]);
+                    break;
                 }
               } catch (e) {
                 console.error("Failed to parse SSE event:", e);
@@ -306,6 +331,7 @@ export function AIChatProvider({ children }: { children: React.ReactNode }) {
     }
     setMessages([]);
     setSuggestions([]);
+    setDebugMetaByTurn([]);
     setSessionId(null);
     setSessionTitle(null);
     setSessionIndexId(null); // Clear session-bound index so new chat can use UI selection
@@ -316,17 +342,7 @@ export function AIChatProvider({ children }: { children: React.ReactNode }) {
 
   const loadSession = useCallback(async (id: string) => {
     try {
-      const base = process.env.NEXT_PUBLIC_API_URL || "";
-      const res = await fetch(`${base}/chat/session`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ sessionId: id }),
-        credentials: "include",
-      });
-      if (!res.ok) throw new Error("Failed to load session");
-      const data = (await res.json()) as {
+      const data = await apiClient.post<{
         session: {
           id: string;
           title?: string | null;
@@ -338,7 +354,7 @@ export function AIChatProvider({ children }: { children: React.ReactNode }) {
           content: string;
           createdAt: string;
         }>;
-      };
+      }>("/chat/session", { sessionId: id });
       setSessionId(data.session.id);
       setSessionTitle(data.session.title?.trim() ?? null);
       setSuggestions([]); // Session load does not return suggestions; next response will
@@ -353,6 +369,8 @@ export function AIChatProvider({ children }: { children: React.ReactNode }) {
           isStreaming: false,
         })),
       );
+      const assistantCount = data.messages.filter((m) => m.role === "assistant").length;
+      setDebugMetaByTurn(Array(assistantCount).fill(null));
     } catch (err) {
       console.error("Load session error:", err);
     }
@@ -364,16 +382,7 @@ export function AIChatProvider({ children }: { children: React.ReactNode }) {
       if (!trimmed) return false;
 
       try {
-        const base = process.env.NEXT_PUBLIC_API_URL || "";
-        const res = await fetch(`${base}/chat/session/title`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ sessionId: id, title: trimmed }),
-          credentials: "include",
-        });
-        if (!res.ok) return false;
+        await apiClient.post("/chat/session/title", { sessionId: id, title: trimmed });
         if (sessionId === id) {
           setSessionTitle(trimmed);
         }
@@ -400,6 +409,7 @@ export function AIChatProvider({ children }: { children: React.ReactNode }) {
         scopeIndexId,
         setScopeIndexId: setScopeIndexIdOverride,
         suggestions,
+        debugMetaByTurn,
         isLoading,
         sendMessage,
         clearChat,

@@ -3,14 +3,17 @@ name: Purge search from LLM
 overview: Replace every LLM-visible occurrence of the word "search" in tool descriptions, tool response messages, and documentation content with vocabulary aligned to chat.prompt.ts conventions ("look into", "find", "discover", "looking up", etc.). Internal code variables like `searchQuery` are left unchanged to avoid a 12-file rename with no user-facing benefit.
 todos:
   - id: fix-opportunity-tools
-    content: Replace 5 'search' occurrences in opportunity.tools.ts (tool description, param describe, 3 response messages)
-    status: pending
+    content: Replace 5 search occurrences in opportunity.tools.ts (tool description, param describe, 3 response messages)
+    status: completed
+  - id: fix-opportunity-discover
+    content: Replace 2 search occurrences in opportunity.discover.ts (error messages)
+    status: completed
   - id: fix-utility-tools
-    content: Replace 4 'search' occurrences in utility.tools.ts read_docs content strings
-    status: pending
+    content: Replace 3 search occurrences in utility.tools.ts read_docs content strings
+    status: completed
   - id: fix-profile-tools
-    content: Replace 1 'search' occurrence in profile.tools.ts tool description
-    status: pending
+    content: Replace 1 search occurrence in profile.tools.ts tool description
+    status: completed
 isProject: false
 ---
 
@@ -23,7 +26,7 @@ isProject: false
 - For indexed data: **"looking up"**
 - Elsewhere: **"look into"**, **"check"**, **"find matches"**, **"see who aligns"**, **"discover"**
 
-The word "search" currently appears **17 times** in text the LLM can read (tool descriptions, tool responses, docs content). These contradict the ban and cause the agent to echo "search" back to users.
+The word "search" currently appears **11 times** in text the LLM can read (tool descriptions, tool responses, docs content). These contradict the ban and cause the agent to echo "search" back to users.
 
 **Scope**: Only LLM-visible strings (tool descriptions, `.describe()` text, response messages, docs content). Internal variable names (`searchQuery`, `searchWithHydeEmbeddings`, etc.) are unchanged -- they are never shown to the user and renaming them touches 12+ files across frontend/backend/tests with no behavioral benefit.
 
@@ -31,58 +34,99 @@ The word "search" currently appears **17 times** in text the LLM can read (tool 
 
 ## Changes by file
 
-### 1. [opportunity.tools.ts](protocol/src/lib/protocol/tools/opportunity.tools.ts) -- 6 occurrences
+### 1. [opportunity.tools.ts](protocol/src/lib/protocol/tools/opportunity.tools.ts) — 5 occurrences
 
-**Tool description** (lines 106-111):
+**Tool description** (`create_opportunities`):
 
-- `"Finds matching people via semantic search"` --> `"Finds matching people based on intent overlap"`
+```diff
+- "Finds matching people via semantic search"
++ "Finds matching people based on intent overlap"
+```
 
-**Parameter `.describe()**` (line 116):
+**Parameter `.describe()`** (`searchQuery`):
 
-- `"Discovery mode: what to search for."` --> `"Discovery mode: what to look for."`
+```diff
+- "Discovery mode: what to search for."
++ "Discovery mode: what to look for."
+```
 
-**Response messages**:
+**Response messages** (3 occurrences):
 
-- Line 352: `"No matching opportunities for that search."` --> `"No matching opportunities found."`
-- Line 446: `"Use create_opportunities to search for connections."` --> `"Use create_opportunities to find connections."`
-- Line 541: same as 446 (duplicate) -- apply same fix
+```diff
+- "No matching opportunities for that search. Call create_intent with the suggested description, then create_opportunities again."
++ "No matching opportunities found. Call create_intent with the suggested description, then create_opportunities again."
+```
 
-### 2. [utility.tools.ts](protocol/src/lib/protocol/tools/utility.tools.ts) -- 4 occurrences
+```diff
+- "You have no opportunities yet. Use create_opportunities to search for connections."
++ "You have no opportunities yet. Use create_opportunities to find connections."
+```
+
+(The above message appears twice in the file — apply to both.)
+
+### 2. [opportunity.discover.ts](protocol/src/lib/protocol/support/opportunity.discover.ts) — 2 occurrences
+
+**Error/fallback messages**:
+
+```diff
+- "No matching opportunities found. Try a different search or create intents to improve matching."
++ "No matching opportunities found. Try a different query or create intents to improve matching."
+```
+
+```diff
+- "Failed to search for opportunities. Please try again."
++ "Failed to find opportunities. Please try again."
+```
+
+### 3. [utility.tools.ts](protocol/src/lib/protocol/tools/utility.tools.ts) — 3 occurrences
 
 These are inside `read_docs` content strings the LLM sees when it calls the docs tool.
 
-- Line 55: `"Has a vector embedding for semantic search"` --> `"Has a vector embedding for semantic matching"`
-- Line 80: `"Triggered by create_intent or create_opportunities with searchQuery"` --> `"Triggered by create_intent or create_opportunities with a discovery query"`
-- Line 103: `"Discovery (semantic search for matching intents)"` --> `"Discovery (semantic matching of intents)"`
-- Line 104: `"Semantic search uses HyDE embeddings"` --> `"Semantic matching uses HyDE embeddings"`
+```diff
+- "Has a vector embedding for semantic search"
++ "Has a vector embedding for semantic matching"
+```
 
-### 3. [profile.tools.ts](protocol/src/lib/protocol/tools/profile.tools.ts) -- 1 occurrence
+```diff
+- "Discovery (semantic search for matching intents)"
++ "Discovery (semantic matching of intents)"
+```
 
-**Tool description** (line 133):
+```diff
+- "Semantic search uses HyDE embeddings"
++ "Semantic matching uses HyDE embeddings"
+```
 
-- `"via web search"` --> `"via public web data"`
+### 4. [profile.tools.ts](protocol/src/lib/protocol/tools/profile.tools.ts) — 1 occurrence
 
-### 4. [chat.prompt.ts](protocol/src/lib/protocol/agents/chat.prompt.ts) -- 1 occurrence in tool table
+**Tool description** (`create_user_profile`):
 
-**Tool table** (line 149):
+```diff
+- "via web search"
++ "via web lookup"
+```
 
-- `searchQuery?` in the params column -- this mirrors the actual Zod param name, so it stays as-is for accuracy. No text change needed here since it's a parameter name, not prose.
+### 5. No changes needed
 
-### 5. [suggestion.generator.ts](protocol/src/lib/protocol/agents/suggestion.generator.ts) -- already correct
+The following files mention "search" but are correctly excluded:
 
-Line 33 already lists "search" in its **avoid** list. No change needed.
+- `**chat.prompt.ts**` — The `searchQuery?` in the tool table mirrors the actual Zod param name. The ban language itself correctly mentions "search" to tell the agent not to use it.
+- `**suggestion.generator.ts**` — Lists "search" in its **avoid** list (correct usage).
 
 ---
 
 ## What is NOT changed (and why)
 
 
-| Item                                                     | Reason                                                                                                                                                                                                            |
-| -------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `searchQuery` variable/param name                        | Used in 12 files (state, graph, queue, service, tests, frontend). Renaming is high-risk, low-reward -- the LLM sees it as a JSON key but the `.describe()` text (which we fix) has more influence on word choice. |
-| `searchWithHydeEmbeddings`, `searchWithProfileEmbedding` | Internal adapter method names, never in LLM-visible strings.                                                                                                                                                      |
-| `searchUser` (Parallels API)                             | External API call, not shown to the chat agent.                                                                                                                                                                   |
-| `hyde.generator.ts` / `profile.hyde.generator.ts`        | These prompts are for internal agents (HyDE generator), not the chat agent. The chat agent never sees them.                                                                                                       |
-| Lines 66, 69, 70, 319 in `chat.prompt.ts`                | These are the **ban itself** -- they correctly mention "search" to tell the agent not to use it.                                                                                                                  |
+| Item                                                     | Reason                                                                                                                                                                                                           |
+| -------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `searchQuery` variable/param name                        | Used in 12 files (state, graph, queue, service, tests, frontend). Renaming is high-risk, low-reward — the LLM sees it as a JSON key but the `.describe()` text (which we fix) has more influence on word choice. |
+| `searchQuery` in `read_docs` content                     | The docs reference the actual parameter name; changing it would create a mismatch between docs and the real tool parameter.                                                                                      |
+| `searchWithHydeEmbeddings`, `searchWithProfileEmbedding` | Internal adapter method names, never in LLM-visible strings.                                                                                                                                                     |
+| `searchUser` (Parallels API)                             | External API call, not shown to the chat agent.                                                                                                                                                                  |
+| `hyde.generator.ts` / `profile.hyde.generator.ts`        | These prompts are for internal agents (HyDE generator), not the chat agent. The chat agent never sees them.                                                                                                      |
+| `chat.prompt.ts` ban language                            | Lines mentioning "search" are the **ban itself** — they correctly tell the agent not to use the word.                                                                                                            |
+| `suggestion.generator.ts` avoid list                     | Lists "search" as a word to avoid (correct usage).                                                                                                                                                               |
+| `README.md`                                              | Developer documentation, not served to the LLM via `read_docs`.                                                                                                                                                  |
 
 

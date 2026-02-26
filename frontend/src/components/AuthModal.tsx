@@ -107,7 +107,7 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
     try {
       await authClient.signIn.social({
         provider: 'google',
-        callbackURL: typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000',
+        callbackURL: typeof window !== 'undefined' ? window.location.origin : '/',
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Google sign in failed');

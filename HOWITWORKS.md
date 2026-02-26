@@ -647,9 +647,6 @@ POST /chat/session
 {
   "sessionId": "session-123"
 }
-
-// Generate Stream Chat token
-POST /chat/token
 ```
 
 **Profile Management**:
