@@ -43,11 +43,6 @@ export interface HydeCandidate {
   matchedStrategies?: HydeStrategy[];
 }
 
-/** Overfetch multiplier for profile-by-embedding search; indexMembers join yields multiple rows per user, so we fetch more then dedupe. */
-const OVERFETCH_MULTIPLIER = 10;
-/** Cap on overfetch rows to bound expensive queries. */
-const MAX_OVERFETCH_ROWS = 500;
-
 export interface VectorSearchResult<T> {
   item: T;
   score: number;
@@ -152,7 +147,7 @@ export class EmbedderAdapter {
       excludeUserId,
       limitPerStrategy = 40,
       limit = 80,
-      minScore = 0.30,
+      minScore = 0.40,
     } = options;
 
     const filter = { indexScope, excludeUserId };
@@ -194,7 +189,7 @@ export class EmbedderAdapter {
       excludeUserId,
       limitPerStrategy = 40,
       limit = 80,
-      minScore = 0.30,
+      minScore = 0.40,
     } = options;
     const filter = { indexScope, excludeUserId };
     const [profileResults, intentResults] = await Promise.all([
@@ -216,8 +211,9 @@ export class EmbedderAdapter {
     minScore: number,
     strategy: HydeStrategy
   ): Promise<HydeCandidate[]> {
-    // Search userProfiles directly with the HyDE-generated embedding
-    // This finds profiles that match the hypothetical document (e.g., investor profile)
+    // Search userProfiles directly with the HyDE-generated embedding.
+    // Uses DISTINCT ON (userId) in a subquery to deduplicate at the SQL level
+    // (the indexMembers join can produce multiple rows per user).
     if (filter.indexScope?.length === 0) return [];
     const vectorStr = `[${embedding.join(',')}]`;
     const { userProfiles, indexMembers } = schema;
@@ -229,41 +225,34 @@ export class EmbedderAdapter {
       ...(filter.excludeUserId ? [ne(userProfiles.userId, filter.excludeUserId)] : []),
     ];
 
-    // Overfetch then dedupe: indexMembers join returns multiple rows per user
-    const fetchLimit = Math.min(limit * OVERFETCH_MULTIPLIER, MAX_OVERFETCH_ROWS);
-    const results = await db
-      .select({
+    // Subquery: DISTINCT ON (userId) keeps the best match per user per cosine ordering
+    const deduped = db
+      .selectDistinctOn([userProfiles.userId], {
         userId: userProfiles.userId,
-        similarity: sql<number>`1 - (${userProfiles.embedding} <=> ${vectorStr}::vector)`,
+        similarity: sql<number>`1 - (${userProfiles.embedding} <=> ${vectorStr}::vector)`.as('similarity'),
         indexId: indexMembers.indexId,
       })
       .from(userProfiles)
       .innerJoin(indexMembers, eq(userProfiles.userId, indexMembers.userId))
       .where(and(...conditions))
-      .orderBy(sql`${userProfiles.embedding} <=> ${vectorStr}::vector`)
-      .limit(fetchLimit);
+      .orderBy(userProfiles.userId, sql`${userProfiles.embedding} <=> ${vectorStr}::vector`)
+      .as('deduped');
 
-    // Dedupe by userId, keep highest similarity
-    const byUser = new Map<string, { userId: string; similarity: number; indexId: string }>();
-    for (const r of results) {
-      if (r.userId == null) continue;
-      const existing = byUser.get(r.userId);
-      if (!existing || r.similarity > existing.similarity) {
-        byUser.set(r.userId, { userId: r.userId, similarity: r.similarity, indexId: r.indexId });
-      }
-    }
+    // Outer query: re-sort by similarity globally and apply limit
+    const results = await db
+      .select()
+      .from(deduped)
+      .orderBy(sql`${deduped.similarity} DESC`)
+      .limit(limit);
 
-    return [...byUser.values()]
-      .sort((a, b) => b.similarity - a.similarity)
-      .slice(0, limit)
-      .map((r) => ({
-        type: 'profile' as const,
-        id: r.userId,
-        userId: r.userId,
-        score: r.similarity,
-        matchedVia: strategy,
-        indexId: r.indexId,
-      }));
+    return results.map((r) => ({
+      type: 'profile' as const,
+      id: r.userId,
+      userId: r.userId,
+      score: r.similarity,
+      matchedVia: strategy,
+      indexId: r.indexId,
+    }));
   }
 
   private async searchIntentsForHyde(
@@ -314,6 +303,8 @@ export class EmbedderAdapter {
     limit: number,
     minScore: number
   ): Promise<HydeCandidate[]> {
+    // Uses DISTINCT ON (userId) in a subquery to deduplicate at the SQL level
+    // (the indexMembers join can produce multiple rows per user).
     if (filter.indexScope?.length === 0) return [];
     const vectorStr = `[${embedding.join(',')}]`;
     const { userProfiles, indexMembers } = schema;
@@ -323,38 +314,35 @@ export class EmbedderAdapter {
       sql`1 - (${userProfiles.embedding} <=> ${vectorStr}::vector) >= ${minScore}`,
       ...(filter.excludeUserId ? [ne(userProfiles.userId, filter.excludeUserId)] : []),
     ];
-    // Overfetch then dedupe: indexMembers join returns multiple rows per user (user in N indexes → N rows).
-    const fetchLimit = Math.min(limit * OVERFETCH_MULTIPLIER, MAX_OVERFETCH_ROWS);
-    const results = await db
-      .select({
+
+    // Subquery: DISTINCT ON (userId) keeps the best match per user per cosine ordering
+    const deduped = db
+      .selectDistinctOn([userProfiles.userId], {
         userId: userProfiles.userId,
-        similarity: sql<number>`1 - (${userProfiles.embedding} <=> ${vectorStr}::vector)`,
+        similarity: sql<number>`1 - (${userProfiles.embedding} <=> ${vectorStr}::vector)`.as('similarity'),
         indexId: indexMembers.indexId,
       })
       .from(userProfiles)
       .innerJoin(indexMembers, eq(userProfiles.userId, indexMembers.userId))
       .where(and(...conditions))
-      .orderBy(sql`${userProfiles.embedding} <=> ${vectorStr}::vector`)
-      .limit(fetchLimit);
-    const byUser = new Map<string, { userId: string; similarity: number; indexId: string }>();
-    for (const r of results) {
-      if (r.userId == null) continue;
-      const existing = byUser.get(r.userId);
-      if (!existing || r.similarity > existing.similarity) {
-        byUser.set(r.userId, { userId: r.userId, similarity: r.similarity, indexId: r.indexId });
-      }
-    }
-    return [...byUser.values()]
-      .sort((a, b) => b.similarity - a.similarity)
-      .slice(0, limit)
-      .map((r) => ({
-        type: 'profile' as const,
-        id: r.userId,
-        userId: r.userId,
-        score: r.similarity,
-        matchedVia: 'mirror' as HydeStrategy,
-        indexId: r.indexId,
-      }));
+      .orderBy(userProfiles.userId, sql`${userProfiles.embedding} <=> ${vectorStr}::vector`)
+      .as('deduped');
+
+    // Outer query: re-sort by similarity globally and apply limit
+    const results = await db
+      .select()
+      .from(deduped)
+      .orderBy(sql`${deduped.similarity} DESC`)
+      .limit(limit);
+
+    return results.map((r) => ({
+      type: 'profile' as const,
+      id: r.userId,
+      userId: r.userId,
+      score: r.similarity,
+      matchedVia: 'mirror' as HydeStrategy,
+      indexId: r.indexId,
+    }));
   }
 
   private async searchIntentsByProfileEmbedding(

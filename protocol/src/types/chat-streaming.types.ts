@@ -286,15 +286,8 @@ export interface ResponseCompleteEvent extends ChatStreamEventBase {
 export interface DebugMetaStep {
   step: string;
   detail?: string;
-  /** Structured data for rich display (e.g., Felicity scores, classification). */
-  data?: {
-    clarity?: number;
-    authority?: number;
-    sincerity?: number;
-    entropy?: number;
-    classification?: string;
-    score?: number;
-  };
+  /** Structured data for rich display (e.g., Felicity scores, classification, candidate info). */
+  data?: Record<string, unknown>;
 }
 
 /**

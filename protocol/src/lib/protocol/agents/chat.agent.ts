@@ -57,7 +57,7 @@ export type AgentStreamEvent =
       name: string;
       success: boolean;
       summary?: string;
-      steps?: Array<{ step: string; detail?: string }>;
+      steps?: Array<{ step: string; detail?: string; data?: Record<string, unknown> }>;
     };
 
 // ═══════════════════════════════════════════════════════════════════════════════

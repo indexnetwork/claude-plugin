@@ -3,7 +3,8 @@ import type { DefineTool, ToolDeps } from "./tool.helpers";
 import { success, error, UUID_REGEX } from "./tool.helpers";
 import { MINIMAL_MAIN_TEXT_MAX_CHARS } from "../support/opportunity.constants";
 import { viewerCentricCardSummary, narratorRemarkFromReasoning } from "../support/opportunity.card-text";
-import { runDiscoverFromQuery } from "../support/opportunity.discover";
+import { runDiscoverFromQuery, continueDiscovery } from "../support/opportunity.discover";
+import { RedisCacheAdapter } from "../../../adapters/cache.adapter";
 import type { EvaluatorEntity } from "../agents/opportunity.evaluator";
 import { protocolLogger } from "../support/protocol.logger";
 import type { Opportunity } from "../interfaces/database.interface";
@@ -117,6 +118,10 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
       "Optionally pass hint (the user's reason for the introduction).\n\n" +
       "Results are saved as drafts; use update_opportunity(status='pending') to send.",
     querySchema: z.object({
+      continueFrom: z
+        .string()
+        .optional()
+        .describe("Discovery pagination: pass the discoveryId from a previous result to evaluate more candidates."),
       searchQuery: z
         .string()
         .optional()
@@ -339,6 +344,74 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
         });
       }
 
+      // ── Continuation mode ──
+      if (query.continueFrom) {
+        const cache = new RedisCacheAdapter();
+        const result = await continueDiscovery({
+          opportunityGraph: graphs.opportunity as any, // eslint-disable-line @typescript-eslint/no-explicit-any
+          database,
+          cache,
+          userId: context.userId,
+          discoveryId: query.continueFrom,
+          limit: 20,
+          minimalForChat: true,
+          ...(context.sessionId ? { chatSessionId: context.sessionId } : {}),
+        });
+
+        const allDebugSteps = [...(result.debugSteps ?? [])];
+
+        if (!result.found) {
+          return success({
+            found: false,
+            count: 0,
+            message: result.message ?? "No more matching opportunities found in the remaining candidates.",
+            debugSteps: allDebugSteps,
+          });
+        }
+
+        // Format opportunity blocks — same pattern as the discovery path below
+        const opportunityBlocks = (result.opportunities ?? []).map((opp) => {
+          const cardData = {
+            opportunityId: opp.opportunityId,
+            userId: opp.userId,
+            name: opp.name,
+            avatar: opp.avatar,
+            mainText: opp.homeCardPresentation?.personalizedSummary ?? opp.matchReason ?? "",
+            cta: opp.homeCardPresentation?.suggestedAction,
+            headline: opp.homeCardPresentation?.headline,
+            primaryActionLabel: opp.homeCardPresentation?.primaryActionLabel,
+            secondaryActionLabel: opp.homeCardPresentation?.secondaryActionLabel,
+            mutualIntentsLabel: opp.homeCardPresentation?.mutualIntentsLabel,
+            narratorChip: opp.narratorChip,
+            viewerRole: opp.viewerRole,
+            score: opp.score,
+            status: opp.status,
+          };
+          return (
+            CODE_FENCE + "opportunity\n" +
+            sanitizeJsonForCodeFence(JSON.stringify(cardData)) +
+            "\n" + CODE_FENCE
+          );
+        });
+
+        const blocksText = opportunityBlocks.join("\n\n");
+        let message =
+          "Found " + result.count + " more potential connection(s). IMPORTANT: Include the following opportunity code blocks EXACTLY as-is in your response (they render as interactive cards):\n\n" +
+          blocksText;
+
+        if (result.pagination && result.pagination.remaining > 0) {
+          message += `\n\nThere are ${result.pagination.remaining} more candidates I haven't evaluated yet. Ask if the user wants to see more — they can say "show me more" and you should call create_opportunities with continueFrom="${result.pagination.discoveryId}".`;
+        }
+
+        return success({
+          found: true,
+          count: result.count,
+          message,
+          ...(result.pagination ? { pagination: result.pagination } : {}),
+          debugSteps: allDebugSteps,
+        });
+      }
+
       // ── Discovery mode ──
       const searchQuery = query.searchQuery?.trim() ?? "";
 
@@ -384,6 +457,7 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
         return error("Invalid intent ID format.");
       }
 
+      const cache = new RedisCacheAdapter();
       const result = await runDiscoverFromQuery({
         opportunityGraph: graphs.opportunity as any, // eslint-disable-line @typescript-eslint/no-explicit-any
         database,
@@ -393,6 +467,7 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
         limit: 20,
         minimalForChat: true, // Skip LLM presenter; return only required fields for fast chat
         triggerIntentId,
+        cache,
         ...(context.sessionId ? { chatSessionId: context.sessionId } : {}),
       });
 
@@ -482,11 +557,16 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
           ". View on your home page.";
       }
 
+      if (result.pagination && result.pagination.remaining > 0) {
+        message += `\n\nThere are ${result.pagination.remaining} more candidates I haven't evaluated yet. Ask if the user wants to see more — they can say "show me more" and you should call create_opportunities with continueFrom="${result.pagination.discoveryId}".`;
+      }
+
       return success({
         found: true,
         count: result.count,
         message,
         ...(result.existingConnections?.length ? { existingConnections: result.existingConnections } : {}),
+        ...(result.pagination ? { pagination: result.pagination } : {}),
         debugSteps: allDebugSteps,
       });
     },

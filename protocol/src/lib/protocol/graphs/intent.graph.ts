@@ -339,11 +339,13 @@ export class IntentGraphFactory {
           traceEntries.unshift({
             node: "verification",
             detail: `Verified ${verified.length}/${intents.length} (${dropped} filtered as invalid)`,
+            data: undefined,
           });
         } else if (verified.length > 0) {
           traceEntries.unshift({
             node: "verification",
             detail: `Verified ${verified.length} intent(s)`,
+            data: undefined,
           });
         }
 

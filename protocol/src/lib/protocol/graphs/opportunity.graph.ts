@@ -315,6 +315,7 @@ export class OpportunityGraphFactory {
     const discoveryNode = async (state: typeof OpportunityGraphState.State) => {
       const self = this;
       return timed("OpportunityGraph.discovery", async () => {
+        const startTime = Date.now();
         logger.info('[Graph:Discovery] Starting semantic search', {
           targetIndexesCount: state.targetIndexes.length,
           discoverySource: state.discoverySource,
@@ -331,8 +332,8 @@ export class OpportunityGraphFactory {
           // (The options.limit controls final output, not search pool)
           const limitPerStrategy = 40;
           const perIndexLimit = 80;
-          // Similarity threshold for recall (0.30 = 30% similarity)
-          const minScore = 0.30;
+          // Similarity threshold for recall (0.40 = 40% similarity)
+          const minScore = 0.40;
 
           if (state.discoverySource === 'profile') {
             const embedding = state.sourceProfile?.embedding ?? null;
@@ -355,19 +356,26 @@ export class OpportunityGraphFactory {
               // Build trace entries for this path
               const traceEntries: Array<{ node: string; detail?: string; data?: Record<string, unknown> }> = [];
               
-              // Count by strategy
-              const byStrategy: Record<string, number> = {};
+              // Compute per-strategy stats from deduped candidates
+              const strategyStats: Record<string, { count: number; avgSimilarity: number }> = {};
               for (const c of queryCandidates) {
-                byStrategy[c.strategy] = (byStrategy[c.strategy] || 0) + 1;
+                const s = c.strategy || 'unknown';
+                if (!strategyStats[s]) strategyStats[s] = { count: 0, avgSimilarity: 0 };
+                strategyStats[s].count++;
+                strategyStats[s].avgSimilarity += c.similarity;
               }
-              
+              for (const s of Object.values(strategyStats)) {
+                s.avgSimilarity = s.count > 0 ? Math.round((s.avgSimilarity / s.count) * 1000) / 1000 : 0;
+              }
+
               traceEntries.push({
                 node: "discovery",
                 detail: `HyDE search → ${queryCandidates.length} candidate(s) from query path`,
                 data: {
                   candidateCount: queryCandidates.length,
-                  byStrategy,
+                  byStrategy: strategyStats,
                   searchQuery: state.searchQuery?.trim().slice(0, 80),
+                  durationMs: Date.now() - startTime,
                 },
               });
               
@@ -479,12 +487,26 @@ export class OpportunityGraphFactory {
             const profileContext = state.sourceProfile?.narrative?.context;
             const profileSummary = profileBio || profileContext || '(profile embedding)';
 
+            // Compute per-strategy stats from deduped candidates
+            const strategyStats: Record<string, { count: number; avgSimilarity: number }> = {};
+            for (const c of candidates) {
+              const s = c.strategy || 'unknown';
+              if (!strategyStats[s]) strategyStats[s] = { count: 0, avgSimilarity: 0 };
+              strategyStats[s].count++;
+              strategyStats[s].avgSimilarity += c.similarity;
+            }
+            for (const s of Object.values(strategyStats)) {
+              s.avgSimilarity = s.count > 0 ? Math.round((s.avgSimilarity / s.count) * 1000) / 1000 : 0;
+            }
+
             traceEntries.push({
               node: "discovery",
               detail: `Profile-based search → ${candidates.length} candidate(s)`,
               data: {
                 source: "profile",
                 candidateCount: candidates.length,
+                byStrategy: strategyStats,
+                durationMs: Date.now() - startTime,
               },
             });
 
@@ -633,7 +655,7 @@ export class OpportunityGraphFactory {
                 excludeUserId: state.userId,
                 limitPerStrategy,
                 limit: perIndexLimit,
-                minScore: 0.20,
+                minScore: 0.40,
               });
               for (const result of results.filter((r) => r.type === 'intent')) {
                 allCandidates.push({
@@ -671,6 +693,19 @@ export class OpportunityGraphFactory {
 
           // Build trace with individual candidate similarity scores
           const traceEntries: Array<{ node: string; detail?: string; data?: Record<string, unknown> }> = [];
+
+          // Compute per-strategy stats from deduped candidates
+          const strategyStats: Record<string, { count: number; avgSimilarity: number }> = {};
+          for (const c of candidates) {
+            const s = c.strategy || 'unknown';
+            if (!strategyStats[s]) strategyStats[s] = { count: 0, avgSimilarity: 0 };
+            strategyStats[s].count++;
+            strategyStats[s].avgSimilarity += c.similarity;
+          }
+          for (const s of Object.values(strategyStats)) {
+            s.avgSimilarity = s.count > 0 ? Math.round((s.avgSimilarity / s.count) * 1000) / 1000 : 0;
+          }
+
           traceEntries.push({
             node: "discovery",
             detail: `Query: "${searchText.slice(0, 50)}${searchText.length > 50 ? '...' : ''}" → ${candidates.length} candidate(s)`,
@@ -678,6 +713,8 @@ export class OpportunityGraphFactory {
               query: searchText.slice(0, 100),
               strategies: usedStrategies,
               candidateCount: candidates.length,
+              byStrategy: strategyStats,
+              durationMs: Date.now() - startTime,
             },
           });
 
@@ -734,6 +771,7 @@ export class OpportunityGraphFactory {
      */
     const evaluationNode = async (state: typeof OpportunityGraphState.State) => {
       return timed("OpportunityGraph.evaluation", async () => {
+        const startTime = Date.now();
         logger.info('[Graph:Evaluation] Starting evaluation', {
           candidatesCount: state.candidates.length,
         });
@@ -743,16 +781,19 @@ export class OpportunityGraphFactory {
           return { evaluatedOpportunities: [] };
         }
 
-        // Cap candidates to avoid timeout - take top by similarity
-        const maxCandidates = 50;
+        // Batch candidates to avoid timeout - evaluate top 25 per batch, store remaining
+        const EVAL_BATCH_SIZE = 25;
         const sortedCandidates = [...state.candidates]
-          .sort((a, b) => b.similarity - a.similarity)
-          .slice(0, maxCandidates);
-        
-        if (sortedCandidates.length < state.candidates.length) {
-          logger.info('[Graph:Evaluation] Capped candidates for evaluation', {
-            original: state.candidates.length,
-            capped: sortedCandidates.length,
+          .sort((a, b) => b.similarity - a.similarity);
+
+        const batchToEvaluate = sortedCandidates.slice(0, EVAL_BATCH_SIZE);
+        const remaining = sortedCandidates.slice(EVAL_BATCH_SIZE);
+
+        if (remaining.length > 0) {
+          logger.info('[Graph:Evaluation] Batched candidates for evaluation', {
+            evaluating: batchToEvaluate.length,
+            remaining: remaining.length,
+            total: sortedCandidates.length,
           });
         }
 
@@ -780,7 +821,7 @@ export class OpportunityGraphFactory {
           };
 
           const candidateEntities: EvaluatorEntity[] = await Promise.all(
-            sortedCandidates.map(async (c) => {
+            batchToEvaluate.map(async (c) => {
               const profile = await this.database.getProfile(c.candidateUserId);
               let intentPayload = c.candidatePayload;
               let intentSummary = c.candidateSummary;
@@ -878,6 +919,20 @@ export class OpportunityGraphFactory {
           // Build detailed trace entries for each evaluated candidate
           const traceEntries: Array<{ node: string; detail?: string; data?: Record<string, unknown> }> = [];
 
+          // Threshold filter trace: how many candidates were above/below similarity threshold
+          const aboveThreshold = state.candidates.filter(c => c.similarity >= 0.40).length;
+          const belowThreshold = state.candidates.length - aboveThreshold;
+          traceEntries.push({
+            node: "threshold_filter",
+            detail: `${aboveThreshold} above 0.40, ${belowThreshold} below`,
+            data: {
+              aboveThreshold,
+              belowThreshold,
+              minScore: 0.40,
+              totalCandidates: state.candidates.length,
+            },
+          });
+
           // Create a map of evaluated candidates by userId for quick lookup
           const evaluatedByUserId = new Map<string, { score: number; reasoning: string }>();
           for (const opp of evaluatedOpportunities) {
@@ -892,10 +947,13 @@ export class OpportunityGraphFactory {
             node: "evaluation",
             detail: `Evaluated ${candidateEntities.length} candidate(s) → ${passed.length} passed (min score ${minScore})`,
             data: {
-              inputCandidates: candidateEntities.length,
+              inputCandidates: batchToEvaluate.length,
               returnedFromEvaluator: evaluatedOpportunities.length,
               passedCount: passed.length,
               minScore,
+              remaining: remaining.length,
+              batchNumber: 1,
+              durationMs: Date.now() - startTime,
             },
           });
 
@@ -932,6 +990,7 @@ export class OpportunityGraphFactory {
 
           return {
             evaluatedOpportunities: passedOpportunities,
+            remainingCandidates: remaining,
             trace: traceEntries,
           };
         } catch (error) {
@@ -1151,6 +1210,7 @@ export class OpportunityGraphFactory {
      */
     const persistNode = async (state: typeof OpportunityGraphState.State) => {
       return timed("OpportunityGraph.persist", async () => {
+        const startTime = Date.now();
         logger.info('[Graph:Persist] Starting persistence (dedup-v2)', {
           opportunitiesToCreate: state.evaluatedOpportunities.length,
           initialStatus: state.options.initialStatus ?? 'pending',
@@ -1379,6 +1439,7 @@ export class OpportunityGraphFactory {
                 reactivated: reactivatedOpportunities.length,
                 existingSkipped: existingBetweenActors.length,
                 totalOutput: allOpportunities.length,
+                durationMs: Date.now() - startTime,
               },
             }],
           };
@@ -1713,6 +1774,13 @@ export class OpportunityGraphFactory {
         logger.info('[Graph:Routing] Error in prep - ending early');
         return END;
       }
+      // Continuation mode: skip scope/resolve/discovery, go straight to evaluation
+      if (state.operationMode === 'continue_discovery') {
+        logger.info('[Graph:Routing] Continue discovery → skipping to evaluation', {
+          candidatesLoaded: state.candidates.length,
+        });
+        return 'evaluation';
+      }
       logger.info('[Graph:Routing] Continuing to scope');
       return 'scope';
     };
@@ -1798,6 +1866,7 @@ export class OpportunityGraphFactory {
       // Conditional routing: early exit if no indexed intents
       .addConditionalEdges('prep', shouldContinueAfterPrep, {
         scope: 'scope',
+        evaluation: 'evaluation',
         [END]: END,
       })
 

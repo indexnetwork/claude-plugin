@@ -146,6 +146,7 @@ export const OpportunityGraphState = Annotation.Root({
    * Operation mode controls graph flow:
    * - 'create': Existing discover pipeline (Prep → Scope → Discovery → Evaluation → Ranking → Persist)
    * - 'create_introduction': Introduction path (validation → evaluation → persist) for chat-driven intros
+   * - 'continue_discovery': Pagination path (Prep → Evaluation → Ranking → Persist) using pre-loaded candidates
    * - 'read': List opportunities filtered by userId and optionally indexId (fast path)
    * - 'update': Change opportunity status (accept, reject, etc.)
    * - 'delete': Expire/archive an opportunity
@@ -153,7 +154,7 @@ export const OpportunityGraphState = Annotation.Root({
    *
    * Defaults to 'create' for backward compatibility.
    */
-  operationMode: Annotation<'create' | 'create_introduction' | 'read' | 'update' | 'delete' | 'send'>({
+  operationMode: Annotation<'create' | 'create_introduction' | 'continue_discovery' | 'read' | 'update' | 'delete' | 'send'>({
     reducer: (curr, next) => next ?? curr,
     default: () => 'create' as const,
   }),
@@ -261,7 +262,19 @@ export const OpportunityGraphState = Annotation.Root({
     reducer: (curr, next) => next ?? curr,
     default: () => [],
   }),
-  
+
+  /** Candidates not yet evaluated (for pagination -- cached in Redis by caller). */
+  remainingCandidates: Annotation<CandidateMatch[]>({
+    reducer: (curr, next) => next ?? curr,
+    default: () => [],
+  }),
+
+  /** Discovery session ID for pagination (maps to Redis cache key). */
+  discoveryId: Annotation<string | null>({
+    reducer: (curr, next) => next ?? curr,
+    default: () => null,
+  }),
+
   /** Evaluated candidates with scores (from evaluation; legacy) */
   evaluatedCandidates: Annotation<EvaluatedCandidate[]>({
     reducer: (curr, next) => next ?? curr,
