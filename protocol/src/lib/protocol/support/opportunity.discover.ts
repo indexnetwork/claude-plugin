@@ -279,7 +279,7 @@ async function enrichOpportunities(
       candidateUserId: string;
     }) => n.profile?.identity?.name ?? nameByUserId.get(n.candidateUserId) ?? "";
     homeCardPresentations = baseEnriched.map((item) => {
-      const name = counterpartName(item);
+      const name = counterpartName(item)?.trim();
       const reasoning = item.opportunity.interpretation?.reasoning ?? "";
       return {
         headline: name ? `Connection with ${name}` : "Suggested connection",
