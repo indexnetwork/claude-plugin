@@ -8,6 +8,7 @@ import { BaseLangChainAgent } from '../../langchain/langchain';
 import { HumanMessage, SystemMessage } from '@langchain/core/messages';
 import { z } from 'zod';
 import { Timed } from "../../performance";
+import { protocolLogger } from '../support/protocol.logger';
 
 export type HydeTargetCorpus = 'profiles' | 'intents';
 
@@ -61,6 +62,8 @@ const responseFormat = z.object({
  * Each lens represents a search perspective tagged with a target corpus
  * (profiles or intents) for downstream HyDE document generation.
  */
+const logger = protocolLogger("LensInferrer");
+
 export class LensInferrer extends BaseLangChainAgent {
   constructor(options?: { preset?: string; temperature?: number }) {
     super({
@@ -74,11 +77,17 @@ export class LensInferrer extends BaseLangChainAgent {
    * Infer search lenses from source text and optional profile context.
    *
    * @param input - Source text, optional profile context, optional max lenses
-   * @returns Array of inferred lenses with corpus tags
+   * @returns Array of inferred lenses with corpus tags; empty array on failure
    */
   @Timed()
   async infer(input: LensInferenceInput): Promise<LensInferenceOutput> {
     const { sourceText, profileContext, maxLenses = 3 } = input;
+
+    logger.info('Inferring lenses', {
+      sourceTextLength: sourceText.length,
+      hasProfileContext: !!profileContext,
+      maxLenses,
+    });
 
     let humanPrompt = `Identify up to ${maxLenses} search perspectives for finding relevant matches.\n\nSource: "${sourceText}"`;
 
@@ -91,12 +100,22 @@ export class LensInferrer extends BaseLangChainAgent {
       new HumanMessage(humanPrompt),
     ];
 
-    const result = await this.model.invoke({ messages }) as {
-      structuredResponse?: { lenses: Lens[] };
-    };
+    try {
+      const result = await this.model.invoke({ messages }) as {
+        structuredResponse?: { lenses: Lens[] };
+      };
 
-    const lenses = result?.structuredResponse?.lenses ?? [];
+      const lenses = (result?.structuredResponse?.lenses ?? []).slice(0, maxLenses);
 
-    return { lenses: lenses.slice(0, maxLenses) };
+      logger.info('Lenses inferred', {
+        count: lenses.length,
+        lenses: lenses.map(l => ({ label: l.label, corpus: l.corpus })),
+      });
+
+      return { lenses };
+    } catch (error: unknown) {
+      logger.error('Lens inference failed', { error });
+      return { lenses: [] };
+    }
   }
 }
