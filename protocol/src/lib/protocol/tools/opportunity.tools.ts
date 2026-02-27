@@ -4,7 +4,6 @@ import { success, error, UUID_REGEX } from "./tool.helpers";
 import { MINIMAL_MAIN_TEXT_MAX_CHARS } from "../support/opportunity.constants";
 import { viewerCentricCardSummary, narratorRemarkFromReasoning } from "../support/opportunity.card-text";
 import { runDiscoverFromQuery, continueDiscovery } from "../support/opportunity.discover";
-import { RedisCacheAdapter } from "../../../adapters/cache.adapter";
 import type { EvaluatorEntity } from "../agents/opportunity.evaluator";
 import { protocolLogger } from "../support/protocol.logger";
 import type { Opportunity } from "../interfaces/database.interface";
@@ -105,7 +104,7 @@ function buildMinimalOpportunityCard(
 }
 
 export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
-  const { database, userDb, systemDb, graphs, embedder } = deps;
+  const { database, userDb, systemDb, graphs, embedder, cache } = deps;
 
   const createOpportunities = defineTool({
     name: "create_opportunities",
@@ -346,13 +345,13 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
 
       // ── Continuation mode ──
       if (query.continueFrom) {
-        const cache = new RedisCacheAdapter();
         const result = await continueDiscovery({
-          opportunityGraph: graphs.opportunity as any, // eslint-disable-line @typescript-eslint/no-explicit-any
+          opportunityGraph: graphs.opportunity,
           database,
           cache,
           userId: context.userId,
           discoveryId: query.continueFrom,
+          expectedIndexId: context.indexId,
           limit: 20,
           minimalForChat: true,
           ...(context.sessionId ? { chatSessionId: context.sessionId } : {}),
@@ -457,9 +456,8 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
         return error("Invalid intent ID format.");
       }
 
-      const cache = new RedisCacheAdapter();
       const result = await runDiscoverFromQuery({
-        opportunityGraph: graphs.opportunity as any, // eslint-disable-line @typescript-eslint/no-explicit-any
+        opportunityGraph: graphs.opportunity,
         database,
         userId: context.userId,
         query: searchQuery,

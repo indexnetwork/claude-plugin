@@ -623,6 +623,8 @@ export async function continueDiscovery(input: {
   cache: Cache;
   userId: string;
   discoveryId: string;
+  /** If provided, validates the cached session's indexScope contains this index. */
+  expectedIndexId?: string;
   limit?: number;
   chatSessionId?: string;
   minimalForChat?: boolean;
@@ -635,6 +637,7 @@ export async function continueDiscovery(input: {
     cache,
     userId,
     discoveryId,
+    expectedIndexId,
     limit = 20,
     chatSessionId,
   } = input;
@@ -647,6 +650,15 @@ export async function continueDiscovery(input: {
       found: false,
       count: 0,
       message: "Discovery session expired or not found. Please start a new search.",
+    };
+  }
+
+  // Validate that the cached session's scope matches the current chat context
+  if (expectedIndexId && !cached.indexScope.includes(expectedIndexId)) {
+    return {
+      found: false,
+      count: 0,
+      message: "Discovery session was created in a different context. Please start a new search.",
     };
   }
 

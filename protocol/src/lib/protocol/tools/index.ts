@@ -128,12 +128,14 @@ export async function createChatTools(
   const systemDb = deps.systemDb ?? createSystemDatabase(database as Parameters<typeof createSystemDatabase>[0], resolvedContext.userId, indexScope, embedder);
 
   // ─── Assemble dependencies ─────────────────────────────────────────────────
+  const cache = new RedisCacheAdapter();
   const toolDeps: ToolDeps = {
     database,
     userDb,
     systemDb,
     scraper,
     embedder,
+    cache,
     graphs: {
       profile: profileGraph,
       intent: intentGraph,

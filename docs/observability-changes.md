@@ -109,7 +109,7 @@ Trace entries per node:
 
 ## Data Flow
 
-```
+```text
 Agent Loop
     │
     ├─► emit(iteration_start)
@@ -160,14 +160,14 @@ Graph Nodes
 ### Example Output
 
 **Collapsed view:**
-```
+```text
 ┌─────────────────────────────────────────┐
 │ TRACE │ 8 events • 47.76s           [▼] │
 └─────────────────────────────────────────┘
 ```
 
 **Expanded view:**
-```
+```text
 ┌─────────────────────────────────────────────────────────┐
 │ TRACE │ 8 events • 47.76s                           [▲] │
 ├─────────────────────────────────────────────────────────┤
@@ -218,7 +218,7 @@ Human-readable labels for tool names:
 ### Debug Step Formatting
 
 Felicity verification display:
-```
+```text
 verification: ✓ passed
 ├─ clarity: 0.85
 ├─ authority: 0.72
@@ -228,7 +228,7 @@ verification: ✓ passed
 ```
 
 Candidate evaluation display:
-```
+```text
 candidate: Vincent Weisser
 ├─ score: 85/100 ✓ passed
 ├─ matchedVia: investor

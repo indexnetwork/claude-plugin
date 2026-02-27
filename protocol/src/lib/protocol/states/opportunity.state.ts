@@ -99,7 +99,7 @@ export interface EvaluatedOpportunity {
 export interface OpportunityGraphOptions {
   /** Initial status for created opportunities (default: 'pending') */
   initialStatus?: OpportunityStatus;
-  /** Minimum score threshold (default: 70) */
+  /** Minimum score threshold (default: 50) */
   minScore?: number;
   /** Maximum opportunities to return (default: 10) */
   limit?: number;

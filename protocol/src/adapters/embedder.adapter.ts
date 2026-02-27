@@ -223,7 +223,7 @@ export class EmbedderAdapter {
       .from(userProfiles)
       .innerJoin(indexMembers, eq(userProfiles.userId, indexMembers.userId))
       .where(and(...conditions))
-      .orderBy(userProfiles.userId, sql`${userProfiles.embedding} <=> ${vectorStr}::vector`)
+      .orderBy(userProfiles.userId, sql`${userProfiles.embedding} <=> ${vectorStr}::vector`, indexMembers.indexId)
       .as('deduped');
 
     const results = await db
@@ -309,7 +309,7 @@ export class EmbedderAdapter {
       .from(userProfiles)
       .innerJoin(indexMembers, eq(userProfiles.userId, indexMembers.userId))
       .where(and(...conditions))
-      .orderBy(userProfiles.userId, sql`${userProfiles.embedding} <=> ${vectorStr}::vector`)
+      .orderBy(userProfiles.userId, sql`${userProfiles.embedding} <=> ${vectorStr}::vector`, indexMembers.indexId)
       .as('deduped');
 
     const results = await db

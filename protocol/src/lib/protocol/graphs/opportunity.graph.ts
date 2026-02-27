@@ -722,7 +722,7 @@ export class OpportunityGraphFactory {
                   detail: `[${lens}] "${doc.hydeText.slice(0, 120)}${doc.hydeText.length > 120 ? '...' : ''}"`,
                   data: {
                     lens,
-                    hydeText: doc.hydeText,
+                    hydeTextPreview: doc.hydeText.slice(0, 160) + (doc.hydeText.length > 160 ? '...' : ''),
                   },
                 });
               }
@@ -913,17 +913,17 @@ export class OpportunityGraphFactory {
           // Build detailed trace entries for each evaluated candidate
           const traceEntries: Array<{ node: string; detail?: string; data?: Record<string, unknown> }> = [];
 
-          // Threshold filter trace: how many candidates were above/below similarity threshold
-          const aboveThreshold = state.candidates.filter(c => c.similarity >= 0.40).length;
-          const belowThreshold = state.candidates.length - aboveThreshold;
+          // Threshold filter trace: how many candidates in this batch were above/below similarity threshold
+          const aboveThreshold = batchToEvaluate.filter(c => c.similarity >= 0.40).length;
+          const belowThreshold = batchToEvaluate.length - aboveThreshold;
           traceEntries.push({
             node: "threshold_filter",
-            detail: `${aboveThreshold} above 0.40, ${belowThreshold} below`,
+            detail: `${aboveThreshold} above 0.40, ${belowThreshold} below (batch of ${batchToEvaluate.length})`,
             data: {
               aboveThreshold,
               belowThreshold,
               minScore: 0.40,
-              totalCandidates: state.candidates.length,
+              batchSize: batchToEvaluate.length,
             },
           });
 

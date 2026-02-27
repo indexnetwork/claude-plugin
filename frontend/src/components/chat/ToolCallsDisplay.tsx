@@ -187,7 +187,8 @@ interface CandidateData {
 
 function CandidateScore({ data }: { data: CandidateData }) {
   const { name, bio, score, passed, reasoning, similarity, strategy } = data;
-  const displayScore = score ?? similarity;
+  const rawScore = score ?? (similarity !== undefined ? (similarity <= 1 ? similarity * 100 : similarity) : undefined);
+  const displayScore = rawScore !== undefined ? Math.round(rawScore) : undefined;
 
   if (displayScore === undefined) return null;
 
@@ -203,8 +204,7 @@ function CandidateScore({ data }: { data: CandidateData }) {
       <div className="flex items-center gap-3 text-[11px]">
         {name && <span className="text-gray-300 font-medium">{name}</span>}
         <span className={cn("font-mono", scoreColor)}>
-          {displayScore}
-          {score !== undefined ? "/100" : "%"}
+          {displayScore}/100
         </span>
         {passed !== undefined && (
           <span className={passed ? "text-green-500" : "text-red-500"}>
@@ -517,7 +517,11 @@ export function ToolCallsDisplay({
                   >
                     {hasSteps ? (
                       <button
+                        type="button"
                         onClick={() => toggleToolExpanded(idx)}
+                        aria-label={isToolExpanded ? `Collapse ${desc.action} details` : `Expand ${desc.action} details`}
+                        aria-expanded={isToolExpanded}
+                        aria-controls={`tool-steps-${idx}`}
                         className="w-3 h-3 flex items-center justify-center text-gray-500 hover:text-gray-300"
                       >
                         {isToolExpanded ? (
@@ -548,7 +552,7 @@ export function ToolCallsDisplay({
                   </div>
 
                   {hasSteps && isToolExpanded && (
-                    <div className="bg-gray-950 border-l-2 border-gray-700 ml-4 py-1">
+                    <div id={`tool-steps-${idx}`} className="bg-gray-950 border-l-2 border-gray-700 ml-4 py-1">
                       {event.steps!.map((step, stepIdx) => {
                         const isCandidate = step.step === "candidate" || step.step === "match";
                         const isFelicity = !isCandidate && step.data && ("clarity" in step.data || "classification" in step.data);

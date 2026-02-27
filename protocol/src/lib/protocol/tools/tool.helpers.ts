@@ -8,6 +8,8 @@ import type {
   SystemDatabase,
 } from "../interfaces/database.interface";
 import type { Scraper } from "../interfaces/scraper.interface";
+import type { Cache } from "../interfaces/cache.interface";
+import type { CompiledOpportunityGraph } from "../support/opportunity.discover";
 
 /** Profile without embedding — used in resolved context to avoid bloating prompts and memory. */
 export type ProfileContext = Omit<ProfileDocument, "embedding"> | null;
@@ -223,13 +225,14 @@ export interface ToolDeps {
   systemDb: SystemDatabase;
   scraper: Scraper;
   embedder: import('../interfaces/embedder.interface').Embedder;
+  cache: Cache;
   graphs: {
     profile: CompiledGraph;
     intent: CompiledGraph;
     index: CompiledGraph;
     indexMembership: CompiledGraph;
     intentIndex: CompiledGraph;
-    opportunity: CompiledGraph;
+    opportunity: CompiledOpportunityGraph;
   };
 }
 
