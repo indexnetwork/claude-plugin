@@ -105,8 +105,11 @@ export function XMTPProvider({ children }: { children: ReactNode }) {
       });
     }
 
+    // Refresh conversation list so sidebar shows updated lastMessage
+    void refreshConversations();
+
     return result.groupId;
-  }, []);
+  }, [refreshConversations]);
 
   const deleteConversation = useCallback(async (conversationId: string) => {
     await serviceRef.current.deleteConversation(conversationId);
