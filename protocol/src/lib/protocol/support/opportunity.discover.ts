@@ -439,13 +439,24 @@ export async function runDiscoverFromQuery(
       });
 
       // Extract trace from graph and append to debugSteps
-      const graphTrace = result.trace || [];
+      const graphTrace = Array.isArray(result.trace) ? result.trace : [];
       for (const t of graphTrace) {
         debugSteps.push({
           step: t.node,
           detail: t.detail,
           ...(t.data ? { data: t.data } : {}),
         });
+      }
+
+      // Bail early if the graph returned an error
+      if (result.error) {
+        logger.warn("runDiscoverFromQuery graph returned error", { error: result.error });
+        return {
+          found: false,
+          count: 0,
+          message: "Failed to find opportunities. Please try again.",
+          debugSteps,
+        };
       }
 
       // Cache remaining candidates for pagination

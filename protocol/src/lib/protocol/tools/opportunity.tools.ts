@@ -212,6 +212,7 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
             found: false,
             count: 0,
             message: result.message ?? "No more matching opportunities found in the remaining candidates.",
+            ...(result.pagination ? { pagination: result.pagination } : {}),
             debugSteps: allDebugSteps,
           });
         }
@@ -482,6 +483,7 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
           suggestedIntentDescription: result.suggestedIntentDescription,
           message:
             "No matching opportunities found. Call create_intent with the suggested description, then create_opportunities again.",
+          ...(result.pagination ? { pagination: result.pagination } : {}),
           debugSteps: allDebugSteps,
         });
       }
@@ -491,6 +493,7 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
           found: false,
           count: 0,
           message: result.message ?? "No matching opportunities found.",
+          ...(result.pagination ? { pagination: result.pagination } : {}),
           debugSteps: allDebugSteps,
         });
       }
