@@ -312,6 +312,64 @@ describe('Opportunity enricher', () => {
     }
   });
 
+  test('when incoming status is draft and enrichment merges with latent, resolved status stays draft (chat-only, not home)', async () => {
+    const sharedIntent = MEANINGFUL.intentIds.aliceMlCofounder;
+    const existing = existingOpportunity(
+      'opp-old',
+      [
+        { indexId: 'idx-1', userId: 'user-a', role: 'agent', intent: sharedIntent },
+        { indexId: 'idx-1', userId: 'user-b', role: 'patient' },
+      ],
+      'Short.',
+      'latent'
+    );
+    const db = { findOverlappingOpportunities: async () => [existing] };
+    const embedder = { generate: async () => [] } as unknown as Embedder;
+    const newData: CreateOpportunityData = {
+      ...minimalNewData(['user-a', 'user-b'], 'idx-1', 'Hi'),
+      status: 'draft',
+      actors: [
+        { indexId: 'idx-1', userId: 'user-a', role: 'party', intent: sharedIntent },
+        { indexId: 'idx-1', userId: 'user-b', role: 'party' },
+      ],
+    };
+    const result = await enrichOrCreate(db, embedder, newData);
+    expect(result.enriched).toBe(true);
+    if (result.enriched) {
+      expect(result.expiredIds).toEqual(['opp-old']);
+      expect(result.resolvedStatus).toBe('draft');
+    }
+  });
+
+  test('when incoming status is draft and enrichment merges with expired, resolved status stays draft (chat-only)', async () => {
+    const sharedIntent = MEANINGFUL.intentIds.aliceMlCofounder;
+    const existing = existingOpportunity(
+      'opp-expired',
+      [
+        { indexId: 'idx-1', userId: 'user-a', role: 'agent', intent: sharedIntent },
+        { indexId: 'idx-1', userId: 'user-b', role: 'patient' },
+      ],
+      'Short.',
+      'expired'
+    );
+    const db = { findOverlappingOpportunities: async () => [existing] };
+    const embedder = { generate: async () => [] } as unknown as Embedder;
+    const newData: CreateOpportunityData = {
+      ...minimalNewData(['user-a', 'user-b'], 'idx-1', 'Hi'),
+      status: 'draft',
+      actors: [
+        { indexId: 'idx-1', userId: 'user-a', role: 'party', intent: sharedIntent },
+        { indexId: 'idx-1', userId: 'user-b', role: 'party' },
+      ],
+    };
+    const result = await enrichOrCreate(db, embedder, newData);
+    expect(result.enriched).toBe(true);
+    if (result.enriched) {
+      expect(result.expiredIds).toEqual(['opp-expired']);
+      expect(result.resolvedStatus).toBe('draft');
+    }
+  });
+
   test('no non-introducer actors: returns original data unchanged', async () => {
     const newDataOnlyIntroducers: CreateOpportunityData = {
       ...minimalNewData([], 'idx-1', MEANINGFUL.reasoning.fundraising),

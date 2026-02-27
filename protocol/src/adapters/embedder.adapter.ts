@@ -1,5 +1,5 @@
 /**
- * Embedder adapter: OpenRouter API with OpenAI embedding model + pgvector search (HyDE multi-strategy).
+ * Embedder adapter: OpenRouter API with OpenAI embedding model + pgvector search (HyDE lens-based).
  * Uses the same OpenRouter + OpenAI embedder config as lib/embedder (OpenRouterGenerator).
  */
 
@@ -12,20 +12,15 @@ import {
 } from '../lib/embedder/embedder.config';
 import db from '../lib/drizzle/drizzle';
 import * as schema from '../schemas/database.schema';
-import {
-  type HydeStrategy,
-  HYDE_STRATEGY_TARGET_CORPUS,
-} from '../lib/protocol/agents/hyde.strategies';
-import type { ProfileEmbeddingSearchOptions } from '../lib/protocol/interfaces/embedder.interface';
+import type { LensEmbedding, ProfileEmbeddingSearchOptions } from '../lib/protocol/interfaces/embedder.interface';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Local types (align with lib/protocol/interfaces/embedder.interface.ts)
 // ─────────────────────────────────────────────────────────────────────────────
 
-export type { HydeStrategy } from '../lib/protocol/agents/hyde.strategies';
+export type { LensEmbedding } from '../lib/protocol/interfaces/embedder.interface';
 
 export interface HydeSearchOptions {
-  strategies: HydeStrategy[];
   indexScope: string[];
   excludeUserId?: string;
   limitPerStrategy?: number;
@@ -38,15 +33,10 @@ export interface HydeCandidate {
   id: string;
   userId: string;
   score: number;
-  matchedVia: HydeStrategy;
+  matchedVia: string;
   indexId: string;
-  matchedStrategies?: HydeStrategy[];
+  matchedLenses?: string[];
 }
-
-/** Overfetch multiplier for profile-by-embedding search; indexMembers join yields multiple rows per user, so we fetch more then dedupe. */
-const OVERFETCH_MULTIPLIER = 10;
-/** Cap on overfetch rows to bound expensive queries. */
-const MAX_OVERFETCH_ROWS = 500;
 
 export interface VectorSearchResult<T> {
   item: T;
@@ -139,44 +129,41 @@ export class EmbedderAdapter {
   }
 
   // ─────────────────────────────────────────────────────────────────────────
-  // HyDE multi-strategy search
+  // HyDE lens-based search
   // ─────────────────────────────────────────────────────────────────────────
 
   async searchWithHydeEmbeddings(
-    hydeEmbeddings: Map<HydeStrategy, number[]>,
+    lensEmbeddings: LensEmbedding[],
     options: HydeSearchOptions
   ): Promise<HydeCandidate[]> {
     const {
-      strategies,
       indexScope,
       excludeUserId,
-      limitPerStrategy = 10,
-      limit = 20,
-      minScore = 0.5,
+      limitPerStrategy = 40,
+      limit = 80,
+      minScore = 0.40,
     } = options;
 
     const filter = { indexScope, excludeUserId };
 
-    const searchPromises = strategies.map(async (strategy) => {
-      const embedding = hydeEmbeddings.get(strategy);
-      if (!embedding) return [];
+    const searchPromises = lensEmbeddings.map(async (le) => {
+      if (!le.embedding?.length) return [];
 
-      const targetCorpus = HYDE_STRATEGY_TARGET_CORPUS[strategy];
-      if (targetCorpus === 'profiles') {
+      if (le.corpus === 'profiles') {
         return this.searchProfilesForHyde(
-          embedding,
+          le.embedding,
           filter,
           limitPerStrategy,
           minScore,
-          strategy
+          le.lens
         );
       }
       return this.searchIntentsForHyde(
-        embedding,
+        le.embedding,
         filter,
         limitPerStrategy,
         minScore,
-        strategy
+        le.lens
       );
     });
 
@@ -192,9 +179,9 @@ export class EmbedderAdapter {
     const {
       indexScope,
       excludeUserId,
-      limitPerStrategy = 10,
-      limit = 20,
-      minScore = 0.5,
+      limitPerStrategy = 40,
+      limit = 80,
+      minScore = 0.40,
     } = options;
     const filter = { indexScope, excludeUserId };
     const [profileResults, intentResults] = await Promise.all([
@@ -214,43 +201,45 @@ export class EmbedderAdapter {
     filter: { indexScope: string[]; excludeUserId?: string },
     limit: number,
     minScore: number,
-    strategy: HydeStrategy
+    lens: string
   ): Promise<HydeCandidate[]> {
     if (filter.indexScope?.length === 0) return [];
     const vectorStr = `[${embedding.join(',')}]`;
-    const { hydeDocuments, indexMembers } = schema;
+    const { userProfiles, indexMembers } = schema;
 
     const conditions = [
-      eq(hydeDocuments.sourceType, 'profile'),
-      eq(hydeDocuments.strategy, strategy),
       inArray(indexMembers.indexId, filter.indexScope),
-      isNotNull(hydeDocuments.hydeEmbedding),
-      sql`1 - (${hydeDocuments.hydeEmbedding} <=> ${vectorStr}::vector) >= ${minScore}`,
-      ...(filter.excludeUserId ? [ne(hydeDocuments.sourceId, filter.excludeUserId)] : []),
+      isNotNull(userProfiles.embedding),
+      sql`1 - (${userProfiles.embedding} <=> ${vectorStr}::vector) >= ${minScore}`,
+      ...(filter.excludeUserId ? [ne(userProfiles.userId, filter.excludeUserId)] : []),
     ];
 
-    const results = await db
-      .select({
-        userId: hydeDocuments.sourceId,
-        similarity: sql<number>`1 - (${hydeDocuments.hydeEmbedding} <=> ${vectorStr}::vector)`,
+    const deduped = db
+      .selectDistinctOn([userProfiles.userId], {
+        userId: userProfiles.userId,
+        similarity: sql<number>`1 - (${userProfiles.embedding} <=> ${vectorStr}::vector)`.as('similarity'),
         indexId: indexMembers.indexId,
       })
-      .from(hydeDocuments)
-      .innerJoin(indexMembers, eq(hydeDocuments.sourceId, indexMembers.userId))
+      .from(userProfiles)
+      .innerJoin(indexMembers, eq(userProfiles.userId, indexMembers.userId))
       .where(and(...conditions))
-      .orderBy(sql`${hydeDocuments.hydeEmbedding} <=> ${vectorStr}::vector`)
+      .orderBy(userProfiles.userId, sql`${userProfiles.embedding} <=> ${vectorStr}::vector`, indexMembers.indexId)
+      .as('deduped');
+
+    const results = await db
+      .select()
+      .from(deduped)
+      .orderBy(sql`${deduped.similarity} DESC`)
       .limit(limit);
 
-    return results
-      .filter((r) => r.userId != null)
-      .map((r) => ({
-        type: 'profile' as const,
-        id: r.userId!,
-        userId: r.userId!,
-        score: r.similarity,
-        matchedVia: strategy,
-        indexId: r.indexId,
-      }));
+    return results.map((r) => ({
+      type: 'profile' as const,
+      id: r.userId,
+      userId: r.userId,
+      score: r.similarity,
+      matchedVia: lens,
+      indexId: r.indexId,
+    }));
   }
 
   private async searchIntentsForHyde(
@@ -258,7 +247,7 @@ export class EmbedderAdapter {
     filter: { indexScope: string[]; excludeUserId?: string },
     limit: number,
     minScore: number,
-    strategy: HydeStrategy
+    lens: string
   ): Promise<HydeCandidate[]> {
     if (filter.indexScope?.length === 0) return [];
     const vectorStr = `[${embedding.join(',')}]`;
@@ -290,7 +279,7 @@ export class EmbedderAdapter {
       id: r.id,
       userId: r.userId,
       score: r.similarity,
-      matchedVia: strategy,
+      matchedVia: lens,
       indexId: r.indexId,
     }));
   }
@@ -310,38 +299,33 @@ export class EmbedderAdapter {
       sql`1 - (${userProfiles.embedding} <=> ${vectorStr}::vector) >= ${minScore}`,
       ...(filter.excludeUserId ? [ne(userProfiles.userId, filter.excludeUserId)] : []),
     ];
-    // Overfetch then dedupe: indexMembers join returns multiple rows per user (user in N indexes → N rows).
-    const fetchLimit = Math.min(limit * OVERFETCH_MULTIPLIER, MAX_OVERFETCH_ROWS);
-    const results = await db
-      .select({
+
+    const deduped = db
+      .selectDistinctOn([userProfiles.userId], {
         userId: userProfiles.userId,
-        similarity: sql<number>`1 - (${userProfiles.embedding} <=> ${vectorStr}::vector)`,
+        similarity: sql<number>`1 - (${userProfiles.embedding} <=> ${vectorStr}::vector)`.as('similarity'),
         indexId: indexMembers.indexId,
       })
       .from(userProfiles)
       .innerJoin(indexMembers, eq(userProfiles.userId, indexMembers.userId))
       .where(and(...conditions))
-      .orderBy(sql`${userProfiles.embedding} <=> ${vectorStr}::vector`)
-      .limit(fetchLimit);
-    const byUser = new Map<string, { userId: string; similarity: number; indexId: string }>();
-    for (const r of results) {
-      if (r.userId == null) continue;
-      const existing = byUser.get(r.userId);
-      if (!existing || r.similarity > existing.similarity) {
-        byUser.set(r.userId, { userId: r.userId, similarity: r.similarity, indexId: r.indexId });
-      }
-    }
-    return [...byUser.values()]
-      .sort((a, b) => b.similarity - a.similarity)
-      .slice(0, limit)
-      .map((r) => ({
-        type: 'profile' as const,
-        id: r.userId,
-        userId: r.userId,
-        score: r.similarity,
-        matchedVia: 'mirror' as HydeStrategy,
-        indexId: r.indexId,
-      }));
+      .orderBy(userProfiles.userId, sql`${userProfiles.embedding} <=> ${vectorStr}::vector`, indexMembers.indexId)
+      .as('deduped');
+
+    const results = await db
+      .select()
+      .from(deduped)
+      .orderBy(sql`${deduped.similarity} DESC`)
+      .limit(limit);
+
+    return results.map((r) => ({
+      type: 'profile' as const,
+      id: r.userId,
+      userId: r.userId,
+      score: r.similarity,
+      matchedVia: 'profile-similarity',
+      indexId: r.indexId,
+    }));
   }
 
   private async searchIntentsByProfileEmbedding(
@@ -377,7 +361,7 @@ export class EmbedderAdapter {
       id: r.id,
       userId: r.userId,
       score: r.similarity,
-      matchedVia: 'mirror' as HydeStrategy,
+      matchedVia: 'profile-similarity',
       indexId: r.indexId,
     }));
   }
@@ -395,12 +379,12 @@ export class EmbedderAdapter {
 
     const scored = Array.from(byUser.entries()).map(([, matches]) => {
       const bestMatch = matches.reduce((a, b) => (a.score > b.score ? a : b));
-      const strategyBonus = (matches.length - 1) * 0.1;
-      const strategies = [...new Set(matches.map((m) => m.matchedVia))];
+      const lensBonus = (matches.length - 1) * 0.1;
+      const lenses = [...new Set(matches.map((m) => m.matchedVia))];
       return {
         ...bestMatch,
-        score: Math.min(bestMatch.score + strategyBonus, 1),
-        matchedStrategies: strategies.length > 1 ? strategies : undefined,
+        score: Math.min(bestMatch.score + lensBonus, 1),
+        matchedLenses: lenses.length > 1 ? lenses : undefined,
       };
     });
 
@@ -419,11 +403,10 @@ export class EmbedderAdapter {
   ): Promise<VectorSearchResult<unknown>[]> {
     const vectorStr = `[${embedding.join(',')}]`;
     const { hydeDocuments, indexMembers, userProfiles } = schema;
-    const strategy = 'mirror' as const;
 
     const baseConditions = [
       eq(hydeDocuments.sourceType, 'profile'),
-      eq(hydeDocuments.strategy, strategy),
+      eq(hydeDocuments.targetCorpus, 'profiles'),
       isNotNull(hydeDocuments.hydeEmbedding),
       sql`1 - (${hydeDocuments.hydeEmbedding} <=> ${vectorStr}::vector) >= ${minScore}`,
     ];

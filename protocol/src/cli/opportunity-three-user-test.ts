@@ -11,8 +11,8 @@
  * 1. Load 3 users by seed emails and one index.
  * 2. Ensure minimal user_profiles for each (so evaluator has profile data).
  * 3. Create one intent for User A and assign to index.
- * 4. Run HyDE for that intent (mirror + reciprocal).
- * 5. Add a profile HyDE for User B with the intent's mirror embedding so discovery finds B.
+ * 4. Run HyDE for that intent (lens-inferred strategies).
+ * 5. Add a profile HyDE for User B with the first inferred lens embedding so discovery finds B.
  * 6. Run opportunity discovery (creates latent opportunities).
  * 7. Print opportunities per user.
  */
@@ -32,6 +32,7 @@ import type { Embedder } from '../lib/protocol/interfaces/embedder.interface';
 import type { HydeCache } from '../lib/protocol/interfaces/cache.interface';
 import { HydeGraphFactory } from '../lib/protocol/graphs/hyde.graph';
 import { HydeGenerator } from '../lib/protocol/agents/hyde.generator';
+import { LensInferrer } from '../lib/protocol/agents/lens.inferrer';
 import { opportunityQueue } from '../queues/opportunity.queue';
 
 import { TESTER_PERSONAS } from './test-data';
@@ -93,29 +94,31 @@ async function main() {
   // Run HyDE for the intent (no queue; direct invoke)
   const embedder: Embedder = new EmbedderAdapter();
   const cache: HydeCache = new RedisCacheAdapter();
+  const inferrer = new LensInferrer();
   const generator = new HydeGenerator();
-  const hydeGraph = new HydeGraphFactory(graphDb, embedder, cache, generator).createGraph();
-  await hydeGraph.invoke({
+  const hydeGraph = new HydeGraphFactory(graphDb, embedder, cache, inferrer, generator).createGraph();
+  const hydeResult = await hydeGraph.invoke({
     sourceText: intentPayload,
     sourceType: 'intent',
     sourceId: created.id,
-    strategies: ['mirror', 'reciprocal'],
     forceRegenerate: true,
   });
   console.log('HyDE generated for intent');
 
-  // So discovery can find User B: add profile HyDE for B with same mirror embedding as intent
-  const intentMirror = await database.getHydeDocument('intent', created.id, 'mirror');
-  if (intentMirror?.hydeEmbedding?.length === DIMENSIONS) {
+  // So discovery can find User B: add profile HyDE for B using the first inferred lens embedding
+  const hydeEmbeddings = hydeResult.hydeEmbeddings ?? {};
+  const firstLensLabel = Object.keys(hydeEmbeddings)[0];
+  const firstEmbedding = firstLensLabel ? hydeEmbeddings[firstLensLabel] : undefined;
+  if (firstEmbedding?.length === DIMENSIONS) {
     await database.saveHydeDocument({
       sourceType: 'profile',
       sourceId: userB.id,
-      strategy: 'mirror',
+      strategy: firstLensLabel,
       targetCorpus: 'profiles',
       hydeText: `${userB.name} – developer, React, startup.`,
-      hydeEmbedding: intentMirror.hydeEmbedding,
+      hydeEmbedding: firstEmbedding,
     });
-    console.log('Profile HyDE for', userB.name, '(mirror) so discovery can match');
+    console.log('Profile HyDE for', userB.name, '(lens:', firstLensLabel, ') so discovery can match');
   }
 
   // Run opportunity discovery (synchronous)

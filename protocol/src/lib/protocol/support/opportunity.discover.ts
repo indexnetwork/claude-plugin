@@ -1,17 +1,17 @@
 /**
  * Run discovery from an ad-hoc query (e.g. chat "find me a mentor", "who needs a React developer").
  *
- * Uses selectStrategiesFromQuery to pick HyDE strategies, invokes the opportunity
- * graph with the query as sourceText and those strategies, then returns
- * formatted candidates (enriched with profile name/bio) for chat display.
+ * Invokes the opportunity graph with the query as sourceText. The HyDE graph's
+ * LensInferrer automatically infers search lenses from the query, replacing the
+ * old hardcoded strategy selection. Returns formatted candidates (enriched with
+ * profile name/bio) for chat display.
  *
  * Used by the create_opportunities chat tool.
  */
 
-import type { Opportunity } from "../interfaces/database.interface";
-import type { ChatGraphCompositeDatabase } from "../interfaces/database.interface";
-import type { OpportunityGraphOptions } from "../states/opportunity.state";
-import type { HydeStrategy } from "../agents/hyde.strategies";
+import type { Opportunity, ChatGraphCompositeDatabase } from "../interfaces/database.interface";
+import type { Cache } from "../interfaces/cache.interface";
+import type { OpportunityGraphOptions, CandidateMatch } from "../states/opportunity.state";
 import {
   OpportunityPresenter,
   gatherPresenterContext,
@@ -55,6 +55,8 @@ export interface DiscoverInput {
   minimalForChat?: boolean;
   /** When set (e.g. from chat), create opportunities as draft with context.conversationId = chatSessionId. */
   chatSessionId?: string;
+  /** Redis cache for discovery pagination. When provided, remaining candidates are cached for continuation. */
+  cache?: Cache;
 }
 
 /** Context used by the minimal (no-LLM) path; only introducerName is needed for narrator chip. */
@@ -102,6 +104,8 @@ export interface FormattedDiscoveryCandidate {
 export interface DiscoverDebugStep {
   step: string;
   detail?: string;
+  /** Structured data for rich display (e.g., candidate counts, scores). */
+  data?: Record<string, unknown>;
 }
 
 /** One existing connection (no new opportunity created; user already has one with this person). */
@@ -112,8 +116,8 @@ export interface ExistingConnection {
   opportunityId?: string;
 }
 
-/** Statuses for which an existing connection may be shown as a card; others (pending, viewed, accepted, rejected, expired) are only mentioned in text. */
-const EXISTING_CONNECTION_CARD_STATUSES = ['draft', 'latent'] as const;
+/** Statuses for which an existing connection may be shown as a card; others (viewed, accepted, rejected, expired) are only mentioned in text. */
+const EXISTING_CONNECTION_CARD_STATUSES = ['draft', 'latent', 'pending'] as const;
 
 export interface DiscoverResult {
   found: boolean;
@@ -130,58 +134,255 @@ export interface DiscoverResult {
   suggestedIntentDescription?: string;
   /** Internal steps for copy-debug (select_strategies, opportunity_graph, enrich, etc.). */
   debugSteps?: DiscoverDebugStep[];
+  /** Pagination metadata -- present when there are more unevaluated candidates. */
+  pagination?: {
+    discoveryId: string;
+    evaluated: number;
+    remaining: number;
+  };
+}
+
+/** Input for the shared enrichment helper. */
+interface EnrichOpportunitiesInput {
+  opportunities: Opportunity[];
+  database: ChatGraphCompositeDatabase;
+  userId: string;
+  chatSessionId?: string;
+  minimalForChat?: boolean;
+  presenter?: OpportunityPresenter;
+  useHomeCardFormat?: boolean;
+  debugSteps: DiscoverDebugStep[];
+  /** IDs of pre-existing opportunities merged into the list; these preserve their real status. */
+  existingOpportunityIds?: Set<string>;
 }
 
 /**
- * Infer HyDE strategies from a free-text discovery query so the opportunity graph
- * runs the right strategy mix (e.g. mentor vs hiree). Used when chat tools call
- * runDiscoverFromQuery with a user query like "find me a mentor" or
- * "who needs a React developer".
+ * Enrich raw opportunities with profile data, presentation (LLM or minimal),
+ * and narrator chips. Shared by both `runDiscoverFromQuery` and `continueDiscovery`
+ * to avoid duplicating the profile-lookup / presenter / card-formatting logic.
  *
- * @param query - User's free-text discovery query
- * @returns Array of HyDE strategy names to run
+ * @param input - Enrichment context (opportunities, database, viewer, presentation options).
+ * @returns Formatted discovery candidates ready for chat or home card display.
  */
-export function selectStrategiesFromQuery(query: string): HydeStrategy[] {
-  const base: HydeStrategy[] = ["mirror", "reciprocal"];
-  const q = (query ?? "").toLowerCase().trim();
-  if (!q) return base;
+async function enrichOpportunities(
+  input: EnrichOpportunitiesInput,
+): Promise<FormattedDiscoveryCandidate[]> {
+  const {
+    opportunities,
+    database,
+    userId,
+    chatSessionId,
+    minimalForChat,
+    presenter,
+    useHomeCardFormat,
+    debugSteps,
+    existingOpportunityIds,
+  } = input;
 
-  if (
-    /mentor|guide|guidance|learn from|advice from|someone to teach|teach me/.test(
-      q,
-    )
-  ) {
-    base.push("mentor");
+  const baseEnriched = await Promise.all(
+    opportunities.map(async (opp) => {
+      const candidateActor = opp.actors.find((a) => a.userId !== userId && a.role !== 'introducer');
+      const candidateUserId = candidateActor?.userId ?? "";
+      const viewerActor = opp.actors.find((a) => a.userId === userId);
+      const profile = candidateUserId
+        ? await database.getProfile(candidateUserId)
+        : null;
+      const confidence =
+        typeof opp.interpretation?.confidence === "number"
+          ? opp.interpretation.confidence
+          : parseFloat(String(opp.interpretation?.confidence ?? 0)) || 0;
+      return {
+        opportunity: opp,
+        candidateUserId,
+        viewerRole: viewerActor?.role ?? "party",
+        profile,
+        confidence,
+      };
+    }),
+  );
+  debugSteps.push({
+    step: "enrich_profiles",
+    detail: `${baseEnriched.length} profile(s)`,
+  });
+
+  // Batch-fetch user records (candidates + introducers) for name/avatar fallback.
+  const introducerUserIds = new Set<string>();
+  for (const item of baseEnriched) {
+    const introducer = item.opportunity.actors.find(
+      (a) => a.role === "introducer" && a.userId !== userId,
+    );
+    if (introducer?.userId) introducerUserIds.add(introducer.userId);
   }
-  if (
-    /investor|invest|funding|raise|seed|series|vc|capital|back (us|me|this)/.test(
-      q,
-    )
-  ) {
-    base.push("investor");
-  }
-  if (
-    /co-?founder|collaborator|partner|peer|build together|work together|collaborat/.test(
-      q,
-    )
-  ) {
-    base.push("collaborator");
-  }
-  if (
-    /hire|hiring|who needs|looking for (a |an )?(developer|engineer|designer|react|frontend|backend)|job|role|position|developer needed|engineer needed/.test(
-      q,
-    )
-  ) {
-    base.push("hiree");
+  const candidateUserIds = [
+    ...new Set([
+      ...baseEnriched.map((item) => item.candidateUserId).filter(Boolean),
+      ...introducerUserIds,
+    ]),
+  ];
+  const [viewerUser, ...userResults] = await Promise.all([
+    database.getUser(userId),
+    ...candidateUserIds.map((id) => database.getUser(id)),
+  ]);
+  const avatarByUserId = new Map<string, string | null>();
+  const nameByUserId = new Map<string, string | null>();
+  candidateUserIds.forEach((id, i) => {
+    const user = userResults[i] ?? null;
+    avatarByUserId.set(id, user?.avatar ?? null);
+    nameByUserId.set(id, user?.name ?? null);
+  });
+  const viewerName = viewerUser?.name ?? undefined;
+
+  let presentations: OpportunityPresentationResult[] | undefined;
+  let homeCardPresentations: HomeCardPresentationResult[] | undefined;
+  let presenterContexts:
+    | (Awaited<ReturnType<typeof gatherPresenterContext>> | MinimalPresenterContext)[]
+    | undefined;
+
+  if (minimalForChat && baseEnriched.length > 0) {
+    // Minimal path: no LLM, viewer-centric card text (introduce counterpart to viewer)
+    const counterpartName = (n: {
+      profile?: { identity?: { name?: string } } | null;
+      candidateUserId: string;
+    }) => n.profile?.identity?.name ?? nameByUserId.get(n.candidateUserId) ?? "";
+    homeCardPresentations = baseEnriched.map((item) => {
+      const name = counterpartName(item);
+      const reasoning = item.opportunity.interpretation?.reasoning ?? "";
+      return {
+        headline: `Connection with ${name}`,
+        personalizedSummary:
+          viewerCentricCardSummary(
+            reasoning,
+            name,
+            MINIMAL_MAIN_TEXT_MAX_CHARS,
+            viewerName,
+          ),
+        suggestedAction: "Start a conversation to connect.",
+        narratorRemark: narratorRemarkFromReasoning(reasoning, name, viewerName),
+        primaryActionLabel: "Start Chat",
+        secondaryActionLabel: "Skip",
+        mutualIntentsLabel: "Suggested connection",
+      };
+    });
+    presenterContexts = baseEnriched.map((item) => ({
+      introducerName: item.opportunity.detection.createdByName ?? undefined,
+    })) as MinimalPresenterContext[];
+  } else if (presenter && baseEnriched.length > 0) {
+    try {
+      presenterContexts = await Promise.all(
+        baseEnriched.map(({ opportunity }) =>
+          gatherPresenterContext(database, opportunity, userId),
+        ),
+      );
+
+      if (useHomeCardFormat) {
+        // Use full home card format with action labels, narrator remark, etc.
+        const fullContexts = presenterContexts as Awaited<
+          ReturnType<typeof gatherPresenterContext>
+        >[];
+        const homeCardInputs: HomeCardPresenterInput[] = fullContexts.map(
+          (ctx, idx) => ({
+            ...ctx,
+            mutualIntentCount: undefined, // Could compute mutual intents if needed
+            opportunityStatus: baseEnriched[idx].opportunity.status,
+          }),
+        );
+        homeCardPresentations = await presenter.presentHomeCardBatch(
+          homeCardInputs,
+          { concurrency: 5 },
+        );
+      } else {
+        // Use basic presentation format
+        presentations = await presenter.presentBatch(
+          presenterContexts as Awaited<
+            ReturnType<typeof gatherPresenterContext>
+          >[],
+          {
+            concurrency: 5,
+          },
+        );
+      }
+    } catch (error) {
+      logger.warn(
+        "Presenter enrichment failed during opportunity discovery; returning base results without presentations",
+        {
+          userId,
+          opportunitiesCount: baseEnriched.length,
+          useHomeCardFormat,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      );
+      presentations = undefined;
+      homeCardPresentations = undefined;
+    }
   }
 
-  return [...new Set(base)];
+  const enriched: FormattedDiscoveryCandidate[] = baseEnriched.map(
+    (item, idx) => {
+      const homeCard = homeCardPresentations?.[idx];
+      const ctx = presenterContexts?.[idx];
+
+      // Build narrator chip for home card format
+      let narratorChip: FormattedDiscoveryCandidate["narratorChip"];
+      if (homeCard) {
+        // Check if this is an introduction (has introducer actor)
+        const introducerActor = item.opportunity.actors.find(
+          (a) => a.role === "introducer" && a.userId !== userId,
+        );
+        if (introducerActor && ctx?.introducerName) {
+          narratorChip = {
+            name: ctx.introducerName,
+            text: homeCard.narratorRemark,
+            userId: introducerActor.userId,
+            avatar: avatarByUserId.get(introducerActor.userId) ?? null,
+          };
+        } else {
+          narratorChip = {
+            name: "Index",
+            text: homeCard.narratorRemark,
+          };
+        }
+      }
+
+      return {
+        opportunityId: item.opportunity.id,
+        userId: item.candidateUserId,
+        name: item.profile?.identity?.name ?? nameByUserId.get(item.candidateUserId) ?? undefined,
+        avatar: avatarByUserId.get(item.candidateUserId) ?? null,
+        bio: truncateForChat(item.profile?.identity?.bio),
+        matchReason:
+          truncateForChat(
+            item.opportunity.interpretation?.reasoning ?? "",
+          ) ?? "",
+        score: item.confidence,
+        status: chatSessionId && !existingOpportunityIds?.has(item.opportunity.id) ? "draft" : item.opportunity.status,
+        viewerRole: item.viewerRole,
+        ...(presentations?.[idx] && { presentation: presentations[idx] }),
+        ...(homeCard && { homeCardPresentation: homeCard }),
+        ...(narratorChip && { narratorChip }),
+      };
+    },
+  );
+  debugSteps.push({
+    step: "format_cards",
+    detail: `${enriched.length} card(s)`,
+  });
+
+  return enriched;
+}
+
+/** Cached discovery session data stored in Redis. */
+interface CachedDiscoverySession {
+  candidates: CandidateMatch[];
+  userId: string;
+  query: string;
+  indexScope: string[];
+  options: OpportunityGraphOptions;
 }
 
 /**
  * Run discovery from an ad-hoc query (e.g. "find me a mentor", "who needs a React developer").
- * Selects HyDE strategies from the query, invokes the opportunity graph, and returns
- * formatted candidates suitable for chat display.
+ * The HyDE graph's LensInferrer automatically infers search lenses from the query.
+ * Invokes the opportunity graph and returns formatted candidates suitable for chat display.
  */
 export async function runDiscoverFromQuery(
   input: DiscoverInput,
@@ -208,20 +409,14 @@ export async function runDiscoverFromQuery(
 
   const debugSteps: DiscoverDebugStep[] = [];
 
-  // When query is empty, the opportunity graph uses the user's intents in scope (indexedIntents[0].payload) and derives strategies from that
+  // When query is empty, the opportunity graph uses the user's intents in scope (indexedIntents[0].payload)
+  // Lens inference is handled automatically by the HyDE graph's LensInferrer
   const queryOrEmpty = query?.trim() ?? "";
   const options: OpportunityGraphOptions = {
     limit,
     initialStatus: chatSessionId ? "draft" : "latent",
     ...(chatSessionId ? { conversationId: chatSessionId } : {}),
   };
-  if (queryOrEmpty) {
-    options.strategies = selectStrategiesFromQuery(queryOrEmpty);
-    debugSteps.push({
-      step: "select_strategies",
-      detail: (options.strategies ?? []).join(", "),
-    });
-  }
 
   return withCallLogging(
     logger,
@@ -243,12 +438,61 @@ export async function runDiscoverFromQuery(
         options,
       });
 
+      // Extract trace from graph and append to debugSteps
+      const graphTrace = Array.isArray(result.trace) ? result.trace : [];
+      for (const t of graphTrace) {
+        debugSteps.push({
+          step: t.node,
+          detail: t.detail,
+          ...(t.data ? { data: t.data } : {}),
+        });
+      }
+
+      // Bail early if the graph returned an error
+      if (result.error) {
+        logger.warn("runDiscoverFromQuery graph returned error", { error: result.error });
+        return {
+          found: false,
+          count: 0,
+          message: "Failed to find opportunities. Please try again.",
+          debugSteps,
+        };
+      }
+
+      // Cache remaining candidates for pagination
+      let pagination: DiscoverResult['pagination'] | undefined;
+      const remainingCandidates: CandidateMatch[] = result.remainingCandidates || [];
+      if (remainingCandidates.length > 0 && input.cache) {
+        try {
+          const discoveryId = crypto.randomUUID();
+          const cacheKey = `discovery:${userId}:${discoveryId}`;
+          await input.cache.set(cacheKey, {
+            candidates: remainingCandidates,
+            userId,
+            query: queryOrEmpty,
+            indexScope,
+            options,
+          } satisfies CachedDiscoverySession, { ttl: 1800 }); // 30 minutes
+          pagination = {
+            discoveryId,
+            evaluated: (result.candidates?.length ?? 0) - remainingCandidates.length,
+            remaining: remainingCandidates.length,
+          };
+        } catch (cacheErr) {
+          logger.warn("Failed to cache discovery pagination", {
+            userId,
+            error: cacheErr instanceof Error ? cacheErr.message : String(cacheErr),
+          });
+        }
+      }
+
       if (result.createIntentSuggested && result.suggestedIntentDescription) {
         if (chatSessionId) {
           return {
             found: false,
             count: 0,
             message: "No matching opportunities found. Try a different query.",
+            pagination,
           };
         }
         return {
@@ -259,12 +503,14 @@ export async function runDiscoverFromQuery(
           message:
             "No matching opportunities; add an intent with the suggested description to improve discovery.",
           debugSteps,
+          pagination,
         };
       }
 
       let opportunities: Opportunity[] = Array.isArray(result.opportunities)
         ? result.opportunities
         : [];
+      let existingOpportunityIds: Set<string> | undefined;
       const rawExistingBetweenActors = Array.isArray(result.existingBetweenActors)
         ? result.existingBetweenActors
         : [];
@@ -286,10 +532,30 @@ export async function runDiscoverFromQuery(
           userIds: existingConnections.map((c) => c.userId),
         });
       }
-      // Only expose existing connections as cards when status is in EXISTING_CONNECTION_CARD_STATUSES (draft, latent); others are mention-only.
+      // Only expose existing connections as cards when status is in EXISTING_CONNECTION_CARD_STATUSES (draft, latent, pending); others are mention-only.
       const existingConnectionsForCards = existingConnections.filter((c) =>
         c.status != null && EXISTING_CONNECTION_CARD_STATUSES.includes(c.status as typeof EXISTING_CONNECTION_CARD_STATUSES[number])
       );
+
+      // Fetch full opportunity data for existing connections that should be shown as cards
+      // and merge them with the newly created opportunities
+      if (existingConnectionsForCards.length > 0) {
+        const existingOpps = await Promise.all(
+          existingConnectionsForCards
+            .filter((c) => c.opportunityId)
+            .map((c) => database.getOpportunity(c.opportunityId!))
+        );
+        const validExistingOpps = existingOpps.filter((o): o is Opportunity => o != null);
+        if (validExistingOpps.length > 0) {
+          logger.info("[runDiscoverFromQuery] Including existing opportunities as cards", {
+            count: validExistingOpps.length,
+            ids: validExistingOpps.map((o) => o.id),
+          });
+          existingOpportunityIds = new Set(validExistingOpps.map((o) => o.id));
+          opportunities = [...opportunities, ...validExistingOpps];
+        }
+      }
+
       // Chat discovery: when we have chatSessionId we just invoked the graph; all result.opportunities
       // were created in this call and belong to this session. Do not filter by status: the enricher
       // may set status to pending/latent when merging with related opportunities, so filtering to
@@ -316,6 +582,7 @@ export async function runDiscoverFromQuery(
             existingConnections: existingConnectionsForCards,
             existingConnectionsForMention: existingConnections,
             debugSteps,
+            pagination,
           };
         }
         return {
@@ -324,197 +591,20 @@ export async function runDiscoverFromQuery(
           message:
             "No matching opportunities found. Try a different query or create intents to improve matching.",
           debugSteps,
+          pagination,
         };
       }
 
-      const baseEnriched = await Promise.all(
-        opportunities.map(async (opp) => {
-          const candidateActor = opp.actors.find((a) => a.userId !== userId);
-          const candidateUserId = candidateActor?.userId ?? "";
-          const viewerActor = opp.actors.find((a) => a.userId === userId);
-          const profile = candidateUserId
-            ? await database.getProfile(candidateUserId)
-            : null;
-          const confidence =
-            typeof opp.interpretation?.confidence === "number"
-              ? opp.interpretation.confidence
-              : parseFloat(String(opp.interpretation?.confidence ?? 0)) || 0;
-          return {
-            opportunity: opp,
-            candidateUserId,
-            viewerRole: viewerActor?.role ?? "party",
-            profile,
-            confidence,
-          };
-        }),
-      );
-      debugSteps.push({
-        step: "enrich_profiles",
-        detail: `${baseEnriched.length} profile(s)`,
-      });
-
-      // Batch-fetch user records (candidates + introducers) for name/avatar fallback.
-      // Moved before presentation so name fallback and viewerName are available.
-      const introducerUserIds = new Set<string>();
-      for (const item of baseEnriched) {
-        const introducer = item.opportunity.actors.find(
-          (a) => a.role === "introducer" && a.userId !== userId,
-        );
-        if (introducer?.userId) introducerUserIds.add(introducer.userId);
-      }
-      const candidateUserIds = [
-        ...new Set([
-          ...baseEnriched.map((item) => item.candidateUserId),
-          ...introducerUserIds,
-        ]),
-      ];
-      const [viewerUser, ...userResults] = await Promise.all([
-        database.getUser(userId),
-        ...candidateUserIds.map((id) => database.getUser(id)),
-      ]);
-      const avatarByUserId = new Map<string, string | null>();
-      const nameByUserId = new Map<string, string | null>();
-      candidateUserIds.forEach((id, i) => {
-        const user = userResults[i] ?? null;
-        avatarByUserId.set(id, user?.avatar ?? null);
-        nameByUserId.set(id, user?.name ?? null);
-      });
-      const viewerName = viewerUser?.name ?? undefined;
-
-      let presentations: OpportunityPresentationResult[] | undefined;
-      let homeCardPresentations: HomeCardPresentationResult[] | undefined;
-      let presenterContexts:
-        | (Awaited<ReturnType<typeof gatherPresenterContext>> | MinimalPresenterContext)[]
-        | undefined;
-
-      if (input.minimalForChat && baseEnriched.length > 0) {
-        // Minimal path: no LLM, viewer-centric card text (introduce counterpart to viewer)
-        const counterpartName = (n: {
-          profile?: { identity?: { name?: string } } | null;
-          candidateUserId: string;
-        }) => n.profile?.identity?.name ?? nameByUserId.get(n.candidateUserId) ?? "";
-        homeCardPresentations = baseEnriched.map((item) => {
-          const name = counterpartName(item);
-          const reasoning = item.opportunity.interpretation?.reasoning ?? "";
-          return {
-            headline: `Connection with ${name}`,
-            personalizedSummary:
-              viewerCentricCardSummary(
-                reasoning,
-                name,
-                MINIMAL_MAIN_TEXT_MAX_CHARS,
-                viewerName,
-              ),
-            suggestedAction: "Start a conversation to connect.",
-            narratorRemark: narratorRemarkFromReasoning(reasoning, name, viewerName),
-            primaryActionLabel: "Start Chat",
-            secondaryActionLabel: "Skip",
-            mutualIntentsLabel: "Suggested connection",
-          };
-        });
-        presenterContexts = baseEnriched.map((item) => ({
-          introducerName: item.opportunity.detection.createdByName ?? undefined,
-        })) as MinimalPresenterContext[];
-      } else if (input.presenter && baseEnriched.length > 0) {
-        try {
-          presenterContexts = await Promise.all(
-            baseEnriched.map(({ opportunity }) =>
-              gatherPresenterContext(database, opportunity, userId),
-            ),
-          );
-
-          if (input.useHomeCardFormat) {
-            // Use full home card format with action labels, narrator remark, etc.
-            // In this branch presenterContexts is from gatherPresenterContext (full PresenterInput)
-            const fullContexts = presenterContexts as Awaited<
-              ReturnType<typeof gatherPresenterContext>
-            >[];
-            const homeCardInputs: HomeCardPresenterInput[] = fullContexts.map(
-              (ctx, idx) => ({
-                ...ctx,
-                mutualIntentCount: undefined, // Could compute mutual intents if needed
-                opportunityStatus: baseEnriched[idx].opportunity.status,
-              }),
-            );
-            homeCardPresentations = await input.presenter.presentHomeCardBatch(
-              homeCardInputs,
-              { concurrency: 5 },
-            );
-          } else {
-            // Use basic presentation format; presenterContexts is full type from gatherPresenterContext
-            presentations = await input.presenter.presentBatch(
-              presenterContexts as Awaited<
-                ReturnType<typeof gatherPresenterContext>
-              >[],
-              {
-                concurrency: 5,
-              },
-            );
-          }
-        } catch (error) {
-          logger.warn(
-            "Presenter enrichment failed during opportunity discovery; returning base results without presentations",
-            {
-              userId,
-              opportunitiesCount: baseEnriched.length,
-              useHomeCardFormat: input.useHomeCardFormat,
-              error: error instanceof Error ? error.message : String(error),
-            },
-          );
-          presentations = undefined;
-          homeCardPresentations = undefined;
-        }
-      }
-
-      const enriched: FormattedDiscoveryCandidate[] = baseEnriched.map(
-        (item, idx) => {
-          const homeCard = homeCardPresentations?.[idx];
-          const ctx = presenterContexts?.[idx];
-
-          // Build narrator chip for home card format
-          let narratorChip: FormattedDiscoveryCandidate["narratorChip"];
-          if (homeCard) {
-            // Check if this is an introduction (has introducer actor)
-            const introducerActor = item.opportunity.actors.find(
-              (a) => a.role === "introducer" && a.userId !== userId,
-            );
-            if (introducerActor && ctx?.introducerName) {
-              narratorChip = {
-                name: ctx.introducerName,
-                text: homeCard.narratorRemark,
-                userId: introducerActor.userId,
-                avatar: avatarByUserId.get(introducerActor.userId) ?? null,
-              };
-            } else {
-              narratorChip = {
-                name: "Index",
-                text: homeCard.narratorRemark,
-              };
-            }
-          }
-
-          return {
-            opportunityId: item.opportunity.id,
-            userId: item.candidateUserId,
-            name: item.profile?.identity?.name ?? nameByUserId.get(item.candidateUserId) ?? undefined,
-            avatar: avatarByUserId.get(item.candidateUserId) ?? null,
-            bio: truncateForChat(item.profile?.identity?.bio),
-            matchReason:
-              truncateForChat(
-                item.opportunity.interpretation?.reasoning ?? "",
-              ) ?? "",
-            score: item.confidence,
-            status: chatSessionId ? "draft" : item.opportunity.status,
-            viewerRole: item.viewerRole,
-            ...(presentations?.[idx] && { presentation: presentations[idx] }),
-            ...(homeCard && { homeCardPresentation: homeCard }),
-            ...(narratorChip && { narratorChip }),
-          };
-        },
-      );
-      debugSteps.push({
-        step: "format_cards",
-        detail: `${enriched.length} card(s)`,
+      const enriched = await enrichOpportunities({
+        opportunities,
+        database,
+        userId,
+        chatSessionId,
+        minimalForChat: input.minimalForChat,
+        presenter: input.presenter,
+        useHomeCardFormat: input.useHomeCardFormat,
+        debugSteps,
+        existingOpportunityIds,
       });
 
       return {
@@ -524,6 +614,7 @@ export async function runDiscoverFromQuery(
         ...(existingConnectionsForCards.length > 0 ? { existingConnections: existingConnectionsForCards } : {}),
         ...(existingConnections.length > 0 ? { existingConnectionsForMention: existingConnections } : {}),
         debugSteps,
+        pagination,
       };
     },
     { context: { userId }, logOutput: false },
@@ -534,4 +625,150 @@ export async function runDiscoverFromQuery(
       message: "Failed to find opportunities. Please try again.",
     };
   });
+}
+
+/**
+ * Continue a paginated discovery by evaluating the next batch of cached candidates.
+ * Loads candidates from Redis, invokes the opportunity graph in continue_discovery mode,
+ * then enriches and returns the results with updated pagination metadata.
+ *
+ * @param input - Continuation context (graph, database, cache, discoveryId, etc.).
+ * @returns Discovery result with enriched opportunities and pagination state.
+ */
+export async function continueDiscovery(input: {
+  opportunityGraph: CompiledOpportunityGraph;
+  database: ChatGraphCompositeDatabase;
+  cache: Cache;
+  userId: string;
+  discoveryId: string;
+  /** If provided, validates the cached session's indexScope contains this index. */
+  expectedIndexId?: string;
+  limit?: number;
+  chatSessionId?: string;
+  minimalForChat?: boolean;
+  presenter?: OpportunityPresenter;
+  useHomeCardFormat?: boolean;
+}): Promise<DiscoverResult> {
+  const {
+    opportunityGraph,
+    database,
+    cache,
+    userId,
+    discoveryId,
+    expectedIndexId,
+    limit = 20,
+    chatSessionId,
+  } = input;
+  const cacheKey = `discovery:${userId}:${discoveryId}`;
+
+  const cached = await cache.get<CachedDiscoverySession>(cacheKey);
+
+  if (!cached) {
+    return {
+      found: false,
+      count: 0,
+      message: "Discovery session expired or not found. Please start a new search.",
+    };
+  }
+
+  // Validate that the cached session's scope matches the current chat context
+  if (expectedIndexId && !cached.indexScope.includes(expectedIndexId)) {
+    return {
+      found: false,
+      count: 0,
+      message: "Discovery session was created in a different context. Please start a new search.",
+    };
+  }
+
+  const debugSteps: DiscoverDebugStep[] = [];
+
+  const result = await opportunityGraph.invoke({
+    userId,
+    searchQuery: cached.query || undefined,
+    candidates: cached.candidates,
+    operationMode: 'continue_discovery' as const,
+    options: {
+      ...cached.options,
+      limit,
+      ...(chatSessionId ? { conversationId: chatSessionId } : {}),
+    },
+  });
+
+  // Extract trace from graph and append to debugSteps
+  const graphTrace = result.trace || [];
+  for (const t of graphTrace) {
+    debugSteps.push({
+      step: t.node,
+      detail: t.detail,
+      ...(t.data ? { data: t.data } : {}),
+    });
+  }
+
+  // Bail early if the graph returned an error
+  if (result.error) {
+    logger.warn("continueDiscovery graph returned error", { error: result.error });
+    return {
+      found: false,
+      count: 0,
+      message: "Discovery continuation failed. Please start a new search.",
+      debugSteps,
+    };
+  }
+
+  // Update cache with remaining candidates or delete if exhausted
+  const remaining: CandidateMatch[] = result.remainingCandidates || [];
+  let pagination: DiscoverResult['pagination'] | undefined;
+  try {
+    if (remaining.length > 0) {
+      await cache.set(cacheKey, {
+        ...cached,
+        candidates: remaining,
+      } satisfies CachedDiscoverySession, { ttl: 1800 });
+      pagination = {
+        discoveryId,
+        evaluated: cached.candidates.length - remaining.length,
+        remaining: remaining.length,
+      };
+    } else {
+      await cache.delete(cacheKey);
+    }
+  } catch (cacheErr) {
+    logger.warn("Failed to update discovery pagination cache", {
+      userId,
+      discoveryId,
+      error: cacheErr instanceof Error ? cacheErr.message : String(cacheErr),
+    });
+  }
+
+  // Check for opportunities in result
+  const opportunities: Opportunity[] = Array.isArray(result.opportunities) ? result.opportunities : [];
+
+  if (opportunities.length === 0) {
+    return {
+      found: false,
+      count: 0,
+      message: "No more matching opportunities found in the remaining candidates.",
+      debugSteps,
+      pagination,
+    };
+  }
+
+  const enriched = await enrichOpportunities({
+    opportunities,
+    database,
+    userId,
+    chatSessionId,
+    minimalForChat: input.minimalForChat,
+    presenter: input.presenter,
+    useHomeCardFormat: input.useHomeCardFormat,
+    debugSteps,
+  });
+
+  return {
+    found: true,
+    count: enriched.length,
+    opportunities: enriched,
+    debugSteps,
+    pagination,
+  };
 }

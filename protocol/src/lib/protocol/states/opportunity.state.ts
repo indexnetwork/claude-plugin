@@ -1,7 +1,7 @@
 import { Annotation } from "@langchain/langgraph";
 import type { Id } from '../../../types/common.types';
 import type { OpportunityStatus, Opportunity } from '../interfaces/database.interface';
-import type { HydeStrategy } from '../interfaces/embedder.interface';
+import type { Lens } from '../interfaces/embedder.interface';
 import type { EvaluatorEntity } from '../agents/opportunity.evaluator';
 
 /**
@@ -50,7 +50,8 @@ export interface CandidateMatch {
   candidateIntentId?: Id<'intents'>;
   indexId: Id<'indexes'>;
   similarity: number;
-  strategy: HydeStrategy;
+  /** Free-text lens label that produced this match. */
+  lens: string;
   candidatePayload: string;
   candidateSummary?: string;
 }
@@ -68,7 +69,8 @@ export interface EvaluatedCandidate {
   score: number; // 0-100
   reasoning: string; // Third-party analytical explanation of the match (for LLM agents)
   valencyRole: 'Agent' | 'Patient' | 'Peer';
-  strategy: HydeStrategy;
+  /** Free-text lens label that produced this match. */
+  lens: string;
 }
 
 /**
@@ -97,12 +99,12 @@ export interface EvaluatedOpportunity {
 export interface OpportunityGraphOptions {
   /** Initial status for created opportunities (default: 'pending') */
   initialStatus?: OpportunityStatus;
-  /** Minimum score threshold (default: 70) */
+  /** Minimum score threshold (default: 50) */
   minScore?: number;
-  /** Maximum opportunities to return (default: 10) */
+  /** Maximum opportunities to return (default: 20) */
   limit?: number;
-  /** HyDE strategies to use (inferred if not provided) */
-  strategies?: HydeStrategy[];
+  /** Pre-inferred lenses (if not provided, lens inference runs automatically in HyDE graph) */
+  lenses?: Lens[];
   /** User's search query for HyDE generation */
   hydeDescription?: string;
   /** Existing opportunities summary for evaluator deduplication */
@@ -146,6 +148,7 @@ export const OpportunityGraphState = Annotation.Root({
    * Operation mode controls graph flow:
    * - 'create': Existing discover pipeline (Prep → Scope → Discovery → Evaluation → Ranking → Persist)
    * - 'create_introduction': Introduction path (validation → evaluation → persist) for chat-driven intros
+   * - 'continue_discovery': Pagination path (Prep → Evaluation → Ranking → Persist) using pre-loaded candidates
    * - 'read': List opportunities filtered by userId and optionally indexId (fast path)
    * - 'update': Change opportunity status (accept, reject, etc.)
    * - 'delete': Expire/archive an opportunity
@@ -153,7 +156,7 @@ export const OpportunityGraphState = Annotation.Root({
    *
    * Defaults to 'create' for backward compatibility.
    */
-  operationMode: Annotation<'create' | 'create_introduction' | 'read' | 'update' | 'delete' | 'send'>({
+  operationMode: Annotation<'create' | 'create_introduction' | 'continue_discovery' | 'read' | 'update' | 'delete' | 'send'>({
     reducer: (curr, next) => next ?? curr,
     default: () => 'create' as const,
   }),
@@ -250,10 +253,10 @@ export const OpportunityGraphState = Annotation.Root({
     default: () => undefined,
   }),
 
-  /** HyDE embeddings per strategy (from discovery) */
-  hydeEmbeddings: Annotation<Record<HydeStrategy, number[]>>({
+  /** HyDE embeddings per lens label (from discovery) */
+  hydeEmbeddings: Annotation<Record<string, number[]>>({
     reducer: (curr, next) => next ?? curr,
-    default: () => ({} as Record<HydeStrategy, number[]>),
+    default: () => ({}),
   }),
   
   /** Candidate matches from semantic search (from discovery) */
@@ -261,7 +264,19 @@ export const OpportunityGraphState = Annotation.Root({
     reducer: (curr, next) => next ?? curr,
     default: () => [],
   }),
-  
+
+  /** Candidates not yet evaluated (for pagination -- cached in Redis by caller). */
+  remainingCandidates: Annotation<CandidateMatch[]>({
+    reducer: (curr, next) => next ?? curr,
+    default: () => [],
+  }),
+
+  /** Discovery session ID for pagination (maps to Redis cache key). */
+  discoveryId: Annotation<string | null>({
+    reducer: (curr, next) => next ?? curr,
+    default: () => null,
+  }),
+
   /** Evaluated candidates with scores (from evaluation; legacy) */
   evaluatedCandidates: Annotation<EvaluatedCandidate[]>({
     reducer: (curr, next) => next ?? curr,
@@ -329,5 +344,17 @@ export const OpportunityGraphState = Annotation.Root({
   } | undefined>({
     reducer: (curr, next) => next,
     default: () => undefined,
+  }),
+
+  // ─── Trace Output ───
+
+  /**
+   * Accumulated trace entries from each graph node.
+   * Used for observability: surfaces internal processing steps (search query, HyDE strategies,
+   * candidates found, evaluation results) to the frontend.
+   */
+  trace: Annotation<Array<{ node: string; detail?: string; data?: Record<string, unknown> }>>({
+    reducer: (curr, next) => [...curr, ...(next || [])],
+    default: () => [],
   }),
 });

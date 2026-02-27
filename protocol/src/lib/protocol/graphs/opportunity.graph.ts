@@ -51,26 +51,23 @@ export type OpportunityEvaluatorLike = {
     actors: Array<{ userId: string; role: 'agent' | 'patient' | 'peer'; intentId?: string | null }>;
   }>>;
 };
-import type { Embedder, HydeStrategy } from '../interfaces/embedder.interface';
+import type { Embedder, LensEmbedding } from '../interfaces/embedder.interface';
 import type {
   CreateOpportunityData,
   Opportunity,
   OpportunityActor,
   ActiveIntent,
 } from '../interfaces/database.interface';
-import { selectStrategies } from '../support/opportunity.utils';
 import { persistOpportunities } from '../support/opportunity.persist';
 import { protocolLogger, withCallLogging } from '../support/protocol.logger';
 import { timed } from '../../performance';
 
 const logger = protocolLogger('OpportunityGraph');
 
-/** Input shape for the HyDE generator invoke call (query-based embedding). */
+/** Input shape for the HyDE graph invoke call (query-based embedding). */
 export interface HydeGeneratorInvokeInput {
   sourceType: 'query';
   sourceText: string;
-  strategies: HydeStrategy[];
-  context?: { indexId: string };
   forceRegenerate?: boolean;
 }
 
@@ -90,7 +87,11 @@ export class OpportunityGraphFactory {
     private database: OpportunityGraphDatabase,
     private embedder: Embedder,
     private hydeGenerator: {
-      invoke: (input: HydeGeneratorInvokeInput) => Promise<{ hydeEmbeddings: Record<string, number[]> }>;
+      invoke: (input: HydeGeneratorInvokeInput) => Promise<{
+        hydeEmbeddings: Record<string, number[]>;
+        lenses?: Array<{ label: string; corpus: 'profiles' | 'intents' }>;
+        hydeDocuments?: Record<string, { hydeText?: string; lens?: string }>;
+      }>;
     },
     private optionalEvaluator?: OpportunityEvaluatorLike,
     private queueNotification?: QueueOpportunityNotificationFn
@@ -150,6 +151,10 @@ export class OpportunityGraphFactory {
               userIndexes: userIndexIds,
               indexedIntents,
               sourceProfile,
+              trace: [{
+                node: "prep",
+                detail: `${userIndexIds.length} index(es), ${intents.length} intent(s), ${profile ? 'profile loaded' : 'no profile'}`,
+              }],
             };
           },
           { context: { userId: state.userId }, logOutput: true }
@@ -211,7 +216,15 @@ export class OpportunityGraphFactory {
             targetIndexesCount: targetIndexes.length,
             indexes: targetIndexes.map(i => i.title),
           });
-          return { targetIndexes };
+          const totalMembers = targetIndexes.reduce((sum, i) => sum + i.memberCount, 0);
+          return {
+            targetIndexes,
+            trace: [{
+              node: "scope",
+              detail: `Searching ${targetIndexes.length} index(es): ${targetIndexes.map(i => `${i.title} (${i.memberCount})`).join(', ')}`,
+              data: { totalMembers },
+            }],
+          };
         } catch (error) {
           logger.error('[Graph:Scope] Failed', { error });
           return {
@@ -300,6 +313,7 @@ export class OpportunityGraphFactory {
     const discoveryNode = async (state: typeof OpportunityGraphState.State) => {
       const self = this;
       return timed("OpportunityGraph.discovery", async () => {
+        const startTime = Date.now();
         logger.info('[Graph:Discovery] Starting semantic search', {
           targetIndexesCount: state.targetIndexes.length,
           discoverySource: state.discoverySource,
@@ -312,9 +326,12 @@ export class OpportunityGraphFactory {
             return { candidates: [] };
           }
 
-          const limitPerStrategy = state.options.limit ?? 10;
-          const perIndexLimit = state.options.limit ?? 20;
-          const minScore = 0.5;
+          // Search limits - fixed values for candidate retrieval
+          // (The options.limit controls final output, not search pool)
+          const limitPerStrategy = 40;
+          const perIndexLimit = 80;
+          // Similarity threshold for recall (0.40 = 40% similarity)
+          const minScore = 0.40;
 
           if (state.discoverySource === 'profile') {
             const embedding = state.sourceProfile?.embedding ?? null;
@@ -323,16 +340,99 @@ export class OpportunityGraphFactory {
               : Array.isArray(embedding) && Array.isArray(embedding[0])
                 ? (embedding[0] as number[])
                 : null;
-            // When no viewer profile embedding but we have a search query, run query-based HyDE so e.g. "visual artists" finds people via profile HyDE
-            if (!vector || vector.length === 0) {
-              if (state.searchQuery?.trim()) {
-                logger.info('[Graph:Discovery] Profile source, no vector, has searchQuery → running query HyDE path', {
-                  searchQuery: state.searchQuery.trim().substring(0, 80),
-                });
-                const queryCandidates = await runQueryHydeDiscovery();
-                logger.info('[Graph:Discovery] Query HyDE path complete', { candidatesFound: queryCandidates.length });
-                return { candidates: queryCandidates };
+
+            // ALWAYS run query-based HyDE when we have a search query (e.g., "looking for investors")
+            // This ensures we use the right strategies (investor, mentor, etc.) not just mirror
+            if (state.searchQuery?.trim()) {
+              logger.info('[Graph:Discovery] Profile source with searchQuery → running query HyDE path for broader search', {
+                searchQuery: state.searchQuery.trim().substring(0, 80),
+                hasProfileVector: !!vector,
+              });
+              const queryCandidates = await runQueryHydeDiscovery();
+              logger.info('[Graph:Discovery] Query HyDE path complete', { candidatesFound: queryCandidates.length });
+              
+              // Build trace entries for this path
+              const traceEntries: Array<{ node: string; detail?: string; data?: Record<string, unknown> }> = [];
+              
+              // Compute per-lens stats from deduped candidates
+              const lensStats: Record<string, { count: number; avgSimilarity: number }> = {};
+              for (const c of queryCandidates) {
+                const s = c.lens || 'unknown';
+                if (!lensStats[s]) lensStats[s] = { count: 0, avgSimilarity: 0 };
+                lensStats[s].count++;
+                lensStats[s].avgSimilarity += c.similarity;
               }
+              for (const s of Object.values(lensStats)) {
+                s.avgSimilarity = s.count > 0 ? Math.round((s.avgSimilarity / s.count) * 1000) / 1000 : 0;
+              }
+
+              traceEntries.push({
+                node: "discovery",
+                detail: `HyDE search → ${queryCandidates.length} candidate(s) from query path`,
+                data: {
+                  candidateCount: queryCandidates.length,
+                  byLens: lensStats,
+                  searchQuery: state.searchQuery?.trim().slice(0, 80),
+                  durationMs: Date.now() - startTime,
+                },
+              });
+              
+              // If we also have a profile vector, merge with profile-based results
+              if (vector && vector.length > 0) {
+                const profileCandidates: CandidateMatch[] = [];
+                for (const targetIndex of state.targetIndexes) {
+                  const results = await this.embedder.searchWithProfileEmbedding(vector, {
+                    indexScope: [targetIndex.indexId],
+                    excludeUserId: state.userId,
+                    limitPerStrategy: Math.floor(limitPerStrategy / 2),
+                    limit: Math.floor(perIndexLimit / 2),
+                    minScore,
+                  });
+                  for (const result of results) {
+                    profileCandidates.push({
+                      candidateUserId: result.userId as Id<'users'>,
+                      candidateIntentId: result.type === 'intent' ? result.id as Id<'intents'> : undefined,
+                      indexId: targetIndex.indexId,
+                      similarity: result.score,
+                      lens: result.matchedVia,
+                      candidatePayload: '',
+                      candidateSummary: undefined,
+                    });
+                  }
+                }
+                // Merge and dedupe - prefer HyDE candidates
+                const byKey = new Map<string, CandidateMatch>();
+                for (const c of queryCandidates) {
+                  byKey.set(`${c.candidateUserId}:${c.indexId}`, c);
+                }
+                for (const c of profileCandidates) {
+                  const key = `${c.candidateUserId}:${c.indexId}`;
+                  if (!byKey.has(key)) byKey.set(key, c);
+                }
+                const merged = Array.from(byKey.values());
+                logger.info('[Graph:Discovery] Merged HyDE + profile candidates', { 
+                  hydeCandidates: queryCandidates.length, 
+                  profileCandidates: profileCandidates.length,
+                  merged: merged.length 
+                });
+                
+                traceEntries.push({
+                  node: "discovery",
+                  detail: `+ Profile search → ${profileCandidates.length} additional, merged to ${merged.length}`,
+                  data: {
+                    profileCandidates: profileCandidates.length,
+                    merged: merged.length,
+                  },
+                });
+                
+                return { candidates: merged, trace: traceEntries };
+              }
+              
+              return { candidates: queryCandidates, trace: traceEntries };
+            }
+
+            // No search query - use profile embedding directly (mirror-only)
+            if (!vector || vector.length === 0) {
               return { candidates: [] };
             }
             const allCandidates: CandidateMatch[] = [];
@@ -351,7 +451,7 @@ export class OpportunityGraphFactory {
                     candidateIntentId: result.id as Id<'intents'>,
                     indexId: targetIndex.indexId,
                     similarity: result.score,
-                    strategy: result.matchedVia as HydeStrategy,
+                    lens: result.matchedVia,
                     candidatePayload: '',
                     candidateSummary: undefined,
                   });
@@ -360,7 +460,7 @@ export class OpportunityGraphFactory {
                     candidateUserId: result.userId as Id<'users'>,
                     indexId: targetIndex.indexId,
                     similarity: result.score,
-                    strategy: result.matchedVia as HydeStrategy,
+                    lens: result.matchedVia,
                     candidatePayload: '',
                     candidateSummary: undefined,
                   });
@@ -375,53 +475,104 @@ export class OpportunityGraphFactory {
               }
             }
             const candidates = Array.from(byUserAndIndex.values());
-            const isPathB = !state.resolvedTriggerIntentId;
-            if (candidates.length === 0 && isPathB && state.searchQuery?.trim()) {
-              const queryCandidates = await runQueryHydeDiscovery();
-              logger.info('[Graph:Discovery] Profile search returned 0, query HyDE fallback complete', { candidatesFound: queryCandidates.length });
-              return { candidates: queryCandidates };
-            }
             logger.info('[Graph:Discovery] Profile-as-source discovery complete', { candidatesFound: candidates.length });
-            return { candidates };
+
+            // Build trace with individual candidate similarity scores
+            const traceEntries: Array<{ node: string; detail?: string; data?: Record<string, unknown> }> = [];
+
+            // Show what the profile search is based on
+            const profileBio = state.sourceProfile?.identity?.bio;
+            const profileContext = state.sourceProfile?.narrative?.context;
+            const profileSummary = profileBio || profileContext || '(profile embedding)';
+
+            // Compute per-lens stats from deduped candidates
+            const lensStats: Record<string, { count: number; avgSimilarity: number }> = {};
+            for (const c of candidates) {
+              const s = c.lens || 'unknown';
+              if (!lensStats[s]) lensStats[s] = { count: 0, avgSimilarity: 0 };
+              lensStats[s].count++;
+              lensStats[s].avgSimilarity += c.similarity;
+            }
+            for (const s of Object.values(lensStats)) {
+              s.avgSimilarity = s.count > 0 ? Math.round((s.avgSimilarity / s.count) * 1000) / 1000 : 0;
+            }
+
+            traceEntries.push({
+              node: "discovery",
+              detail: `Profile-based search → ${candidates.length} candidate(s)`,
+              data: {
+                source: "profile",
+                candidateCount: candidates.length,
+                byLens: lensStats,
+                durationMs: Date.now() - startTime,
+              },
+            });
+
+            traceEntries.push({
+              node: "search_query",
+              detail: `Searching for matches to: "${profileSummary.slice(0, 150)}${profileSummary.length > 150 ? '...' : ''}"`,
+              data: {
+                type: "profile_embedding",
+                bio: profileBio,
+                context: profileContext,
+              },
+            });
+
+            // Add top candidates with similarity scores
+            const sortedCandidates = [...candidates].sort((a, b) => b.similarity - a.similarity).slice(0, 10);
+            for (const c of sortedCandidates) {
+              traceEntries.push({
+                node: "match",
+                detail: `Similarity ${Math.round(c.similarity * 100)}% via ${c.lens}`,
+                data: {
+                  userId: c.candidateUserId,
+                  similarity: Math.round(c.similarity * 100),
+                  lens: c.lens,
+                  hasIntent: !!c.candidateIntentId,
+                },
+              });
+            }
+
+            return {
+              candidates,
+              trace: traceEntries,
+            };
           }
 
           async function runQueryHydeDiscovery(): Promise<CandidateMatch[]> {
             const searchText = state.searchQuery?.trim() ?? '';
             if (!searchText) return [];
-            const strategies = state.options.strategies ?? selectStrategies(searchText, {
-              indexId: state.targetIndexes[0] ? state.targetIndexes[0].indexId : undefined,
-            });
-            logger.info('[Graph:Discovery] runQueryHydeDiscovery start', { searchText: searchText.slice(0, 80), strategies });
+            logger.info('[Graph:Discovery] runQueryHydeDiscovery start', { searchText: searchText.slice(0, 80) });
             const hydeResult = await self.hydeGenerator.invoke({
               sourceType: 'query',
               sourceText: searchText,
-              strategies,
-              context: state.targetIndexes[0] ? { indexId: state.targetIndexes[0].indexId } : undefined,
               forceRegenerate: false,
             });
             const hydeEmbeddings = hydeResult.hydeEmbeddings as Record<string, number[]>;
+            const lenses = hydeResult.lenses ?? [];
             const embeddingKeys = hydeEmbeddings ? Object.keys(hydeEmbeddings) : [];
             logger.info('[Graph:Discovery] HyDE generator result', {
-              strategyCount: embeddingKeys.length,
-              strategies: embeddingKeys,
-              hasMirror: embeddingKeys.includes('mirror'),
-              hasReciprocal: embeddingKeys.includes('reciprocal'),
+              lensCount: embeddingKeys.length,
+              lenses: embeddingKeys,
             });
             if (!hydeEmbeddings || Object.keys(hydeEmbeddings).length === 0) return [];
-            const embeddingsMap = new Map<HydeStrategy, number[]>();
-            for (const [strategy, emb] of Object.entries(hydeEmbeddings)) {
-              if (emb?.length) embeddingsMap.set(strategy as HydeStrategy, emb);
+            const lensMap = new Map(lenses.map(l => [l.label, l]));
+            const lensEmbeddings: LensEmbedding[] = [];
+            for (const [label, emb] of Object.entries(hydeEmbeddings)) {
+              if (emb?.length) {
+                const lens = lensMap.get(label);
+                lensEmbeddings.push({ lens: label, corpus: lens?.corpus ?? 'profiles', embedding: emb });
+              }
             }
             const all: CandidateMatch[] = [];
             await Promise.all(
               state.targetIndexes.map(async (targetIndex) => {
-                const results = await self.embedder.searchWithHydeEmbeddings(embeddingsMap, {
-                  strategies,
+                const results = await self.embedder.searchWithHydeEmbeddings(lensEmbeddings, {
                   indexScope: [targetIndex.indexId],
                   excludeUserId: state.userId,
                   limitPerStrategy,
                   limit: perIndexLimit,
-                  minScore: 0.5,
+                  minScore,
                 });
                 for (const r of results.filter((x) => x.type === 'intent')) {
                   all.push({
@@ -429,7 +580,7 @@ export class OpportunityGraphFactory {
                     candidateIntentId: r.id as Id<'intents'>,
                     indexId: targetIndex.indexId,
                     similarity: r.score,
-                    strategy: r.matchedVia as HydeStrategy,
+                    lens: r.matchedVia,
                     candidatePayload: '',
                     candidateSummary: undefined,
                   });
@@ -439,7 +590,7 @@ export class OpportunityGraphFactory {
                     candidateUserId: r.userId as Id<'users'>,
                     indexId: targetIndex.indexId,
                     similarity: r.score,
-                    strategy: r.matchedVia as HydeStrategy,
+                    lens: r.matchedVia,
                     candidatePayload: '',
                     candidateSummary: undefined,
                   });
@@ -472,36 +623,33 @@ export class OpportunityGraphFactory {
             return { candidates: [] };
           }
 
-          const strategies = state.options.strategies ?? selectStrategies(searchText, {
-            indexId: state.targetIndexes[0].indexId,
-          });
           const hydeResult = await this.hydeGenerator.invoke({
             sourceType: 'query',
             sourceText: searchText,
-            strategies,
-            context: state.targetIndexes[0] ? { indexId: state.targetIndexes[0].indexId } : undefined,
             forceRegenerate: false,
           });
           const hydeEmbeddings = hydeResult.hydeEmbeddings as Record<string, number[]>;
+          const lenses = hydeResult.lenses ?? [];
           if (!hydeEmbeddings || Object.keys(hydeEmbeddings).length === 0) {
-            return { hydeEmbeddings: {} as Record<HydeStrategy, number[]>, candidates: [] };
+            return { hydeEmbeddings: {} as Record<string, number[]>, candidates: [] };
           }
-          const embeddingsMap = new Map<HydeStrategy, number[]>();
-          for (const [strategy, embedding] of Object.entries(hydeEmbeddings)) {
-            if (embedding?.length) {
-              embeddingsMap.set(strategy as HydeStrategy, embedding);
+          const lensMap = new Map(lenses.map(l => [l.label, l]));
+          const lensEmbeddings: LensEmbedding[] = [];
+          for (const [label, emb] of Object.entries(hydeEmbeddings)) {
+            if (emb?.length) {
+              const lens = lensMap.get(label);
+              lensEmbeddings.push({ lens: label, corpus: lens?.corpus ?? 'profiles', embedding: emb });
             }
           }
           const allCandidates: CandidateMatch[] = [];
           await Promise.all(
             state.targetIndexes.map(async (targetIndex) => {
-              const results = await this.embedder.searchWithHydeEmbeddings(embeddingsMap, {
-                strategies,
+              const results = await this.embedder.searchWithHydeEmbeddings(lensEmbeddings, {
                 indexScope: [targetIndex.indexId],
                 excludeUserId: state.userId,
                 limitPerStrategy,
                 limit: perIndexLimit,
-                minScore: 0.5,
+                minScore: 0.40,
               });
               for (const result of results.filter((r) => r.type === 'intent')) {
                 allCandidates.push({
@@ -509,7 +657,7 @@ export class OpportunityGraphFactory {
                   candidateIntentId: result.id as Id<'intents'>,
                   indexId: targetIndex.indexId,
                   similarity: result.score,
-                  strategy: result.matchedVia as HydeStrategy,
+                  lens: result.matchedVia,
                   candidatePayload: '',
                   candidateSummary: undefined,
                 });
@@ -519,7 +667,7 @@ export class OpportunityGraphFactory {
                   candidateUserId: result.userId as Id<'users'>,
                   indexId: targetIndex.indexId,
                   similarity: result.score,
-                  strategy: result.matchedVia as HydeStrategy,
+                  lens: result.matchedVia,
                   candidatePayload: '',
                   candidateSummary: undefined,
                 });
@@ -535,9 +683,71 @@ export class OpportunityGraphFactory {
           }
           const candidates = Array.from(byUserAndIndex.values());
           logger.info('[Graph:Discovery] Intent-path discovery complete', { candidatesFound: candidates.length });
+          const usedLenses = Object.keys(hydeEmbeddings);
+
+          // Build trace with individual candidate similarity scores
+          const traceEntries: Array<{ node: string; detail?: string; data?: Record<string, unknown> }> = [];
+
+          // Compute per-lens stats from deduped candidates
+          const lensStats: Record<string, { count: number; avgSimilarity: number }> = {};
+          for (const c of candidates) {
+            const s = c.lens || 'unknown';
+            if (!lensStats[s]) lensStats[s] = { count: 0, avgSimilarity: 0 };
+            lensStats[s].count++;
+            lensStats[s].avgSimilarity += c.similarity;
+          }
+          for (const s of Object.values(lensStats)) {
+            s.avgSimilarity = s.count > 0 ? Math.round((s.avgSimilarity / s.count) * 1000) / 1000 : 0;
+          }
+
+          traceEntries.push({
+            node: "discovery",
+            detail: `Query: "${searchText.slice(0, 50)}${searchText.length > 50 ? '...' : ''}" → ${candidates.length} candidate(s)`,
+            data: {
+              query: searchText.slice(0, 100),
+              lenses: usedLenses,
+              candidateCount: candidates.length,
+              byLens: lensStats,
+              durationMs: Date.now() - startTime,
+            },
+          });
+
+          // Show the HyDE-generated hypothetical documents used for search
+          const hydeDocuments = hydeResult.hydeDocuments;
+          if (hydeDocuments) {
+            for (const [lens, doc] of Object.entries(hydeDocuments)) {
+              if (doc?.hydeText) {
+                traceEntries.push({
+                  node: "hyde_query",
+                  detail: `[${lens}] "${doc.hydeText.slice(0, 120)}${doc.hydeText.length > 120 ? '...' : ''}"`,
+                  data: {
+                    lens,
+                    hydeTextPreview: doc.hydeText.slice(0, 160) + (doc.hydeText.length > 160 ? '...' : ''),
+                  },
+                });
+              }
+            }
+          }
+
+          // Add top candidates with similarity scores
+          const sortedCandidates = [...candidates].sort((a, b) => b.similarity - a.similarity).slice(0, 10);
+          for (const c of sortedCandidates) {
+            traceEntries.push({
+              node: "match",
+              detail: `Similarity ${Math.round(c.similarity * 100)}% via ${c.lens}`,
+              data: {
+                userId: c.candidateUserId,
+                similarity: Math.round(c.similarity * 100),
+                lens: c.lens,
+                hasIntent: !!c.candidateIntentId,
+              },
+            });
+          }
+
           return {
-            hydeEmbeddings: hydeEmbeddings as Record<HydeStrategy, number[]>,
+            hydeEmbeddings: hydeEmbeddings as Record<string, number[]>,
             candidates,
+            trace: traceEntries,
           };
         } catch (error) {
           logger.error('[Graph:Discovery] Failed', { error });
@@ -555,6 +765,7 @@ export class OpportunityGraphFactory {
      */
     const evaluationNode = async (state: typeof OpportunityGraphState.State) => {
       return timed("OpportunityGraph.evaluation", async () => {
+        const startTime = Date.now();
         logger.info('[Graph:Evaluation] Starting evaluation', {
           candidatesCount: state.candidates.length,
         });
@@ -562,6 +773,22 @@ export class OpportunityGraphFactory {
         if (state.candidates.length === 0) {
           logger.info('[Graph:Evaluation] No candidates to evaluate');
           return { evaluatedOpportunities: [] };
+        }
+
+        // Batch candidates to avoid timeout - evaluate top 25 per batch, store remaining
+        const EVAL_BATCH_SIZE = 25;
+        const sortedCandidates = [...state.candidates]
+          .sort((a, b) => b.similarity - a.similarity);
+
+        const batchToEvaluate = sortedCandidates.slice(0, EVAL_BATCH_SIZE);
+        const remaining = sortedCandidates.slice(EVAL_BATCH_SIZE);
+
+        if (remaining.length > 0) {
+          logger.info('[Graph:Evaluation] Batched candidates for evaluation', {
+            evaluating: batchToEvaluate.length,
+            remaining: remaining.length,
+            total: sortedCandidates.length,
+          });
         }
 
         try {
@@ -588,7 +815,7 @@ export class OpportunityGraphFactory {
           };
 
           const candidateEntities: EvaluatorEntity[] = await Promise.all(
-            state.candidates.map(async (c) => {
+            batchToEvaluate.map(async (c) => {
               const profile = await this.database.getProfile(c.candidateUserId);
               let intentPayload = c.candidatePayload;
               let intentSummary = c.candidateSummary;
@@ -615,7 +842,7 @@ export class OpportunityGraphFactory {
                     : undefined,
                 indexId: c.indexId,
                 ragScore: c.similarity * 100,
-                matchedVia: c.strategy,
+                matchedVia: c.lens,
               };
             })
           );
@@ -633,13 +860,15 @@ export class OpportunityGraphFactory {
             ...(state.searchQuery?.trim() ? { discoveryQuery: state.searchQuery.trim() } : {}),
           };
 
-          const minScore = state.options.minScore ?? 70;
+          // Lower default threshold to 50 for better recall
+          const minScore = state.options.minScore ?? 50;
+          // Get ALL scored results for tracing (returnAll: true), filter for persistence later
           const opportunitiesWithActors =
             typeof (evaluatorAgent as OpportunityEvaluator).invokeEntityBundle === 'function'
-              ? await (evaluatorAgent as OpportunityEvaluator).invokeEntityBundle(input, { minScore })
+              ? await (evaluatorAgent as OpportunityEvaluator).invokeEntityBundle(input, { minScore, returnAll: true })
               : await (async () => {
                   const realEvaluator = new OpportunityEvaluator();
-                  return realEvaluator.invokeEntityBundle(input, { minScore });
+                  return realEvaluator.invokeEntityBundle(input, { minScore, returnAll: true });
                 })();
 
           // Split multi-actor evaluator results into pairwise (viewer + candidate).
@@ -675,11 +904,89 @@ export class OpportunityGraphFactory {
             })),
           }));
 
+          const passed = evaluatedOpportunities.filter((o) => o.score >= minScore);
           logger.info('[Graph:Evaluation] Evaluation complete', {
             evaluatedCount: evaluatedOpportunities.length,
-            passed: evaluatedOpportunities.filter((o) => o.score >= minScore).length,
+            passed: passed.length,
           });
-          return { evaluatedOpportunities };
+
+          // Build detailed trace entries for each evaluated candidate
+          const traceEntries: Array<{ node: string; detail?: string; data?: Record<string, unknown> }> = [];
+
+          // Threshold filter trace: how many candidates in this batch were above/below similarity threshold
+          const aboveThreshold = batchToEvaluate.filter(c => c.similarity >= 0.40).length;
+          const belowThreshold = batchToEvaluate.length - aboveThreshold;
+          traceEntries.push({
+            node: "threshold_filter",
+            detail: `${aboveThreshold} above 0.40, ${belowThreshold} below (batch of ${batchToEvaluate.length})`,
+            data: {
+              aboveThreshold,
+              belowThreshold,
+              minScore: 0.40,
+              batchSize: batchToEvaluate.length,
+            },
+          });
+
+          // Create a map of evaluated candidates by userId for quick lookup
+          const evaluatedByUserId = new Map<string, { score: number; reasoning: string }>();
+          for (const opp of evaluatedOpportunities) {
+            const candidateActor = opp.actors.find(a => a.userId !== state.userId);
+            if (candidateActor) {
+              evaluatedByUserId.set(candidateActor.userId, { score: opp.score, reasoning: opp.reasoning });
+            }
+          }
+
+          // Summary entry
+          traceEntries.push({
+            node: "evaluation",
+            detail: `Evaluated ${candidateEntities.length} candidate(s) → ${passed.length} passed (min score ${minScore})`,
+            data: {
+              inputCandidates: batchToEvaluate.length,
+              returnedFromEvaluator: evaluatedOpportunities.length,
+              passedCount: passed.length,
+              minScore,
+              remaining: remaining.length,
+              batchNumber: 1,
+              durationMs: Date.now() - startTime,
+            },
+          });
+
+          // Individual candidate entries - show ALL candidates that went to evaluator
+          for (const entity of candidateEntities) {
+            const candidateName = entity.profile?.name || entity.userId.slice(0, 8);
+            const candidateBio = entity.profile?.bio;
+            const evaluated = evaluatedByUserId.get(entity.userId);
+            const score = evaluated?.score;
+            const reasoning = evaluated?.reasoning;
+            const didPass = score !== undefined && score >= minScore;
+            const status = score !== undefined 
+              ? (didPass ? '✓ passed' : `✗ score ${score}`) 
+              : '✗ not scored';
+            
+            traceEntries.push({
+              node: "candidate",
+              detail: `${candidateName}: ${status}`,
+              data: {
+                userId: entity.userId,
+                name: candidateName,
+                bio: candidateBio,
+                score: score,
+                passed: didPass,
+                reasoning: reasoning || 'No evaluation returned for this candidate',
+                matchedVia: entity.matchedVia,
+                ragScore: entity.ragScore,
+              },
+            });
+          }
+
+          // Only pass opportunities that passed the threshold to downstream nodes
+          const passedOpportunities = evaluatedOpportunities.filter((o) => o.score >= minScore);
+
+          return {
+            evaluatedOpportunities: passedOpportunities,
+            remainingCandidates: remaining,
+            trace: traceEntries,
+          };
         } catch (error) {
           logger.error('[Graph:Evaluation] Failed', { error });
           return {
@@ -702,7 +1009,7 @@ export class OpportunityGraphFactory {
 
         try {
           const sorted = [...state.evaluatedOpportunities].sort((a, b) => b.score - a.score);
-          const limit = state.options.limit ?? 10;
+          const limit = state.options.limit ?? 20;
           const ranked = sorted.slice(0, limit);
 
           const actorSetKey = (opp: EvaluatedOpportunity) =>
@@ -897,6 +1204,7 @@ export class OpportunityGraphFactory {
      */
     const persistNode = async (state: typeof OpportunityGraphState.State) => {
       return timed("OpportunityGraph.persist", async () => {
+        const startTime = Date.now();
         logger.info('[Graph:Persist] Starting persistence (dedup-v2)', {
           opportunitiesToCreate: state.evaluatedOpportunities.length,
           initialStatus: state.options.initialStatus ?? 'pending',
@@ -1114,7 +1422,21 @@ export class OpportunityGraphFactory {
             existingBetweenActorsCount: existingBetweenActors.length,
             status: initialStatus,
           });
-          return { opportunities: allOpportunities, existingBetweenActors };
+          return {
+            opportunities: allOpportunities,
+            existingBetweenActors,
+            trace: [{
+              node: "persist",
+              detail: `Created ${createdList.length}, reactivated ${reactivatedOpportunities.length}, ${existingBetweenActors.length} existing skipped`,
+              data: {
+                created: createdList.length,
+                reactivated: reactivatedOpportunities.length,
+                existingSkipped: existingBetweenActors.length,
+                totalOutput: allOpportunities.length,
+                durationMs: Date.now() - startTime,
+              },
+            }],
+          };
         } catch (error) {
           logger.error('[Graph:Persist] Failed', { error });
           return {
@@ -1446,6 +1768,13 @@ export class OpportunityGraphFactory {
         logger.info('[Graph:Routing] Error in prep - ending early');
         return END;
       }
+      // Continuation mode: skip scope/resolve/discovery, go straight to evaluation
+      if (state.operationMode === 'continue_discovery') {
+        logger.info('[Graph:Routing] Continue discovery → skipping to evaluation', {
+          candidatesLoaded: state.candidates.length,
+        });
+        return 'evaluation';
+      }
       logger.info('[Graph:Routing] Continuing to scope');
       return 'scope';
     };
@@ -1531,6 +1860,7 @@ export class OpportunityGraphFactory {
       // Conditional routing: early exit if no indexed intents
       .addConditionalEdges('prep', shouldContinueAfterPrep, {
         scope: 'scope',
+        evaluation: 'evaluation',
         [END]: END,
       })
 

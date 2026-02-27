@@ -3,7 +3,7 @@ import type { DefineTool, ToolDeps } from "./tool.helpers";
 import { success, error, UUID_REGEX } from "./tool.helpers";
 import { MINIMAL_MAIN_TEXT_MAX_CHARS } from "../support/opportunity.constants";
 import { viewerCentricCardSummary, narratorRemarkFromReasoning } from "../support/opportunity.card-text";
-import { runDiscoverFromQuery } from "../support/opportunity.discover";
+import { runDiscoverFromQuery, continueDiscovery } from "../support/opportunity.discover";
 import type { EvaluatorEntity } from "../agents/opportunity.evaluator";
 import { protocolLogger } from "../support/protocol.logger";
 import type { Opportunity } from "../interfaces/database.interface";
@@ -104,7 +104,7 @@ function buildMinimalOpportunityCard(
 }
 
 export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
-  const { database, userDb, systemDb, graphs, embedder } = deps;
+  const { database, userDb, systemDb, graphs, embedder, cache } = deps;
 
   const createOpportunities = defineTool({
     name: "create_opportunities",
@@ -117,6 +117,10 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
       "Optionally pass hint (the user's reason for the introduction).\n\n" +
       "Results are saved as drafts; use update_opportunity(status='pending') to send.",
     querySchema: z.object({
+      continueFrom: z
+        .string()
+        .optional()
+        .describe("Discovery pagination: pass the discoveryId from a previous result to evaluate more candidates."),
       searchQuery: z
         .string()
         .optional()
@@ -186,6 +190,75 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
 
       const effectiveIndexId =
         (context.indexId || query.indexId?.trim()) ?? undefined;
+
+      // ── Continuation mode ── (must take strict precedence — it's a pagination token)
+      if (query.continueFrom) {
+        const result = await continueDiscovery({
+          opportunityGraph: graphs.opportunity,
+          database,
+          cache,
+          userId: context.userId,
+          discoveryId: query.continueFrom,
+          expectedIndexId: context.indexId,
+          limit: 20,
+          minimalForChat: true,
+          ...(context.sessionId ? { chatSessionId: context.sessionId } : {}),
+        });
+
+        const allDebugSteps = [...(result.debugSteps ?? [])];
+
+        if (!result.found) {
+          return success({
+            found: false,
+            count: 0,
+            message: result.message ?? "No more matching opportunities found in the remaining candidates.",
+            ...(result.pagination ? { pagination: result.pagination } : {}),
+            debugSteps: allDebugSteps,
+          });
+        }
+
+        // Format opportunity blocks — same pattern as the discovery path below
+        const opportunityBlocks = (result.opportunities ?? []).map((opp) => {
+          const cardData = {
+            opportunityId: opp.opportunityId,
+            userId: opp.userId,
+            name: opp.name,
+            avatar: opp.avatar,
+            mainText: opp.homeCardPresentation?.personalizedSummary ?? opp.matchReason ?? "",
+            cta: opp.homeCardPresentation?.suggestedAction,
+            headline: opp.homeCardPresentation?.headline,
+            primaryActionLabel: opp.homeCardPresentation?.primaryActionLabel,
+            secondaryActionLabel: opp.homeCardPresentation?.secondaryActionLabel,
+            mutualIntentsLabel: opp.homeCardPresentation?.mutualIntentsLabel,
+            narratorChip: opp.narratorChip,
+            viewerRole: opp.viewerRole,
+            score: opp.score,
+            status: opp.status,
+          };
+          return (
+            CODE_FENCE + "opportunity\n" +
+            sanitizeJsonForCodeFence(JSON.stringify(cardData)) +
+            "\n" + CODE_FENCE
+          );
+        });
+
+        const blocksText = opportunityBlocks.join("\n\n");
+        let message =
+          "Found " + result.count + " more potential connection(s). IMPORTANT: Include the following opportunity code blocks EXACTLY as-is in your response (they render as interactive cards):\n\n" +
+          blocksText;
+
+        if (result.pagination && result.pagination.remaining > 0) {
+          message += `\n\nThere are ${result.pagination.remaining} more candidates I haven't evaluated yet. Ask if the user wants to see more — they can say "show me more" and you should call create_opportunities with continueFrom="${result.pagination.discoveryId}".`;
+        }
+
+        return success({
+          found: true,
+          count: result.count,
+          message,
+          ...(result.pagination ? { pagination: result.pagination } : {}),
+          debugSteps: allDebugSteps,
+        });
+      }
 
       // Derive partyUserIds from entities when agent passes entities but omits partyUserIds (intro mode).
       // Only derive when all entities share the same indexId to prevent cross-index introductions.
@@ -385,14 +458,15 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
       }
 
       const result = await runDiscoverFromQuery({
-        opportunityGraph: graphs.opportunity as any, // eslint-disable-line @typescript-eslint/no-explicit-any
+        opportunityGraph: graphs.opportunity,
         database,
         userId: context.userId,
         query: searchQuery,
         indexScope,
-        limit: 5,
+        limit: 20,
         minimalForChat: true, // Skip LLM presenter; return only required fields for fast chat
         triggerIntentId,
+        cache,
         ...(context.sessionId ? { chatSessionId: context.sessionId } : {}),
       });
 
@@ -409,6 +483,7 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
           suggestedIntentDescription: result.suggestedIntentDescription,
           message:
             "No matching opportunities found. Call create_intent with the suggested description, then create_opportunities again.",
+          ...(result.pagination ? { pagination: result.pagination } : {}),
           debugSteps: allDebugSteps,
         });
       }
@@ -418,6 +493,7 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
           found: false,
           count: 0,
           message: result.message ?? "No matching opportunities found.",
+          ...(result.pagination ? { pagination: result.pagination } : {}),
           debugSteps: allDebugSteps,
         });
       }
@@ -482,11 +558,16 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
           ". View on your home page.";
       }
 
+      if (result.pagination && result.pagination.remaining > 0) {
+        message += `\n\nThere are ${result.pagination.remaining} more candidates I haven't evaluated yet. Ask if the user wants to see more — they can say "show me more" and you should call create_opportunities with continueFrom="${result.pagination.discoveryId}".`;
+      }
+
       return success({
         found: true,
         count: result.count,
         message,
         ...(result.existingConnections?.length ? { existingConnections: result.existingConnections } : {}),
+        ...(result.pagination ? { pagination: result.pagination } : {}),
         debugSteps: allDebugSteps,
       });
     },
