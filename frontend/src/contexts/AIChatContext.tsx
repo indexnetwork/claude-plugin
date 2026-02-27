@@ -296,7 +296,7 @@ export function AIChatProvider({ children }: { children: React.ReactNode }) {
                             type: "tool_end",
                             timestamp: now,
                             name: event.toolName,
-                            status: event.success ? "success" : "error",
+                            status: event.success === true ? "success" : event.success === false ? "error" : undefined,
                             summary: event.summary,
                             steps: event.steps,
                           });

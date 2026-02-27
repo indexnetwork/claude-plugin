@@ -78,6 +78,10 @@ const systemPrompt = `
 `;
 
 // Entity-bundle system prompt (C2): entities + four match patterns + actors output
+// NOTE: entityBundleSystemPrompt uses a >= 30 threshold (permissive) while
+// systemPrompt uses >= 70 (strict). This is intentional: batch mode casts a wide
+// net so the calling pipeline can apply its own filters; pairwise mode is strict
+// because it returns a single yes/no decision per candidate pair.
 const entityBundleSystemPrompt = `
 You are an expert "Opportunity Matcher" and super-connector.
 Your Goal: Analyze a set of entities (people), each with a profile and optional intents, and identify HIGH-VALUE opportunities among them.

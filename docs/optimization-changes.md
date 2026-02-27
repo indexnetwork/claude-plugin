@@ -61,7 +61,7 @@ Additional changes:
 **File:** `protocol/src/lib/protocol/agents/chat.prompt.ts`
 
 Discovery-first routing:
-```
+```text
 DO NOT create an intent first. Discovery comes FIRST.
 Phrases: "looking for X", "find me X", "I need X" → create_opportunities
 ```

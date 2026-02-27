@@ -171,7 +171,7 @@ export function createIntentTools(defineTool: DefineTool, deps: ToolDeps) {
       const verified = result.verifiedIntents || [];
       
       // Extract trace from graph and convert to debugSteps
-      const trace = result.trace || [];
+      const trace = Array.isArray(result.trace) ? result.trace : [];
       const debugSteps = trace.map((t: { node: string; detail?: string; data?: Record<string, unknown> }) => ({
         step: t.node,
         detail: t.detail,

@@ -359,9 +359,15 @@ export function ToolCallsDisplay({
       return llmEnd ? llmEnd.timestamp - event.timestamp : null;
     }
     if (event.type === "tool_start") {
+      // Count how many prior tool_start events share the same name (occurrence index)
+      const occurrence = traceEvents
+        .slice(0, idx)
+        .filter((e) => e.type === "tool_start" && e.name === event.name).length;
+      // Find the Nth tool_end with the same name (matching occurrence)
+      let seen = 0;
       const toolEnd = traceEvents
         .slice(idx + 1)
-        .find((e) => e.type === "tool_end" && e.name === event.name);
+        .find((e) => e.type === "tool_end" && e.name === event.name && seen++ === occurrence);
       return toolEnd ? toolEnd.timestamp - event.timestamp : null;
     }
     return null;

@@ -200,6 +200,8 @@ interface EnrichOpportunitiesInput {
   presenter?: OpportunityPresenter;
   useHomeCardFormat?: boolean;
   debugSteps: DiscoverDebugStep[];
+  /** IDs of pre-existing opportunities merged into the list; these preserve their real status. */
+  existingOpportunityIds?: Set<string>;
 }
 
 /**
@@ -222,6 +224,7 @@ async function enrichOpportunities(
     presenter,
     useHomeCardFormat,
     debugSteps,
+    existingOpportunityIds,
   } = input;
 
   const baseEnriched = await Promise.all(
@@ -399,7 +402,7 @@ async function enrichOpportunities(
             item.opportunity.interpretation?.reasoning ?? "",
           ) ?? "",
         score: item.confidence,
-        status: chatSessionId ? "draft" : item.opportunity.status,
+        status: chatSessionId && !existingOpportunityIds?.has(item.opportunity.id) ? "draft" : item.opportunity.status,
         viewerRole: item.viewerRole,
         ...(presentations?.[idx] && { presentation: presentations[idx] }),
         ...(homeCard && { homeCardPresentation: homeCard }),
@@ -543,6 +546,7 @@ export async function runDiscoverFromQuery(
       let opportunities: Opportunity[] = Array.isArray(result.opportunities)
         ? result.opportunities
         : [];
+      let existingOpportunityIds: Set<string> | undefined;
       const rawExistingBetweenActors = Array.isArray(result.existingBetweenActors)
         ? result.existingBetweenActors
         : [];
@@ -583,6 +587,7 @@ export async function runDiscoverFromQuery(
             count: validExistingOpps.length,
             ids: validExistingOpps.map((o) => o.id),
           });
+          existingOpportunityIds = new Set(validExistingOpps.map((o) => o.id));
           opportunities = [...opportunities, ...validExistingOpps];
         }
       }
@@ -635,6 +640,7 @@ export async function runDiscoverFromQuery(
         presenter: input.presenter,
         useHomeCardFormat: input.useHomeCardFormat,
         debugSteps,
+        existingOpportunityIds,
       });
 
       return {
