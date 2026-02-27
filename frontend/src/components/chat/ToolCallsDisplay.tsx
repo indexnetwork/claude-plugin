@@ -377,7 +377,10 @@ export function ToolCallsDisplay({
     <div className="mb-3 font-mono text-[11px] leading-tight border border-gray-200 rounded-lg overflow-hidden bg-gray-900 text-gray-100">
       {/* Header */}
       <button
+        type="button"
         onClick={() => setIsExpanded(!isExpanded)}
+        aria-label={isExpanded ? "Collapse trace" : "Expand trace"}
+        aria-expanded={isExpanded}
         className="w-full flex items-center gap-2 px-3 py-1.5 text-gray-300 hover:bg-gray-800 transition-colors border-b border-gray-700"
       >
         {isExpanded ? (

@@ -181,7 +181,7 @@ async function enrichOpportunities(
 
   const baseEnriched = await Promise.all(
     opportunities.map(async (opp) => {
-      const candidateActor = opp.actors.find((a) => a.userId !== userId);
+      const candidateActor = opp.actors.find((a) => a.userId !== userId && a.role !== 'introducer');
       const candidateUserId = candidateActor?.userId ?? "";
       const viewerActor = opp.actors.find((a) => a.userId === userId);
       const profile = candidateUserId
@@ -452,20 +452,27 @@ export async function runDiscoverFromQuery(
       let pagination: DiscoverResult['pagination'] | undefined;
       const remainingCandidates: CandidateMatch[] = result.remainingCandidates || [];
       if (remainingCandidates.length > 0 && input.cache) {
-        const discoveryId = crypto.randomUUID();
-        const cacheKey = `discovery:${userId}:${discoveryId}`;
-        await input.cache.set(cacheKey, {
-          candidates: remainingCandidates,
-          userId,
-          query: queryOrEmpty,
-          indexScope,
-          options,
-        } satisfies CachedDiscoverySession, { ttl: 1800 }); // 30 minutes
-        pagination = {
-          discoveryId,
-          evaluated: (result.candidates?.length ?? 0) - remainingCandidates.length,
-          remaining: remainingCandidates.length,
-        };
+        try {
+          const discoveryId = crypto.randomUUID();
+          const cacheKey = `discovery:${userId}:${discoveryId}`;
+          await input.cache.set(cacheKey, {
+            candidates: remainingCandidates,
+            userId,
+            query: queryOrEmpty,
+            indexScope,
+            options,
+          } satisfies CachedDiscoverySession, { ttl: 1800 }); // 30 minutes
+          pagination = {
+            discoveryId,
+            evaluated: (result.candidates?.length ?? 0) - remainingCandidates.length,
+            remaining: remainingCandidates.length,
+          };
+        } catch (cacheErr) {
+          logger.warn("Failed to cache discovery pagination", {
+            userId,
+            error: cacheErr instanceof Error ? cacheErr.message : String(cacheErr),
+          });
+        }
       }
 
       if (result.createIntentSuggested && result.suggestedIntentDescription) {
@@ -686,21 +693,40 @@ export async function continueDiscovery(input: {
     });
   }
 
+  // Bail early if the graph returned an error
+  if (result.error) {
+    logger.warn("continueDiscovery graph returned error", { error: result.error });
+    return {
+      found: false,
+      count: 0,
+      message: "Discovery continuation failed. Please start a new search.",
+      debugSteps,
+    };
+  }
+
   // Update cache with remaining candidates or delete if exhausted
   const remaining: CandidateMatch[] = result.remainingCandidates || [];
   let pagination: DiscoverResult['pagination'] | undefined;
-  if (remaining.length > 0) {
-    await cache.set(cacheKey, {
-      ...cached,
-      candidates: remaining,
-    } satisfies CachedDiscoverySession, { ttl: 1800 });
-    pagination = {
+  try {
+    if (remaining.length > 0) {
+      await cache.set(cacheKey, {
+        ...cached,
+        candidates: remaining,
+      } satisfies CachedDiscoverySession, { ttl: 1800 });
+      pagination = {
+        discoveryId,
+        evaluated: cached.candidates.length - remaining.length,
+        remaining: remaining.length,
+      };
+    } else {
+      await cache.delete(cacheKey);
+    }
+  } catch (cacheErr) {
+    logger.warn("Failed to update discovery pagination cache", {
+      userId,
       discoveryId,
-      evaluated: cached.candidates.length - remaining.length,
-      remaining: remaining.length,
-    };
-  } else {
-    await cache.delete(cacheKey);
+      error: cacheErr instanceof Error ? cacheErr.message : String(cacheErr),
+    });
   }
 
   // Check for opportunities in result

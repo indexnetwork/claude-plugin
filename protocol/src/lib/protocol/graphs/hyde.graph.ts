@@ -19,9 +19,12 @@ import { timed } from '../../performance';
 
 const logger = protocolLogger("HyDEGraphFactory");
 
-/** Hash a lens label to a short key for cache/DB indexing. */
-function lensHash(label: string): string {
-  return createHash('sha256').update(label.toLowerCase().trim()).digest('hex').slice(0, 16);
+/** Hash a lens label (+ optional corpus) to a short key for cache/DB indexing. */
+function lensHash(label: string, corpus?: string): string {
+  const input = corpus
+    ? `${label.toLowerCase().trim()}:${corpus}`
+    : label.toLowerCase().trim();
+  return createHash('sha256').update(input).digest('hex').slice(0, 16);
 }
 
 /** Build cache key for a specific lens. */
@@ -30,10 +33,11 @@ function cacheKey(
   sourceId: string | undefined,
   sourceText: string,
   lens: string,
+  corpus?: string,
 ): string {
   const entityKey =
     sourceId ?? `q:${createHash('sha256').update(sourceText).digest('hex').slice(0, 16)}`;
-  return `hyde:${sourceType}:${entityKey}:${lensHash(lens)}`;
+  return `hyde:${sourceType}:${entityKey}:${lensHash(lens, corpus)}`;
 }
 
 /**
@@ -59,18 +63,23 @@ export class HydeGraphFactory {
 
         logger.info('Inferring lenses', { sourceTextLength: sourceText.length, hasProfileContext: !!profileContext });
 
-        const result = await self.inferrer.infer({
-          sourceText,
-          profileContext,
-          maxLenses,
-        });
+        try {
+          const result = await self.inferrer.infer({
+            sourceText,
+            profileContext,
+            maxLenses,
+          });
 
-        logger.info('Lenses inferred', {
-          count: result.lenses.length,
-          lenses: result.lenses.map(l => ({ label: l.label, corpus: l.corpus })),
-        });
+          logger.info('Lenses inferred', {
+            count: result.lenses.length,
+            lenses: result.lenses.map(l => ({ label: l.label, corpus: l.corpus })),
+          });
 
-        return { lenses: result.lenses };
+          return { lenses: result.lenses };
+        } catch (error) {
+          logger.error('Lens inference failed in graph node', { error });
+          return { lenses: [] };
+        }
       });
     };
 
@@ -87,7 +96,7 @@ export class HydeGraphFactory {
         const cached: Record<string, HydeDocumentState> = {};
 
         for (const lens of lenses) {
-          const key = cacheKey(sourceType, sourceId ?? undefined, sourceText, lens.label);
+          const key = cacheKey(sourceType, sourceId ?? undefined, sourceText, lens.label, lens.corpus);
 
           const fromCache = await self.cache.get<HydeDocumentState>(key);
           if (fromCache?.hydeText && fromCache.hydeEmbedding?.length) {
@@ -101,7 +110,7 @@ export class HydeGraphFactory {
             const fromDb = await self.database.getHydeDocument(
               sourceType,
               sourceId,
-              lensHash(lens.label),
+              lensHash(lens.label, lens.corpus),
             );
             if (fromDb) {
               logger.info('DB hit', { lens: lens.label });
@@ -217,7 +226,7 @@ export class HydeGraphFactory {
           const doc = hydeDocuments[label];
           if (!doc) continue;
 
-          const key = cacheKey(sourceType, sourceId ?? undefined, sourceText, label);
+          const key = cacheKey(sourceType, sourceId ?? undefined, sourceText, label, doc.targetCorpus);
           await self.cache.set(key, doc, { ttl: HYDE_DEFAULT_CACHE_TTL });
 
           // Persist to DB for entity sources (intent/profile)
@@ -225,7 +234,7 @@ export class HydeGraphFactory {
             await self.database.saveHydeDocument({
               sourceType,
               sourceId,
-              strategy: lensHash(label),
+              strategy: lensHash(label, doc.targetCorpus),
               targetCorpus: doc.targetCorpus,
               hydeText: doc.hydeText,
               hydeEmbedding: doc.hydeEmbedding,

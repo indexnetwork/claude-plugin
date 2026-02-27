@@ -101,7 +101,7 @@ export interface OpportunityGraphOptions {
   initialStatus?: OpportunityStatus;
   /** Minimum score threshold (default: 50) */
   minScore?: number;
-  /** Maximum opportunities to return (default: 10) */
+  /** Maximum opportunities to return (default: 20) */
   limit?: number;
   /** Pre-inferred lenses (if not provided, lens inference runs automatically in HyDE graph) */
   lenses?: Lens[];

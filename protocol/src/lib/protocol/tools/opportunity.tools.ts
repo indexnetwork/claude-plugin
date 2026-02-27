@@ -191,6 +191,74 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
       const effectiveIndexId =
         (context.indexId || query.indexId?.trim()) ?? undefined;
 
+      // ── Continuation mode ── (must take strict precedence — it's a pagination token)
+      if (query.continueFrom) {
+        const result = await continueDiscovery({
+          opportunityGraph: graphs.opportunity,
+          database,
+          cache,
+          userId: context.userId,
+          discoveryId: query.continueFrom,
+          expectedIndexId: context.indexId,
+          limit: 20,
+          minimalForChat: true,
+          ...(context.sessionId ? { chatSessionId: context.sessionId } : {}),
+        });
+
+        const allDebugSteps = [...(result.debugSteps ?? [])];
+
+        if (!result.found) {
+          return success({
+            found: false,
+            count: 0,
+            message: result.message ?? "No more matching opportunities found in the remaining candidates.",
+            debugSteps: allDebugSteps,
+          });
+        }
+
+        // Format opportunity blocks — same pattern as the discovery path below
+        const opportunityBlocks = (result.opportunities ?? []).map((opp) => {
+          const cardData = {
+            opportunityId: opp.opportunityId,
+            userId: opp.userId,
+            name: opp.name,
+            avatar: opp.avatar,
+            mainText: opp.homeCardPresentation?.personalizedSummary ?? opp.matchReason ?? "",
+            cta: opp.homeCardPresentation?.suggestedAction,
+            headline: opp.homeCardPresentation?.headline,
+            primaryActionLabel: opp.homeCardPresentation?.primaryActionLabel,
+            secondaryActionLabel: opp.homeCardPresentation?.secondaryActionLabel,
+            mutualIntentsLabel: opp.homeCardPresentation?.mutualIntentsLabel,
+            narratorChip: opp.narratorChip,
+            viewerRole: opp.viewerRole,
+            score: opp.score,
+            status: opp.status,
+          };
+          return (
+            CODE_FENCE + "opportunity\n" +
+            sanitizeJsonForCodeFence(JSON.stringify(cardData)) +
+            "\n" + CODE_FENCE
+          );
+        });
+
+        const blocksText = opportunityBlocks.join("\n\n");
+        let message =
+          "Found " + result.count + " more potential connection(s). IMPORTANT: Include the following opportunity code blocks EXACTLY as-is in your response (they render as interactive cards):\n\n" +
+          blocksText;
+
+        if (result.pagination && result.pagination.remaining > 0) {
+          message += `\n\nThere are ${result.pagination.remaining} more candidates I haven't evaluated yet. Ask if the user wants to see more — they can say "show me more" and you should call create_opportunities with continueFrom="${result.pagination.discoveryId}".`;
+        }
+
+        return success({
+          found: true,
+          count: result.count,
+          message,
+          ...(result.pagination ? { pagination: result.pagination } : {}),
+          debugSteps: allDebugSteps,
+        });
+      }
+
       // Derive partyUserIds from entities when agent passes entities but omits partyUserIds (intro mode).
       // Only derive when all entities share the same indexId to prevent cross-index introductions.
       const partyUserIdsFromEntities =
@@ -340,74 +408,6 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
               status: created.status ?? "draft",
             },
           ],
-        });
-      }
-
-      // ── Continuation mode ──
-      if (query.continueFrom) {
-        const result = await continueDiscovery({
-          opportunityGraph: graphs.opportunity,
-          database,
-          cache,
-          userId: context.userId,
-          discoveryId: query.continueFrom,
-          expectedIndexId: context.indexId,
-          limit: 20,
-          minimalForChat: true,
-          ...(context.sessionId ? { chatSessionId: context.sessionId } : {}),
-        });
-
-        const allDebugSteps = [...(result.debugSteps ?? [])];
-
-        if (!result.found) {
-          return success({
-            found: false,
-            count: 0,
-            message: result.message ?? "No more matching opportunities found in the remaining candidates.",
-            debugSteps: allDebugSteps,
-          });
-        }
-
-        // Format opportunity blocks — same pattern as the discovery path below
-        const opportunityBlocks = (result.opportunities ?? []).map((opp) => {
-          const cardData = {
-            opportunityId: opp.opportunityId,
-            userId: opp.userId,
-            name: opp.name,
-            avatar: opp.avatar,
-            mainText: opp.homeCardPresentation?.personalizedSummary ?? opp.matchReason ?? "",
-            cta: opp.homeCardPresentation?.suggestedAction,
-            headline: opp.homeCardPresentation?.headline,
-            primaryActionLabel: opp.homeCardPresentation?.primaryActionLabel,
-            secondaryActionLabel: opp.homeCardPresentation?.secondaryActionLabel,
-            mutualIntentsLabel: opp.homeCardPresentation?.mutualIntentsLabel,
-            narratorChip: opp.narratorChip,
-            viewerRole: opp.viewerRole,
-            score: opp.score,
-            status: opp.status,
-          };
-          return (
-            CODE_FENCE + "opportunity\n" +
-            sanitizeJsonForCodeFence(JSON.stringify(cardData)) +
-            "\n" + CODE_FENCE
-          );
-        });
-
-        const blocksText = opportunityBlocks.join("\n\n");
-        let message =
-          "Found " + result.count + " more potential connection(s). IMPORTANT: Include the following opportunity code blocks EXACTLY as-is in your response (they render as interactive cards):\n\n" +
-          blocksText;
-
-        if (result.pagination && result.pagination.remaining > 0) {
-          message += `\n\nThere are ${result.pagination.remaining} more candidates I haven't evaluated yet. Ask if the user wants to see more — they can say "show me more" and you should call create_opportunities with continueFrom="${result.pagination.discoveryId}".`;
-        }
-
-        return success({
-          found: true,
-          count: result.count,
-          message,
-          ...(result.pagination ? { pagination: result.pagination } : {}),
-          debugSteps: allDebugSteps,
         });
       }
 

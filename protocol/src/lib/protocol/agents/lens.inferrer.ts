@@ -3,9 +3,6 @@
  * profile context and infers 1-N search lenses, each tagged with a target corpus.
  * Replaces the hardcoded HydeStrategy enum and regex-based selectStrategiesFromQuery.
  */
-import { config } from "dotenv";
-config({ path: '.env.development', override: true });
-
 import { ChatOpenAI } from '@langchain/openai';
 import { HumanMessage, SystemMessage } from '@langchain/core/messages';
 import { z } from 'zod';
@@ -72,13 +69,9 @@ const logger = protocolLogger("LensInferrer");
  * (profiles or intents) for downstream HyDE document generation.
  */
 export class LensInferrer {
-  private model: any;
-
-  constructor() {
-    this.model = model.withStructuredOutput(responseFormat, {
-      name: "lens_inferrer"
-    });
-  }
+  private model = model.withStructuredOutput(responseFormat, {
+    name: "lens_inferrer",
+  });
 
   /**
    * Infer search lenses from source text and optional profile context.
