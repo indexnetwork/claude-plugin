@@ -397,6 +397,7 @@ export class OpportunityGraphFactory {
                       lens: result.matchedVia,
                       candidatePayload: '',
                       candidateSummary: undefined,
+                      discoverySource: 'profile-similarity' as const,
                     });
                   }
                 }
@@ -454,6 +455,7 @@ export class OpportunityGraphFactory {
                     lens: result.matchedVia,
                     candidatePayload: '',
                     candidateSummary: undefined,
+                    discoverySource: 'profile-similarity' as const,
                   });
                 } else {
                   allCandidates.push({
@@ -463,6 +465,7 @@ export class OpportunityGraphFactory {
                     lens: result.matchedVia,
                     candidatePayload: '',
                     candidateSummary: undefined,
+                    discoverySource: 'profile-similarity' as const,
                   });
                 }
               }
@@ -583,6 +586,7 @@ export class OpportunityGraphFactory {
                     lens: r.matchedVia,
                     candidatePayload: '',
                     candidateSummary: undefined,
+                    discoverySource: 'query' as const,
                   });
                 }
                 for (const r of results.filter((x) => x.type === 'profile')) {
@@ -593,6 +597,7 @@ export class OpportunityGraphFactory {
                     lens: r.matchedVia,
                     candidatePayload: '',
                     candidateSummary: undefined,
+                    discoverySource: 'query' as const,
                   });
                 }
               })
@@ -660,6 +665,7 @@ export class OpportunityGraphFactory {
                   lens: result.matchedVia,
                   candidatePayload: '',
                   candidateSummary: undefined,
+                  discoverySource: 'query' as const,
                 });
               }
               for (const result of results.filter((r) => r.type === 'profile')) {
@@ -670,6 +676,7 @@ export class OpportunityGraphFactory {
                   lens: result.matchedVia,
                   candidatePayload: '',
                   candidateSummary: undefined,
+                  discoverySource: 'query' as const,
                 });
               }
             })
