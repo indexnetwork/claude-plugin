@@ -787,8 +787,24 @@ export class OpportunityGraphFactory {
         const sortedCandidates = [...state.candidates]
           .sort((a, b) => b.similarity - a.similarity);
 
-        const batchToEvaluate = sortedCandidates.slice(0, EVAL_BATCH_SIZE);
-        const remaining = sortedCandidates.slice(EVAL_BATCH_SIZE);
+        // Dedup by userId — keep the entry with highest similarity (first after sort)
+        const seenUserIds = new Set<string>();
+        const dedupedCandidates = sortedCandidates.filter((c) => {
+          if (seenUserIds.has(c.candidateUserId)) return false;
+          seenUserIds.add(c.candidateUserId);
+          return true;
+        });
+
+        if (dedupedCandidates.length < sortedCandidates.length) {
+          logger.info("[Graph:Evaluation] Deduped candidates by userId", {
+            before: sortedCandidates.length,
+            after: dedupedCandidates.length,
+            removed: sortedCandidates.length - dedupedCandidates.length,
+          });
+        }
+
+        const batchToEvaluate = dedupedCandidates.slice(0, EVAL_BATCH_SIZE);
+        const remaining = dedupedCandidates.slice(EVAL_BATCH_SIZE);
 
         if (remaining.length > 0) {
           logger.info('[Graph:Evaluation] Batched candidates for evaluation', {

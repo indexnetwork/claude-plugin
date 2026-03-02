@@ -252,6 +252,46 @@ describe('Opportunity Graph', () => {
     });
   });
 
+  describe('Evaluation node: userId dedup', () => {
+    test('when same user appears via multiple indexes, evaluates them only once (deduped by userId)', async () => {
+      const { compiledGraph, mockEmbedder } = createMockGraph({
+        getUserIndexIds: () => Promise.resolve(['idx-1', 'idx-2'] as Id<'indexes'>[]),
+        getIndex: (id: string) => Promise.resolve({ id, title: `Index ${id}` }),
+        getIndexMemberCount: () => Promise.resolve(5),
+        evaluatorResult: [
+          {
+            reasoning: 'Bob is a great match.',
+            score: 88,
+            actors: [
+              { userId: 'user-source', role: 'patient' as const, intentId: null },
+              { userId: 'user-bob', role: 'agent' as const, intentId: null },
+            ],
+          },
+        ],
+      });
+
+      // Same user appears in two indexes from search results
+      spyOn(mockEmbedder, 'searchWithHydeEmbeddings').mockResolvedValue([
+        { type: 'intent' as const, id: 'intent-bob-1', userId: 'user-bob', score: 0.9, matchedVia: 'mirror' as const, indexId: 'idx-1' },
+        { type: 'intent' as const, id: 'intent-bob-2', userId: 'user-bob', score: 0.85, matchedVia: 'mirror' as const, indexId: 'idx-2' },
+      ]);
+
+      const result = (await compiledGraph.invoke({
+        userId: 'user-source' as Id<'users'>,
+        searchQuery: 'co-founder',
+        options: { minScore: 70 },
+      } as OpportunityGraphInvokeInput)) as OpportunityGraphInvokeResult;
+
+      // Should have deduped to 1 candidate (user-bob), not 2
+      const candidateTraceEntries = result.trace.filter(
+        (t: { node: string; data?: Record<string, unknown> }) =>
+          t.node === 'candidate' && t.data?.userId === 'user-bob'
+      );
+      expect(candidateTraceEntries.length).toBe(1);
+      expect(result.opportunities.length).toBe(1);
+    });
+  });
+
   describe('Evaluation and Persist', () => {
     test('when discovery returns intent candidates and evaluator returns one, opportunity is created', async () => {
       const { compiledGraph, mockEmbedder } = createMockGraph();
