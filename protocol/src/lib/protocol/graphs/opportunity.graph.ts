@@ -810,7 +810,7 @@ export class OpportunityGraphFactory {
         // clear remaining to prevent pointless pagination through profile-similarity leftovers
         const isQueryDriven = !!state.searchQuery?.trim();
         const queryRemaining = remaining.filter(
-          (c) => c.discoverySource === 'query',
+          (c) => c.discoverySource === 'query' || c.discoverySource == null,
         );
         const effectiveRemaining =
           isQueryDriven && queryRemaining.length === 0 ? [] : remaining;

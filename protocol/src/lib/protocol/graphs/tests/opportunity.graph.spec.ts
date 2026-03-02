@@ -17,6 +17,7 @@ import type {
 } from '../../interfaces/database.interface';
 import type { Embedder } from '../../interfaces/embedder.interface';
 import type { EvaluatedOpportunityWithActors } from '../../agents/opportunity.evaluator';
+import type { ProfileDocument } from '../../agents/profile.generator';
 
 type OpportunityGraphInvokeInput = Parameters<ReturnType<OpportunityGraphFactory['createGraph']>['invoke']>[0];
 type OpportunityGraphInvokeResult = Awaited<ReturnType<ReturnType<OpportunityGraphFactory['createGraph']>['invoke']>>;
@@ -319,9 +320,12 @@ describe('Opportunity Graph', () => {
       const { compiledGraph, mockEmbedder } = createMockGraph({
         evaluatorResult: [],
         getProfile: {
+          userId: 'user-source',
           embedding: dummyProfileEmbedding,
-          identity: { name: 'Test User', bio: 'Test bio' },
-        } as any,
+          identity: { name: 'Test User', bio: 'Test bio', location: 'Remote' },
+          narrative: { context: 'Test narrative' },
+          attributes: { interests: ['painting'], skills: ['art'] },
+        } satisfies ProfileDocument,
       });
 
       // HyDE search returns query candidates (tagged 'query' in discovery node)
