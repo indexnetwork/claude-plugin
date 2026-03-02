@@ -1,4 +1,8 @@
+import { log } from '../../log';
+
 import { createMiddleware } from "../langchain";
+
+const logger = log.lib.from('retry');
 
 export interface RetryOptions {
     maxRetries?: number;
@@ -34,7 +38,7 @@ export function createRetryTool(options: RetryOptions = {}) {
                     return result;
                 } catch (err) {
                     lastError = err;
-                    console.warn(`Attempt ${attempt + 1} failed: ${(err as Error).message}. Retrying...`);
+                    logger.warn('LLM retry attempt failed', { attempt: attempt + 1, message: (err as Error).message });
 
                     if (attempt < maxRetries) {
                         await new Promise(resolve => setTimeout(resolve, delayMs * Math.pow(2, attempt))); // Exponential backoff
