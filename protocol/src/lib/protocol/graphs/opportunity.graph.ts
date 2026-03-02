@@ -328,10 +328,10 @@ export class OpportunityGraphFactory {
 
           // Search limits - fixed values for candidate retrieval
           // (The options.limit controls final output, not search pool)
-          const limitPerStrategy = 40;
+          const limitPerStrategy = 30;
           const perIndexLimit = 80;
-          // Similarity threshold for recall (0.40 = 40% similarity)
-          const minScore = 0.40;
+          // Similarity threshold for recall (0.30 = 30% similarity)
+          const minScore = 0.3;
 
           if (state.discoverySource === 'profile') {
             const embedding = state.sourceProfile?.embedding ?? null;
