@@ -1189,10 +1189,19 @@ describe("create_opportunities tool", () => {
         status: "draft",
       }],
     };
+    // Use getIndexMemberships to populate indexScope via graphs.index (avoids UUID check on context.indexId)
     const mockDb = createMockDatabase(async () => [], {
-      isIndexMember: async () => true,
+      getIndexMemberships: async () => [{
+        indexId: "00000000-0000-0000-0000-000000000001",
+        indexTitle: "Test Index",
+        indexPrompt: null,
+        permissions: [],
+        memberPrompt: null,
+        autoAssign: false,
+        joinedAt: new Date(),
+      }],
     });
-    const context: ToolContext = { userId: testUserId, database: mockDb, embedder: mockEmbedder, scraper: mockScraper, indexId: "idx-1" };
+    const context: ToolContext = { userId: testUserId, database: mockDb, embedder: mockEmbedder, scraper: mockScraper };
     const tools = await createChatTools(context);
     const tool = tools.find((t: { name: string }) => t.name === "create_opportunities") as {
       invoke: (args: { searchQuery: string }) => Promise<string>;
@@ -1221,9 +1230,17 @@ describe("create_opportunities tool", () => {
       }],
     };
     const mockDb = createMockDatabase(async () => [], {
-      isIndexMember: async () => true,
+      getIndexMemberships: async () => [{
+        indexId: "00000000-0000-0000-0000-000000000001",
+        indexTitle: "Test Index",
+        indexPrompt: null,
+        permissions: [],
+        memberPrompt: null,
+        autoAssign: false,
+        joinedAt: new Date(),
+      }],
     });
-    const context: ToolContext = { userId: testUserId, database: mockDb, embedder: mockEmbedder, scraper: mockScraper, indexId: "idx-1" };
+    const context: ToolContext = { userId: testUserId, database: mockDb, embedder: mockEmbedder, scraper: mockScraper };
     const tools = await createChatTools(context);
     const tool = tools.find((t: { name: string }) => t.name === "create_opportunities") as {
       invoke: (args: { searchQuery?: string }) => Promise<string>;
