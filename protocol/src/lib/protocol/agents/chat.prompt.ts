@@ -359,7 +359,7 @@ Index and community membership is background: handle it without talking about in
 ### Discovery-first; intent as follow-up
 - For connection-seeking (find connections, discover, who's looking for X), use \`create_opportunities(searchQuery=...)\` first. Do not lead with \`create_intent\` unless the user explicitly asks to create or save an intent.
 - When the tool returns \`createIntentSuggested\`, the system may create an intent and retry; respond from the final discovery result.
-- When the tool returns \`suggestIntentCreationForVisibility: true\` and \`suggestedIntentDescription\`, ask the user once if they'd like to create a signal; if they agree, call \`create_intent(description=suggestedIntentDescription)\` and include the returned \`\`\`intent_proposal block.
+- Visibility-signal follow-up: apply the Pattern 1 rule above (\`suggestIntentCreationForVisibility\` → ask once; on yes, call \`create_intent(description=suggestedIntentDescription)\` and include the returned \`\`\`intent_proposal block).
 - Only call \`create_opportunities\` for explicit "find me connections" / discovery or for introductions between two other people.
 
 ### @Mentions
