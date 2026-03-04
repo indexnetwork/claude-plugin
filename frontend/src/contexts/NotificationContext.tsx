@@ -4,7 +4,7 @@ import { createContext, useContext, useState, useCallback, ReactNode } from 'rea
 import { Check, X, AlertCircle, Info } from 'lucide-react';
 import Image from 'next/image';
 
-export type NotificationType = 'success' | 'error' | 'warning' | 'info';
+export type NotificationType = 'success' | 'error' | 'warning' | 'info' | 'intent_broadcast';
 
 export interface Notification {
   id: string;
@@ -14,6 +14,7 @@ export interface Notification {
   avatarUrl?: string;
   duration?: number; // in milliseconds, default 4000
   onClick?: () => void;
+  onAction?: () => void;
 }
 
 interface NotificationContextType {
@@ -137,6 +138,17 @@ function NotificationToasts({
   return (
     <div className="fixed top-4 right-4 z-50 flex flex-col gap-2 items-end">
       {notifications.map((notification, index) => {
+        if (notification.type === 'intent_broadcast') {
+          return (
+            <IntentBroadcastToast
+              key={notification.id}
+              notification={notification}
+              onRemove={onRemove}
+              index={index}
+            />
+          );
+        }
+
         return (
           <div
             key={notification.id}
@@ -183,4 +195,64 @@ function NotificationToasts({
       })}
     </div>
   );
-} 
+}
+
+function IntentBroadcastToast({
+  notification,
+  onRemove,
+  index,
+}: {
+  notification: Notification;
+  onRemove: (id: string) => void;
+  index: number;
+}) {
+  const [isUndoing, setIsUndoing] = useState(false);
+
+  const handleUndo = async () => {
+    if (!notification.onAction || isUndoing) return;
+    setIsUndoing(true);
+    try {
+      await notification.onAction();
+      onRemove(notification.id);
+    } catch {
+      setIsUndoing(false);
+    }
+  };
+
+  return (
+    <div
+      className="rounded-lg bg-white border border-gray-200 px-4 py-3 shadow-lg animate-in slide-in-from-right-2 min-w-80 max-w-[360px] w-full"
+      style={{
+        animationDelay: `${index * 100}ms`,
+        animationFillMode: 'both',
+      }}
+    >
+      <div className="flex items-center justify-between gap-4">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-green-600">
+            <span className="relative flex h-2 w-2">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75" />
+              <span className="relative inline-flex h-2 w-2 rounded-full bg-green-500" />
+            </span>
+            Broadcasting Signal
+          </div>
+          <p className="text-[13px] text-[#3D3D3D] leading-relaxed mt-0.5 line-clamp-2">
+            {notification.message || notification.title}
+          </p>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          {notification.onAction && (
+            <button
+              type="button"
+              onClick={handleUndo}
+              disabled={isUndoing}
+              className="text-xs text-gray-400 hover:text-gray-500 disabled:opacity-60"
+            >
+              {isUndoing ? "Undoing…" : "Undo"}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
