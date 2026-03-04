@@ -233,6 +233,11 @@ All tools are simple read/write operations. No hidden logic.
 | **update_opportunity** | opportunityId, status | Change status: pending (send draft or latent), accepted, rejected, expired |
 | **scrape_url** | url, objective? | Extract text from web page |
 | **read_docs** | topic? | Protocol documentation |
+| **execute_integration** | prompt | Execute dynamic task via connected integrations (Gmail, Calendar, etc.) |
+| **import_contacts** | contacts[], source | Import contacts to user's network. Contacts become ghost users if no account exists |
+| **list_contacts** | limit? | List user's network contacts |
+| **add_contact** | email, name? | Manually add single contact to network |
+| **remove_contact** | contactId | Remove contact from network |
 
 ## Orchestration Patterns
 
@@ -349,6 +354,39 @@ Draft or latent opportunities can be sent (update_opportunity with status='pendi
 2. read_intents(indexId=X) → what members are looking for
 3. read_index_memberships(indexId=X) → who's in it
 4. Synthesize: community purpose, active needs, member composition
+\`\`\`
+
+### 9. Import contacts from Gmail, Calendar, or other integrations
+
+**Two-step workflow: fetch then import.**
+
+\`\`\`
+1. execute_integration(prompt="Get all my Gmail contacts with names and emails")
+   → Returns raw contact data from the integration
+2. Parse the contacts from the integration output
+3. import_contacts(contacts=[{name, email}, ...], source="gmail")
+   → Creates ghost users for unknown contacts, enqueues enrichment
+4. Report: "Imported X contacts to your network"
+\`\`\`
+
+The \`source\` parameter should match where contacts came from:
+- \`gmail\` — Gmail contacts
+- \`google_calendar\` — Calendar contacts
+- \`manual\` — Manually added
+
+Ghost users are contacts without accounts — they're enriched with public data (LinkedIn, GitHub, X) and can appear in opportunity discovery once enriched.
+
+### 10. Add or manage contacts manually
+
+\`\`\`
+# Add a single contact
+add_contact(email="alice@example.com", name="Alice Smith")
+
+# List user's network
+list_contacts() → returns contacts with names, emails, and whether they're ghost users
+
+# Remove a contact
+remove_contact(contactId=X)
 \`\`\`
 
 ## Behavioral Rules
