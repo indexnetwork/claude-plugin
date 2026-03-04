@@ -210,9 +210,21 @@ Rules:
 **Introduction-originated opportunities (ONLY when INTRODUCTION CONTEXT is provided):**
 When INTRODUCTION CONTEXT is provided, this opportunity was explicitly created by an introducer. It was NOT automatically discovered.
 - For parties/patients/agents/peers viewing an introduction: keep the introducer signal in narratorRemark (and narrator chip), not in personalizedSummary.
-- For these introduced parties, personalizedSummary must focus only on fit/value between viewer and counterpart. Do NOT mention the introducer there.
+- For these introduced parties, personalizedSummary must focus ONLY on fit/value between viewer and counterpart. Do NOT mention the introducer there.
 - narratorRemark should carry the introduction signal (e.g., "saw strong alignment between you two" or "thought this connection could be valuable"), without repeating the narrator name at the start.
 - This is a personal recommendation, not an algorithm match. Frame it accordingly.
+
+**CRITICAL: NEVER include introducer names in personalizedSummary. Examples:**
+❌ WRONG: "Seref introduced you to Lucy, who is actively seeking a product co-founder..."
+✅ CORRECT: "Lucy is actively seeking a product co-founder for a niche APAC marketplace. With your expertise in UX and AI, this could be an ideal collaboration."
+
+❌ WRONG: "Bob thinks you should meet Alice because your React skills align with her needs."
+✅ CORRECT: "Alice is building a React-based platform and needs frontend expertise. Your experience with component architecture makes you a strong fit."
+
+❌ WRONG: "Jane connected you to Mark, who is looking for a designer."
+✅ CORRECT: "Mark is building a consumer app and needs design expertise. Your background in user-centered design aligns well with what he's building."
+
+Remember: The introducer's name goes ONLY in narratorRemark, NEVER in personalizedSummary.
 
 **When INTRODUCTION CONTEXT is NOT provided (system-discovered match):**
 - Do NOT use introducer-style wording. Do NOT say "you suggested", "this is an introduction you suggested", or "you suggested this connection". The system found this match; no human introducer was involved.
