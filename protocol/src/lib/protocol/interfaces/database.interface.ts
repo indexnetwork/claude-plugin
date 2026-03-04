@@ -1129,6 +1129,34 @@ export interface Database {
     counterpartUserId: string,
     excludeOpportunityId: string
   ): Promise<string[]>;
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Contact / My Network Operations
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  /** Get user IDs of all contacts owned by the given user. */
+  getContactUserIds(ownerId: string): Promise<string[]>;
+
+  /** Create a ghost user (unregistered contact) with empty profile. */
+  createGhostUser(data: { name: string; email: string }): Promise<{ id: string }>;
+
+  /** Upsert a contact (idempotent; unique constraint on ownerId+userId). */
+  upsertContact(data: { ownerId: string; userId: string; source: 'gmail' | 'google_calendar' | 'manual' }): Promise<void>;
+
+  /** Get all contacts for a user with their user details. */
+  getContacts(ownerId: string): Promise<Array<{
+    id: string;
+    userId: string;
+    source: string;
+    importedAt: Date;
+    user: { id: string; name: string; email: string; avatar: string | null; isGhost: boolean };
+  }>>;
+
+  /** Soft-delete a contact. */
+  removeContact(ownerId: string, contactId: string): Promise<void>;
+
+  /** Find a user by email. */
+  getUserByEmail(email: string): Promise<{ id: string; name: string; email: string; isGhost: boolean } | null>;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1535,6 +1563,8 @@ export type ChatGraphCompositeDatabase = Pick<
   | 'assignIntentToIndex'
   | 'unassignIntentFromIndex'
   | 'getIndexIdsForIntent'
+  // Contact / Network Operations (for network-scoped discovery)
+  | 'getContactUserIds'
   // Index Ownership Operations (owner-only)
   | 'getOwnedIndexes'
   | 'isIndexOwner'
@@ -1581,6 +1611,8 @@ export type OpportunityGraphDatabase = Pick<
   | 'getUser'
   // Load candidate intent payload/summary for evaluator
   | 'getIntent'
+  // Network-scoped discovery
+  | 'getContactUserIds'
 >;
 
 /**
