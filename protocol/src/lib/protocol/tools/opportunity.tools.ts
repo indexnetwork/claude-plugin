@@ -66,6 +66,7 @@ function buildMinimalOpportunityCard(
     counterpartName,
     MINIMAL_MAIN_TEXT_MAX_CHARS,
     viewerName,
+    introducerName ?? undefined,
   );
   const score =
     typeof opp.interpretation?.confidence === "number"

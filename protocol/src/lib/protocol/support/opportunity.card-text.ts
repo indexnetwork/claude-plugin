@@ -5,7 +5,7 @@
  */
 
 import { MINIMAL_MAIN_TEXT_MAX_CHARS } from "./opportunity.constants";
-import { stripUuids } from "./opportunity.sanitize";
+import { stripUuids, stripIntroducerMentions } from "./opportunity.sanitize";
 
 /**
  * Splits text into sentences using (?<=[.!?])\s+ (period/exclamation/question followed by whitespace).
@@ -37,6 +37,7 @@ export function viewerCentricCardSummary(
   counterpartName: string,
   maxChars: number = MINIMAL_MAIN_TEXT_MAX_CHARS,
   viewerName?: string,
+  introducerName?: string,
 ): string {
   const raw = stripUuids(reasoning);
   if (!raw) return "A suggested connection.";
@@ -44,7 +45,11 @@ export function viewerCentricCardSummary(
   const name = counterpartName.trim();
   if (!name) {
     const out = raw.length <= maxChars ? raw : raw.slice(0, maxChars) + "...";
-    return replaceViewerNameWithYou(out, viewerName);
+    let result = replaceViewerNameWithYou(out, viewerName);
+    if (introducerName) {
+      result = stripIntroducerMentions(result, introducerName);
+    }
+    return result;
   }
 
   const sentences = splitSentences(raw);
@@ -73,7 +78,11 @@ export function viewerCentricCardSummary(
     if (cleanIdx !== -1) {
       const result = sentences.slice(cleanIdx).join(" ").trim();
       const out = result.length <= maxChars ? result : result.slice(0, maxChars) + "...";
-      return replaceViewerNameWithYou(out, viewerName, [name]);
+      let finalResult = replaceViewerNameWithYou(out, viewerName, [name]);
+      if (introducerName) {
+        finalResult = stripIntroducerMentions(finalResult, introducerName);
+      }
+      return finalResult;
     }
 
     // Second pass: sentence mentions counterpart but starts with viewer (compound sentence).
@@ -93,7 +102,11 @@ export function viewerCentricCardSummary(
         const rest = sentences.slice(compoundIdx + 1).join(" ").trim();
         const result = rest ? `${extracted} ${rest}` : extracted;
         const out = result.length <= maxChars ? result : result.slice(0, maxChars) + "...";
-        return replaceViewerNameWithYou(out, viewerName, [name]);
+        let finalResult = replaceViewerNameWithYou(out, viewerName, [name]);
+        if (introducerName) {
+          finalResult = stripIntroducerMentions(finalResult, introducerName);
+        }
+        return finalResult;
       }
     }
   }
@@ -102,7 +115,11 @@ export function viewerCentricCardSummary(
   const idx = sentences.findIndex(hasCounterpartName);
   if (idx === -1) {
     const out = raw.length <= maxChars ? raw : raw.slice(0, maxChars) + "...";
-    return replaceViewerNameWithYou(out, viewerName, [name]);
+    let result = replaceViewerNameWithYou(out, viewerName, [name]);
+    if (introducerName) {
+      result = stripIntroducerMentions(result, introducerName);
+    }
+    return result;
   }
 
   const fromCounterpart = sentences.slice(idx).join(" ").trim();
@@ -110,7 +127,11 @@ export function viewerCentricCardSummary(
     fromCounterpart.length <= maxChars
       ? fromCounterpart
       : fromCounterpart.slice(0, maxChars) + "...";
-  return replaceViewerNameWithYou(out, viewerName, [name]);
+  let finalResult = replaceViewerNameWithYou(out, viewerName, [name]);
+  if (introducerName) {
+    finalResult = stripIntroducerMentions(finalResult, introducerName);
+  }
+  return finalResult;
 }
 
 /** Max length for narrator chip text (matches LLM presenter schema). */
