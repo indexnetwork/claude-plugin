@@ -390,6 +390,7 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
             reasoning,
             counterpartName,
             MINIMAL_MAIN_TEXT_MAX_CHARS,
+            undefined, // viewerName not available in this context; introducer name passed separately
             introducerUser?.name ?? undefined,
           ),
           cta: "Start a conversation to connect.",

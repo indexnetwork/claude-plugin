@@ -16,7 +16,7 @@ import { viewerCentricCardSummary } from "../support/opportunity.card-text";
 import type { Opportunity } from "../interfaces/database.interface";
 import type { ChatGraphCompositeDatabase } from "../interfaces/database.interface";
 import { Timed } from "../../performance";
-import { stripUuids } from "../support/opportunity.sanitize";
+import { stripUuids, stripIntroducerMentions } from "../support/opportunity.sanitize";
 
 /**
  * Minimal database interface required by gatherPresenterContext.
@@ -388,6 +388,13 @@ Produce headline, personalizedSummary, suggestedAction, narratorRemark, primaryA
       const parsed = homeCardResponseFormat.parse(result);
       parsed.presentation.personalizedSummary = stripUuids(parsed.presentation.personalizedSummary);
       parsed.presentation.narratorRemark = stripUuids(parsed.presentation.narratorRemark);
+      // Apply introducer stripping as safety net when this is an introduction
+      if (input.isIntroduction && input.introducerName) {
+        parsed.presentation.personalizedSummary = stripIntroducerMentions(
+          parsed.presentation.personalizedSummary,
+          input.introducerName,
+        );
+      }
       return parsed.presentation;
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
@@ -400,9 +407,14 @@ Produce headline, personalizedSummary, suggestedAction, narratorRemark, primaryA
         },
       );
       const isIntroducer = input.viewerRole === "introducer";
+      let fallbackSummary = stripUuids(input.matchReasoning.slice(0, 300));
+      // Apply introducer stripping as safety net when this is an introduction
+      if (input.isIntroduction && input.introducerName) {
+        fallbackSummary = stripIntroducerMentions(fallbackSummary, input.introducerName);
+      }
       return {
         headline: "A promising connection",
-        personalizedSummary: stripUuids(input.matchReasoning.slice(0, 300)),
+        personalizedSummary: fallbackSummary,
         suggestedAction: isIntroducer
           ? "Share this introduction to get things started."
           : "Take a look and decide whether to reach out.",

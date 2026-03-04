@@ -30,6 +30,7 @@ function splitSentences(text: string): string[] {
  * @param counterpartName - Display name of the suggested connection (e.g. "Alex Chen").
  * @param maxChars - Max length of returned string (default MINIMAL_MAIN_TEXT_MAX_CHARS).
  * @param viewerName - Optional display name of the viewer (signed-in user). When provided, sentences or prefixes describing the viewer are skipped so the card introduces the counterpart, not the viewer.
+ * @param introducerName - Optional display name of the introducer. When provided, introducer phrases (e.g., "X introduced you to...") are stripped from the summary to keep the body text focused on match quality.
  * @returns Viewer-centric snippet mentioning the counterpart when possible; if counterpartName is empty, returns reasoning truncated to maxChars. Never null; may be "A suggested connection." when reasoning is empty.
  */
 export function viewerCentricCardSummary(
@@ -44,12 +45,13 @@ export function viewerCentricCardSummary(
 
   const name = counterpartName.trim();
   if (!name) {
-    const out = raw.length <= maxChars ? raw : raw.slice(0, maxChars) + "...";
-    let result = replaceViewerNameWithYou(out, viewerName);
+    let out = raw.length <= maxChars ? raw : raw.slice(0, maxChars) + "...";
+    // Strip introducer mentions BEFORE replacing viewer name to avoid "you introduced..." artifacts
     if (introducerName) {
-      result = stripIntroducerMentions(result, introducerName);
+      out = stripIntroducerMentions(out, introducerName);
     }
-    return result;
+    out = replaceViewerNameWithYou(out, viewerName);
+    return out;
   }
 
   const sentences = splitSentences(raw);
@@ -77,12 +79,13 @@ export function viewerCentricCardSummary(
     );
     if (cleanIdx !== -1) {
       const result = sentences.slice(cleanIdx).join(" ").trim();
-      const out = result.length <= maxChars ? result : result.slice(0, maxChars) + "...";
-      let finalResult = replaceViewerNameWithYou(out, viewerName, [name]);
+      let out = result.length <= maxChars ? result : result.slice(0, maxChars) + "...";
+      // Strip introducer mentions BEFORE replacing viewer name to avoid "you introduced..." artifacts
       if (introducerName) {
-        finalResult = stripIntroducerMentions(finalResult, introducerName);
+        out = stripIntroducerMentions(out, introducerName);
       }
-      return finalResult;
+      out = replaceViewerNameWithYou(out, viewerName, [name]);
+      return out;
     }
 
     // Second pass: sentence mentions counterpart but starts with viewer (compound sentence).
@@ -101,12 +104,13 @@ export function viewerCentricCardSummary(
         const extracted = sentence.slice(cpIdx).trim();
         const rest = sentences.slice(compoundIdx + 1).join(" ").trim();
         const result = rest ? `${extracted} ${rest}` : extracted;
-        const out = result.length <= maxChars ? result : result.slice(0, maxChars) + "...";
-        let finalResult = replaceViewerNameWithYou(out, viewerName, [name]);
+        let out = result.length <= maxChars ? result : result.slice(0, maxChars) + "...";
+        // Strip introducer mentions BEFORE replacing viewer name to avoid "you introduced..." artifacts
         if (introducerName) {
-          finalResult = stripIntroducerMentions(finalResult, introducerName);
+          out = stripIntroducerMentions(out, introducerName);
         }
-        return finalResult;
+        out = replaceViewerNameWithYou(out, viewerName, [name]);
+        return out;
       }
     }
   }
@@ -114,24 +118,26 @@ export function viewerCentricCardSummary(
   // Fallback: original logic without viewer awareness
   const idx = sentences.findIndex(hasCounterpartName);
   if (idx === -1) {
-    const out = raw.length <= maxChars ? raw : raw.slice(0, maxChars) + "...";
-    let result = replaceViewerNameWithYou(out, viewerName, [name]);
+    let out = raw.length <= maxChars ? raw : raw.slice(0, maxChars) + "...";
+    // Strip introducer mentions BEFORE replacing viewer name to avoid "you introduced..." artifacts
     if (introducerName) {
-      result = stripIntroducerMentions(result, introducerName);
+      out = stripIntroducerMentions(out, introducerName);
     }
-    return result;
+    out = replaceViewerNameWithYou(out, viewerName, [name]);
+    return out;
   }
 
   const fromCounterpart = sentences.slice(idx).join(" ").trim();
-  const out =
+  let out =
     fromCounterpart.length <= maxChars
       ? fromCounterpart
       : fromCounterpart.slice(0, maxChars) + "...";
-  let finalResult = replaceViewerNameWithYou(out, viewerName, [name]);
+  // Strip introducer mentions BEFORE replacing viewer name to avoid "you introduced..." artifacts
   if (introducerName) {
-    finalResult = stripIntroducerMentions(finalResult, introducerName);
+    out = stripIntroducerMentions(out, introducerName);
   }
-  return finalResult;
+  out = replaceViewerNameWithYou(out, viewerName, [name]);
+  return out;
 }
 
 /** Max length for narrator chip text (matches LLM presenter schema). */
