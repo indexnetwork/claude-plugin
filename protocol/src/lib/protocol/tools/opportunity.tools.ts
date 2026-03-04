@@ -25,8 +25,9 @@ function sanitizeJsonForCodeFence(json: string): string {
  * Build minimal opportunity card data for chat without calling the LLM presenter.
  * Uses only required fields from the opportunity record and counterpart name/avatar
  * so list_opportunities and discovery return quickly.
+ * Exported for use in tests (opportunity.tools.spec.ts).
  */
-function buildMinimalOpportunityCard(
+export function buildMinimalOpportunityCard(
   opp: Opportunity,
   viewerId: string,
   counterpartUserId: string,

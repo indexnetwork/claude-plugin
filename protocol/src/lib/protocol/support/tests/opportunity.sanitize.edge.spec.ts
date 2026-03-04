@@ -66,6 +66,7 @@ describe("stripIntroducerMentions - Edge Cases", () => {
     const result = stripIntroducerMentions(text, "Seref");
     // Should remove "Seref" but not "Serefname" (word boundary check)
     expect(result).not.toMatch(/\bSeref\b/);
+    expect(result).toContain("Serefname");
   });
 
   it("handles empty text", () => {
@@ -114,13 +115,13 @@ describe("stripIntroducerMentions - Edge Cases", () => {
   });
 
   it("handles counterpart with same first name as introducer", () => {
-    // Edge case: if introducer is "David Smith" and counterpart is "David Johnson"
-    // Both "David" instances get stripped, leaving just "Johnson"
-    // This is acceptable behavior - "Johnson" is clearer than "David Johnson" when both are named David
+    // Edge case: introducer "David Smith", counterpart "David Johnson".
+    // We strip only full-name phrase and sentence-start for fullName, not for firstName,
+    // so counterpart name is preserved to avoid over-stripping valid first names.
     const text = "David Smith introduced you to David Johnson.";
     const result = stripIntroducerMentions(text, "David Smith");
-    expect(result).toBe("Johnson.");
     expect(result).not.toContain("David Smith");
+    expect(result).toContain("David Johnson");
   });
 
   it("handles pattern with 'introduced you directly to'", () => {

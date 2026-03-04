@@ -11,11 +11,13 @@ import { ChatOpenAI } from "@langchain/openai";
 import type { Runnable } from "@langchain/core/runnables";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { z } from "zod";
+
+import { Timed } from "../../performance";
+
 import { protocolLogger } from "../support/protocol.logger";
 import { viewerCentricCardSummary } from "../support/opportunity.card-text";
 import type { Opportunity } from "../interfaces/database.interface";
 import type { ChatGraphCompositeDatabase } from "../interfaces/database.interface";
-import { Timed } from "../../performance";
 import { stripUuids, stripIntroducerMentions } from "../support/opportunity.sanitize";
 
 /**
@@ -640,7 +642,13 @@ export async function gatherPresenterContext(
   const viewerNameForFilter = viewerProfile?.identity?.name?.trim();
   const matchReasoning =
     counterpartName && interp.reasoning
-      ? viewerCentricCardSummary(interp.reasoning, counterpartName, 400, viewerNameForFilter)
+      ? viewerCentricCardSummary(
+          interp.reasoning,
+          counterpartName,
+          400,
+          viewerNameForFilter,
+          introducerName,
+        )
       : stripUuids(interp.reasoning);
 
   const result: PresenterInput = {

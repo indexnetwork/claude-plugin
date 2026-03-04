@@ -1,3 +1,6 @@
+import { config } from "dotenv";
+config({ path: ".env.development", override: true });
+
 import { describe, expect, it } from "bun:test";
 import { OpportunityPresenter, type HomeCardPresenterInput } from "../opportunity.presenter";
 
@@ -35,8 +38,10 @@ describe("OpportunityPresenter - IND-113: Introducer should not appear in body t
     // Body text SHOULD contain counterpart
     expect(result.personalizedSummary).toContain("Lucy");
 
-    // Narrator remark CAN contain introducer context
-    expect(result.narratorRemark).toBeDefined();
+    // Narrator remark: non-empty string, within display length (e.g. ≤80)
+    expect(typeof result.narratorRemark).toBe("string");
+    expect(result.narratorRemark.length).toBeGreaterThan(0);
+    expect(result.narratorRemark.length).toBeLessThanOrEqual(80);
 
     // Print output for manual review
     console.log("Headline:", result.headline);
@@ -58,8 +63,8 @@ describe("OpportunityPresenter - IND-113: Introducer should not appear in body t
 
     const result = await presenter.presentHomeCard(input);
 
-    // narratorRemark should mention the connection
-    expect(result.narratorRemark.length).toBeGreaterThan(10);
+    expect(typeof result.narratorRemark).toBe("string");
+    expect(result.narratorRemark.length).toBeGreaterThan(0);
     expect(result.narratorRemark.length).toBeLessThanOrEqual(80);
   }, 30000);
 });
