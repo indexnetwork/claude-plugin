@@ -80,6 +80,8 @@ export class ContactService {
       details: [],
     };
 
+    // Fetch owner once to avoid N queries
+    const owner = await this.db.getUser(ownerId);
     for (const contact of contacts) {
       try {
         // Normalize email
@@ -90,7 +92,6 @@ export class ContactService {
         }
 
         // Skip self-import
-        const owner = await this.db.getUser(ownerId);
         if (owner?.email.toLowerCase() === email) {
           result.skipped++;
           continue;
@@ -108,9 +109,9 @@ export class ContactService {
           isNew = true;
           result.newGhosts++;
 
-          // Enqueue enrichment job for new ghost
-          await enrichmentQueue.addEnrichGhostJob({ userId: ghost.id });
-          logger.verbose('[ContactService] Created ghost user and enqueued enrichment', {
+          // TODO: Re-enable enrichment after testing bulk imports
+          // await enrichmentQueue.addEnrichGhostJob({ userId: ghost.id });
+          logger.verbose('[ContactService] Created ghost user (enrichment disabled)', {
             ghostId: ghost.id,
             email,
           });

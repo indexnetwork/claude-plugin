@@ -8,19 +8,21 @@ const adapter = new IntegrationAdapter();
 /**
  * Creates integration tools for the chat agent.
  * Exposes execute_integration tool for dynamic Composio operations.
+ * Bulk data (contacts, etc.) is automatically imported via file upload pattern.
  */
 export function createIntegrationTools(defineTool: DefineTool, _deps: ToolDeps) {
   const execute_integration = defineTool({
     name: 'execute_integration',
     description: `Execute a dynamic task using the user's connected integrations (Gmail, Calendar, Slack, etc.).
 The sub-agent will use available tools based on what's connected.
+For bulk operations (contacts, emails), data is uploaded as a file and imported automatically.
 
 Examples:
-- "Extract all contacts from my email and calendar"
+- "Import my Gmail contacts to my network"
 - "Fetch my recent calendar events"
 - "Get emails from the last week"
 
-Returns raw output from the integration sub-agent.`,
+Returns summary of what was processed/imported.`,
     querySchema: z.object({
       prompt: z.string().describe('Natural language instruction for the integration task'),
     }),

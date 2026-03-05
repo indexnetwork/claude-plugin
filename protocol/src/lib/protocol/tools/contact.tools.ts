@@ -9,18 +9,19 @@ import type { ContactSource } from '../../../schemas/database.schema';
  * Enables importing, listing, and managing the user's network.
  */
 export function createContactTools(defineTool: DefineTool, _deps: ToolDeps) {
+  const VALID_SOURCES: ContactSource[] = ['gmail', 'google_calendar', 'manual'];
+
   const import_contacts = defineTool({
     name: 'import_contacts',
-    description: `Import contacts into the user's network from integration data or manual input.
+    description: `Import contacts into the user's network from any integration or manual input.
 
-Use this tool after execute_integration returns contact data from Gmail, Google Calendar, etc.
 Each contact needs a name and email. Contacts without existing accounts become "ghost users"
 that are enriched with public profile data and can be matched in opportunity discovery.
 
-The source parameter should match where the contacts came from:
+The source parameter indicates where the contacts came from:
 - 'gmail' - Contacts from Gmail
 - 'google_calendar' - Contacts from Google Calendar  
-- 'manual' - Manually provided contacts
+- 'manual' - Manually provided or other integrations (Slack, Notion, etc.)
 
 Returns import statistics including how many were imported, skipped, and how many new ghost users were created.`,
     querySchema: z.object({
@@ -28,20 +29,25 @@ Returns import statistics including how many were imported, skipped, and how man
         name: z.string().describe('Contact name'),
         email: z.string().describe('Contact email address'),
       })).describe('Array of contacts to import'),
-      source: z.enum(['gmail', 'google_calendar', 'manual']).describe('Source of the contacts'),
+      source: z.string().describe('Source of the contacts (gmail, google_calendar, slack, notion, etc.)'),
     }),
     handler: async ({ context, query }) => {
       try {
+        const normalizedSource: ContactSource = VALID_SOURCES.includes(query.source as ContactSource)
+          ? (query.source as ContactSource)
+          : 'manual';
+
         const result = await contactService.importContacts(
           context.userId,
           query.contacts,
-          query.source as ContactSource
+          normalizedSource
         );
         return success({
-          message: `Imported ${result.imported} contacts to your network.`,
+          message: `Imported ${result.imported} contacts from ${query.source} to your network.`,
           imported: result.imported,
           skipped: result.skipped,
           newGhosts: result.newGhosts,
+          source: query.source,
         });
       } catch (err) {
         return error(`Failed to import contacts: ${err instanceof Error ? err.message : String(err)}`);

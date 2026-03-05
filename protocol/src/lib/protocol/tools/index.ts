@@ -154,8 +154,8 @@ export async function createChatTools(
   const indexTools = createIndexTools(defineTool, toolDeps);
   const opportunityTools = createOpportunityTools(defineTool, toolDeps);
   const utilityTools = createUtilityTools(defineTool, toolDeps);
-  const integrationTools = createIntegrationTools(defineTool, toolDeps);
   const contactTools = createContactTools(defineTool, toolDeps);
+  const integrationTools = createIntegrationTools(defineTool, toolDeps);
 
   // Chat only proposes opportunities from the conversation (create_opportunities).
   // Other opportunities are shown on the home view; do not give the agent list_opportunities.
