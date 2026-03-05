@@ -270,6 +270,9 @@ function extractDomainTerms(text: string): string[] {
     // Single capitalized words as last resort (skip common sentence-starters and meta-words)
     if (terms.length === 0) {
       const skipCapitalized = new Set([
+        // Articles / conjunctions / prepositions (capitalized at sentence start)
+        "the", "and", "but", "for", "from", "with", "without", "between",
+        "into", "about", "after", "before", "over", "under", "through",
         // Common sentence starters / pronouns / determiners
         "both", "their", "they", "this", "that", "these", "those",
         "here", "there", "would", "could", "should", "also", "very",

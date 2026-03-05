@@ -754,6 +754,15 @@ describe("narratorRemarkFromReasoning", () => {
     assertNarratorInvariants(result);
   });
 
+  it("does not pick up articles/prepositions capitalized at sentence start", () => {
+    const result = narratorRemarkFromReasoning(
+      "The users have overlapping goals. Between them, a productive relationship could form.",
+      "Someone"
+    );
+    assertNarratorInvariants(result, { counterpartName: "Someone" });
+    expect(result.toLowerCase()).not.toMatch(/^(shared interest|overlap|common ground|aligned|mutual interest) in the\b/);
+  });
+
   it("handles emoji in reasoning", () => {
     const result = narratorRemarkFromReasoning(
       "Both love AI 🤖 and machine learning 🧠 applications!",
