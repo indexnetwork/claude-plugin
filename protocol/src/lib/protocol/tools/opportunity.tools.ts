@@ -25,8 +25,9 @@ function sanitizeJsonForCodeFence(json: string): string {
  * Build minimal opportunity card data for chat without calling the LLM presenter.
  * Uses only required fields from the opportunity record and counterpart name/avatar
  * so list_opportunities and discovery return quickly.
+ * Exported for use in tests (opportunity.tools.spec.ts).
  */
-function buildMinimalOpportunityCard(
+export function buildMinimalOpportunityCard(
   opp: Opportunity,
   viewerId: string,
   counterpartUserId: string,
@@ -66,6 +67,7 @@ function buildMinimalOpportunityCard(
     counterpartName,
     MINIMAL_MAIN_TEXT_MAX_CHARS,
     viewerName,
+    introducerName ?? undefined,
   );
   const score =
     typeof opp.interpretation?.confidence === "number"
@@ -389,6 +391,7 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
             reasoning,
             counterpartName,
             MINIMAL_MAIN_TEXT_MAX_CHARS,
+            undefined, // viewerName not available in this context; introducer name passed separately
             introducerUser?.name ?? undefined,
           ),
           cta: "Start a conversation to connect.",

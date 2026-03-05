@@ -281,6 +281,7 @@ async function enrichOpportunities(
     homeCardPresentations = baseEnriched.map((item) => {
       const name = counterpartName(item)?.trim();
       const reasoning = item.opportunity.interpretation?.reasoning ?? "";
+      const introducerName = item.opportunity.detection?.createdByName ?? undefined;
       return {
         headline: name ? `Connection with ${name}` : "Suggested connection",
         personalizedSummary:
@@ -289,6 +290,7 @@ async function enrichOpportunities(
             name,
             MINIMAL_MAIN_TEXT_MAX_CHARS,
             viewerName,
+            introducerName,
           ),
         suggestedAction: "Start a conversation to connect.",
         narratorRemark: narratorRemarkFromReasoning(reasoning, name, viewerName),
