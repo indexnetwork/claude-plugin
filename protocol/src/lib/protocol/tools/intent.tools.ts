@@ -179,7 +179,17 @@ export function createIntentTools(defineTool: DefineTool, deps: ToolDeps) {
       }));
       
       if (verified.length === 0) {
-        return error("Could not extract a clear intent. Try being more specific.", debugSteps);
+        // Build a descriptive rejection reason from the trace so the ReACT agent
+        // can retry with a better description or ask the user for clarification.
+        const verificationTrace = debugSteps.find((s: { step: string; detail?: string }) => s.step === "verification");
+        const rejectionHint = verificationTrace?.detail ?? "unknown reason";
+        return error(
+          `Intent verification failed (${rejectionHint}). ` +
+          `The description may be too vague or was classified as a statement rather than a goal. ` +
+          `Either retry with a more specific description (e.g. include what kind, what for, or a timeframe) ` +
+          `or ask the user to clarify what exactly they are looking for.`,
+          debugSteps,
+        );
       }
 
       // Build intent_proposal code fences for each verified intent

@@ -70,9 +70,10 @@ OUTPUT RULES:
 - If 'Authority' or 'Sincerity' is < 70, add a specific FLAG (e.g., "SKILL_MISMATCH", "WEAK_COMMITMENT").
 - 'Classification' must be one of Searle's 5 categories:
   1. COMMISSIVE: Speaker commits to a future action (e.g., "I will learn Rust", "I promise to fix this"). -> VALID GOAL
-  2. DIRECTIVE: Speaker gets listener to do something (e.g., "Find me a co-founder", "Help me build this"). -> VALID GOAL
+  2. DIRECTIVE: Speaker gets listener to do something or expresses a need/want (e.g., "Find me a co-founder", "Help me build this", "Looking for artists", "Seeking a designer for collaboration", "I want to connect with photographers", "I need a technical co-founder"). -> VALID GOAL
+     NOTE: "Looking for X", "Seeking X", "Want to find X", "Interested in connecting with X" are all DIRECTIVE — the speaker is directing the system to find or match them with something. Do NOT classify these as ASSERTIVE.
   3. DECLARATION: Speaker changes reality via words (e.g., "I quit", "Project is cancelled"). -> TOMBSTONE
-  4. ASSERTIVE: Speaker states a fact/belief (e.g., "Rust is fast", "The sky is blue"). -> INVALID (Noise)
+  4. ASSERTIVE: Speaker states a fact/belief with NO implied request (e.g., "Rust is fast", "The sky is blue", "AI is the future"). -> INVALID (Noise)
   5. EXPRESSIVE: Speaker expresses psychological state (e.g., "I am happy", "Hello"). -> INVALID (Noise)
 `;
 
