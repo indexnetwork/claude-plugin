@@ -153,6 +153,11 @@ const FALLBACK_REMARK = "A potential connection worth exploring.";
  * Extracts domain keywords (e.g. "AI", "design", "machine learning") from the
  * reasoning and frames them in a short template like "Shared interest in AI and design."
  *
+ * This is a regex-based heuristic — an alternative is OpportunityPresenter.presentHomeCard()
+ * which generates narratorRemark via LLM with much higher quality (already used by
+ * home.graph.ts and opportunity.discover.ts). See buildMinimalOpportunityCard() in
+ * opportunity.tools.ts for the trade-off discussion.
+ *
  * @param reasoning - Raw interpretation.reasoning text.
  * @param counterpartName - Display name of the counterpart (stripped from output).
  * @param viewerName - Optional display name of the viewer (stripped from output).
