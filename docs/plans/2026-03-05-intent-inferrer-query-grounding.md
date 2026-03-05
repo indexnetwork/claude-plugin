@@ -121,7 +121,7 @@ If the wording needs refinement (e.g., stronger language), update the existing b
 Run: `cd protocol && bun test src/lib/protocol/agents/tests/intent.inferrer.spec.ts`
 Expected: All tests PASS, including the new query grounding tests from Task 1.
 
-**Step 3: Run the full existing test suite to check for regressions**
+**Step 3: Rerun the intent inferrer tests to check for regressions**
 
 Run: `cd protocol && bun test src/lib/protocol/agents/tests/intent.inferrer.spec.ts`
 Expected: All existing tests still pass (explicit goals, tombstones, phatic, fallback behavior).
