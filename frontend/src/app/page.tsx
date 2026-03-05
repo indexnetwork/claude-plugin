@@ -1128,10 +1128,29 @@ function LandingPage() {
 
 export default function RootPage() {
   const { isAuthenticated, isLoading } = useAuthContext();
+  const [isRedirecting, setIsRedirecting] = useState(false);
 
-  // Show loading state while checking auth
-  if (isLoading) {
-    return null; // AuthContext handles loading UI
+  // Handle OAuth callback redirect (e.g., after Composio Gmail auth)
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const params = new URLSearchParams(window.location.search);
+    const status = params.get("status");
+    const connectedAccountId = params.get("connected_account_id");
+
+    if (status === "success" && connectedAccountId) {
+      const pendingRedirect = localStorage.getItem("pending_oauth_redirect");
+      if (pendingRedirect) {
+        localStorage.removeItem("pending_oauth_redirect");
+        setIsRedirecting(true);
+        window.location.href = pendingRedirect;
+      }
+    }
+  }, []);
+
+  // Show loading state while checking auth or redirecting after OAuth
+  if (isLoading || isRedirecting) {
+    return null;
   }
 
   // Show AI chat for authenticated users, landing page for unauthenticated

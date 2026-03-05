@@ -98,6 +98,7 @@ interface AIChatContextType {
     message: string,
     fileIds?: string[],
     attachmentNames?: string[],
+    options?: { hidden?: boolean },
   ) => Promise<void>;
   /** Clear messages and session state. Use { abortStream: false } when navigating away so the in-flight stream can finish and the new session appears in the sidebar. */
   clearChat: (options?: { abortStream?: boolean }) => void;
@@ -138,10 +139,12 @@ export function AIChatProvider({ children }: { children: React.ReactNode }) {
   const skipSessionUpdateForRequestRef = useRef(false);
 
   const sendMessage = useCallback(
-    async (message: string, fileIds?: string[], attachmentNames?: string[]) => {
+    async (message: string, fileIds?: string[], attachmentNames?: string[], options?: { hidden?: boolean }) => {
       const displayContent =
         message.trim() || (fileIds?.length ? "Attached file(s)." : "");
       if (!displayContent) return;
+
+      const isHidden = options?.hidden ?? false;
 
       // A new sendMessage call is always intentional — reset the skip flag
       // so the session ID from the response header is captured correctly.
@@ -149,15 +152,17 @@ export function AIChatProvider({ children }: { children: React.ReactNode }) {
       // that should finish silently, but it must not carry over to new calls.)
       skipSessionUpdateForRequestRef.current = false;
 
-      // Add user message (include attachment names for display)
-      const userMessage: ChatMessage = {
-        id: crypto.randomUUID(),
-        role: "user",
-        content: displayContent,
-        timestamp: new Date(),
-        ...(attachmentNames?.length ? { attachmentNames } : {}),
-      };
-      setMessages((prev) => [...prev, userMessage]);
+      // Add user message (include attachment names for display) — skip if hidden
+      if (!isHidden) {
+        const userMessage: ChatMessage = {
+          id: crypto.randomUUID(),
+          role: "user",
+          content: displayContent,
+          timestamp: new Date(),
+          ...(attachmentNames?.length ? { attachmentNames } : {}),
+        };
+        setMessages((prev) => [...prev, userMessage]);
+      }
 
       // Add placeholder for assistant response
       const assistantMessageId = crypto.randomUUID();
