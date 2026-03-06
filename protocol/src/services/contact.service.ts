@@ -139,16 +139,6 @@ export class ContactService {
 
     result.newGhosts = newGhosts.length;
 
-    if (newGhosts.length > 0) {
-      for (const ghost of newGhosts) {
-        await profileQueue.addEnrichGhostJob({ userId: ghost.id });
-      }
-      logger.info('[ContactService] Ghost users created, enrichment jobs enqueued', {
-        ghostIds: newGhosts.map(g => g.id),
-        count: newGhosts.length,
-      });
-    }
-
     // Build result details (existingByEmail was updated inside the transaction with ghost IDs)
     for (const contact of validContacts) {
       const user = existingByEmail.get(contact.email);
@@ -161,6 +151,28 @@ export class ContactService {
       }
     }
     result.imported = result.details.length;
+
+    // Enqueue enrichment for ghost contacts that lack a profile.
+    const ghostDetails = result.details.filter(d => {
+      const user = existingByEmail.get(d.email);
+      return user?.isGhost === true;
+    });
+    if (ghostDetails.length > 0) {
+      const needsEnrichment = await this.db.getUserIdsWithoutProfile(
+        ghostDetails.map(g => g.userId)
+      );
+      if (needsEnrichment.size > 0) {
+        for (const ghost of ghostDetails) {
+          if (needsEnrichment.has(ghost.userId)) {
+            await profileQueue.addEnrichGhostJob({ userId: ghost.userId });
+          }
+        }
+        logger.info('[ContactService] Enrichment jobs enqueued for ghost contacts without profiles', {
+          ghostIds: [...needsEnrichment],
+          count: needsEnrichment.size,
+        });
+      }
+    }
 
     logger.info('[ContactService] Import completed', {
       ownerId,

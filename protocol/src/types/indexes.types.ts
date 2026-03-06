@@ -29,6 +29,7 @@ export interface Index {
   title: string;
   prompt?: string | null;
   imageUrl?: string | null;
+  isGlobal?: boolean;
   permissions?: IndexPermissions | null;
   createdAt: ISODateString;
   updatedAt: ISODateString;

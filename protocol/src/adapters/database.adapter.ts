@@ -44,7 +44,7 @@ export async function ensureGlobalIndex(): Promise<string> {
     globalId = crypto.randomUUID();
     await db.insert(schema.indexes).values({
       id: globalId,
-      title: 'Global Network',
+      title: 'Index Global',
       prompt: 'The global index containing all users for network-wide discovery.',
       isGlobal: true,
     });
@@ -1056,7 +1056,8 @@ export class ChatDatabaseAdapter {
         .where(
           and(
             eq(schema.indexMembers.userId, userId),
-            isNull(schema.indexes.deletedAt)
+            isNull(schema.indexes.deletedAt),
+            eq(schema.indexes.isGlobal, false),
           )
         );
       return result;
@@ -1148,6 +1149,7 @@ export class ChatDatabaseAdapter {
         prompt: schema.indexes.prompt,
         imageUrl: schema.indexes.imageUrl,
         permissions: schema.indexes.permissions,
+        isGlobal: schema.indexes.isGlobal,
         createdAt: schema.indexes.createdAt,
         updatedAt: schema.indexes.updatedAt,
         ownerId: schema.indexMembers.userId,
@@ -1155,21 +1157,21 @@ export class ChatDatabaseAdapter {
         userAvatar: schema.users.avatar,
       })
       .from(schema.indexes)
-      .innerJoin(
+      .leftJoin(
         schema.indexMembers,
         and(
           eq(schema.indexes.id, schema.indexMembers.indexId),
           sql`'owner' = ANY(${schema.indexMembers.permissions})`
         )
       )
-      .innerJoin(schema.users, eq(schema.indexMembers.userId, schema.users.id))
+      .leftJoin(schema.users, eq(schema.indexMembers.userId, schema.users.id))
       .where(
         and(
           isNull(schema.indexes.deletedAt),
           inArray(schema.indexes.id, ids)
         )
       )
-      .orderBy(desc(schema.indexes.createdAt));
+      .orderBy(desc(schema.indexes.isGlobal), desc(schema.indexes.createdAt));
 
     const indexesWithCounts = await Promise.all(
       rows.map(async (row) => {
@@ -1183,12 +1185,13 @@ export class ChatDatabaseAdapter {
           prompt: row.prompt,
           imageUrl: row.imageUrl,
           permissions: row.permissions,
+          isGlobal: row.isGlobal,
           createdAt: row.createdAt,
           updatedAt: row.updatedAt,
           user: {
-            id: row.ownerId,
-            name: row.userName,
-            avatar: row.userAvatar,
+            id: row.ownerId ?? '',
+            name: row.userName ?? 'System',
+            avatar: row.userAvatar ?? null,
           },
           _count: {
             members: Number(memberCount?.count ?? 0),
@@ -2490,6 +2493,23 @@ export class ChatDatabaseAdapter {
       .from(schema.users)
       .where(and(inArray(schema.users.email, emails), isNull(schema.users.deletedAt)));
     return rows;
+  }
+
+  /**
+   * Returns the subset of user IDs that have no enriched profile (identity IS NULL).
+   * @param userIds - User IDs to check
+   * @returns Set of user IDs lacking a profile
+   */
+  async getUserIdsWithoutProfile(userIds: string[]): Promise<Set<string>> {
+    if (userIds.length === 0) return new Set();
+    const rows = await db
+      .select({ userId: schema.userProfiles.userId })
+      .from(schema.userProfiles)
+      .where(and(
+        inArray(schema.userProfiles.userId, userIds),
+        isNull(schema.userProfiles.identity),
+      ));
+    return new Set(rows.map(r => r.userId));
   }
 
   /**

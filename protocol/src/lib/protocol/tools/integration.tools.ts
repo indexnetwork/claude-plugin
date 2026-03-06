@@ -115,11 +115,15 @@ Returns import statistics or an auth URL if authentication is needed.`,
           newGhosts: importResult.newGhosts,
         });
 
+        const alreadyExisted = importResult.imported - importResult.newGhosts;
         return success({
-          message: `Imported ${importResult.imported} contacts from Gmail to your network.`,
+          message: importResult.newGhosts > 0
+            ? `Imported ${importResult.imported} contacts from Gmail. ${importResult.newGhosts} new, ${alreadyExisted} already in your network.`
+            : `All ${importResult.imported} contacts from Gmail were already in your network. No new contacts added.`,
           imported: importResult.imported,
+          alreadyExisted,
+          newContacts: importResult.newGhosts,
           skipped: importResult.skipped,
-          newGhosts: importResult.newGhosts,
         });
       } catch (err) {
         logger.error('import_gmail_contacts failed', {
