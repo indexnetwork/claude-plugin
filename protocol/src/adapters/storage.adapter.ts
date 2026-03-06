@@ -94,7 +94,12 @@ export class S3StorageAdapter {
     extension: string,
     contentType: string,
   ): Promise<string> {
-    const key = `index-images/${userId}/${uuidv4()}.${extension}`;
+    const safeUserId = userId.replace(/[^a-zA-Z0-9_-]/g, '');
+    const safeExtension = extension.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (!safeExtension) {
+      throw new Error('Invalid file extension');
+    }
+    const key = `index-images/${safeUserId}/${uuidv4()}.${safeExtension}`;
     return this.uploadBuffer(buffer, key, contentType);
   }
 

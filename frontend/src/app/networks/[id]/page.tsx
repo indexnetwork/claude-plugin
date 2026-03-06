@@ -3,8 +3,9 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { ChevronLeft, Loader2, Globe, Lock, Users, LogOut } from 'lucide-react';
-import IndexAvatar from '@/components/IndexAvatar';
 import * as Tabs from '@radix-ui/react-tabs';
+
+import IndexAvatar from '@/components/IndexAvatar';
 import ClientLayout from '@/components/ClientLayout';
 import NetworkSettingsPanel from '@/components/NetworkSettingsPanel';
 import NetworkOverviewPanel from '@/components/NetworkOverviewPanel';

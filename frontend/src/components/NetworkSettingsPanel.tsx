@@ -104,7 +104,11 @@ export default function NetworkSettingsPanel({ index, onDeleted, activeTab }: Ne
     const file = e.target.files?.[0];
     if (file) {
       const validation = validateFiles([file], 'avatar');
-      if (!validation.isValid) return;
+      if (!validation.isValid) {
+        error(validation.message || 'Invalid image file');
+        e.target.value = '';
+        return;
+      }
       setImageFile(file);
       setRemoveImageRequested(false);
       const reader = new FileReader();

@@ -114,6 +114,7 @@ export default function CreateIndexModal({ open, onOpenChange, onSubmit, uploadI
                   </div>
                   <button
                     type="button"
+                    aria-label="Upload network image"
                     onClick={() => uploadIndexImage && fileInputRef.current?.click()}
                     disabled={isSubmitting || !uploadIndexImage}
                     className="absolute -bottom-2 -right-2 bg-white border-2 border-gray-300 rounded-full p-2 hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"

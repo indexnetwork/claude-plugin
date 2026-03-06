@@ -54,7 +54,12 @@ function parseMultipartFile(req: Request, fieldName = 'file', sizeLimit = FILE_S
       const { filename, mimeType } = info;
       const chunks: Buffer[] = [];
       stream.on('data', (chunk: Buffer) => chunks.push(chunk));
+      stream.on('limit', () => finish(new Error('File size limit exceeded')));
       stream.on('end', () => {
+        if (stream.truncated) {
+          finish(new Error('File size limit exceeded'));
+          return;
+        }
         const buffer = Buffer.concat(chunks);
         finish(undefined, {
           filename: filename || 'unknown',

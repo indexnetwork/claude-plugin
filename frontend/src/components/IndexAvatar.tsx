@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Image from 'next/image';
 import Avatar from 'boring-avatars';
 
@@ -28,6 +28,10 @@ function BoringFallback({ id, title, size, rounded, className }: { id?: string; 
 
 export default function IndexAvatar({ id, title, imageUrl, size, className = '', rounded = 'full' }: IndexAvatarProps) {
   const [imgError, setImgError] = useState(false);
+
+  useEffect(() => {
+    setImgError(false);
+  }, [imageUrl]);
 
   if (!imageUrl || imgError) {
     return <BoringFallback id={id} title={title} size={size} rounded={rounded} className={className} />;
