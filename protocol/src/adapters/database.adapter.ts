@@ -255,6 +255,27 @@ export class IntentDatabaseAdapter {
     }
   }
 
+  async deleteIntentIndexAssociations(intentId: string): Promise<void> {
+    await db.delete(schema.intentIndexes)
+      .where(eq(schema.intentIndexes.intentId, intentId));
+  }
+
+  /**
+   * Expires all non-expired opportunities where the given intent appears in the actors JSONB array.
+   * @param intentId - The intent ID to match inside actors[].intent
+   * @returns The number of opportunities expired
+   */
+  async expireOpportunitiesByIntentActor(intentId: string): Promise<number> {
+    const result = await db.update(schema.opportunities)
+      .set({ status: 'expired', updatedAt: new Date() })
+      .where(and(
+        sql`${schema.opportunities.actors} @> ${JSON.stringify([{ intent: intentId }])}::jsonb`,
+        ne(schema.opportunities.status, 'expired'),
+      ))
+      .returning({ id: schema.opportunities.id });
+    return result.length;
+  }
+
   async getIntentsInIndexForMember(userId: string, indexNameOrId: string): Promise<ActiveIntentRow[]> {
     const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     let indexId: string | null = null;
@@ -398,8 +419,8 @@ export class IntentDatabaseAdapter {
    * @returns The intent id if found, otherwise null.
    * @throws May throw database/query errors.
    */
-  async getIntentBySourceId(sourceId: string, userId: string): Promise<{ id: string } | null> {
-    const rows = await db.select({ id: schema.intents.id })
+  async getIntentBySourceId(sourceId: string, userId: string): Promise<{ id: string; archivedAt: Date | null } | null> {
+    const rows = await db.select({ id: schema.intents.id, archivedAt: schema.intents.archivedAt })
       .from(schema.intents)
       .where(and(
         eq(schema.intents.sourceId, sourceId),

@@ -197,6 +197,7 @@ function AssistantMessageContent({
   currentStatusMap,
   onIntentProposalApprove,
   onIntentProposalReject,
+  onIntentProposalUndo,
   intentProposalStatusMap,
 }: {
   content: string;
@@ -218,6 +219,7 @@ function AssistantMessageContent({
   currentStatusMap?: Record<string, string>;
   onIntentProposalApprove?: (proposalId: string, description: string, indexId?: string) => void;
   onIntentProposalReject?: (proposalId: string) => void;
+  onIntentProposalUndo?: (proposalId: string) => void;
   intentProposalStatusMap?: Record<string, "pending" | "created" | "rejected">;
 }) {
   const displayedContent = normalizeBlockquotes(mentionsToMarkdownLinks(content));
@@ -282,6 +284,7 @@ function AssistantMessageContent({
                 card={segment.data}
                 onApprove={onIntentProposalApprove}
                 onReject={onIntentProposalReject}
+                onUndo={onIntentProposalUndo}
                 currentStatus={intentProposalStatusMap?.[segment.data.proposalId]}
               />
             </div>
@@ -318,7 +321,7 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
     debugMetaByTurn,
   } = useAIChat();
   const uploadServiceV2 = useUploadServiceV2();
-  const { error: showError, success: showSuccess } = useNotifications();
+  const { error: showError, success: showSuccess, addNotification } = useNotifications();
   const [input, setInput] = useState("");
   const [selectedFiles, setSelectedFiles] = useState<PendingFile[]>([]);
   const [isUploadingFiles, setIsUploadingFiles] = useState(false);
@@ -452,6 +455,7 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
   const [intentProposalStatusMap, setIntentProposalStatusMap] = useState<
     Record<string, "pending" | "created" | "rejected">
   >({});
+  const [proposalIntentMap, setProposalIntentMap] = useState<Record<string, string>>({});
 
   // Stable list of proposal IDs from assistant messages
   const proposalIdsArray = useMemo(() => {
@@ -478,15 +482,25 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
 
     const fetchStatuses = async () => {
       try {
-        const res = await apiClient.post<{ statuses: Record<string, "created"> }>(
-          "/intents/proposals/status",
-          { proposalIds: ids },
-        );
-        if (res.statuses && Object.keys(res.statuses).length > 0) {
-          setIntentProposalStatusMap((prev) => ({ ...prev, ...res.statuses }));
+        const res = await apiClient.post<{
+          statuses: Record<string, { intentId: string; archivedAt: string | null }>;
+        }>("/intents/proposals/status", { proposalIds: ids });
+        const statusMap: Record<string, "pending" | "created" | "rejected"> = {};
+        const intentMap: Record<string, string> = {};
+        for (const id of ids) {
+          const info = res.statuses?.[id];
+          if (info) {
+            statusMap[id] = info.archivedAt ? "rejected" : "created";
+            intentMap[id] = info.intentId;
+          } else {
+            statusMap[id] = "pending";
+          }
         }
+        setIntentProposalStatusMap((prev) => ({ ...prev, ...statusMap }));
+        setProposalIntentMap((prev) => ({ ...prev, ...intentMap }));
       } catch {
-        // Non-critical — cards will default to pending
+        // Leave statuses unresolved — cards stay in loading state rather than
+        // incorrectly triggering auto-create for already-created intents
       }
     };
 
@@ -668,16 +682,32 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
     [opportunitiesService, router, showError, showSuccess],
   );
 
+  const archiveProposalIntent = useCallback(
+    async (proposalId: string, intentId: string) => {
+      await apiClient.patch(`/intents/${intentId}/archive`);
+      setIntentProposalStatusMap((prev) => ({ ...prev, [proposalId]: "rejected" }));
+    },
+    [],
+  );
+
   const handleIntentProposalApprove = useCallback(
     async (proposalId: string, description: string, indexId?: string) => {
       try {
-        await apiClient.post("/intents/confirm", { proposalId, description, indexId });
+        const res = await apiClient.post<{ intentId: string }>("/intents/confirm", { proposalId, description, indexId });
         setIntentProposalStatusMap((prev) => ({ ...prev, [proposalId]: "created" }));
+        setProposalIntentMap((prev) => ({ ...prev, [proposalId]: res.intentId }));
+        addNotification({
+          type: "intent_broadcast",
+          title: "Broadcasting Signal",
+          message: description,
+          duration: 10000,
+          onAction: () => archiveProposalIntent(proposalId, res.intentId),
+        });
       } catch (err) {
-        throw err; // Card's inline error UI handles display
+        throw err;
       }
     },
-    [],
+    [addNotification, archiveProposalIntent],
   );
 
   const handleIntentProposalReject = useCallback(
@@ -686,10 +716,19 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
         await apiClient.post("/intents/reject", { proposalId });
         setIntentProposalStatusMap((prev) => ({ ...prev, [proposalId]: "rejected" }));
       } catch (err) {
-        throw err; // Card's inline error UI handles display
+        throw err;
       }
     },
     [],
+  );
+
+  const handleIntentProposalUndo = useCallback(
+    async (proposalId: string) => {
+      const intentId = proposalIntentMap[proposalId];
+      if (!intentId) throw new Error("Intent ID not found for proposal");
+      await archiveProposalIntent(proposalId, intentId);
+    },
+    [proposalIntentMap, archiveProposalIntent],
   );
 
   const canSend = input.trim() || selectedFiles.length > 0;
@@ -1572,6 +1611,7 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
                             currentStatusMap={opportunityStatusMap}
                             onIntentProposalApprove={handleIntentProposalApprove}
                             onIntentProposalReject={handleIntentProposalReject}
+                            onIntentProposalUndo={handleIntentProposalUndo}
                             intentProposalStatusMap={intentProposalStatusMap}
                           />
                         </>

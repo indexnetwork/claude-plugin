@@ -4,6 +4,7 @@ import { IntentGraphFactory } from '../lib/protocol/graphs/intent.graph';
 import { IntentDatabaseAdapter, intentDatabaseAdapter } from '../adapters/database.adapter';
 import { EmbedderAdapter } from '../adapters/embedder.adapter';
 import { intentQueue } from '../queues/intent.queue';
+import { IntentEvents } from '../events/intent.event';
 
 const logger = log.service.from("IntentService");
 
@@ -224,21 +225,24 @@ export class IntentService {
   }
 
   /**
-   * Check which proposal IDs have been confirmed (have a matching intent).
+   * Look up intents by proposal IDs. Returns the intent id and archivedAt for each
+   * proposalId that has a matching intent record.
    *
    * @param userId - The user ID
    * @param proposalIds - Array of proposal IDs to check
-   * @returns Map of proposalId -> "created"
+   * @returns Map of proposalId -> { intentId, archivedAt }
    */
-  async getProposalStatuses(userId: string, proposalIds: string[]): Promise<Record<string, 'created'>> {
+  async getProposalStatuses(userId: string, proposalIds: string[]): Promise<Record<string, { intentId: string; archivedAt: string | null }>> {
     if (proposalIds.length === 0) return {};
 
-    const result: Record<string, 'created'> = {};
-    // Query intents where sourceId matches any proposalId and user owns them
+    const result: Record<string, { intentId: string; archivedAt: string | null }> = {};
     for (const pid of proposalIds) {
       const intent = await this.adapter.getIntentBySourceId(pid, userId);
       if (intent) {
-        result[pid] = 'created';
+        result[pid] = {
+          intentId: intent.id,
+          archivedAt: intent.archivedAt?.toISOString() ?? null,
+        };
       }
     }
     return result;
@@ -260,7 +264,33 @@ export class IntentService {
       return { success: false, error: 'Intent not found or unauthorized' };
     }
 
-    return this.adapter.archiveIntent(intentId);
+    const result = await this.adapter.archiveIntent(intentId);
+    if (!result.success) return result;
+
+    try {
+      await this.adapter.deleteIntentIndexAssociations(intentId);
+    } catch (err) {
+      logger.error('[IntentService] Failed to delete intent-index associations', { intentId, error: err });
+    }
+
+    try {
+      const expiredCount = await this.adapter.expireOpportunitiesByIntentActor(intentId);
+      if (expiredCount > 0) {
+        logger.verbose('[IntentService] Expired opportunities referencing intent', { intentId, expiredCount });
+      }
+    } catch (err) {
+      logger.error('[IntentService] Failed to expire opportunities', { intentId, error: err });
+    }
+
+    try {
+      await intentQueue.addDeleteHydeJob({ intentId });
+    } catch (err) {
+      logger.error('[IntentService] Failed to enqueue HyDE deletion', { intentId, error: err });
+    }
+
+    IntentEvents.onArchived(intentId, userId);
+
+    return result;
   }
 }
 

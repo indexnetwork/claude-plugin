@@ -29,6 +29,7 @@ import { hydeQueue } from './queues/hyde.queue';
 import { emailQueue } from './queues/email.queue';
 import { profileQueue } from './queues/profile.queue';
 import { IndexMembershipEvents } from './events/index_membership.event';
+import { IntentEvents } from './events/intent.event';
 
 intentQueue.startWorker();
 opportunityQueue.startWorker();
@@ -41,6 +42,10 @@ IndexMembershipEvents.onMemberAdded = (userId: string) => {
   profileQueue.addEnsureProfileHydeJob({ userId }).catch((err) => {
     log.job.from('IndexMembership').error('Failed to enqueue ensure_profile_hyde', { userId, error: err });
   });
+};
+
+IntentEvents.onArchived = (intentId: string, userId: string) => {
+  log.job.from('IntentEvents').verbose('Intent archived', { intentId, userId });
 };
 
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3001;
