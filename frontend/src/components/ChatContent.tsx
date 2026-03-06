@@ -454,6 +454,7 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
   const [intentProposalStatusMap, setIntentProposalStatusMap] = useState<
     Record<string, "pending" | "created" | "rejected">
   >({});
+  const [proposalIntentMap, setProposalIntentMap] = useState<Record<string, string>>({});
 
   // Stable list of proposal IDs from assistant messages
   const proposalIdsArray = useMemo(() => {
@@ -673,15 +674,16 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
   const handleIntentProposalApprove = useCallback(
     async (proposalId: string, description: string, indexId?: string) => {
       try {
-        await apiClient.post("/intents/confirm", { proposalId, description, indexId });
+        const res = await apiClient.post<{ intentId: string }>("/intents/confirm", { proposalId, description, indexId });
         setIntentProposalStatusMap((prev) => ({ ...prev, [proposalId]: "created" }));
+        setProposalIntentMap((prev) => ({ ...prev, [proposalId]: res.intentId }));
         addNotification({
           type: "intent_broadcast",
           title: "Broadcasting Signal",
           message: description,
           duration: 10000,
           onAction: async () => {
-            await apiClient.post("/intents/undo-proposal", { proposalId });
+            await apiClient.patch(`/intents/${res.intentId}/archive`);
             setIntentProposalStatusMap((prev) => ({ ...prev, [proposalId]: "rejected" }));
           },
         });
@@ -706,14 +708,16 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
 
   const handleIntentProposalUndo = useCallback(
     async (proposalId: string) => {
+      const intentId = proposalIntentMap[proposalId];
+      if (!intentId) throw new Error("Intent ID not found for proposal");
       try {
-        await apiClient.post("/intents/undo-proposal", { proposalId });
+        await apiClient.patch(`/intents/${intentId}/archive`);
         setIntentProposalStatusMap((prev) => ({ ...prev, [proposalId]: "rejected" }));
       } catch (err) {
         throw err; // Card's inline error UI handles display
       }
     },
-    [],
+    [proposalIntentMap],
   );
 
   const canSend = input.trim() || selectedFiles.length > 0;
