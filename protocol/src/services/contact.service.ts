@@ -1,6 +1,7 @@
 import { log } from '../lib/log';
 import { ChatDatabaseAdapter } from '../adapters/database.adapter';
 import type { ContactSource } from '../schemas/database.schema';
+import { profileQueue } from '../queues/profile.queue';
 
 const logger = log.service.from('ContactService');
 
@@ -139,8 +140,10 @@ export class ContactService {
     result.newGhosts = newGhosts.length;
 
     if (newGhosts.length > 0) {
-      // TODO: Enqueue enrichment jobs for new ghost users once enrichment queue is wired up
-      logger.info('[ContactService] Ghost users created, enrichment pending', {
+      for (const ghost of newGhosts) {
+        await profileQueue.addEnrichGhostJob({ userId: ghost.id });
+      }
+      logger.info('[ContactService] Ghost users created, enrichment jobs enqueued', {
         ghostIds: newGhosts.map(g => g.id),
         count: newGhosts.length,
       });

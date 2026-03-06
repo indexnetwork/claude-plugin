@@ -1,10 +1,11 @@
 import { Job } from 'bullmq';
 import { log } from '../lib/log';
 import { QueueFactory } from '../lib/bullmq/bullmq';
-import { ProfileDatabaseAdapter } from '../adapters/database.adapter';
+import { ProfileDatabaseAdapter, ChatDatabaseAdapter } from '../adapters/database.adapter';
 import { EmbedderAdapter } from '../adapters/embedder.adapter';
 import { ScraperAdapter } from '../adapters/scraper.adapter';
 import { ProfileGraphFactory } from '../lib/protocol/graphs/profile.graph';
+import { searchUser } from '../lib/parallel/parallel';
 
 /** BullMQ queue name for profile HyDE (ensure profile + HyDE) jobs. */
 export const QUEUE_NAME = 'profile-hyde-queue';
@@ -14,14 +15,20 @@ export interface EnsureProfileHydeData {
   userId: string;
 }
 
+/** Payload for ghost.enrich jobs. */
+export interface EnrichGhostData {
+  userId: string;
+}
+
 /** Union of all job payloads accepted by the profile queue. */
-export type ProfileJobPayload = EnsureProfileHydeData;
+export type ProfileJobPayload = EnsureProfileHydeData | EnrichGhostData;
 
 /**
- * Optional dependencies for testing. Use invokeProfileWrite to stub the profile-write handler.
+ * Optional dependencies for testing.
  */
 export interface ProfileQueueDeps {
   invokeProfileWrite?: (userId: string) => Promise<void>;
+  invokeEnrichGhost?: (userId: string) => Promise<void>;
 }
 
 /**
@@ -29,6 +36,9 @@ export interface ProfileQueueDeps {
  *
  * Handles `ensure_profile_hyde`: invokes the profile graph in write mode so the user has
  * a profile and HyDE documents for discovery (index members can be found).
+ *
+ * Handles `ghost.enrich`: enriches ghost users with public data from Parallels API,
+ * then runs the profile graph to generate profile + HyDE documents.
  *
  * @remarks
  * Workers are started only by the protocol server via {@link ProfileQueue.startWorker}.
@@ -57,6 +67,15 @@ export class ProfileQueue {
   }
 
   /**
+   * Enqueue a job to enrich a ghost user with public data and generate their profile.
+   * @param data - userId of the ghost user
+   * @returns The BullMQ job
+   */
+  addEnrichGhostJob(data: { userId: string }): Promise<Job<ProfileJobPayload>> {
+    return this.addJob('ghost.enrich', data);
+  }
+
+  /**
    * Add a job to the profile HyDE queue.
    * @param name - Job type: `ensure_profile_hyde`
    * @param data - Payload for the job
@@ -64,7 +83,7 @@ export class ProfileQueue {
    * @returns The BullMQ job
    */
   async addJob(
-    name: 'ensure_profile_hyde',
+    name: 'ensure_profile_hyde' | 'ghost.enrich',
     data: ProfileJobPayload,
     options?: { jobId?: string; priority?: number }
   ): Promise<Job<ProfileJobPayload>> {
@@ -87,6 +106,9 @@ export class ProfileQueue {
     switch (name) {
       case 'ensure_profile_hyde':
         await this.handleEnsureProfileHyde(data);
+        break;
+      case 'ghost.enrich':
+        await this.handleEnrichGhost(data);
         break;
       default:
         this.queueLogger.warn(`[ProfileProcessor] Unknown job name: ${name}`);
@@ -112,17 +134,76 @@ export class ProfileQueue {
       return;
     }
     try {
-      const database = new ProfileDatabaseAdapter();
-      const embedder = new EmbedderAdapter();
-      const scraper = new ScraperAdapter();
-      const factory = new ProfileGraphFactory(database, embedder, scraper);
-      const graph = factory.createGraph();
-      await graph.invoke({ userId, operationMode: 'write' });
+      await this.invokeProfileGraph(userId);
       this.logger.verbose('[ProfileHyde] Ensured profile HyDE for user', { userId });
     } catch (err) {
       this.logger.error('[ProfileHyde] Failed to ensure profile HyDE', { userId, error: err });
       throw err;
     }
+  }
+
+  private async handleEnrichGhost(data: EnrichGhostData): Promise<void> {
+    const { userId } = data;
+    if (this.deps?.invokeEnrichGhost) {
+      await this.deps.invokeEnrichGhost(userId);
+      return;
+    }
+    try {
+      const chatDb = new ChatDatabaseAdapter();
+      const user = await chatDb.getUser(userId);
+      if (!user) {
+        this.logger.warn('[EnrichGhost] User not found, skipping', { userId });
+        return;
+      }
+
+      // Search for public data via Parallels API
+      try {
+        const searchResult = await searchUser({ name: user.name, email: user.email });
+        this.logger.verbose('[EnrichGhost] Parallels search completed', {
+          userId,
+          resultCount: searchResult?.results?.length ?? 0,
+        });
+
+        if (searchResult?.results?.length) {
+          const socials: Record<string, string | string[]> = {};
+          const websites: string[] = [];
+          for (const result of searchResult.results) {
+            const url = result.url;
+            if (url.includes('linkedin.com')) socials.linkedin = url;
+            else if (url.includes('twitter.com') || url.includes('x.com')) socials.x = url;
+            else if (url.includes('github.com')) socials.github = url;
+            else websites.push(url);
+          }
+          if (websites.length > 0) socials.websites = websites;
+          if (Object.keys(socials).length > 0) {
+            await chatDb.updateUser(userId, {
+              socials: socials as { x?: string; linkedin?: string; github?: string; websites?: string[] },
+            });
+          }
+        }
+      } catch (err) {
+        this.logger.warn('[EnrichGhost] Parallels search failed, running profile graph without enrichment', {
+          userId,
+          error: err,
+        });
+      }
+
+      // Generate profile + HyDE from available data
+      await this.invokeProfileGraph(userId);
+      this.logger.verbose('[EnrichGhost] Profile generated for ghost user', { userId });
+    } catch (err) {
+      this.logger.error('[EnrichGhost] Failed to enrich ghost user', { userId, error: err });
+      throw err;
+    }
+  }
+
+  private async invokeProfileGraph(userId: string): Promise<void> {
+    const database = new ProfileDatabaseAdapter();
+    const embedder = new EmbedderAdapter();
+    const scraper = new ScraperAdapter();
+    const factory = new ProfileGraphFactory(database, embedder, scraper);
+    const graph = factory.createGraph();
+    await graph.invoke({ userId, operationMode: 'write' });
   }
 }
 
