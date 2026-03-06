@@ -260,6 +260,22 @@ export class IntentDatabaseAdapter {
       .where(eq(schema.intentIndexes.intentId, intentId));
   }
 
+  /**
+   * Expires all non-expired opportunities where the given intent appears in the actors JSONB array.
+   * @param intentId - The intent ID to match inside actors[].intent
+   * @returns The number of opportunities expired
+   */
+  async expireOpportunitiesByIntentActor(intentId: string): Promise<number> {
+    const result = await db.update(schema.opportunities)
+      .set({ status: 'expired', updatedAt: new Date() })
+      .where(and(
+        sql`${schema.opportunities.actors} @> ${JSON.stringify([{ intent: intentId }])}::jsonb`,
+        ne(schema.opportunities.status, 'expired'),
+      ))
+      .returning({ id: schema.opportunities.id });
+    return result.length;
+  }
+
   async getIntentsInIndexForMember(userId: string, indexNameOrId: string): Promise<ActiveIntentRow[]> {
     const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     let indexId: string | null = null;
