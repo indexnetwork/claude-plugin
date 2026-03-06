@@ -1,15 +1,15 @@
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { magicLink, bearer, jwt } from "better-auth/plugins";
-import { eq, and, ne } from "drizzle-orm";
 
-import db from "./drizzle/drizzle";
-import * as schema from "../schemas/database.schema";
-import { getTrustedOrigins } from "./cors";
-import { sendMagicLinkEmail } from "./email/magic-link.handler";
-import { log } from "./log";
+import db from "../drizzle/drizzle";
+import * as schema from "../../schemas/database.schema";
+import { getTrustedOrigins } from "../cors";
+import { sendMagicLinkEmail } from "../email/magic-link.handler";
+import { ChatDatabaseAdapter } from "../../adapters/database.adapter";
+import { log } from "../log";
 
-const logger = log.server.from("auth");
+const logger = log.server.from("betterauth");
 
 let _ensureWallet: ((userId: string) => Promise<void>) | null = null;
 
@@ -18,38 +18,16 @@ export function setWalletHook(fn: (userId: string) => Promise<void>) {
   _ensureWallet = fn;
 }
 
-/**
- * Claims a ghost user when a real user signs up with the same email.
- * Transfers all ghost data (profiles, intents, index memberships, contacts) to the real user,
- * then deletes the ghost row.
- */
-async function claimGhostUser(realUserId: string, email: string): Promise<void> {
-  const ghost = await db
-    .select({ id: schema.users.id })
-    .from(schema.users)
-    .where(and(eq(schema.users.email, email), eq(schema.users.isGhost, true), ne(schema.users.id, realUserId)))
-    .limit(1)
-    .then((rows) => rows[0]);
-
-  if (!ghost) return;
-
-  logger.info('Claiming ghost user', { realUserId, ghostId: ghost.id, email });
-
-  // Transfer all ghost data to real user
-  await db.transaction(async (tx) => {
-    await tx.update(schema.userProfiles).set({ userId: realUserId }).where(eq(schema.userProfiles.userId, ghost.id));
-    await tx.update(schema.intents).set({ userId: realUserId }).where(eq(schema.intents.userId, ghost.id));
-    await tx.update(schema.indexMembers).set({ userId: realUserId }).where(eq(schema.indexMembers.userId, ghost.id));
-    await tx.update(schema.hydeDocuments).set({ sourceId: realUserId }).where(eq(schema.hydeDocuments.sourceId, ghost.id));
-    await tx.update(schema.userContacts).set({ userId: realUserId }).where(eq(schema.userContacts.userId, ghost.id));
-    await tx.delete(schema.users).where(eq(schema.users.id, ghost.id));
-  });
-
-  logger.info('Ghost user claimed successfully', { realUserId, ghostId: ghost.id });
-}
-
 export const PROTOCOL_URL =
   process.env.PROTOCOL_URL || `http://localhost:${process.env.PORT || 3001}`;
+
+const chatDb = new ChatDatabaseAdapter();
+
+/**
+ * Tracks ghost IDs that were freed in `create.before` so `create.after` can claim them.
+ * Keyed by the new real user's ID to avoid races between concurrent signups.
+ */
+const pendingGhostClaims = new Map<string, string>();
 
 export const auth = betterAuth({
   baseURL: PROTOCOL_URL,
@@ -67,14 +45,32 @@ export const auth = betterAuth({
   databaseHooks: {
     user: {
       create: {
+        before: async (user) => {
+          // Free the ghost's email before Better Auth inserts the real user,
+          // otherwise the unique constraint on users.email blocks signup.
+          try {
+            const ghostId = await chatDb.prepareGhostClaim(user.email);
+            if (ghostId) {
+              pendingGhostClaims.set(user.id, ghostId);
+            }
+          } catch (err) {
+            logger.error('Failed to prepare ghost claim', { email: user.email, error: err });
+          }
+          return { data: user };
+        },
         after: async (user) => {
           try {
             if (_ensureWallet) await _ensureWallet(user.id);
           } catch (_) { /* wallet generation failure shouldn't block registration */ }
-          try {
-            await claimGhostUser(user.id, user.email);
-          } catch (err) {
-            logger.error('Ghost claiming failed', { userId: user.id, email: user.email, error: err });
+
+          const ghostId = pendingGhostClaims.get(user.id);
+          if (ghostId) {
+            pendingGhostClaims.delete(user.id);
+            try {
+              await chatDb.claimGhostUser(user.id, ghostId);
+            } catch (err) {
+              logger.error('Ghost claiming failed', { userId: user.id, ghostId, error: err });
+            }
           }
         },
       },

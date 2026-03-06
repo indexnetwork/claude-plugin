@@ -17,7 +17,7 @@ import { MessagingService } from './services/messaging.service';
 import path from 'path';
 import { RouteRegistry } from './lib/router/router.decorators';
 import { log } from './lib/log';
-import { auth, setWalletHook } from './lib/auth';
+import { auth, setWalletHook } from './lib/betterauth/betterauth';
 import { getCorsHeaders } from './lib/cors';
 import { adminQueuesApp } from './controllers/queues.controller';
 import { getStats } from './lib/performance';

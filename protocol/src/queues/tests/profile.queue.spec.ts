@@ -34,6 +34,16 @@ describe('ProfileQueue', () => {
     });
   });
 
+  describe('addEnrichGhostJob', () => {
+    it('returns a job with name ghost.enrich and data { userId: "g1" }', async () => {
+      const queue = new ProfileQueue();
+      const job = await queue.addEnrichGhostJob({ userId: 'g1' });
+      expect(job.name).toBe('ghost.enrich');
+      expect(job.data).toEqual({ userId: 'g1' });
+      expect(mockAdd).toHaveBeenCalledWith('ghost.enrich', { userId: 'g1' }, expect.any(Object));
+    });
+  });
+
   describe('processJob', () => {
     it('ensure_profile_hyde invokes profile-write handler with userId', async () => {
       const invokeProfileWrite = mock(async (_userId: string) => {});
@@ -41,6 +51,14 @@ describe('ProfileQueue', () => {
       await queue.processJob('ensure_profile_hyde', { userId: 'u1' });
       expect(invokeProfileWrite).toHaveBeenCalledWith('u1');
       expect(invokeProfileWrite).toHaveBeenCalledTimes(1);
+    });
+
+    it('ghost.enrich invokes enrich-ghost handler with userId', async () => {
+      const invokeEnrichGhost = mock(async (_userId: string) => {});
+      const queue = new ProfileQueue({ invokeEnrichGhost });
+      await queue.processJob('ghost.enrich', { userId: 'g1' });
+      expect(invokeEnrichGhost).toHaveBeenCalledWith('g1');
+      expect(invokeEnrichGhost).toHaveBeenCalledTimes(1);
     });
 
     it('unknown job name logs warning and does not throw', async () => {
