@@ -498,10 +498,8 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
         setIntentProposalStatusMap((prev) => ({ ...prev, ...statusMap }));
         setProposalIntentMap((prev) => ({ ...prev, ...intentMap }));
       } catch {
-        // On error, mark all as pending so cards aren't stuck in loading
-        const fallback: Record<string, "pending"> = {};
-        for (const id of ids) fallback[id] = "pending";
-        setIntentProposalStatusMap((prev) => ({ ...prev, ...fallback }));
+        // Leave statuses unresolved — cards stay in loading state rather than
+        // incorrectly triggering auto-create for already-created intents
       }
     };
 

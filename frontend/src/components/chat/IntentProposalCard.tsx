@@ -56,6 +56,7 @@ export default function IntentProposalCard({
   const [savingFor, setSavingFor] = useState<"approve" | "reject" | null>(null);
   const [isUndoing, setIsUndoing] = useState(false);
   const [actionError, setActionError] = useState(false);
+  const [failedAction, setFailedAction] = useState<"approve" | "reject" | "undo" | null>(null);
   const countdownStarted = useRef(false);
   const autoSaveTriggered = useRef(false);
 
@@ -94,6 +95,7 @@ export default function IntentProposalCard({
         setActionTaken("created");
       } catch {
         setActionError(true);
+        setFailedAction("approve");
       } finally {
         setIsSaving(false);
         setSavingFor(null);
@@ -114,6 +116,7 @@ export default function IntentProposalCard({
       setActionTaken("rejected");
     } catch {
       setActionError(true);
+      setFailedAction("reject");
     } finally {
       setIsSaving(false);
       setSavingFor(null);
@@ -148,27 +151,37 @@ export default function IntentProposalCard({
       setActionTaken("rejected");
     } catch {
       setActionError(true);
+      setFailedAction("undo");
     } finally {
       setIsUndoing(false);
     }
   }, [onUndo, card.proposalId, isUndoing]);
 
   if (actionError) {
+    const errorLabel =
+      failedAction === "reject" ? "Failed: Skip intent" :
+      failedAction === "undo" ? "Failed: Undo intent" :
+      "Failed: Create intent";
+    const retryHandler =
+      failedAction === "reject" ? handleSkip :
+      failedAction === "undo" ? handleUndo :
+      handleApproveNow;
+
     return (
       <div className="font-mono text-[11px] border border-gray-200 rounded-lg overflow-hidden bg-gray-900 text-gray-100 my-2">
         <div className="flex items-center gap-2 px-3 py-1.5 bg-red-900/10">
           <X className="w-3 h-3 text-red-500 shrink-0" />
-          <span className="text-red-300">Failed: Create intent</span>
+          <span className="text-red-300">{errorLabel}</span>
         </div>
         <div className="px-3 py-2 border-t border-gray-800 flex gap-2">
           <button
             type="button"
-            onClick={handleApproveNow}
+            onClick={retryHandler}
             className="text-cyan-400 hover:underline"
           >
             Retry
           </button>
-          {onReject && (
+          {failedAction !== "reject" && onReject && (
             <button
               type="button"
               onClick={handleSkip}
