@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import type { DefineTool, ToolDeps } from './tool.helpers';
 import { success, error } from './tool.helpers';
-import { createUserSession, getComposioClient } from '../../../lib/composio/composio';
+import { createUserSession, getComposioClient } from '../../../lib/composio/composio.client';
 import { contactService } from '../../../services/contact.service';
 import { log } from '../../../lib/log';
 

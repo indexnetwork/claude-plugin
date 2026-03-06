@@ -21,6 +21,11 @@ export interface ComposioSessionOptions {
 
 let client: ComposioLangchain | null = null;
 
+/**
+ * Returns the lazily-initialized Composio client singleton.
+ * @returns The configured Composio client with LangChain provider
+ * @throws If COMPOSIO_API_KEY environment variable is not set
+ */
 export function getComposioClient(): ComposioLangchain {
   if (!client) {
     const apiKey = process.env.COMPOSIO_API_KEY;
@@ -61,6 +66,10 @@ export async function createUserSession(
   return (composio as unknown as { create: CreateFn }).create(userId, sessionOptions);
 }
 
+/**
+ * Replace the Composio client singleton (for testing).
+ * @param mock - Client instance to use, or null to reset
+ */
 export function setComposioClient(mock: ComposioLangchain | null) {
   client = mock;
 }
