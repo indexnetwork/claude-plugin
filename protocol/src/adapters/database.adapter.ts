@@ -419,8 +419,8 @@ export class IntentDatabaseAdapter {
    * @returns The intent id if found, otherwise null.
    * @throws May throw database/query errors.
    */
-  async getIntentBySourceId(sourceId: string, userId: string): Promise<{ id: string } | null> {
-    const rows = await db.select({ id: schema.intents.id })
+  async getIntentBySourceId(sourceId: string, userId: string): Promise<{ id: string; archivedAt: Date | null } | null> {
+    const rows = await db.select({ id: schema.intents.id, archivedAt: schema.intents.archivedAt })
       .from(schema.intents)
       .where(and(
         eq(schema.intents.sourceId, sourceId),

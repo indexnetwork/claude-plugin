@@ -481,7 +481,7 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
 
     const fetchStatuses = async () => {
       try {
-        const res = await apiClient.post<{ statuses: Record<string, "created"> }>(
+        const res = await apiClient.post<{ statuses: Record<string, "created" | "rejected"> }>(
           "/intents/proposals/status",
           { proposalIds: ids },
         );
