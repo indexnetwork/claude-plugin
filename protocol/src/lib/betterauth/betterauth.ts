@@ -11,7 +11,7 @@ export const PROTOCOL_URL =
 /** Contract for the auth database adapter injected into createAuth. */
 export interface AuthDbContract {
   /** Returns a configured adapter object for Better Auth's `database` option. */
-  createDrizzleAdapter(): { provider: string; [key: string]: unknown };
+  createDrizzleAdapter(): unknown;
   prepareGhostClaim(email: string): Promise<string | null>;
   claimGhostUser(realUserId: string, ghostId: string): Promise<void>;
   restoreGhostEmail(ghostId: string, email: string): Promise<void>;
