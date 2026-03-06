@@ -14,5 +14,4 @@ CREATE TABLE "user_contacts" (
 ALTER TABLE "users" ADD COLUMN "is_ghost" boolean DEFAULT false NOT NULL;--> statement-breakpoint
 ALTER TABLE "user_contacts" ADD CONSTRAINT "user_contacts_owner_id_users_id_fk" FOREIGN KEY ("owner_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "user_contacts" ADD CONSTRAINT "user_contacts_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-CREATE INDEX "user_contacts_owner_idx" ON "user_contacts" USING btree ("owner_id");--> statement-breakpoint
-ALTER TABLE "indexes" DROP COLUMN "is_personal";
+CREATE INDEX "user_contacts_owner_idx" ON "user_contacts" USING btree ("owner_id");

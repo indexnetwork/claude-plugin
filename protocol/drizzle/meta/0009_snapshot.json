@@ -1,5 +1,5 @@
 {
-  "id": "96d95713-f053-427d-b366-c14cd8e7e467",
+  "id": "64d10dad-fc72-4bf4-9f9a-004671683e18",
   "prevId": "d201fdba-edf1-41b8-baf3-cd9070381375",
   "version": "7",
   "dialect": "postgresql",
@@ -836,19 +836,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "image_url": {
-          "name": "image_url",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "is_personal": {
-          "name": "is_personal",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
-        },
         "permissions": {
           "name": "permissions",
           "type": "json",
@@ -1322,6 +1309,123 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.user_contacts": {
+      "name": "user_contacts",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "owner_id": {
+          "name": "owner_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "source": {
+          "name": "source",
+          "type": "contact_source",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "imported_at": {
+          "name": "imported_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "deleted_at": {
+          "name": "deleted_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "user_contacts_owner_idx": {
+          "name": "user_contacts_owner_idx",
+          "columns": [
+            {
+              "expression": "owner_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "user_contacts_owner_id_users_id_fk": {
+          "name": "user_contacts_owner_id_users_id_fk",
+          "tableFrom": "user_contacts",
+          "tableTo": "users",
+          "columnsFrom": [
+            "owner_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "user_contacts_user_id_users_id_fk": {
+          "name": "user_contacts_user_id_users_id_fk",
+          "tableFrom": "user_contacts",
+          "tableTo": "users",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "user_contacts_owner_id_user_id_unique": {
+          "name": "user_contacts_owner_id_user_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "owner_id",
+            "user_id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.integrations": {
       "name": "integrations",
       "schema": "",
@@ -1698,6 +1802,13 @@
           "primaryKey": false,
           "notNull": false
         },
+        "is_ghost": {
+          "name": "is_ghost",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
         "wallet_address": {
           "name": "wallet_address",
           "type": "text",
@@ -1827,6 +1938,15 @@
         "user",
         "assistant",
         "system"
+      ]
+    },
+    "public.contact_source": {
+      "name": "contact_source",
+      "schema": "public",
+      "values": [
+        "gmail",
+        "google_calendar",
+        "manual"
       ]
     },
     "public.intent_mode": {
