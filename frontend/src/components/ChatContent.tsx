@@ -481,12 +481,18 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
 
     const fetchStatuses = async () => {
       try {
-        const res = await apiClient.post<{ statuses: Record<string, "created" | "rejected"> }>(
-          "/intents/proposals/status",
-          { proposalIds: ids },
-        );
+        const res = await apiClient.post<{
+          statuses: Record<string, { intentId: string; archivedAt: string | null }>;
+        }>("/intents/proposals/status", { proposalIds: ids });
         if (res.statuses && Object.keys(res.statuses).length > 0) {
-          setIntentProposalStatusMap((prev) => ({ ...prev, ...res.statuses }));
+          const statusMap: Record<string, "created" | "rejected"> = {};
+          const intentMap: Record<string, string> = {};
+          for (const [pid, info] of Object.entries(res.statuses)) {
+            statusMap[pid] = info.archivedAt ? "rejected" : "created";
+            intentMap[pid] = info.intentId;
+          }
+          setIntentProposalStatusMap((prev) => ({ ...prev, ...statusMap }));
+          setProposalIntentMap((prev) => ({ ...prev, ...intentMap }));
         }
       } catch {
         // Non-critical — cards will default to pending

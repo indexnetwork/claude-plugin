@@ -225,20 +225,24 @@ export class IntentService {
   }
 
   /**
-   * Check which proposal IDs have been confirmed or archived.
+   * Look up intents by proposal IDs. Returns the intent id and archivedAt for each
+   * proposalId that has a matching intent record.
    *
    * @param userId - The user ID
    * @param proposalIds - Array of proposal IDs to check
-   * @returns Map of proposalId -> "created" | "rejected"
+   * @returns Map of proposalId -> { intentId, archivedAt }
    */
-  async getProposalStatuses(userId: string, proposalIds: string[]): Promise<Record<string, 'created' | 'rejected'>> {
+  async getProposalStatuses(userId: string, proposalIds: string[]): Promise<Record<string, { intentId: string; archivedAt: string | null }>> {
     if (proposalIds.length === 0) return {};
 
-    const result: Record<string, 'created' | 'rejected'> = {};
+    const result: Record<string, { intentId: string; archivedAt: string | null }> = {};
     for (const pid of proposalIds) {
       const intent = await this.adapter.getIntentBySourceId(pid, userId);
       if (intent) {
-        result[pid] = intent.archivedAt ? 'rejected' : 'created';
+        result[pid] = {
+          intentId: intent.id,
+          archivedAt: intent.archivedAt?.toISOString() ?? null,
+        };
       }
     }
     return result;
