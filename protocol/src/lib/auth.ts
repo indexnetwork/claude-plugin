@@ -36,16 +36,14 @@ async function claimGhostUser(realUserId: string, email: string): Promise<void> 
   logger.info('Claiming ghost user', { realUserId, ghostId: ghost.id, email });
 
   // Transfer all ghost data to real user
-  await db.update(schema.userProfiles).set({ userId: realUserId }).where(eq(schema.userProfiles.userId, ghost.id));
-  await db.update(schema.intents).set({ userId: realUserId }).where(eq(schema.intents.userId, ghost.id));
-  await db.update(schema.indexMembers).set({ userId: realUserId }).where(eq(schema.indexMembers.userId, ghost.id));
-  await db.update(schema.hydeDocuments).set({ sourceId: realUserId }).where(eq(schema.hydeDocuments.sourceId, ghost.id));
-
-  // Update user_contacts where the ghost is referenced as a contact (someone else's network)
-  await db.update(schema.userContacts).set({ userId: realUserId }).where(eq(schema.userContacts.userId, ghost.id));
-
-  // Delete the ghost user row (cascades remaining FK refs like accounts/sessions)
-  await db.delete(schema.users).where(eq(schema.users.id, ghost.id));
+  await db.transaction(async (tx) => {
+    await tx.update(schema.userProfiles).set({ userId: realUserId }).where(eq(schema.userProfiles.userId, ghost.id));
+    await tx.update(schema.intents).set({ userId: realUserId }).where(eq(schema.intents.userId, ghost.id));
+    await tx.update(schema.indexMembers).set({ userId: realUserId }).where(eq(schema.indexMembers.userId, ghost.id));
+    await tx.update(schema.hydeDocuments).set({ sourceId: realUserId }).where(eq(schema.hydeDocuments.sourceId, ghost.id));
+    await tx.update(schema.userContacts).set({ userId: realUserId }).where(eq(schema.userContacts.userId, ghost.id));
+    await tx.delete(schema.users).where(eq(schema.users.id, ghost.id));
+  });
 
   logger.info('Ghost user claimed successfully', { realUserId, ghostId: ghost.id });
 }

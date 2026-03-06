@@ -24,7 +24,9 @@ let client: ComposioLangchain | null = null;
 export function getComposioClient(): ComposioLangchain {
   if (!client) {
     const apiKey = process.env.COMPOSIO_API_KEY;
-    if (!apiKey) logger.warn('COMPOSIO_API_KEY not set');
+    if (!apiKey) {
+      throw new Error('COMPOSIO_API_KEY is not set');
+    }
     client = new Composio({ apiKey, provider: new LangchainProvider() });
   }
   return client;
@@ -53,6 +55,8 @@ export async function createUserSession(
 
   logger.info('Creating Composio session', { userId, hasCallbackUrl: !!callbackUrl });
 
+  // Composio SDK's create() method exists at runtime but isn't exposed in @composio/core's public types.
+  // Using a typed cast until the SDK exports proper session creation types.
   type CreateFn = (userId: string, options?: ComposioSessionOptions) => Promise<ComposioSession>;
   return (composio as unknown as { create: CreateFn }).create(userId, sessionOptions);
 }

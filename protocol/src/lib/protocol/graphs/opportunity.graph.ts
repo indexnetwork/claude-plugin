@@ -818,19 +818,24 @@ export class OpportunityGraphFactory {
         // Network-only filter: restrict to user's imported contacts
         let filteredCandidates = dedupedCandidates;
         if (state.networkOnly) {
-          const contactUserIds = await this.database.getContactUserIds(state.userId);
-          if (contactUserIds.length === 0) {
-            logger.verbose('[Graph:Evaluation] networkOnly=true but user has no contacts');
-            return { evaluatedOpportunities: [], trace: [{ node: 'evaluation', detail: 'Network filter: no contacts found' }] };
-          }
-          const contactSet = new Set(contactUserIds);
-          filteredCandidates = dedupedCandidates.filter((c) => contactSet.has(c.candidateUserId));
-          logger.verbose('[Graph:Evaluation] Network filter applied', {
-            before: dedupedCandidates.length,
-            after: filteredCandidates.length,
-          });
-          if (filteredCandidates.length === 0) {
-            return { evaluatedOpportunities: [], trace: [{ node: 'evaluation', detail: 'Network filter: no candidates in network' }] };
+          try {
+            const contactUserIds = await this.database.getContactUserIds(state.userId);
+            if (contactUserIds.length === 0) {
+              logger.verbose('[Graph:Evaluation] networkOnly=true but user has no contacts');
+              return { evaluatedOpportunities: [], remainingCandidates: [], trace: [{ node: 'evaluation', detail: 'Network filter: no contacts found' }] };
+            }
+            const contactSet = new Set(contactUserIds);
+            filteredCandidates = dedupedCandidates.filter((c) => contactSet.has(c.candidateUserId));
+            logger.verbose('[Graph:Evaluation] Network filter applied', {
+              before: dedupedCandidates.length,
+              after: filteredCandidates.length,
+            });
+            if (filteredCandidates.length === 0) {
+              return { evaluatedOpportunities: [], remainingCandidates: [], trace: [{ node: 'evaluation', detail: 'Network filter: no candidates in network' }] };
+            }
+          } catch (error) {
+            logger.error('[Graph:Evaluation] Failed to load contacts for network filter', { error, userId: state.userId });
+            return { evaluatedOpportunities: [], remainingCandidates: [], error: 'Failed to load contacts for network filtering.' };
           }
         }
 
@@ -972,7 +977,7 @@ export class OpportunityGraphFactory {
                   .map((actor) =>
                     candidateEntities.find((e) => e.userId === actor.userId)?.profile?.name?.toLowerCase()
                   )
-                  .some((name): name is string => Boolean(name) && reasoningLower.includes(name));
+                  .some((name) => name != null && reasoningLower.includes(name));
                 let reasoning: string;
                 if (mentionsCandidate && !mentionsOtherCandidate) {
                   reasoning = op.reasoning;

@@ -1142,8 +1142,15 @@ export default function RootPage() {
       const pendingRedirect = localStorage.getItem("pending_oauth_redirect");
       if (pendingRedirect) {
         localStorage.removeItem("pending_oauth_redirect");
-        setIsRedirecting(true);
-        window.location.href = pendingRedirect;
+        try {
+          const redirectUrl = new URL(pendingRedirect, window.location.origin);
+          if (redirectUrl.origin === window.location.origin) {
+            setIsRedirecting(true);
+            window.location.href = pendingRedirect;
+          }
+        } catch {
+          // Invalid URL, ignore redirect
+        }
       }
     }
   }, []);

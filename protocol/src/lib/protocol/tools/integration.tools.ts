@@ -7,11 +7,13 @@ import { log } from '../../../lib/log';
 
 const logger = log.lib.from('integration.tools');
 
+/** A single contact entry returned by the Gmail People API. */
 interface GmailContact {
   names?: Array<{ displayName?: string }>;
   emailAddresses?: Array<{ value?: string }>;
 }
 
+/** Response shape from Composio's GMAIL_GET_CONTACTS tool execution. */
 interface GmailGetContactsResponse {
   successful: boolean;
   error?: string;
@@ -24,7 +26,13 @@ interface GmailGetContactsResponse {
 
 /**
  * Creates integration tools for the chat agent.
- * Exposes import_gmail_contacts for direct Gmail contact import with Composio auth.
+ *
+ * Exposes `import_gmail_contacts` which authenticates via Composio, fetches all
+ * Gmail contacts (paginated), and imports them as ghost users into the network.
+ *
+ * @param defineTool - Tool definition helper injected by the tool registry.
+ * @param _deps - Shared tool dependencies (unused by integration tools).
+ * @returns An array of tool definitions to register with the chat agent.
  */
 export function createIntegrationTools(defineTool: DefineTool, _deps: ToolDeps) {
   const import_gmail_contacts = defineTool({
@@ -59,46 +67,56 @@ Returns import statistics or an auth URL if authentication is needed.`,
         logger.info('Fetching Gmail contacts', { userId: context.userId });
         
         const composio = getComposioClient();
-        const result = await (composio as unknown as {
+        // Composio SDK's tools.execute() types don't match runtime behavior at v0.6.3.
+        // Using typed cast until SDK exports proper tool execution types.
+        type ToolsExecute = {
           tools: {
             execute: (
               slug: string,
               opts: { userId: string; arguments: Record<string, unknown>; dangerouslySkipVersionCheck?: boolean }
             ) => Promise<GmailGetContactsResponse>;
           };
-        }).tools.execute('GMAIL_GET_CONTACTS', {
-          userId: context.userId,
-          arguments: {
-            resource_name: 'people/me',
-            person_fields: 'names,emailAddresses',
-            include_other_contacts: true,
-          },
-          dangerouslySkipVersionCheck: true,
-        });
-        
-        if (!result.successful) {
-          logger.error('Gmail contacts fetch failed', { userId: context.userId, error: result.error });
-          return error(`Failed to fetch contacts: ${result.error}`);
-        }
-        
+        };
+        const typedComposio = composio as unknown as ToolsExecute;
+
         const contacts: Array<{ name: string; email: string }> = [];
-        
-        const allContacts = [
-          ...(result.data?.connections || []),
-          ...(result.data?.otherContacts || []),
-        ];
-        
-        for (const contact of allContacts) {
-          const email = contact.emailAddresses?.[0]?.value;
-          if (email) {
-            const name = contact.names?.[0]?.displayName || email.split('@')[0];
-            contacts.push({ name, email });
+        let nextPageToken: string | undefined;
+
+        do {
+          const result = await typedComposio.tools.execute('GMAIL_GET_CONTACTS', {
+            userId: context.userId,
+            arguments: {
+              resource_name: 'people/me',
+              person_fields: 'names,emailAddresses',
+              include_other_contacts: true,
+              ...(nextPageToken ? { pageToken: nextPageToken } : {}),
+            },
+            dangerouslySkipVersionCheck: true,
+          });
+
+          if (!result.successful) {
+            logger.error('Gmail contacts fetch failed', { userId: context.userId, error: result.error });
+            return error(`Failed to fetch contacts: ${result.error}`);
           }
-        }
-        
-        logger.info('Parsed contacts from Gmail', { 
-          userId: context.userId, 
-          totalFetched: allContacts.length,
+
+          const allContacts = [
+            ...(result.data?.connections || []),
+            ...(result.data?.otherContacts || []),
+          ];
+
+          for (const contact of allContacts) {
+            const email = contact.emailAddresses?.[0]?.value;
+            if (email) {
+              const name = contact.names?.[0]?.displayName || email.split('@')[0];
+              contacts.push({ name, email });
+            }
+          }
+
+          nextPageToken = result.data?.nextPageToken;
+        } while (nextPageToken);
+
+        logger.info('Parsed contacts from Gmail', {
+          userId: context.userId,
           validContacts: contacts.length,
         });
         

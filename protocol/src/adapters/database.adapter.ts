@@ -2303,6 +2303,8 @@ export class ChatDatabaseAdapter {
       .onConflictDoUpdate({
         target: [schema.userContacts.ownerId, schema.userContacts.userId],
         set: {
+          source: data.source,
+          importedAt: new Date(),
           updatedAt: new Date(),
           deletedAt: null, // reactivate if previously soft-deleted
         },
@@ -2431,24 +2433,49 @@ export class ChatDatabaseAdapter {
       isGhost: true,
     }));
 
-    await db.insert(schema.users).values(usersToInsert);
+    await db.insert(schema.users).values(usersToInsert).onConflictDoNothing();
 
-    // Create empty profiles
-    const profilesToInsert = usersToInsert.map(u => ({ userId: u.id }));
-    await db.insert(schema.userProfiles).values(profilesToInsert);
+    // Re-query to find which users actually exist (created now vs already existed)
+    const insertedEmails = new Set(usersToInsert.map(u => u.email));
+    const existingAfterInsert = await db
+      .select({ id: schema.users.id, email: schema.users.email })
+      .from(schema.users)
+      .where(inArray(schema.users.email, [...insertedEmails]));
 
-    // Add to Index Global if configured
-    if (globalIndexId) {
-      const membersToInsert = usersToInsert.map(u => ({
-        indexId: globalIndexId,
-        userId: u.id,
-        permissions: ['member'] as string[],
-      }));
-      await db.insert(schema.indexMembers).values(membersToInsert).onConflictDoNothing();
+    // Map back to our generated IDs vs actual IDs
+    const emailToId = new Map(existingAfterInsert.map(u => [u.email, u.id]));
+    const actuallyCreatedIds = new Set(
+      usersToInsert
+        .filter(u => emailToId.get(u.email) === u.id)
+        .map(u => u.id)
+    );
+
+    // Create empty profiles only for newly created users
+    if (actuallyCreatedIds.size > 0) {
+      const profilesToInsert = usersToInsert
+        .filter(u => actuallyCreatedIds.has(u.id))
+        .map(u => ({ userId: u.id }));
+      await db.insert(schema.userProfiles).values(profilesToInsert);
+
+      // Add to Index Global if configured
+      if (globalIndexId) {
+        const membersToInsert = usersToInsert
+          .filter(u => actuallyCreatedIds.has(u.id))
+          .map(u => ({
+            indexId: globalIndexId,
+            userId: u.id,
+            permissions: ['member'] as string[],
+          }));
+        await db.insert(schema.indexMembers).values(membersToInsert).onConflictDoNothing();
+      }
     }
 
+    // Return results with correct IDs (actual DB IDs, not our generated ones)
     for (const u of usersToInsert) {
-      results.push({ id: u.id, name: u.name, email: u.email });
+      const actualId = emailToId.get(u.email);
+      if (actualId) {
+        results.push({ id: actualId, name: u.name, email: u.email });
+      }
     }
 
     return results;
@@ -2473,10 +2500,115 @@ export class ChatDatabaseAdapter {
       .onConflictDoUpdate({
         target: [schema.userContacts.ownerId, schema.userContacts.userId],
         set: {
+          source: sql`excluded.source`,
+          importedAt: new Date(),
           updatedAt: new Date(),
           deletedAt: null,
         },
       });
+  }
+
+  /**
+   * Atomically create ghost users and upsert all contacts in a single transaction.
+   * Ghost users are created first, then all contacts (both existing-user and ghost-user)
+   * are upserted together, ensuring the write path is atomic.
+   *
+   * @param ownerId - The user importing contacts
+   * @param ghosts - Array of ghost user data to create
+   * @param validContacts - All validated contacts with resolved emails
+   * @param existingByEmail - Map of already-existing users by email
+   * @param source - Contact source type
+   * @returns Object containing the newly created ghost users
+   */
+  async importContactsBulk(
+    ownerId: string,
+    ghosts: Array<{ name: string; email: string }>,
+    validContacts: Array<{ name: string; email: string }>,
+    existingByEmail: Map<string, { id: string; email: string; name: string; isGhost: boolean }>,
+    source: 'gmail' | 'google_calendar' | 'manual'
+  ): Promise<{ newGhosts: Array<{ id: string; name: string; email: string }> }> {
+    return await db.transaction(async (tx) => {
+      // Create ghost users
+      const newGhosts: Array<{ id: string; name: string; email: string }> = [];
+      if (ghosts.length > 0) {
+        const globalIndexId = process.env.INDEX_GLOBAL_ID;
+
+        const usersToInsert = ghosts.map(d => ({
+          id: crypto.randomUUID(),
+          name: d.name,
+          email: d.email,
+          isGhost: true,
+        }));
+
+        await tx.insert(schema.users).values(usersToInsert).onConflictDoNothing();
+
+        const insertedEmails = new Set(usersToInsert.map(u => u.email));
+        const existingAfterInsert = await tx
+          .select({ id: schema.users.id, email: schema.users.email })
+          .from(schema.users)
+          .where(inArray(schema.users.email, [...insertedEmails]));
+
+        const emailToId = new Map(existingAfterInsert.map(u => [u.email, u.id]));
+        const actuallyCreatedIds = new Set(
+          usersToInsert
+            .filter(u => emailToId.get(u.email) === u.id)
+            .map(u => u.id)
+        );
+
+        if (actuallyCreatedIds.size > 0) {
+          const profilesToInsert = usersToInsert
+            .filter(u => actuallyCreatedIds.has(u.id))
+            .map(u => ({ userId: u.id }));
+          await tx.insert(schema.userProfiles).values(profilesToInsert);
+
+          if (globalIndexId) {
+            const membersToInsert = usersToInsert
+              .filter(u => actuallyCreatedIds.has(u.id))
+              .map(u => ({
+                indexId: globalIndexId,
+                userId: u.id,
+                permissions: ['member'] as string[],
+              }));
+            await tx.insert(schema.indexMembers).values(membersToInsert).onConflictDoNothing();
+          }
+        }
+
+        for (const u of usersToInsert) {
+          const actualId = emailToId.get(u.email);
+          if (actualId) {
+            newGhosts.push({ id: actualId, name: u.name, email: u.email });
+            // Add ghosts to the lookup map so contacts can be resolved below
+            existingByEmail.set(u.email.toLowerCase(), { id: actualId, email: u.email, name: u.name, isGhost: true });
+          }
+        }
+      }
+
+      // Upsert all contacts (existing users + newly created ghosts)
+      const contactsToUpsert: Array<{ ownerId: string; userId: string; source: typeof source }> = [];
+      for (const contact of validContacts) {
+        const user = existingByEmail.get(contact.email);
+        if (user) {
+          contactsToUpsert.push({ ownerId, userId: user.id, source });
+        }
+      }
+
+      if (contactsToUpsert.length > 0) {
+        await tx
+          .insert(schema.userContacts)
+          .values(contactsToUpsert)
+          .onConflictDoUpdate({
+            target: [schema.userContacts.ownerId, schema.userContacts.userId],
+            set: {
+              source: sql`excluded.source`,
+              importedAt: new Date(),
+              updatedAt: new Date(),
+              deletedAt: null,
+            },
+          });
+      }
+
+      return { newGhosts };
+    });
   }
 }
 

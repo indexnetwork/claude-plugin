@@ -127,27 +127,29 @@ export class ContactService {
       }
     }
 
-    // Bulk create ghost users
-    if (needGhosts.length > 0) {
-      const ghosts = await this.db.createGhostUsersBulk(needGhosts);
-      for (const ghost of ghosts) {
-        existingByEmail.set(ghost.email.toLowerCase(), { 
-          id: ghost.id, 
-          email: ghost.email, 
-          name: ghost.name,
-          isGhost: true 
-        });
-      }
-      result.newGhosts = ghosts.length;
-      logger.verbose('[ContactService] Created ghost users', { count: ghosts.length });
+    // Atomically create ghosts + upsert all contacts in a single transaction
+    const { newGhosts } = await this.db.importContactsBulk(
+      ownerId,
+      needGhosts,
+      validContacts,
+      existingByEmail,
+      source
+    );
+
+    result.newGhosts = newGhosts.length;
+
+    if (newGhosts.length > 0) {
+      // TODO: Enqueue enrichment jobs for new ghost users once enrichment queue is wired up
+      logger.info('[ContactService] Ghost users created, enrichment pending', {
+        ghostIds: newGhosts.map(g => g.id),
+        count: newGhosts.length,
+      });
     }
 
-    // Bulk upsert contact relationships
-    const contactsToUpsert: Array<{ ownerId: string; userId: string; source: ContactSource }> = [];
+    // Build result details (existingByEmail was updated inside the transaction with ghost IDs)
     for (const contact of validContacts) {
       const user = existingByEmail.get(contact.email);
       if (user) {
-        contactsToUpsert.push({ ownerId, userId: user.id, source });
         result.details.push({
           email: contact.email,
           userId: user.id,
@@ -155,15 +157,13 @@ export class ContactService {
         });
       }
     }
-
-    if (contactsToUpsert.length > 0) {
-      await this.db.upsertContactsBulk(contactsToUpsert);
-      result.imported = contactsToUpsert.length;
-    }
+    result.imported = result.details.length;
 
     logger.info('[ContactService] Import completed', {
       ownerId,
-      ...result,
+      imported: result.imported,
+      skipped: result.skipped,
+      newGhosts: result.newGhosts,
     });
 
     return result;

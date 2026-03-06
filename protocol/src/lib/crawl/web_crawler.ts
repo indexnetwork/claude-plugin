@@ -3,6 +3,9 @@ import crypto from 'crypto';
 import { log } from '../../lib/log';
 import { extractUrlContent } from '../parallel/parallel';
 
+/**
+ * Represents a file produced by crawling or integrating an external source.
+ */
 export interface IntegrationFile {
   id: string;
   name: string;
@@ -30,6 +33,11 @@ function sanitizeName(s: string): string {
   return s.replace(/[\/:*?"<>|\n\r\t]/g, '-').slice(0, 120);
 }
 
+/**
+ * Crawls a list of URLs and returns their content as markdown files.
+ * @param urls - The URLs to crawl and extract content from.
+ * @returns A {@link CrawlResult} containing extracted files, a URL-to-hash map, and the number of pages visited.
+ */
 export async function crawlLinksForIndex(urls: string[]): Promise<CrawlResult> {
   const now = new Date();
   const files: IntegrationFile[] = [];
@@ -56,7 +64,8 @@ export async function crawlLinksForIndex(urls: string[]): Promise<CrawlResult> {
 
     try {
       const id = sha1(url);
-      const name = sanitizeName(new URL(url).hostname + new URL(url).pathname) || id;
+      const parsed = new URL(url);
+      const name = sanitizeName(parsed.hostname + parsed.pathname) || id;
       files.push({
         id,
         name: `${name}.md`,
