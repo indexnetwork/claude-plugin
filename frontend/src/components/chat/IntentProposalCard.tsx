@@ -59,8 +59,9 @@ export default function IntentProposalCard({
   const countdownStarted = useRef(false);
   const autoSaveTriggered = useRef(false);
 
+  const statusResolved = currentStatus !== undefined;
   const effectiveStatus = currentStatus ?? (actionTaken ? actionTaken : "pending");
-  const isPending = effectiveStatus === "pending" && !actionTaken && !actionError;
+  const isPending = statusResolved && effectiveStatus === "pending" && !actionTaken && !actionError;
 
   // Start countdown on mount when pending
   useEffect(() => {

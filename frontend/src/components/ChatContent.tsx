@@ -484,18 +484,24 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
         const res = await apiClient.post<{
           statuses: Record<string, { intentId: string; archivedAt: string | null }>;
         }>("/intents/proposals/status", { proposalIds: ids });
-        if (res.statuses && Object.keys(res.statuses).length > 0) {
-          const statusMap: Record<string, "created" | "rejected"> = {};
-          const intentMap: Record<string, string> = {};
-          for (const [pid, info] of Object.entries(res.statuses)) {
-            statusMap[pid] = info.archivedAt ? "rejected" : "created";
-            intentMap[pid] = info.intentId;
+        const statusMap: Record<string, "pending" | "created" | "rejected"> = {};
+        const intentMap: Record<string, string> = {};
+        for (const id of ids) {
+          const info = res.statuses?.[id];
+          if (info) {
+            statusMap[id] = info.archivedAt ? "rejected" : "created";
+            intentMap[id] = info.intentId;
+          } else {
+            statusMap[id] = "pending";
           }
-          setIntentProposalStatusMap((prev) => ({ ...prev, ...statusMap }));
-          setProposalIntentMap((prev) => ({ ...prev, ...intentMap }));
         }
+        setIntentProposalStatusMap((prev) => ({ ...prev, ...statusMap }));
+        setProposalIntentMap((prev) => ({ ...prev, ...intentMap }));
       } catch {
-        // Non-critical — cards will default to pending
+        // On error, mark all as pending so cards aren't stuck in loading
+        const fallback: Record<string, "pending"> = {};
+        for (const id of ids) fallback[id] = "pending";
+        setIntentProposalStatusMap((prev) => ({ ...prev, ...fallback }));
       }
     };
 
