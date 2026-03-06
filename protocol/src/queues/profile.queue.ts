@@ -203,7 +203,7 @@ export class ProfileQueue {
     const scraper = new ScraperAdapter();
     const factory = new ProfileGraphFactory(database, embedder, scraper);
     const graph = factory.createGraph();
-    await graph.invoke({ userId, operationMode: 'write' });
+    await graph.invoke({ userId, operationMode: 'generate' });
   }
 }
 

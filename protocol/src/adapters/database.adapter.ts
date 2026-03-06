@@ -32,6 +32,68 @@ async function getGlobalIndexId(): Promise<string | null> {
   return _globalIndexId;
 }
 
+/**
+ * Ensures a global index exists in the database. Creates one if missing.
+ * Also backfills any users (real or ghost) who are not yet members.
+ * Should be called once at server startup before accepting requests.
+ */
+export async function ensureGlobalIndex(): Promise<string> {
+  let globalId = await getGlobalIndexId();
+
+  if (!globalId) {
+    globalId = crypto.randomUUID();
+    await db.insert(schema.indexes).values({
+      id: globalId,
+      title: 'Global Network',
+      prompt: 'The global index containing all users for network-wide discovery.',
+      isGlobal: true,
+    });
+    _globalIndexId = globalId;
+    logger.info('Global index created', { id: globalId });
+  }
+
+  // Backfill: register every non-deleted user who isn't already a member
+  const missing = await db
+    .select({ id: schema.users.id })
+    .from(schema.users)
+    .leftJoin(
+      schema.indexMembers,
+      and(
+        eq(schema.indexMembers.userId, schema.users.id),
+        eq(schema.indexMembers.indexId, globalId),
+      ),
+    )
+    .where(and(
+      isNull(schema.users.deletedAt),
+      isNull(schema.indexMembers.userId),
+    ));
+
+  if (missing.length > 0) {
+    await db
+      .insert(schema.indexMembers)
+      .values(missing.map(u => ({ indexId: globalId, userId: u.id, permissions: ['member'] as string[] })))
+      .onConflictDoNothing();
+    logger.info('Global index backfill complete', { added: missing.length });
+  } else {
+    logger.info('Global index up to date, no backfill needed', { id: globalId });
+  }
+
+  return globalId;
+}
+
+/**
+ * Adds a user to the global index if they are not already a member.
+ * Safe to call for any user (ghost or real) — uses onConflictDoNothing.
+ */
+export async function ensureGlobalIndexMembership(userId: string): Promise<void> {
+  const globalIndexId = await getGlobalIndexId();
+  if (!globalIndexId) return;
+  await db
+    .insert(schema.indexMembers)
+    .values({ indexId: globalIndexId, userId, permissions: ['member'] })
+    .onConflictDoNothing();
+}
+
 // Local types used by adapters (shapes only; protocol layer defines the contracts)
 interface ActiveIntentRow {
   id: string;
