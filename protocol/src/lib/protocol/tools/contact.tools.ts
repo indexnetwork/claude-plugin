@@ -58,8 +58,9 @@ Returns import statistics including how many were imported, skipped, and how man
   const list_contacts = defineTool({
     name: 'list_contacts',
     description: `List the user's network contacts. Returns all imported contacts with their details.
-Each contact includes the source (gmail, google_calendar, manual), import date, and user info.
-Ghost users (contacts without accounts) are marked with isGhost: true.`,
+Each contact includes userId, source (gmail, google_calendar, manual), import date, and user info.
+Ghost users (contacts without accounts) are marked with isGhost: true.
+Use the userId field with read_user_profiles to look up a contact's full profile.`,
     querySchema: z.object({
       limit: z.number().optional().describe('Maximum number of contacts to return (default: all)'),
     }),
@@ -75,6 +76,7 @@ Ghost users (contacts without accounts) are marked with isGhost: true.`,
           count: contacts.length,
           contacts: contacts.map(c => ({
             id: c.id,
+            userId: c.user.id,
             name: c.user.name,
             email: c.user.email,
             avatar: c.user.avatar,

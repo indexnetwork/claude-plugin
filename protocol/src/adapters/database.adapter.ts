@@ -4311,7 +4311,15 @@ export function createSystemDatabase(
   const verifySharedIndex = async (userId: string): Promise<boolean> => {
     if (userId === authUserId) return true;
     const theirMemberships = await db.getIndexMemberships(userId);
-    return theirMemberships.some((m) => indexScope.includes(m.indexId));
+    if (theirMemberships.some((m) => indexScope.includes(m.indexId))) return true;
+    // getIndexMemberships excludes the global index from user-facing listings,
+    // but both users may share only the global index (e.g. ghost contacts).
+    const globalId = await getGlobalIndexId();
+    if (!globalId) return false;
+    const theirGlobalMembership = await db.getIndexMembership(globalId, userId);
+    if (!theirGlobalMembership) return false;
+    const myGlobalMembership = await db.getIndexMembership(globalId, authUserId);
+    return !!myGlobalMembership;
   };
 
   return {
