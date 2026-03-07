@@ -664,7 +664,7 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
         context.userId,
         {
           indexId: effectiveIndexId,
-          limit: 10,
+          limit: CHAT_DISPLAY_LIMIT,
         },
       );
 

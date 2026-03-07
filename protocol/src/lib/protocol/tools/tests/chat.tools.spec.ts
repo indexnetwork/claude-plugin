@@ -1592,3 +1592,106 @@ describe("read_user_profiles tool (query parameter — name search)", () => {
     expect(parsed.data.profiles[0].profile).toBeUndefined();
   });
 });
+
+describe("list_opportunities tool (CHAT_DISPLAY_LIMIT cap)", () => {
+  /**
+   * Build N fake Opportunity records that list_opportunities can process.
+   * Each has a unique counterpart actor so buildMinimalOpportunityCard produces
+   * a distinct card.
+   */
+  function buildFakeOpportunities(n: number): Opportunity[] {
+    return Array.from({ length: n }, (_, i) => ({
+      id: `opp-fake-${i}`,
+      status: "pending",
+      interpretation: { reasoning: `Reasoning for opp ${i}`, confidence: 0.8 },
+      actors: [
+        { userId: testUserId, role: "party" },
+        { userId: `counterpart-${i}`, role: "party" },
+      ],
+      detection: { source: "discovery", createdByName: null },
+      context: {},
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      expiresAt: null,
+    })) as unknown as Opportunity[];
+  }
+
+  test("returns at most 3 opportunity code blocks when database has 5 opportunities", async () => {
+    const fakeOpps = buildFakeOpportunities(5);
+    let capturedLimit: number | undefined;
+    const mockDb = createMockDatabase(async () => [], {
+      getOpportunitiesForUser: async (_userId: string, opts?: { indexId?: string; limit?: number }) => {
+        capturedLimit = opts?.limit;
+        // Respect the limit like a real database would
+        return opts?.limit ? fakeOpps.slice(0, opts.limit) : fakeOpps;
+      },
+    } as unknown as MockOverrides);
+    const context: ToolContext = { userId: testUserId, database: mockDb, embedder: mockEmbedder, scraper: mockScraper };
+    // createChatTools filters out list_opportunities; access all opportunity tools via the full tool set
+    // by temporarily adding getOpportunitiesForUser and using createChatTools' underlying factory.
+    // Instead, we import createOpportunityTools and wire a minimal defineTool.
+    const { tool: lcTool } = await import("@langchain/core/tools");
+    const { createOpportunityTools } = await import("../opportunity.tools");
+    const { z } = await import("zod");
+
+    const resolvedContext = {
+      userId: testUserId,
+      indexId: undefined,
+      sessionId: undefined,
+      userName: "Test User",
+      userIndexes: [],
+      scopedIndexRole: undefined,
+      indexName: undefined,
+    };
+
+    function defineTool<T extends import("zod").ZodType>(opts: {
+      name: string;
+      description: string;
+      querySchema: T;
+      handler: (input: { context: typeof resolvedContext; query: import("zod").infer<T> }) => Promise<string>;
+    }) {
+      return lcTool(
+        async (query: import("zod").infer<T>) => opts.handler({ context: resolvedContext, query }),
+        { name: opts.name, description: opts.description, schema: opts.querySchema },
+      );
+    }
+
+    const noopGraph = { invoke: async () => ({}) };
+    const deps = {
+      database: mockDb,
+      userDb: { getUser: async () => ({ id: testUserId, name: "Test User" }) },
+      systemDb: {},
+      scraper: mockScraper,
+      embedder: mockEmbedder,
+      cache: {},
+      graphs: {
+        profile: noopGraph,
+        intent: noopGraph,
+        index: noopGraph,
+        indexMembership: noopGraph,
+        intentIndex: noopGraph,
+        opportunity: noopGraph,
+      },
+    };
+
+    const oppTools = createOpportunityTools(defineTool as never, deps as never);
+    const listTool = (oppTools as unknown as Array<{ name: string; invoke: (args: { indexId?: string }) => Promise<string> }>)
+      .find((t) => t.name === "list_opportunities")!;
+    expect(listTool).toBeDefined();
+
+    const result = await listTool.invoke({});
+    const parsed = JSON.parse(result);
+    expect(parsed.success).toBe(true);
+    expect(parsed.data.found).toBe(true);
+
+    // Verify CHAT_DISPLAY_LIMIT (3) was passed to the database query
+    expect(capturedLimit).toBe(3);
+
+    // Count ```opportunity code blocks in the message
+    const codeBlockCount = (parsed.data.message.match(/```opportunity/g) || []).length;
+    expect(codeBlockCount).toBeLessThanOrEqual(3);
+    expect(codeBlockCount).toBe(3);
+    // Total count reported should also be capped
+    expect(parsed.data.count).toBe(3);
+  });
+});
