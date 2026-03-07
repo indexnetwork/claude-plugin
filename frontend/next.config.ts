@@ -76,7 +76,12 @@ const nextConfig: NextConfig = {
         protocol: 'https',
         hostname: '**.storageapi.dev',
         pathname: '/**',
-      }
+      },
+      {
+        protocol: 'https',
+        hostname: 'indexnetwork.s3.us-east-1.amazonaws.com',
+        pathname: '/**',
+      },
     ],
   },
 };
