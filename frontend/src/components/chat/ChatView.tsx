@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useXMTP } from '@/contexts/XMTPContext';
-import { Loader2, ArrowUp, MoreHorizontal, Trash2 } from 'lucide-react';
+import { Loader2, ArrowUp, MoreHorizontal, Trash2, Bot } from 'lucide-react';
 import Link from 'next/link';
 import UserAvatar from '@/components/UserAvatar';
 import ReactMarkdown from 'react-markdown';
@@ -166,11 +166,33 @@ export default function ChatView({ userId, userName, userAvatar, initialGroupId,
             <div className="space-y-4">
               {/* Opportunity cards from DB */}
               {opportunityCards.length > 0 && (
-                <div className="space-y-3 mb-6">
+                <div className="space-y-3 mt-6 mb-6 max-w-[72%] mx-auto">
                   {opportunityCards.map((opp) => (
-                    <div key={opp.opportunityId} className="bg-[#F8F8F8] rounded-lg p-4">
-                      <p className="text-sm font-semibold text-gray-900 mb-1">{opp.headline}</p>
-                      <p className="text-sm text-gray-600 leading-relaxed">{opp.summary}</p>
+                    <div key={opp.opportunityId} className="bg-white rounded-xl p-4 shadow-[0_1px_4px_rgba(0,0,0,0.08),0_0_0_1px_rgba(0,0,0,0.04)]">
+                      {opp.headline && (
+                        <p className="text-sm font-bold text-[#1A1A1A] mb-2">{opp.headline}</p>
+                      )}
+                      <p className="text-sm text-[#3D3D3D] leading-relaxed">{opp.personalizedSummary}</p>
+                      {opp.narratorRemark && (
+                        <div className="mt-3">
+                          <div className="inline-flex items-center gap-2.5 px-3 py-1 rounded-md bg-[#F0F0F0] border border-gray-200">
+                            <div className="relative shrink-0">
+                              {opp.introducerName ? (
+                                <UserAvatar
+                                  name={opp.introducerName}
+                                  size={28}
+                                />
+                              ) : (
+                                <Bot className="w-7 h-7 text-[#3D3D3D]" />
+                              )}
+                            </div>
+                            <span className="text-[13px] text-[#3D3D3D]">
+                              <span className="font-semibold">{opp.introducerName ?? 'Index'}:</span>{' '}
+                              {opp.narratorRemark}
+                            </span>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -220,7 +242,7 @@ export default function ChatView({ userId, userName, userAvatar, initialGroupId,
         <div className="px-6 lg:px-8">
           <ContentContainer>
             <div className="bg-[linear-gradient(to_bottom,transparent_50%,#ffffff_50%)]">
-              <form onSubmit={(e) => { e.preventDefault(); handleSend(); }} className="flex items-center gap-3 bg-[#F8F8F8] border border-[#E9E9E9] rounded-[32px] px-4 py-3">
+              <form onSubmit={(e) => { e.preventDefault(); handleSend(); }} className="flex items-center gap-3 bg-[#FCFCFC] border border-[#E9E9E9] rounded-4xl px-4 py-3">
                 <input
                   ref={inputRef}
                   type="text"

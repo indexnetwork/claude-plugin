@@ -2655,7 +2655,12 @@ export class OpportunityDatabaseAdapter {
       .where(
         and(
           OpportunityDatabaseAdapter.actorPairCondition(userId, counterpartUserId),
-          eq(opportunities.status, 'accepted')
+          eq(opportunities.status, 'accepted'),
+          // Exclude opportunities where either party is acting as an introducer.
+          // Chat context should only show direct connections between the two users,
+          // not introductions they facilitated for others.
+          sql`NOT (${opportunities.actors} @> ${JSON.stringify([{ userId, role: 'introducer' }])}::jsonb)`,
+          sql`NOT (${opportunities.actors} @> ${JSON.stringify([{ userId: counterpartUserId, role: 'introducer' }])}::jsonb)`,
         )
       )
       .orderBy(desc(opportunities.updatedAt));

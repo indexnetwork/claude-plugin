@@ -15,8 +15,10 @@ import { RedisCacheAdapter } from '../adapters/cache.adapter';
 import { presentOpportunity, type UserInfo } from '../lib/protocol/support/opportunity.presentation';
 import { canUserSeeOpportunity, validateOpportunityActors } from '../lib/protocol/support/opportunity.utils';
 import { persistOpportunities } from '../lib/protocol/support/opportunity.persist';
+import { OpportunityPresenter, gatherPresenterContext, type PresenterDatabase } from '../lib/protocol/agents/opportunity.presenter';
 
 const logger = log.service.from("OpportunityService");
+const presenter = new OpportunityPresenter();
 
 interface OpportunityStatusUpdateResult {
   opportunity: Awaited<ReturnType<OpportunityControllerDatabase['updateOpportunityStatus']>>;
@@ -448,14 +450,40 @@ export class OpportunityService {
       this.db.getUser(peerUserId),
     ]);
 
-    const opportunityCards = rows.map((opp) => ({
-      opportunityId: opp.id,
-      headline: opp.interpretation?.reasoning?.substring(0, 80) ?? 'Connection opportunity',
-      summary: opp.interpretation?.reasoning ?? '',
-      peerName: peerUser?.name ?? 'Someone',
-      peerAvatar: peerUser?.avatar ?? null,
-      acceptedAt: opp.updatedAt instanceof Date ? opp.updatedAt.toISOString() : (opp.updatedAt ?? null),
-    }));
+    const opportunityCards = await Promise.all(
+      rows.map(async (opp) => {
+        try {
+          const presenterInput = await gatherPresenterContext(
+            this.db as unknown as PresenterDatabase,
+            opp,
+            userId,
+          );
+          const presented = await presenter.presentHomeCard(presenterInput);
+          return {
+            opportunityId: opp.id,
+            headline: presented.headline,
+            personalizedSummary: presented.personalizedSummary,
+            narratorRemark: presented.narratorRemark,
+            introducerName: presenterInput.introducerName ?? null,
+            peerName: peerUser?.name ?? 'Someone',
+            peerAvatar: peerUser?.avatar ?? null,
+            acceptedAt: opp.updatedAt instanceof Date ? opp.updatedAt.toISOString() : (opp.updatedAt ?? null),
+          };
+        } catch (err) {
+          logger.warn('[OpportunityService] getChatContext presenter failed, using fallback', { error: err, opportunityId: opp.id });
+          return {
+            opportunityId: opp.id,
+            headline: opp.interpretation?.reasoning?.substring(0, 80) ?? 'Connection opportunity',
+            personalizedSummary: opp.interpretation?.reasoning ?? '',
+            narratorRemark: '',
+            introducerName: null,
+            peerName: peerUser?.name ?? 'Someone',
+            peerAvatar: peerUser?.avatar ?? null,
+            acceptedAt: opp.updatedAt instanceof Date ? opp.updatedAt.toISOString() : (opp.updatedAt ?? null),
+          };
+        }
+      }),
+    );
 
     return { opportunities: opportunityCards };
   }
