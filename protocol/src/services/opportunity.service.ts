@@ -16,6 +16,7 @@ import { presentOpportunity, type UserInfo } from '../lib/protocol/support/oppor
 import { canUserSeeOpportunity, validateOpportunityActors } from '../lib/protocol/support/opportunity.utils';
 import { persistOpportunities } from '../lib/protocol/support/opportunity.persist';
 import { OpportunityPresenter, gatherPresenterContext, type PresenterDatabase } from '../lib/protocol/agents/opportunity.presenter';
+import { stripUuids, stripIntroducerMentions } from '../lib/protocol/support/opportunity.sanitize';
 
 const logger = log.service.from("OpportunityService");
 const presenter = new OpportunityPresenter();
@@ -445,10 +446,18 @@ export class OpportunityService {
   async getChatContext(userId: string, peerUserId: string) {
     logger.verbose('[OpportunityService] Getting chat context', { userId, peerUserId });
 
-    const [rows, peerUser] = await Promise.all([
+    const [allRows, peerUser] = await Promise.all([
       this.db.getAcceptedOpportunitiesBetweenActors(userId, peerUserId),
       this.db.getUser(peerUserId),
     ]);
+
+    // Filter out opportunities where either chat participant is the introducer.
+    // Chat context should only show direct connections, not introductions they facilitated.
+    const rows = allRows.filter((opp) =>
+      !opp.actors.some((a) =>
+        (a.userId === userId || a.userId === peerUserId) && a.role === 'introducer'
+      )
+    );
 
     const opportunityCards = await Promise.all(
       rows.map(async (opp) => {
@@ -458,12 +467,13 @@ export class OpportunityService {
             opp,
             userId,
           );
-          const presented = await presenter.presentHomeCard(presenterInput);
+          presenterInput.opportunityStatus = 'accepted';
+          const presented = await presenter.present(presenterInput);
           return {
             opportunityId: opp.id,
             headline: presented.headline,
             personalizedSummary: presented.personalizedSummary,
-            narratorRemark: presented.narratorRemark,
+            narratorRemark: '',
             introducerName: presenterInput.introducerName ?? null,
             peerName: peerUser?.name ?? 'Someone',
             peerAvatar: peerUser?.avatar ?? null,
@@ -471,12 +481,19 @@ export class OpportunityService {
           };
         } catch (err) {
           logger.warn('[OpportunityService] getChatContext presenter failed, using fallback', { error: err, opportunityId: opp.id });
+          const introducerActor = opp.actors.find((a) => a.role === 'introducer');
+          const introducerName = introducerActor ? opp.detection?.createdByName ?? null : null;
+          let rawReasoning = opp.interpretation?.reasoning ?? '';
+          rawReasoning = stripUuids(rawReasoning);
+          if (introducerName) {
+            rawReasoning = stripIntroducerMentions(rawReasoning, introducerName);
+          }
           return {
             opportunityId: opp.id,
-            headline: opp.interpretation?.reasoning?.substring(0, 80) ?? 'Connection opportunity',
-            personalizedSummary: opp.interpretation?.reasoning ?? '',
+            headline: rawReasoning.substring(0, 80) || 'Connection opportunity',
+            personalizedSummary: rawReasoning,
             narratorRemark: '',
-            introducerName: null,
+            introducerName,
             peerName: peerUser?.name ?? 'Someone',
             peerAvatar: peerUser?.avatar ?? null,
             acceptedAt: opp.updatedAt instanceof Date ? opp.updatedAt.toISOString() : (opp.updatedAt ?? null),
