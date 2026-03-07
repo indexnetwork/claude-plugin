@@ -1293,6 +1293,39 @@ describe("create_opportunities tool", () => {
     // Should mention remaining candidates
     expect(parsed.data.message).toContain("more candidates");
   });
+
+  test("continueFrom mode: caps displayed opportunity cards at CHAT_DISPLAY_LIMIT (3) even when graph returns more", async () => {
+    mockDiscoveryResult = {
+      found: true,
+      count: 5,
+      opportunities: Array.from({ length: 5 }, (_, i) => ({
+        opportunityId: `opp-continue-${i + 1}`,
+        userId: `candidate-continue-${i + 1}`,
+        name: `Candidate Continue ${i + 1}`,
+        avatar: null,
+        matchReason: `Continue match reason ${i + 1}`,
+        score: 0.9 - i * 0.1,
+        status: "draft",
+      })),
+      pagination: { remaining: 2, discoveryId: "disc-continue-123" },
+    };
+    const mockDb = createMockDatabase(async () => [], {});
+    const context: ToolContext = { userId: testUserId, database: mockDb, embedder: mockEmbedder, scraper: mockScraper };
+    const tools = await createChatTools(context);
+    const tool = tools.find((t: { name: string }) => t.name === "create_opportunities") as {
+      invoke: (args: { continueFrom: string }) => Promise<string>;
+    };
+    const result = await tool.invoke({ continueFrom: "disc-continue-123" });
+    const parsed = JSON.parse(result);
+    expect(parsed.success).toBe(true);
+    expect(parsed.data.found).toBe(true);
+    expect(parsed.data.count).toBe(3);
+    // Count opportunity code blocks in the message
+    const blocks = parsed.data.message.match(/```opportunity\n[\s\S]*?\n```/g) ?? [];
+    expect(blocks.length).toBe(3);
+    // Should mention remaining candidates (2 from pagination + 2 extra from cap = 4)
+    expect(parsed.data.message).toContain("more candidates");
+  });
 });
 
 describe("update_opportunity tool (send via status pending)", () => {
