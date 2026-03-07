@@ -204,7 +204,7 @@ export default function ChatView({ userId, userName, userAvatar, initialGroupId,
                     ref={carouselRef}
                     onScroll={handleCarouselScroll}
                     className={cn(
-                      'flex gap-3 overflow-x-auto scrollbar-hide snap-x snap-mandatory py-2 -my-2',
+                      'flex gap-3 overflow-x-auto scrollbar-hide snap-x snap-mandatory p-2 -m-2',
                       opportunityCards.length === 1 && 'overflow-x-hidden'
                     )}
                     style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
