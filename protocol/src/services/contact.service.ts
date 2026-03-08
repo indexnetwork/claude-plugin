@@ -152,18 +152,17 @@ export class ContactService {
     }
     result.imported = result.details.length;
 
-    // Enqueue enrichment for all ghost contacts on every import.
-    // Re-imports re-trigger profile generation so updated data or
-    // previously failed enrichments are retried.
+    // Enqueue enrichment for newly created ghost contacts only.
+    // Existing ghosts keep their profiles as-is.
     const ghostDetails = result.details.filter(d => {
       const user = existingByEmail.get(d.email);
-      return user?.isGhost === true;
+      return user?.isGhost === true && d.isNew;
     });
     if (ghostDetails.length > 0) {
       for (const ghost of ghostDetails) {
         await profileQueue.addEnrichGhostJob({ userId: ghost.userId });
       }
-      logger.info('[ContactService] Enrichment jobs enqueued for ghost contacts', {
+      logger.info('[ContactService] Enrichment jobs enqueued for new ghost contacts', {
         ghostIds: ghostDetails.map(g => g.userId),
         count: ghostDetails.length,
       });
