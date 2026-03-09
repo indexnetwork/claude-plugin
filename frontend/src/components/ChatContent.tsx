@@ -961,83 +961,85 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
   const renderInputForm = () => (
     <>
       <div className="bg-[linear-gradient(to_bottom,transparent_50%,#ffffff_50%)]">
-        {selectedFiles.length > 0 && (
-          <div className="flex flex-wrap gap-2 mb-2">
-            {selectedFiles.map(({ id, file }) => (
-              <span
-                key={id}
-                className="inline-flex items-center gap-1.5 px-2 py-1 rounded bg-gray-100 text-gray-800 text-sm font-ibm-plex-mono max-w-50"
-              >
-                <span className="truncate" title={file.name}>
-                  {file.name}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => removeFile(id)}
-                  className="shrink-0 p-0.5 rounded hover:bg-gray-200 text-gray-500 hover:text-gray-800 focus:outline-none"
-                  aria-label={`Remove ${file.name}`}
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              </span>
-            ))}
-          </div>
-        )}
         <form
           onSubmit={handleSubmit}
-          className={cn("flex gap-3 bg-[#FCFCFC] border border-[#E9E9E9] rounded-4xl px-4 py-3", isTextareaMultiline ? "items-end" : "items-center")}
+          className={cn("flex flex-col bg-[#FCFCFC] border border-[#E9E9E9] rounded-4xl px-4 py-3", selectedFiles.length > 0 && "gap-2")}
         >
-          <input
-            ref={fileInputRef}
-            type="file"
-            multiple
-            accept=".csv,.doc,.docx,.epub,.html,.json,.md,.pdf,.ppt,.pptx,.rtf,.tsv,.txt,.xls,.xlsx,.xml"
-            onChange={handleFileSelect}
-            className="sr-only"
-            aria-label="Attach files"
-          />
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            disabled={isBusy}
-            onClick={() => fileInputRef.current?.click()}
-            className="shrink-0 h-8 w-8 rounded-full text-gray-500 hover:text-[#4091BB] hover:bg-gray-200 p-0"
-            title="Attach files"
-            aria-label="Attach files"
-          >
-            <Paperclip className="h-4 w-4" />
-          </Button>
-          <MentionsTextInput
-            value={input}
-            onChange={setInput}
-            placeholder={CHAT_INPUT_PLACEHOLDER}
-            disabled={isBusy}
-            autoFocus
-            inputRef={inputRef}
-            suggestionsAbove
-          />
-          {isLoading ? (
+          {selectedFiles.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {selectedFiles.map(({ id, file }) => (
+                <span
+                  key={id}
+                  className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg bg-gray-100 text-gray-800 text-sm font-ibm-plex-mono max-w-50"
+                >
+                  <span className="truncate" title={file.name}>
+                    {file.name}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => removeFile(id)}
+                    className="shrink-0 p-0.5 rounded hover:bg-gray-200 text-gray-500 hover:text-gray-800 focus:outline-none"
+                    aria-label={`Remove ${file.name}`}
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+          <div className={cn("flex gap-3", isTextareaMultiline ? "items-end" : "items-center")}>
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              accept=".csv,.doc,.docx,.epub,.html,.json,.md,.pdf,.ppt,.pptx,.rtf,.tsv,.txt,.xls,.xlsx,.xml"
+              onChange={handleFileSelect}
+              className="sr-only"
+              aria-label="Attach files"
+            />
             <Button
               type="button"
+              variant="ghost"
               size="icon"
-              onClick={() => stopStream()}
-              className="shrink-0 h-8 w-8 rounded-full bg-[#041729] text-white hover:bg-[#0a2d4a] p-0"
-              title="Stop generating"
-              aria-label="Stop generating"
+              disabled={isBusy}
+              onClick={() => fileInputRef.current?.click()}
+              className="shrink-0 h-8 w-8 rounded-full text-gray-500 hover:text-[#4091BB] hover:bg-gray-200 p-0"
+              title="Attach files"
+              aria-label="Attach files"
             >
-              <Square className="h-4 w-4 fill-current" />
+              <Paperclip className="h-4 w-4" />
             </Button>
-          ) : (
-            <Button
-              type="submit"
-              size="icon"
-              disabled={!canSend || isUploadingFiles}
-              className="shrink-0 h-8 w-8 rounded-full bg-[#041729] text-white hover:bg-[#0a2d4a] disabled:opacity-50 disabled:cursor-not-allowed p-0"
-            >
-              <ArrowUp className="h-4 w-4" />
-            </Button>
-          )}
+            <MentionsTextInput
+              value={input}
+              onChange={setInput}
+              placeholder={CHAT_INPUT_PLACEHOLDER}
+              disabled={isBusy}
+              autoFocus
+              inputRef={inputRef}
+              suggestionsAbove
+            />
+            {isLoading ? (
+              <Button
+                type="button"
+                size="icon"
+                onClick={() => stopStream()}
+                className="shrink-0 h-8 w-8 rounded-full bg-[#041729] text-white hover:bg-[#0a2d4a] p-0"
+                title="Stop generating"
+                aria-label="Stop generating"
+              >
+                <Square className="h-4 w-4 fill-current" />
+              </Button>
+            ) : (
+              <Button
+                type="submit"
+                size="icon"
+                disabled={!canSend || isUploadingFiles}
+                className="shrink-0 h-8 w-8 rounded-full bg-[#041729] text-white hover:bg-[#0a2d4a] disabled:opacity-50 disabled:cursor-not-allowed p-0"
+              >
+                <ArrowUp className="h-4 w-4" />
+              </Button>
+            )}
+          </div>
         </form>
       </div>
       <div className="py-2 bg-white"></div>
@@ -1066,36 +1068,59 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
               <div className="bg-[linear-gradient(to_bottom,transparent_50%,#ffffff_50%)]">
                 <form
                   onSubmit={handleSubmit}
-                  className={cn("flex gap-3 bg-[#FCFCFC] border border-[#E9E9E9] rounded-4xl px-4 py-3 mb-6", isTextareaMultiline ? "items-end" : "items-center")}
+                  className={cn("flex flex-col bg-[#FCFCFC] border border-[#E9E9E9] rounded-4xl px-4 py-3 mb-6", selectedFiles.length > 0 && "gap-2")}
                 >
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    multiple
-                    accept=".csv,.doc,.docx,.epub,.html,.json,.md,.pdf,.ppt,.pptx,.rtf,.tsv,.txt,.xls,.xlsx,.xml"
-                    onChange={handleFileSelect}
-                    className="sr-only"
-                  />
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    disabled={isBusy}
-                    onClick={() => fileInputRef.current?.click()}
-                    className="shrink-0 h-8 w-8 rounded-full text-gray-500 hover:text-[#4091BB] hover:bg-gray-200 p-0"
-                    title="Attach files"
-                  >
-                    <Paperclip className="h-4 w-4" />
-                  </Button>
-                  <MentionsTextInput
-                    value={input}
-                    onChange={setInput}
-                    placeholder={CHAT_INPUT_PLACEHOLDER}
-                    disabled={isBusy}
-                    autoFocus
-                    inputRef={inputRef}
-                  />
-                  {indexes.length > 0 && (
+                  {selectedFiles.length > 0 && (
+                    <div className="flex flex-wrap gap-2">
+                      {selectedFiles.map(({ id, file }) => (
+                        <span
+                          key={id}
+                          className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg bg-gray-100 text-gray-800 text-sm font-ibm-plex-mono max-w-50"
+                        >
+                          <span className="truncate" title={file.name}>
+                            {file.name}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => removeFile(id)}
+                            className="shrink-0 p-0.5 rounded hover:bg-gray-200 text-gray-500 hover:text-gray-800 focus:outline-none"
+                            aria-label={`Remove ${file.name}`}
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  <div className={cn("flex gap-3", isTextareaMultiline ? "items-end" : "items-center")}>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      multiple
+                      accept=".csv,.doc,.docx,.epub,.html,.json,.md,.pdf,.ppt,.pptx,.rtf,.tsv,.txt,.xls,.xlsx,.xml"
+                      onChange={handleFileSelect}
+                      className="sr-only"
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      disabled={isBusy}
+                      onClick={() => fileInputRef.current?.click()}
+                      className="shrink-0 h-8 w-8 rounded-full text-gray-500 hover:text-[#4091BB] hover:bg-gray-200 p-0"
+                      title="Attach files"
+                    >
+                      <Paperclip className="h-4 w-4" />
+                    </Button>
+                    <MentionsTextInput
+                      value={input}
+                      onChange={setInput}
+                      placeholder={CHAT_INPUT_PLACEHOLDER}
+                      disabled={isBusy}
+                      autoFocus
+                      inputRef={inputRef}
+                    />
+                    {indexes.length > 0 && (
                     <div className="relative shrink-0">
                       <button
                         type="button"
@@ -1204,29 +1229,30 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
                           </div>
                         </>
                       )}
-                    </div>
-                  )}
-                  {isLoading ? (
-                    <Button
-                      type="button"
-                      size="icon"
-                      onClick={() => stopStream()}
-                      className="shrink-0 h-8 w-8 rounded-full bg-[#041729] text-white hover:bg-[#0a2d4a] p-0"
-                      title="Stop generating"
-                      aria-label="Stop generating"
-                    >
-                      <Square className="h-4 w-4 fill-current" />
-                    </Button>
-                  ) : (
-                    <Button
-                      type="submit"
-                      size="icon"
-                      disabled={!canSend || isUploadingFiles}
-                      className="shrink-0 h-8 w-8 rounded-full bg-[#041729] text-white hover:bg-[#0a2d4a] disabled:opacity-50 disabled:cursor-not-allowed p-0"
-                    >
-                      <ArrowUp className="h-4 w-4" />
-                    </Button>
-                  )}
+                      </div>
+                    )}
+                    {isLoading ? (
+                      <Button
+                        type="button"
+                        size="icon"
+                        onClick={() => stopStream()}
+                        className="shrink-0 h-8 w-8 rounded-full bg-[#041729] text-white hover:bg-[#0a2d4a] p-0"
+                        title="Stop generating"
+                        aria-label="Stop generating"
+                      >
+                        <Square className="h-4 w-4 fill-current" />
+                      </Button>
+                    ) : (
+                      <Button
+                        type="submit"
+                        size="icon"
+                        disabled={!canSend || isUploadingFiles}
+                        className="shrink-0 h-8 w-8 rounded-full bg-[#041729] text-white hover:bg-[#0a2d4a] disabled:opacity-50 disabled:cursor-not-allowed p-0"
+                      >
+                        <ArrowUp className="h-4 w-4" />
+                      </Button>
+                    )}
+                  </div>
                 </form>
               </div>
               {homeViewLoading ? (
@@ -1321,36 +1347,59 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
           <div className="bg-[linear-gradient(to_bottom,transparent_50%,#ffffff_50%)]">
             <form
               onSubmit={handleSubmit}
-              className={cn("flex gap-3 bg-[#FCFCFC] border border-[#E9E9E9] rounded-4xl px-4 py-3", isTextareaMultiline ? "items-end" : "items-center")}
+              className={cn("flex flex-col bg-[#FCFCFC] border border-[#E9E9E9] rounded-4xl px-4 py-3", selectedFiles.length > 0 && "gap-2")}
             >
-              <input
-                ref={fileInputRef}
-                type="file"
-                multiple
-                accept=".csv,.doc,.docx,.epub,.html,.json,.md,.pdf,.ppt,.pptx,.rtf,.tsv,.txt,.xls,.xlsx,.xml"
-                onChange={handleFileSelect}
-                className="sr-only"
-              />
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                disabled={isBusy}
-                onClick={() => fileInputRef.current?.click()}
-                className="shrink-0 h-8 w-8 rounded-full text-gray-500 hover:text-[#4091BB] hover:bg-gray-200 p-0"
-                title="Attach files"
-              >
-                <Paperclip className="h-4 w-4" />
-              </Button>
-              <MentionsTextInput
-                value={input}
-                onChange={setInput}
-                placeholder={CHAT_INPUT_PLACEHOLDER}
-                disabled={isBusy}
-                autoFocus
-                inputRef={inputRef}
-              />
-              {indexes.length > 0 && (
+              {selectedFiles.length > 0 && (
+                <div className="flex flex-wrap gap-2">
+                  {selectedFiles.map(({ id, file }) => (
+                    <span
+                      key={id}
+                      className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg bg-gray-100 text-gray-800 text-sm font-ibm-plex-mono max-w-50"
+                    >
+                      <span className="truncate" title={file.name}>
+                        {file.name}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => removeFile(id)}
+                        className="shrink-0 p-0.5 rounded hover:bg-gray-200 text-gray-500 hover:text-gray-800 focus:outline-none"
+                        aria-label={`Remove ${file.name}`}
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+              <div className={cn("flex gap-3", isTextareaMultiline ? "items-end" : "items-center")}>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  multiple
+                  accept=".csv,.doc,.docx,.epub,.html,.json,.md,.pdf,.ppt,.pptx,.rtf,.tsv,.txt,.xls,.xlsx,.xml"
+                  onChange={handleFileSelect}
+                  className="sr-only"
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  disabled={isBusy}
+                  onClick={() => fileInputRef.current?.click()}
+                  className="shrink-0 h-8 w-8 rounded-full text-gray-500 hover:text-[#4091BB] hover:bg-gray-200 p-0"
+                  title="Attach files"
+                >
+                  <Paperclip className="h-4 w-4" />
+                </Button>
+                <MentionsTextInput
+                  value={input}
+                  onChange={setInput}
+                  placeholder={CHAT_INPUT_PLACEHOLDER}
+                  disabled={isBusy}
+                  autoFocus
+                  inputRef={inputRef}
+                />
+                {indexes.length > 0 && (
                 <div className="relative shrink-0">
                   <button
                     type="button"
@@ -1454,53 +1503,33 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
                       </div>
                     </>
                   )}
-                </div>
-              )}
-              {isLoading ? (
-                <Button
-                  type="button"
-                  size="icon"
-                  onClick={() => stopStream()}
-                  className="shrink-0 h-8 w-8 rounded-full bg-[#041729] text-white hover:bg-[#0a2d4a] p-0"
-                  title="Stop generating"
-                  aria-label="Stop generating"
-                >
-                  <Square className="h-4 w-4 fill-current" />
-                </Button>
-              ) : (
-                <Button
-                  type="submit"
-                  size="icon"
-                  disabled={!canSend || isUploadingFiles}
-                  className="shrink-0 h-8 w-8 rounded-full bg-[#041729] text-white hover:bg-[#0a2d4a] disabled:opacity-50 disabled:cursor-not-allowed p-0"
-                >
-                  <ArrowUp className="h-4 w-4" />
-                </Button>
-              )}
+                  </div>
+                )}
+                {isLoading ? (
+                  <Button
+                    type="button"
+                    size="icon"
+                    onClick={() => stopStream()}
+                    className="shrink-0 h-8 w-8 rounded-full bg-[#041729] text-white hover:bg-[#0a2d4a] p-0"
+                    title="Stop generating"
+                    aria-label="Stop generating"
+                  >
+                    <Square className="h-4 w-4 fill-current" />
+                  </Button>
+                ) : (
+                  <Button
+                    type="submit"
+                    size="icon"
+                    disabled={!canSend || isUploadingFiles}
+                    className="shrink-0 h-8 w-8 rounded-full bg-[#041729] text-white hover:bg-[#0a2d4a] disabled:opacity-50 disabled:cursor-not-allowed p-0"
+                  >
+                    <ArrowUp className="h-4 w-4" />
+                  </Button>
+                )}
+              </div>
             </form>
           </div>
           <div className="py-2"></div>
-              {selectedFiles.length > 0 && (
-            <div className="flex flex-wrap gap-2 mt-3">
-              {selectedFiles.map(({ id, file }) => (
-                <span
-                  key={id}
-                  className="inline-flex items-center gap-1.5 px-2 py-1 rounded bg-gray-100 text-gray-800 text-sm font-ibm-plex-mono max-w-50"
-                >
-                  <span className="truncate" title={file.name}>
-                    {file.name}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => removeFile(id)}
-                    className="shrink-0 p-0.5 rounded hover:bg-gray-200 text-gray-500 hover:text-gray-800"
-                  >
-                    <X className="w-3.5 h-3.5" />
-                  </button>
-                </span>
-              ))}
-            </div>
-          )}
           <div className="mt-0 flex flex-col items-center text-center pb-4">
             <video
               src="/loading.m4v"
@@ -1711,15 +1740,23 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
                         </div>
                       )}
                     </article>
-                    {msg.role === "user" &&
-                      msg.attachmentNames &&
-                      msg.attachmentNames.length > 0 && (
-                        <p className="text-xs opacity-90 mt-1.5">
-                          Attached: {msg.attachmentNames.join(", ")}
-                        </p>
-                      )}
                   </div>
                 </div>
+                {msg.role === "user" &&
+                  msg.attachmentNames &&
+                  msg.attachmentNames.length > 0 && (
+                    <div className="flex justify-end mt-1.5">
+                      <div className="bg-[#FAFAFA] border border-[#E8E8E8] rounded-2xl px-3 py-1.5 text-xs text-gray-600">
+                        {msg.attachmentNames.map((name, idx) => (
+                          <span key={idx} className="inline-flex items-center gap-1.5">
+                            <Paperclip className="w-3 h-3" />
+                            {name}
+                            {idx < msg.attachmentNames!.length - 1 && ", "}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 {/* Inline discovery cards (legacy format) */}
                 {msg.role === "assistant" &&
                   msg.discoveries &&
