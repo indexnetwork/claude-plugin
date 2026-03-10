@@ -18,7 +18,7 @@ export class SubscribeController {
       whoToMeet?: string;
     };
     try {
-      body = await req.json();
+      body = (await req.json()) as typeof body;
     } catch {
       return Response.json({ error: 'Invalid JSON' }, { status: 400 });
     }
