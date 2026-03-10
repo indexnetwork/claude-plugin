@@ -7,7 +7,9 @@
     "build": "bun run build:blog && vite build",
     "build:blog": "bun run build-blog.ts",
     "start": "vite preview",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "test": "bun --bun vitest run",
+    "test:watch": "bun --bun vitest"
   },
   "dependencies": {
     "@radix-ui/react-alert-dialog": "^1.1.15",
@@ -39,9 +41,12 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.58.2",
     "@tailwindcss/forms": "^0.5.10",
     "@tailwindcss/typography": "^0.5.19",
     "@tailwindcss/vite": "^4",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
     "@types/node": "^20.17.44",
     "@types/react": "^19",
     "@types/react-dom": "^19",
@@ -52,10 +57,12 @@
     "eslint": "^9.39.1",
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.5.2",
+    "happy-dom": "^20.8.3",
     "tailwindcss": "^4.1.18",
     "typescript": "^5",
     "typescript-eslint": "^8.57.0",
-    "vite": "^6"
+    "vite": "^6",
+    "vitest": "^4.0.18"
   },
   "packageManager": "bun@1.2.0",
   "resolutions": {
