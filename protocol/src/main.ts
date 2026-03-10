@@ -10,6 +10,7 @@ import { AuthController } from './controllers/auth.controller';
 import { ProfileController } from './controllers/profile.controller';
 import { UserController } from './controllers/user.controller';
 import { StorageController } from './controllers/storage.controller';
+import { SubscribeController } from './controllers/subscribe.controller';
 import { fileService } from './services/file.service';
 import { MessagingController } from './controllers/messaging.controller';
 import { MessagingDatabaseAdapter, ensureGlobalIndex, ensureGlobalIndexMembership } from './adapters/database.adapter';
@@ -134,6 +135,7 @@ controllerInstances.set(IndexOpportunityController, new IndexOpportunityControll
 controllerInstances.set(UserController, new UserController());
 controllerInstances.set(MessagingController, new MessagingController(messagingService));
 controllerInstances.set(StorageController, new StorageController(storageAdapter));
+controllerInstances.set(SubscribeController, new SubscribeController());
 
 logger.info('Routes registered', { prefix: GLOBAL_PREFIX });
 
