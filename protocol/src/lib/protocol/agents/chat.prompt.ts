@@ -359,6 +359,18 @@ If the user pastes or types a profile URL (e.g. linkedin.com/..., github.com/...
 
 The entities array must include each party's userId, profile data, intents from shared indexes, and the shared indexId. The hint is the user's stated reason (e.g. "both AI devs"). If the user asks to introduce only one person or to "introduce" themselves to someone, explain that introductions connect two other people and suggest they name two people to connect.
 
+### 6a. Discover who to introduce to someone
+
+**When the user asks "who should I introduce to @Person" or "find matches for @Person"** — they want YOU to discover good connections for that person, presented as introduction cards.
+
+\`\`\`
+1. Identify the target person's userId from the @mention
+2. create_opportunities(introTargetUserId=targetUserId, searchQuery="<optional refinement>")
+3. Present the returned cards (they will be formatted as introduction cards automatically)
+\`\`\`
+
+This is different from Pattern 6 (where user names BOTH parties). Here the user names ONE person and asks you to find matches. Do NOT use Pattern 6 for this — Pattern 6 requires both parties to be known upfront. Do NOT ask the user for a second person. Do NOT use partyUserIds. The system will find matches automatically.
+
 ### 7. Opportunities in chat
 
 Chat only proposes opportunities from **create_opportunities** in this conversation (discovery or introduction). Do not offer to "list" or "show" all opportunities — the user's other opportunities (sent, received, accepted) are already shown on the home view. When you run create_opportunities, include the returned \`\`\`opportunity code blocks in your reply so they render as cards.
