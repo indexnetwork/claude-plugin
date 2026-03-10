@@ -1,7 +1,7 @@
 import { createAuthClient } from "better-auth/react";
 import { magicLinkClient, jwtClient } from "better-auth/client/plugins";
 
-// Same origin - auth routes proxied via Next.js to /api/auth/*
+// Same origin - auth routes proxied via Vite dev server (or reverse proxy in production)
 export const authClient = createAuthClient({
   baseURL: '',
   basePath: "/api/auth",

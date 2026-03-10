@@ -33,7 +33,7 @@ export default function FeedbackWidget() {
 
     try {
       const evaluatorUrl =
-        process.env.NEXT_PUBLIC_EVALUATOR_URL || "http://localhost:3002";
+        import.meta.env.VITE_EVALUATOR_URL || "http://localhost:3002";
       const jwt = await getJwtToken();
       const response = await fetch(`${evaluatorUrl}/api/eval/feedback`, {
         method: "POST",

@@ -2,7 +2,7 @@ import { useCallback, useMemo, useRef } from 'react';
 
 import { authClient, getJwtToken } from './auth-client';
 
-// API Configuration - relative path, proxied by Next.js to protocol server
+// API Configuration - relative path, proxied by Vite dev server (or reverse proxy in production)
 const API_BASE_URL = '/api';
 
 // Error types
