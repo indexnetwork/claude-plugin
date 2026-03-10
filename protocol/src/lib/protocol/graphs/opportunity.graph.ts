@@ -1339,6 +1339,10 @@ export class OpportunityGraphFactory {
           const initialStatus = state.options.initialStatus ?? 'pending';
           const DEDUP_SKIP_STATUSES: Array<'draft' | 'latent'> = ['draft', 'latent'];
 
+          const introducerUserForOnBehalf = state.onBehalfOfUserId
+            ? await this.database.getUser(state.userId)
+            : null;
+
           for (const evaluated of state.evaluatedOpportunities) {
             const indexIdForActors = state.indexId ?? evaluated.actors[0]?.indexId;
             let actors: OpportunityActor[];
@@ -1392,6 +1396,70 @@ export class OpportunityGraphFactory {
                       detail: `Introduction by ${state.introductionContext.createdByName ?? 'a member'} via chat`,
                     },
                   ],
+                },
+                context: {
+                  indexId: state.indexId ?? indexIdForActors,
+                  ...(state.options.conversationId ? { conversationId: state.options.conversationId } : {}),
+                },
+                confidence: String(evaluated.score / 100),
+                status: initialStatus,
+              };
+            } else if (state.onBehalfOfUserId) {
+              // Introducer discovery path: manual detection, introducer is state.userId, target is onBehalfOfUserId.
+              const evaluatorActors: OpportunityActor[] = evaluated.actors.map((a: EvaluatedOpportunityActor) => ({
+                indexId: a.indexId ?? indexIdForActors,
+                userId: a.userId,
+                role: a.role,
+                ...(a.intentId ? { intent: a.intentId } : {}),
+              }));
+              const viewerAlreadyInActors = evaluatorActors.some(a => a.userId === state.userId);
+              actors = viewerAlreadyInActors
+                ? evaluatorActors
+                : [
+                    ...evaluatorActors,
+                    { indexId: indexIdForActors!, userId: state.userId, role: 'introducer' as const },
+                  ];
+
+              const candidateUserId = evaluated.actors.find((a) => a.userId !== state.onBehalfOfUserId)?.userId;
+              const overlapping = candidateUserId
+                ? await this.database.findOverlappingOpportunities(
+                    [state.onBehalfOfUserId as Id<'users'>, candidateUserId as Id<'users'>],
+                    { excludeStatuses: DEDUP_SKIP_STATUSES },
+                  )
+                : [];
+              if (overlapping.length > 0) {
+                const existing = overlapping[0];
+                if (existing.status === 'expired') {
+                  const reactivated = await this.database.updateOpportunityStatus(existing.id, 'draft');
+                  if (reactivated) reactivatedOpportunities.push(reactivated);
+                } else if (candidateUserId) {
+                  existingBetweenActors.push({
+                    candidateUserId: candidateUserId as Id<'users'>,
+                    indexId: (state.indexId ?? indexIdForActors ?? '') as Id<'indexes'>,
+                    existingOpportunityId: existing.id as Id<'opportunities'>,
+                    existingStatus: existing.status,
+                  });
+                }
+                continue;
+              }
+
+              data = {
+                detection: {
+                  source: 'manual',
+                  createdBy: state.userId,
+                  createdByName: introducerUserForOnBehalf?.name ?? undefined,
+                  timestamp: now,
+                },
+                actors,
+                interpretation: {
+                  category: 'collaboration',
+                  reasoning: evaluated.reasoning,
+                  confidence: evaluated.score / 100,
+                  signals: [{
+                    type: 'curator_judgment',
+                    weight: 1,
+                    detail: `Discovery on behalf of another user by ${introducerUserForOnBehalf?.name ?? 'a member'} via chat`,
+                  }],
                 },
                 context: {
                   indexId: state.indexId ?? indexIdForActors,
