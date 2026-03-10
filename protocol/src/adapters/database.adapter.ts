@@ -2624,7 +2624,7 @@ export class ChatDatabaseAdapter {
     validContacts: Array<{ name: string; email: string }>,
     existingByEmail: Map<string, { id: string; email: string; name: string; isGhost: boolean }>,
     source: 'gmail' | 'google_calendar' | 'manual'
-  ): Promise<{ newGhosts: Array<{ id: string; name: string; email: string }> }> {
+  ): Promise<{ newGhosts: Array<{ id: string; name: string; email: string }>; newContacts: number }> {
     return await db.transaction(async (tx) => {
       // Create ghost users
       const newGhosts: Array<{ id: string; name: string; email: string }> = [];
@@ -2690,7 +2690,22 @@ export class ChatDatabaseAdapter {
         }
       }
 
+      let newContacts = 0;
       if (contactsToUpsert.length > 0) {
+        // Check which contacts already exist in the network
+        const userIds = contactsToUpsert.map(c => c.userId);
+        const existingContacts = await tx
+          .select({ userId: schema.userContacts.userId })
+          .from(schema.userContacts)
+          .where(
+            and(
+              eq(schema.userContacts.ownerId, ownerId),
+              inArray(schema.userContacts.userId, userIds)
+            )
+          );
+        const existingUserIds = new Set(existingContacts.map(c => c.userId));
+        newContacts = contactsToUpsert.filter(c => !existingUserIds.has(c.userId)).length;
+
         await tx
           .insert(schema.userContacts)
           .values(contactsToUpsert)
@@ -2705,7 +2720,7 @@ export class ChatDatabaseAdapter {
           });
       }
 
-      return { newGhosts };
+      return { newGhosts, newContacts };
     });
   }
 
