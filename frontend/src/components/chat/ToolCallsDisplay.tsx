@@ -46,32 +46,32 @@ const TOOL_DESCRIPTIONS: Record<string, { action: string; running: string }> = {
     running: "Updating your profile...",
   },
   read_intents: {
-    action: "Fetch intents",
-    running: "Fetching your active intents...",
+    action: "Fetch signals",
+    running: "Fetching your active signals...",
   },
   create_intent: {
     action: "Create signal",
     running: "Creating a new signal...",
   },
   update_intent: {
-    action: "Update intent",
-    running: "Updating intent...",
+    action: "Update signal",
+    running: "Updating signal...",
   },
   delete_intent: {
-    action: "Delete intent",
-    running: "Removing intent...",
+    action: "Delete signal",
+    running: "Removing signal...",
   },
   create_intent_index: {
     action: "Save to index",
-    running: "Saving intent to index...",
+    running: "Saving signal to index...",
   },
   read_intent_indexes: {
-    action: "Fetch index intents",
-    running: "Fetching intents in index...",
+    action: "Fetch index signals",
+    running: "Fetching signals in index...",
   },
   delete_intent_index: {
     action: "Remove from index",
-    running: "Removing intent from index...",
+    running: "Removing signal from index...",
   },
   read_indexes: {
     action: "Check indexes",
