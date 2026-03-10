@@ -21,11 +21,11 @@ import {
 const logger = log.controller.from("chat");
 
 const streamBodySchema = z.object({
-  message: z.string().optional(),
-  sessionId: z.string().optional(),
+  message: z.string().nullable().optional().transform((v) => v ?? undefined),
+  sessionId: z.string().nullable().optional().transform((v) => v ?? undefined),
   useCheckpointer: z.boolean().optional(),
   fileIds: z.array(z.string()).optional(),
-  indexId: z.string().optional(),
+  indexId: z.string().nullable().optional().transform((v) => v ?? undefined),
   contactsOnly: z.boolean().optional().default(false),
 });
 
