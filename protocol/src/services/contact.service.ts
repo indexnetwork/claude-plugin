@@ -15,7 +15,8 @@ export interface ContactInput {
 export interface ImportResult {
   imported: number;
   skipped: number;
-  newGhosts: number;
+  newContacts: number;
+  existingContacts: number;
   details: Array<{ email: string; userId: string; isNew: boolean }>;
 }
 
@@ -78,7 +79,8 @@ export class ContactService {
     const result: ImportResult = {
       imported: 0,
       skipped: 0,
-      newGhosts: 0,
+      newContacts: 0,
+      existingContacts: 0,
       details: [],
     };
 
@@ -129,7 +131,7 @@ export class ContactService {
     }
 
     // Atomically create ghosts + upsert all contacts in a single transaction
-    const { newGhosts } = await this.db.importContactsBulk(
+    const { newContacts } = await this.db.importContactsBulk(
       ownerId,
       needGhosts,
       validContacts,
@@ -137,7 +139,7 @@ export class ContactService {
       source
     );
 
-    result.newGhosts = newGhosts.length;
+    result.newContacts = newContacts;
 
     // Build result details (existingByEmail was updated inside the transaction with ghost IDs)
     for (const contact of validContacts) {
@@ -151,20 +153,20 @@ export class ContactService {
       }
     }
     result.imported = result.details.length;
+    result.existingContacts = result.imported - result.newContacts;
 
-    // Enqueue enrichment for newly created ghost contacts only.
-    // Existing ghosts keep their profiles as-is.
-    const ghostDetails = result.details.filter(d => {
+    // Enqueue enrichment for newly created ghost users only.
+    const newGhostDetails = result.details.filter(d => {
       const user = existingByEmail.get(d.email);
       return user?.isGhost === true && d.isNew;
     });
-    if (ghostDetails.length > 0) {
-      for (const ghost of ghostDetails) {
+    if (newGhostDetails.length > 0) {
+      for (const ghost of newGhostDetails) {
         await profileQueue.addEnrichGhostJob({ userId: ghost.userId });
       }
-      logger.info('[ContactService] Enrichment jobs enqueued for new ghost contacts', {
-        ghostIds: ghostDetails.map(g => g.userId),
-        count: ghostDetails.length,
+      logger.info('[ContactService] Enrichment jobs enqueued for new ghost users', {
+        ghostIds: newGhostDetails.map(g => g.userId),
+        count: newGhostDetails.length,
       });
     }
 
@@ -172,7 +174,8 @@ export class ContactService {
       ownerId,
       imported: result.imported,
       skipped: result.skipped,
-      newGhosts: result.newGhosts,
+      newContacts: result.newContacts,
+      existingContacts: result.existingContacts,
     });
 
     return result;
