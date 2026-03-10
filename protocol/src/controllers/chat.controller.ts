@@ -22,10 +22,10 @@ const logger = log.controller.from("chat");
 
 const streamBodySchema = z.object({
   message: z.string().optional(),
-  sessionId: z.string().optional(),
+  sessionId: z.string().nullish(),
   useCheckpointer: z.boolean().optional(),
   fileIds: z.array(z.string()).optional(),
-  indexId: z.string().optional(),
+  indexId: z.string().nullish(),
   contactsOnly: z.boolean().optional().default(false),
 });
 
@@ -106,7 +106,7 @@ export class ChatController {
         return Response.json(
           {
             error:
-              "Invalid request body. Expected { message: string, sessionId?: string, useCheckpointer?: boolean, fileIds?: string[], contactsOnly?: boolean }",
+              "Invalid request body. Expected { message?: string, sessionId?: string, useCheckpointer?: boolean, fileIds?: string[], contactsOnly?: boolean }",
           },
           { status: 400 },
         );
