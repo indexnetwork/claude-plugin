@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import Avatar from 'boring-avatars';
+import { apiUrl } from '@/lib/api';
 
 interface IndexAvatarProps {
   id?: string;
@@ -15,10 +16,10 @@ export function resolveIndexImageSrc(imageUrl: string): string {
     return imageUrl;
   }
   if (imageUrl.startsWith('/api/storage/')) {
-    return imageUrl;
+    return apiUrl(imageUrl);
   }
   const cleanPath = imageUrl.startsWith('/') ? imageUrl.slice(1) : imageUrl;
-  return `/api/storage/${cleanPath}`;
+  return apiUrl(`/api/storage/${cleanPath}`);
 }
 
 function BoringFallback({ id, title, size, rounded, className }: { id?: string; title?: string; size: number; rounded: 'full' | 'sm'; className?: string }) {

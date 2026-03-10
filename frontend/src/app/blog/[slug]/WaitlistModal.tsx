@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { apiUrl } from '@/lib/api';
 
 export default function WaitlistModal() {
   // Waitlist modal state
@@ -37,7 +38,7 @@ export default function WaitlistModal() {
     
     setWaitlistStatus("loading");
     try {
-      const res = await fetch("/api/subscribe", {
+      const res = await fetch(apiUrl("/api/subscribe"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

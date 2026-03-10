@@ -2,8 +2,14 @@ import { useCallback, useMemo, useRef } from 'react';
 
 import { authClient, getJwtToken } from './auth-client';
 
-// API Configuration - relative path, proxied by Vite dev server (or reverse proxy in production)
-const API_BASE_URL = '/api';
+// In production, VITE_PROTOCOL_URL points to the protocol service; in dev, Vite proxies /api
+const PROTOCOL_BASE = import.meta.env.VITE_PROTOCOL_URL || '';
+const API_BASE_URL = `${PROTOCOL_BASE}/api`;
+
+/** Prefix an /api/... path with the protocol origin when running in production. */
+export function apiUrl(path: string): string {
+  return `${PROTOCOL_BASE}${path}`;
+}
 
 // Error types
 export class APIError extends Error {

@@ -1,9 +1,9 @@
 import { createAuthClient } from "better-auth/react";
 import { magicLinkClient, jwtClient } from "better-auth/client/plugins";
 
-// Same origin - auth routes proxied via Vite dev server (or reverse proxy in production)
+// In production, VITE_PROTOCOL_URL points to the protocol service; in dev, Vite proxies /api
 export const authClient = createAuthClient({
-  baseURL: '',
+  baseURL: import.meta.env.VITE_PROTOCOL_URL || '',
   basePath: "/api/auth",
   plugins: [magicLinkClient(), jwtClient()],
 });

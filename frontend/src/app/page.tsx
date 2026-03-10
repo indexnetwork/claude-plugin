@@ -3,6 +3,7 @@ import ClientLayout from "@/components/ClientLayout";
 import { useAuthContext } from "@/contexts/AuthContext";
 import ChatContent from "@/components/ChatContent";
 import Footer from "@/components/Footer";
+import { apiUrl } from "@/lib/api";
 
 function LandingPage() {
   const discoveryVisualRef = useRef<HTMLDivElement>(null);
@@ -51,7 +52,7 @@ function LandingPage() {
     
     setWaitlistStatus("loading");
     try {
-      const res = await fetch("/api/subscribe", {
+      const res = await fetch(apiUrl("/api/subscribe"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

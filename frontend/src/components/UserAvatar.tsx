@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import Avatar from 'boring-avatars';
+import { apiUrl } from '@/lib/api';
 
 interface UserAvatarProps {
   id?: string;
@@ -14,10 +15,10 @@ function resolveAvatarSrc(avatar: string): string {
     return avatar;
   }
   if (avatar.startsWith('/api/storage/')) {
-    return avatar;
+    return apiUrl(avatar);
   }
   const cleanPath = avatar.startsWith('/') ? avatar.slice(1) : avatar;
-  return `/api/storage/${cleanPath}`;
+  return apiUrl(`/api/storage/${cleanPath}`);
 }
 
 function BoringFallback({ id, name, size, className }: Omit<UserAvatarProps, 'avatar'>) {

@@ -2,6 +2,7 @@ import { Link } from 'react-router';
 import { useState, useEffect } from 'react';
 import { BlogPost, getAllPosts } from '@/lib/blog';
 import Footer from '@/components/Footer';
+import { apiUrl } from '@/lib/api';
 
 export default function BlogPage() {
   const [posts, setPosts] = useState<BlogPost[]>([]);
@@ -49,7 +50,7 @@ export default function BlogPage() {
 
     setWaitlistStatus("loading");
     try {
-      const res = await fetch("/api/subscribe", {
+      const res = await fetch(apiUrl("/api/subscribe"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
