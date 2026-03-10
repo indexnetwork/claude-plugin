@@ -1,12 +1,13 @@
+import type { ChatOpenAI } from "@langchain/openai";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { z } from "zod";
+
 import { protocolLogger } from "../support/protocol.logger";
 import { Timed } from "../../performance";
+
 import { createModel } from "./model.config";
 
 const logger = protocolLogger("IntentClarifier");
-
-import type { ChatOpenAI } from "@langchain/openai";
 
 type ClarifierStructuredModel = ReturnType<ChatOpenAI["withStructuredOutput"]>;
 

@@ -5,7 +5,7 @@ export interface ModelSettings {
   model: string;
   temperature?: number;
   maxTokens?: number;
-  reasoning?: { effort?: string; exclude?: boolean };
+  reasoning?: { effort?: 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'; exclude?: boolean };
 }
 
 /**
@@ -27,7 +27,7 @@ export const MODEL_CONFIG = {
   homeCategorizer:      { model: "google/gemini-2.5-flash" },
   suggestionGenerator:  { model: "google/gemini-2.5-flash", temperature: 0.4, maxTokens: 512 },
   chatTitleGenerator:   { model: "google/gemini-2.5-flash", temperature: 0.3, maxTokens: 32 },
-  chat:                 { model: process.env.CHAT_MODEL ?? "google/gemini-3-pro-preview", maxTokens: 8192, reasoning: { effort: process.env.CHAT_REASONING_EFFORT ?? "low", exclude: true } },
+  chat:                 { model: process.env.CHAT_MODEL ?? "google/gemini-3-pro-preview", maxTokens: 8192, reasoning: { effort: (process.env.CHAT_REASONING_EFFORT ?? "low") as NonNullable<ModelSettings["reasoning"]>["effort"], exclude: true } },
 } as const satisfies Record<string, ModelSettings>;
 
 /**
@@ -36,6 +36,9 @@ export const MODEL_CONFIG = {
  * @returns A ChatOpenAI instance ready for use (call .withStructuredOutput() as needed).
  */
 export function createModel(agent: keyof typeof MODEL_CONFIG): ChatOpenAI {
+  if (!process.env.OPENROUTER_API_KEY?.trim()) {
+    throw new Error(`createModel(${agent}): OPENROUTER_API_KEY is required.`);
+  }
   const cfg: ModelSettings = MODEL_CONFIG[agent];
   return new ChatOpenAI({
     model: cfg.model,
