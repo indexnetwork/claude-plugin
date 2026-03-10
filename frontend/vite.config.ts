@@ -13,6 +13,7 @@ export default defineConfig({
   preview: {
     port: parseInt(process.env.PORT || "4173", 10),
     host: "0.0.0.0",
+    allowedHosts: ["dev.index.network"],
   },
   server: {
     port: 3000,
