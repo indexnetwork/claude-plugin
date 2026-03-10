@@ -421,23 +421,9 @@ Before committing any change:
 
 If you cannot run tests yourself (e.g. agent cannot execute `bun test`), provide the exact commands for the user to run and ask them to confirm results before committing.
 
-### Do not run bun test yourself
+### Running tests
 
-When tests need to be run (e.g. after changes, to verify fixes, or when the user asks to run tests):
-
-1. **Do not** execute `bun test` (or `bun test <path>`) in the terminal yourself.
-2. **Provide** the exact command for the user to run (e.g. `bun test` or `bun test protocol/tests/e2e.test.ts`).
-3. **Ask** the user to run it and share the output so you can interpret the result and continue from there.
-
-Example response:
-
-> Run the tests locally and paste the output:
->
-> ```bash
-> cd protocol && bun test
-> ```
->
-> Share the result and I'll help with any failures.
+Run tests directly when needed. Always target specific test files affected by your changes rather than running the full suite.
 
 ### Test layout and commands
 
