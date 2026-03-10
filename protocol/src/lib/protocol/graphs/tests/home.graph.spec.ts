@@ -8,7 +8,17 @@ import { describe, test, expect } from 'bun:test';
 import { HomeGraphFactory, stripLeadingNarratorName } from '../home.graph';
 import type { HomeGraphDatabase } from '../../interfaces/database.interface';
 import type { Opportunity } from '../../interfaces/database.interface';
+import type { OpportunityCache } from '../../interfaces/cache.interface';
 import { resolveHomeSectionIcon, DEFAULT_HOME_SECTION_ICON, getIconNamesForPrompt } from '../../support/lucide.icon-catalog';
+
+function createMockCache(): OpportunityCache {
+  const store = new Map<string, unknown>();
+  return {
+    get: async <T>(key: string) => (store.get(key) as T) ?? null,
+    set: async <T>(key: string, value: T) => { store.set(key, value); },
+    mget: async <T>(keys: string[]) => keys.map((k) => (store.get(k) as T) ?? null),
+  };
+}
 
 function createMockDb(opportunities: Opportunity[] = []): HomeGraphDatabase {
   return {
@@ -80,7 +90,7 @@ function minimalOpportunityWithId(viewerId: string, otherId: string, id: string,
 describe('HomeGraph', () => {
   test('no opportunities returns empty sections and meta', async () => {
     const db = createMockDb([]);
-    const factory = new HomeGraphFactory(db);
+    const factory = new HomeGraphFactory(db, createMockCache());
     const graph = factory.createGraph();
     const result = await graph.invoke({ userId: 'user-1', limit: 50 });
     expect(result.error).toBeUndefined();
@@ -90,7 +100,7 @@ describe('HomeGraph', () => {
 
   test('missing userId returns error', async () => {
     const db = createMockDb([]);
-    const factory = new HomeGraphFactory(db);
+    const factory = new HomeGraphFactory(db, createMockCache());
     const graph = factory.createGraph();
     const result = await graph.invoke({ userId: '', limit: 50 });
     expect(result.error).toBe('userId is required');
@@ -101,7 +111,7 @@ describe('HomeGraph', () => {
     const otherId = 'other-1';
     const opp = minimalOpportunityAgentViewer(viewerId, otherId);
     const db = createMockDb([opp]);
-    const factory = new HomeGraphFactory(db);
+    const factory = new HomeGraphFactory(db, createMockCache());
     const graph = factory.createGraph();
     const result = await graph.invoke({ userId: viewerId, limit: 50 });
     expect(result.error).toBeUndefined();
@@ -126,7 +136,7 @@ describe('HomeGraph', () => {
     expect(opp.detection?.source).toBe('manual');
     expect(opp.actors.some((a) => a.role === 'introducer')).toBe(false);
     const db = createMockDb([opp]);
-    const factory = new HomeGraphFactory(db);
+    const factory = new HomeGraphFactory(db, createMockCache());
     const graph = factory.createGraph();
     const result = await graph.invoke({ userId: viewerId, limit: 50 });
     expect(result.error).toBeUndefined();
@@ -142,7 +152,7 @@ describe('HomeGraph', () => {
     const opp2 = minimalOpportunityAgentViewer(viewerId, otherId, 'opp-2');
     opp2.interpretation = { reasoning: 'You could also collaborate on early startup team formation.', category: 'connection', confidence: 0.8 };
     const db = createMockDb([opp1, opp2]);
-    const graph = new HomeGraphFactory(db).createGraph();
+    const graph = new HomeGraphFactory(db, createMockCache()).createGraph();
 
     const result = await graph.invoke({ userId: viewerId, limit: 50 });
 
@@ -199,7 +209,7 @@ describe('HomeGraph', () => {
     };
 
     const db = createMockDb([withIntroducerA, withIntroducerB]);
-    const result = await new HomeGraphFactory(db).createGraph().invoke({ userId: viewerId, limit: 50 });
+    const result = await new HomeGraphFactory(db, createMockCache()).createGraph().invoke({ userId: viewerId, limit: 50 });
 
     expect(result.error).toBeUndefined();
     expect(result.meta.totalOpportunities).toBe(1);
@@ -232,7 +242,7 @@ describe('HomeGraph', () => {
       expiresAt: null,
     };
     const db = createMockDb([acceptedWithIntroducer]);
-    const result = await new HomeGraphFactory(db).createGraph().invoke({ userId: agentId, limit: 50 });
+    const result = await new HomeGraphFactory(db, createMockCache()).createGraph().invoke({ userId: agentId, limit: 50 });
 
     expect(result.error).toBeUndefined();
     expect(result.meta.totalOpportunities).toBe(1);
@@ -260,7 +270,7 @@ describe('HomeGraph', () => {
       expiresAt: null,
     };
     const db = createMockDb([acceptedOpp]);
-    const result = await new HomeGraphFactory(db).createGraph().invoke({ userId: viewerId, limit: 50 });
+    const result = await new HomeGraphFactory(db, createMockCache()).createGraph().invoke({ userId: viewerId, limit: 50 });
 
     expect(result.error).toBeUndefined();
     expect(result.meta.totalOpportunities).toBe(0);
@@ -293,7 +303,7 @@ describe('HomeGraph', () => {
       expiresAt: null,
     };
     const db = createMockDb([latentOpportunity]);
-    const result = await new HomeGraphFactory(db).createGraph().invoke({ userId: viewerId, limit: 50 });
+    const result = await new HomeGraphFactory(db, createMockCache()).createGraph().invoke({ userId: viewerId, limit: 50 });
 
     expect(result.error).toBeUndefined();
     expect(result.meta.totalOpportunities).toBe(1);
@@ -323,7 +333,7 @@ describe('HomeGraph', () => {
       expiresAt: null,
     };
     const db = createMockDb([pendingOpportunity]);
-    const result = await new HomeGraphFactory(db).createGraph().invoke({ userId: viewerId, limit: 50 });
+    const result = await new HomeGraphFactory(db, createMockCache()).createGraph().invoke({ userId: viewerId, limit: 50 });
 
     expect(result.error).toBeUndefined();
     expect(result.meta.totalOpportunities).toBe(0);
@@ -350,7 +360,7 @@ describe('HomeGraph', () => {
       expiresAt: null,
     };
     const db = createMockDb([pendingOpp]);
-    const result = await new HomeGraphFactory(db).createGraph().invoke({ userId: agentId, limit: 50 });
+    const result = await new HomeGraphFactory(db, createMockCache()).createGraph().invoke({ userId: agentId, limit: 50 });
 
     expect(result.error).toBeUndefined();
     expect(result.meta.totalOpportunities).toBe(1);
@@ -378,7 +388,7 @@ describe('HomeGraph', () => {
       expiresAt: null,
     };
     const db = createMockDb([latentOpp]);
-    const result = await new HomeGraphFactory(db).createGraph().invoke({ userId: agentId, limit: 50 });
+    const result = await new HomeGraphFactory(db, createMockCache()).createGraph().invoke({ userId: agentId, limit: 50 });
 
     expect(result.error).toBeUndefined();
     expect(result.meta.totalOpportunities).toBe(0);

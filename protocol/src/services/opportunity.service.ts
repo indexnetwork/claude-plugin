@@ -3,7 +3,7 @@ import { log } from '../lib/log';
 import type { Id } from '../types/common.types';
 import type { OpportunityControllerDatabase, OpportunityGraphDatabase, HydeGraphDatabase, HomeGraphDatabase, CreateOpportunityData, Opportunity, OpportunityActor, OpportunityStatus } from '../lib/protocol/interfaces/database.interface';
 import type { Embedder } from '../lib/protocol/interfaces/embedder.interface';
-import type { HydeCache } from '../lib/protocol/interfaces/cache.interface';
+import type { HydeCache, OpportunityCache } from '../lib/protocol/interfaces/cache.interface';
 import { OpportunityGraphFactory } from '../lib/protocol/graphs/opportunity.graph';
 import { HydeGraphFactory } from '../lib/protocol/graphs/hyde.graph';
 import { HomeGraphFactory } from '../lib/protocol/graphs/home.graph';
@@ -86,7 +86,8 @@ export class OpportunityService {
       );
       this.graph = factory.createGraph();
     }
-    this.homeGraph = new HomeGraphFactory(this.db as unknown as HomeGraphDatabase).createGraph();
+    const homeCache: OpportunityCache = new RedisCacheAdapter();
+    this.homeGraph = new HomeGraphFactory(this.db as unknown as HomeGraphDatabase, homeCache).createGraph();
   }
 
   /**
