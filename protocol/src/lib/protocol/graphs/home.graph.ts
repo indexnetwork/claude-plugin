@@ -260,7 +260,7 @@ export class HomeGraphFactory {
           for (let i = 0; i < opportunities.length; i++) {
             const cached = results[i];
             if (cached) {
-              cachedCards.set(opportunities[i].id, cached);
+              cachedCards.set(opportunities[i].id, { ...cached, _cardIndex: i });
             } else {
               uncachedOpportunities.push(opportunities[i]);
             }
@@ -502,7 +502,6 @@ export class HomeGraphFactory {
         try {
           const oppIds = state.cards
             .map((c) => c.opportunityId)
-            .sort()
             .join(',');
           const hash = createHash('sha256').update(oppIds).digest('hex').slice(0, 16);
           const key = `home:categories:${state.userId}:${hash}`;
@@ -569,7 +568,6 @@ export class HomeGraphFactory {
         try {
           const oppIds = state.cards
             .map((c) => c.opportunityId)
-            .sort()
             .join(',');
           const hash = createHash('sha256').update(oppIds).digest('hex').slice(0, 16);
           const key = `home:categories:${state.userId}:${hash}`;
