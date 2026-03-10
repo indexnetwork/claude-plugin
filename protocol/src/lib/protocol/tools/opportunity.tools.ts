@@ -507,6 +507,10 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
         return error("Invalid intent ID format.");
       }
 
+      if (query.introTargetUserId?.trim() && query.introTargetUserId.trim() === context.userId) {
+        return error("You cannot discover introductions for yourself. Try regular discovery instead.");
+      }
+
       const result = await runDiscoverFromQuery({
         opportunityGraph: graphs.opportunity,
         database,

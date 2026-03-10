@@ -1405,6 +1405,13 @@ export class OpportunityGraphFactory {
                 status: initialStatus,
               };
             } else if (state.onBehalfOfUserId) {
+              if (indexIdForActors === undefined) {
+                logger.warn('[Graph:Persist] Introducer discovery path missing indexId; skipping opportunity', {
+                  userId: state.userId,
+                  actorsCount: evaluated.actors.length,
+                });
+                continue;
+              }
               // Introducer discovery path: manual detection, introducer is state.userId, target is onBehalfOfUserId.
               const evaluatorActors: OpportunityActor[] = evaluated.actors.map((a: EvaluatedOpportunityActor) => ({
                 indexId: a.indexId ?? indexIdForActors,
