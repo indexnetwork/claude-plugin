@@ -244,6 +244,208 @@ describe("opportunity.discover", () => {
       expect(result.opportunities![0].name).toBe("Yuki Tanaka");
     });
 
+    test("passes onBehalfOfUserId to graph invoke when provided", async () => {
+      let capturedInvokeArg: Record<string, unknown> = {};
+      const mockGraph = {
+        invoke: async (arg: Record<string, unknown>) => {
+          capturedInvokeArg = arg;
+          return { opportunities: [] };
+        },
+      };
+      await runDiscoverFromQuery({
+        opportunityGraph: mockGraph as any,
+        database: mockDatabase,
+        userId: "introducer-user",
+        query: "find a designer for my friend",
+        indexScope: ["idx1"],
+        onBehalfOfUserId: "target-user",
+      });
+      expect(capturedInvokeArg.onBehalfOfUserId).toBe("target-user");
+      expect(capturedInvokeArg.userId).toBe("introducer-user");
+    });
+
+    test("enriches introducer discovery cards with correct viewerRole, headline, and action label (minimalForChat)", async () => {
+      const introducerId = "introducer-user";
+      const targetId = "target-user";
+      const candidateId = "candidate-match";
+      const mockGraph = {
+        invoke: async () => ({
+          opportunities: [
+            {
+              id: "opp-intro-1",
+              actors: [
+                { indexId: "idx-1", userId: targetId, role: "patient" },
+                { indexId: "idx-1", userId: candidateId, role: "agent" },
+                { indexId: "idx-1", userId: introducerId, role: "introducer" },
+              ],
+              interpretation: {
+                reasoning: "Great match for collaboration.",
+                confidence: 0.9,
+              },
+              detection: { source: "manual", createdBy: introducerId, timestamp: new Date().toISOString() },
+              status: "draft",
+            },
+          ],
+        }),
+      };
+      const dbWithProfiles = {
+        ...mockDatabase,
+        getProfile: async (userId: string) => {
+          if (userId === targetId)
+            return { identity: { name: "Alice Target", bio: "Product designer." }, attributes: {}, narrative: {} };
+          if (userId === candidateId)
+            return { identity: { name: "Bob Candidate", bio: "UX researcher." }, attributes: {}, narrative: {} };
+          return null;
+        },
+        getUser: async (userId: string) => {
+          if (userId === introducerId) return { name: "Carol Introducer", avatar: null };
+          if (userId === targetId) return { name: "Alice Target", avatar: null };
+          if (userId === candidateId) return { name: "Bob Candidate", avatar: null };
+          return null;
+        },
+      } as unknown as ChatGraphCompositeDatabase;
+
+      const result = await runDiscoverFromQuery({
+        opportunityGraph: mockGraph as any,
+        database: dbWithProfiles,
+        userId: introducerId,
+        query: "find someone for Alice",
+        indexScope: ["idx1"],
+        onBehalfOfUserId: targetId,
+        minimalForChat: true,
+      });
+
+      expect(result.found).toBe(true);
+      expect(result.opportunities).toHaveLength(1);
+      const card = result.opportunities![0];
+      // Viewer is the introducer
+      expect(card.viewerRole).toBe("introducer");
+      // Home card presentation should have "Introduce Them" action
+      expect(card.homeCardPresentation?.primaryActionLabel).toBe("Introduce Them");
+      // Headline should be "PartyName → OtherPartyName" format
+      expect(card.homeCardPresentation?.headline).toContain("→");
+      // Narrator chip should be "You" since viewer is the introducer
+      expect(card.narratorChip?.name).toBe("You");
+      expect(card.narratorChip?.userId).toBe(introducerId);
+    });
+
+    test("introducer discovery with third-party introducer shows introducer name in narrator chip", async () => {
+      const viewerId = "viewer-user";
+      const introducerThirdPartyId = "third-party-introducer";
+      const candidateId = "candidate-match";
+      const mockGraph = {
+        invoke: async () => ({
+          opportunities: [
+            {
+              id: "opp-third-party",
+              actors: [
+                { indexId: "idx-1", userId: viewerId, role: "patient" },
+                { indexId: "idx-1", userId: candidateId, role: "agent" },
+                { indexId: "idx-1", userId: introducerThirdPartyId, role: "introducer" },
+              ],
+              interpretation: {
+                reasoning: "Recommended by a mutual friend.",
+                confidence: 0.75,
+              },
+              detection: {
+                source: "manual",
+                createdBy: introducerThirdPartyId,
+                createdByName: "Dan Introducer",
+                timestamp: new Date().toISOString(),
+              },
+              status: "draft",
+            },
+          ],
+        }),
+      };
+      const dbForThirdParty = {
+        ...mockDatabase,
+        getProfile: async (userId: string) => {
+          if (userId === candidateId)
+            return { identity: { name: "Eve Match", bio: "Engineer." }, attributes: {}, narrative: {} };
+          return null;
+        },
+        getUser: async (userId: string) => {
+          if (userId === viewerId) return { name: "Viewer User", avatar: null };
+          if (userId === introducerThirdPartyId) return { name: "Dan Introducer", avatar: "https://example.com/dan.jpg" };
+          if (userId === candidateId) return { name: "Eve Match", avatar: null };
+          return null;
+        },
+      } as unknown as ChatGraphCompositeDatabase;
+
+      const result = await runDiscoverFromQuery({
+        opportunityGraph: mockGraph as any,
+        database: dbForThirdParty,
+        userId: viewerId,
+        query: "show connections",
+        indexScope: ["idx1"],
+        minimalForChat: true,
+      });
+
+      expect(result.found).toBe(true);
+      const card = result.opportunities![0];
+      // Viewer is patient, not introducer
+      expect(card.viewerRole).toBe("patient");
+      // Standard card format (not introducer view)
+      expect(card.homeCardPresentation?.primaryActionLabel).toBe("Start Chat");
+      // Narrator chip should show third-party introducer name
+      expect(card.narratorChip?.name).toBe("Dan Introducer");
+      expect(card.narratorChip?.userId).toBe(introducerThirdPartyId);
+      expect(card.narratorChip?.avatar).toBe("https://example.com/dan.jpg");
+    });
+
+    test("standard discovery without introducer shows 'Index' narrator chip", async () => {
+      const candidateId = "candidate-1";
+      const mockGraph = {
+        invoke: async () => ({
+          opportunities: [
+            {
+              id: "opp-standard",
+              actors: [
+                { indexId: "idx-1", userId: "u1", role: "patient" },
+                { indexId: "idx-1", userId: candidateId, role: "agent" },
+              ],
+              interpretation: {
+                reasoning: "Good fit for mentoring.",
+                confidence: 0.8,
+              },
+              detection: { source: "opportunity_graph", createdBy: "agent", timestamp: new Date().toISOString() },
+              status: "latent",
+            },
+          ],
+        }),
+      };
+      const dbWithProfile = {
+        ...mockDatabase,
+        getProfile: async (userId: string) =>
+          userId === candidateId
+            ? { identity: { name: "Frank Mentor", bio: "Senior dev." }, attributes: {}, narrative: {} }
+            : null,
+        getUser: async (userId: string) =>
+          userId === candidateId
+            ? { name: "Frank Mentor", avatar: null }
+            : userId === "u1"
+              ? { name: "User One", avatar: null }
+              : null,
+      } as unknown as ChatGraphCompositeDatabase;
+
+      const result = await runDiscoverFromQuery({
+        opportunityGraph: mockGraph as any,
+        database: dbWithProfile,
+        userId: "u1",
+        query: "find a mentor",
+        indexScope: ["idx1"],
+        minimalForChat: true,
+      });
+
+      expect(result.found).toBe(true);
+      const card = result.opportunities![0];
+      expect(card.narratorChip?.name).toBe("Index");
+      expect(card.narratorChip?.userId).toBeUndefined();
+      expect(card.homeCardPresentation?.primaryActionLabel).toBe("Start Chat");
+      expect(card.homeCardPresentation?.headline).toContain("Connection with");
+    });
+
     test("returns createIntentSuggested and suggestedIntentDescription when graph returns create-intent signal", async () => {
       const mockGraph = {
         invoke: async () => ({
