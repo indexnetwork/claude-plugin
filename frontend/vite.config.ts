@@ -11,6 +11,7 @@ export default defineConfig({
     },
   },
   server: {
+    port: 3000,
     proxy: {
       "/api": {
         target: process.env.PROTOCOL_URL || "http://localhost:3001",
