@@ -276,7 +276,131 @@ describe('removeContact', () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// 5. Ghost claim (two-phase: prepareGhostClaim + claimGhostUser)
+// 5. Second owner imports existing ghost — no duplicate ghost created
+// ═══════════════════════════════════════════════════════════════════════════════
+describe('second owner imports existing ghost', () => {
+  const secondOwnerId = crypto.randomUUID();
+  const secondOwnerEmail = `${TEST_PREFIX}owner2@test.com`;
+
+  beforeAll(async () => {
+    await db.insert(users).values({
+      id: secondOwnerId,
+      name: TEST_PREFIX + 'Owner2',
+      email: secondOwnerEmail,
+    });
+    await db.insert(userProfiles).values({ userId: secondOwnerId });
+  });
+
+  afterAll(async () => {
+    await db.delete(userContacts).where(eq(userContacts.ownerId, secondOwnerId));
+    await db.delete(userProfiles).where(eq(userProfiles.userId, secondOwnerId));
+    await db.delete(users).where(eq(users.id, secondOwnerId));
+  });
+
+  it('reuses existing ghost user instead of creating a duplicate', async () => {
+    // ghostEmail1 already has a ghost from section 1
+    const result = await svc.importContacts(
+      secondOwnerId,
+      [{ name: 'Ghost One Again', email: ghostEmail1 }],
+      'manual'
+    );
+
+    expect(result.imported).toBe(1);
+    // The ghost user already exists in the users table, so isNew is false
+    expect(result.details[0].isNew).toBe(false);
+
+    // Verify only one user row exists for this email (no duplicate)
+    const rows = await db
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.email, ghostEmail1));
+    expect(rows.length).toBe(1);
+
+    // Second owner's contact points to the same ghost user as first owner's
+    const firstOwnerContacts = await svc.listContacts(ownerId);
+    const secondOwnerContacts = await svc.listContacts(secondOwnerId);
+    const ghost1ForOwner1 = firstOwnerContacts.find(c => c.user.email === ghostEmail1);
+    const ghost1ForOwner2 = secondOwnerContacts.find(c => c.user.email === ghostEmail1);
+    expect(ghost1ForOwner1).toBeDefined();
+    expect(ghost1ForOwner2).toBeDefined();
+    expect(ghost1ForOwner1!.userId).toBe(ghost1ForOwner2!.userId);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 6. Signup auto-claims ghost (simulates Better Auth hook)
+// ═══════════════════════════════════════════════════════════════════════════════
+describe('signup auto-claims ghost user', () => {
+  const signupEmail = `${TEST_PREFIX}signup@test.com`;
+  const realUserId = crypto.randomUUID();
+  let ghostId: string;
+
+  beforeAll(async () => {
+    // Create a ghost via contact import
+    const result = await svc.addContact(ownerId, signupEmail, 'Future Signup');
+    ghostId = result.details[0].userId;
+    createdGhostIds.push(ghostId);
+  });
+
+  afterAll(async () => {
+    await db.delete(userContacts).where(eq(userContacts.userId, realUserId));
+    await db.delete(userProfiles).where(eq(userProfiles.userId, realUserId));
+    await db.delete(indexMembers).where(eq(indexMembers.userId, realUserId));
+    await db.delete(users).where(eq(users.id, realUserId));
+    // Ghost is deleted by claim, remove from cleanup list
+    const idx = createdGhostIds.indexOf(ghostId);
+    if (idx >= 0) createdGhostIds.splice(idx, 1);
+  });
+
+  it('ghost exists before signup', async () => {
+    const [row] = await db
+      .select({ isGhost: users.isGhost })
+      .from(users)
+      .where(eq(users.id, ghostId));
+    expect(row.isGhost).toBe(true);
+  });
+
+  it('signup with ghost email claims the ghost automatically', async () => {
+    // Simulate Better Auth create.before hook: free the ghost email
+    const claimedGhostId = await authDb.prepareGhostClaim(signupEmail);
+    expect(claimedGhostId).toBe(ghostId);
+
+    // Simulate Better Auth inserting the real user
+    await db.insert(users).values({
+      id: realUserId,
+      name: TEST_PREFIX + 'SignupUser',
+      email: signupEmail,
+    });
+
+    // Simulate Better Auth create.after hook: claim ghost data
+    await authDb.claimGhostUser(realUserId, claimedGhostId!);
+
+    // Ghost row is gone
+    const ghostRows = await db
+      .select()
+      .from(users)
+      .where(eq(users.id, ghostId));
+    expect(ghostRows.length).toBe(0);
+
+    // Real user exists and is not a ghost
+    const [realUser] = await db
+      .select({ id: users.id, isGhost: users.isGhost, email: users.email })
+      .from(users)
+      .where(eq(users.id, realUserId));
+    expect(realUser.isGhost).toBe(false);
+    expect(realUser.email).toBe(signupEmail);
+
+    // Contact relationship transferred: owner's contact now points to the real user
+    const contacts = await svc.listContacts(ownerId);
+    const claimed = contacts.find(c => c.userId === realUserId);
+    expect(claimed).toBeDefined();
+    expect(claimed!.user.isGhost).toBe(false);
+    expect(claimed!.user.email).toBe(signupEmail);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 7. Ghost claim (two-phase: prepareGhostClaim + claimGhostUser)
 // ═══════════════════════════════════════════════════════════════════════════════
 describe('ghost claim flow', () => {
   let claimGhostId: string;
