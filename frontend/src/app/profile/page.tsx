@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
-import Link from "next/link";
+import { Link } from "react-router";
 import * as Tabs from "@radix-ui/react-tabs";
 import { Loader2, Camera, ArrowUpRight, Trash2, Sparkles } from "lucide-react";
 import { useAuthContext } from "@/contexts/AuthContext";
@@ -224,7 +224,7 @@ export default function ProfilePage() {
                 </div>
                 {user?.id && (
                   <Link
-                    href={`/u/${user.id}`}
+                    to={`/u/${user.id}`}
                     className="inline-flex items-center gap-1 text-xs text-gray-400 hover:text-black transition-colors duration-150 mt-1"
                   >
                     View public profile

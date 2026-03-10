@@ -1,7 +1,7 @@
 'use client';
 
 import { usePathname, useSearchParams, useRouter } from "next/navigation";
-import Link from "next/link";
+import { Link } from "react-router";
 import Image from "next/image";
 import { useAuthContext } from '@/contexts/AuthContext';
 import { useEffect, useState, useRef } from 'react';
@@ -48,7 +48,7 @@ export default function Header({ showHeaderButtons = true, forcePublicView = fal
   if (!isReady) {
     return (
       <header className="w-full py-4 px-4 flex justify-between items-center">
-        <Link href="/">
+        <Link to="/">
           <Image
             src="/logos/logo-black-full.svg"
             alt="Index Network"
@@ -104,7 +104,7 @@ export default function Header({ showHeaderButtons = true, forcePublicView = fal
   return (
     <div className="relative">
       <header className="w-full pt-4 pb-4 flex justify-between items-center">
-        <Link href="/">
+        <Link to="/">
           <Image
             src="/logos/logo-black-full.svg"
             alt="Index Network"
@@ -117,10 +117,10 @@ export default function Header({ showHeaderButtons = true, forcePublicView = fal
         {showHeaderButtons && (
           <div className="flex items-center gap-3 sm:gap-8 md:gap-12">
             {/* Desktop nav links */}
-            <Link href="/blog" className="hidden sm:block font-sans text-sm text-black hover:text-gray-600 transition-colors font-medium uppercase">
+            <Link to="/blog" className="hidden sm:block font-sans text-sm text-black hover:text-gray-600 transition-colors font-medium uppercase">
               Blog
             </Link>
-            <Link href="/about" className="hidden sm:block font-sans text-sm text-black hover:text-gray-600 transition-colors font-medium uppercase">
+            <Link to="/about" className="hidden sm:block font-sans text-sm text-black hover:text-gray-600 transition-colors font-medium uppercase">
               About
             </Link>
 

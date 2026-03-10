@@ -1,7 +1,7 @@
 'use client';
 
 import { PropsWithChildren, Suspense, useMemo, useState } from 'react';
-import Link from 'next/link';
+import { Link } from 'react-router';
 import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import Header from "@/components/Header";
@@ -129,7 +129,7 @@ export default function ClientWrapper({ children }: PropsWithChildren) {
                       <Suspense
                         fallback={
                           <header className="w-full py-4 px-4 flex justify-between items-center">
-                            <Link href="/">
+                            <Link to="/">
                               <Image
                                 src="/logos/logo-black-full.svg"
                                 alt="Index Network"

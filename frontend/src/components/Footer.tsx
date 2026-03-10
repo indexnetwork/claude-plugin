@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import Link from 'next/link';
+import { Link } from 'react-router';
 
 export default function Footer() {
   const [email, setEmail] = useState("");
@@ -35,11 +35,11 @@ export default function Footer() {
         {/* Top row: page links left, newsletter + social right */}
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
           <nav aria-label="Footer navigation" className="flex flex-wrap gap-x-5 gap-y-2 text-[13px] text-[#041729]">
-            <Link href="/" className="hover:text-black transition-colors">Home</Link>
-            <Link href="/blog" className="hover:text-black transition-colors">Blog</Link>
-            <Link href="/about" className="hover:text-black transition-colors">About</Link>
-            <Link href="/pages/privacy-policy" className="hover:text-black transition-colors">Privacy</Link>
-            <Link href="/pages/terms-of-use" className="hover:text-black transition-colors">Terms</Link>
+            <Link to="/" className="hover:text-black transition-colors">Home</Link>
+            <Link to="/blog" className="hover:text-black transition-colors">Blog</Link>
+            <Link to="/about" className="hover:text-black transition-colors">About</Link>
+            <Link to="/pages/privacy-policy" className="hover:text-black transition-colors">Privacy</Link>
+            <Link to="/pages/terms-of-use" className="hover:text-black transition-colors">Terms</Link>
           </nav>
 
           <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">

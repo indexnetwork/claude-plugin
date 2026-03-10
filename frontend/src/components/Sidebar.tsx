@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import Image from 'next/image';
-import Link from 'next/link';
+import { Link } from 'react-router';
 import { Compass, MessagesSquare, Loader2, ChevronDown, User as UserIcon, LogOut, Library, History, Network } from 'lucide-react';
 import { useAuthContext } from '@/contexts/AuthContext';
 import { useXMTP } from '@/contexts/XMTPContext';
@@ -166,7 +166,7 @@ export default function Sidebar() {
     <div className="flex flex-col h-full overflow-hidden">
       {/* Logo */}
       <div className="flex-shrink-0 px-4 py-6">
-        <Link href="/">
+        <Link to="/">
           <Image
             src="/logos/logo-black-full.svg"
             alt="Index Network"

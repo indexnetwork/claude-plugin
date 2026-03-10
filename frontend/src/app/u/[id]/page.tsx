@@ -7,7 +7,7 @@ import { useAuthContext } from "@/contexts/AuthContext";
 import { useUsers } from "@/contexts/APIContext";
 import UserAvatar from "@/components/UserAvatar";
 import { User } from "@/lib/types";
-import Link from "next/link";
+import { Link } from "react-router";
 import ClientLayout from "@/components/ClientLayout";
 import { ContentContainer } from "@/components/layout";
 
@@ -141,7 +141,7 @@ export default function UserProfilePage({ params }: UserProfilePageProps) {
                 { id: 'mock-ai-founders', name: 'AI Founders & Builders', members: 142 },
                 { id: 'mock-web3-designers', name: 'Web3 Product Designers', members: 89 },
               ].map((network) => (
-                <Link key={network.id} href={`/index/${network.id}`} className="flex items-center gap-1.5 px-3 py-1.5 border border-gray-200 rounded-full text-sm text-gray-700 hover:border-gray-400 transition-colors">
+                <Link key={network.id} to={`/index/${network.id}`} className="flex items-center gap-1.5 px-3 py-1.5 border border-gray-200 rounded-full text-sm text-gray-700 hover:border-gray-400 transition-colors">
                   {network.name}
                   <span className="text-xs text-gray-400">{network.members}</span>
                 </Link>
