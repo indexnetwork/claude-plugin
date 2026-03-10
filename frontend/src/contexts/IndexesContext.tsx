@@ -1,5 +1,3 @@
-'use client';
-
 import { createContext, useContext, ReactNode, useState, useEffect, useCallback, useRef } from 'react';
 import { Index } from '@/lib/types';
 import { useAuthContext } from '@/contexts/AuthContext';

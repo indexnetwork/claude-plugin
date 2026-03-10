@@ -1,8 +1,5 @@
-'use client';
-
 import { createContext, useContext, useState, useCallback, ReactNode } from 'react';
 import { Check, X, AlertCircle, Info } from 'lucide-react';
-import Image from 'next/image';
 
 export type NotificationType = 'success' | 'error' | 'warning' | 'info' | 'intent_broadcast';
 
@@ -163,11 +160,12 @@ function NotificationToasts({
             }}
           >
             {notification.avatarUrl ? (
-              <Image
+              <img
                 src={notification.avatarUrl}
                 alt={notification.title}
                 width={32}
                 height={32}
+                loading="lazy"
                 className="flex-shrink-0 w-8 h-8 rounded-full object-cover"
               />
             ) : (

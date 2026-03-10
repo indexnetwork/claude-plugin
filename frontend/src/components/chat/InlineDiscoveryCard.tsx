@@ -1,6 +1,4 @@
-'use client';
-
-import { useRouter } from 'next/navigation';
+import { useNavigate } from 'react-router';
 import { MessageCircle, User } from 'lucide-react';
 import UserAvatar from '@/components/UserAvatar';
 import type { DiscoveryOpportunity } from '@/contexts/AIChatContext';
@@ -10,14 +8,14 @@ interface InlineDiscoveryCardProps {
 }
 
 export default function InlineDiscoveryCard({ discovery }: InlineDiscoveryCardProps) {
-  const router = useRouter();
+  const navigate = useNavigate();
 
   const handleViewProfile = () => {
-    router.push(`/u/${discovery.candidateId}`);
+    navigate(`/u/${discovery.candidateId}`);
   };
 
   const handleStartChat = () => {
-    router.push(`/u/${discovery.candidateId}/chat`);
+    navigate(`/u/${discovery.candidateId}/chat`);
   };
 
   return (

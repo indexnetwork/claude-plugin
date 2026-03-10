@@ -1,5 +1,3 @@
-'use client';
-
 import { useState, useEffect } from 'react';
 import * as AlertDialog from '@radix-ui/react-alert-dialog';
 import { LogOut } from 'lucide-react';

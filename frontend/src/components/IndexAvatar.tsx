@@ -1,8 +1,6 @@
-'use client';
-
 import { useState, useEffect } from 'react';
-import Image from 'next/image';
 import Avatar from 'boring-avatars';
+import { apiUrl } from '@/lib/api';
 
 interface IndexAvatarProps {
   id?: string;
@@ -18,10 +16,10 @@ export function resolveIndexImageSrc(imageUrl: string): string {
     return imageUrl;
   }
   if (imageUrl.startsWith('/api/storage/')) {
-    return imageUrl;
+    return apiUrl(imageUrl);
   }
   const cleanPath = imageUrl.startsWith('/') ? imageUrl.slice(1) : imageUrl;
-  return `/api/storage/${cleanPath}`;
+  return apiUrl(`/api/storage/${cleanPath}`);
 }
 
 function BoringFallback({ id, title, size, rounded, className }: { id?: string; title?: string; size: number; rounded: 'full' | 'sm'; className?: string }) {
@@ -54,11 +52,12 @@ export default function IndexAvatar({ id, title, imageUrl, size, className = '',
       className={`overflow-hidden shrink-0 ${roundedClass} ${className}`}
       style={{ width: size, height: size }}
     >
-      <Image
+      <img
         src={resolveIndexImageSrc(imageUrl)}
         alt={title || 'Network'}
         width={size}
         height={size}
+        loading="lazy"
         className="w-full h-full object-cover"
         onError={() => setImgError(true)}
       />

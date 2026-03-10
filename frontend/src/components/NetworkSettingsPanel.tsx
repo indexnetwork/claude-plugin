@@ -1,9 +1,6 @@
-'use client';
-
 import { useState, useEffect, useCallback, useRef } from 'react';
 import * as AlertDialog from '@radix-ui/react-alert-dialog';
 import { Copy, Globe, Lock, Trash2, Plus, Check, ChevronRight, ChevronDown, ImagePlus } from 'lucide-react';
-import Image from 'next/image';
 import { Index } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -373,7 +370,7 @@ export default function NetworkSettingsPanel({ index, onDeleted, activeTab }: Ne
             <div className="relative shrink-0">
               <div className="w-[72px] h-[72px] rounded-full overflow-hidden">
                 {displayImageUrl ? (
-                  <Image src={resolveIndexImageSrc(displayImageUrl)} alt="Network" width={72} height={72} className="w-full h-full object-cover" unoptimized />
+                  <img src={resolveIndexImageSrc(displayImageUrl)} alt="Network" width={72} height={72} loading="lazy" className="w-full h-full object-cover" />
                 ) : (
                   <IndexAvatar id={index.id} title={title || index.title} size={72} rounded="full" />
                 )}
@@ -569,7 +566,7 @@ export default function NetworkSettingsPanel({ index, onDeleted, activeTab }: Ne
               const directoryConfig = it.id ? directoryConfigs[it.id] : null;
               return (
                 <div key={it.type} className="flex items-center gap-3 p-3 border border-gray-200 rounded-sm hover:border-gray-300 transition-colors">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
+
                   <img src={`/integrations/${it.type}.png`} width={24} height={24} alt={it.name} className="flex-shrink-0" />
                   <div className="flex-1 min-w-0">
                     <div className="text-sm font-medium text-black">{it.name}</div>

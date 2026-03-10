@@ -1,31 +1,15 @@
-"use client";
-
-import { Suspense, use, useEffect, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useEffect, useState } from "react";
+import { useNavigate, useSearchParams, useParams } from "react-router";
 import { Loader2 } from "lucide-react";
 import { useAuthContext } from "@/contexts/AuthContext";
 import { useUsers } from "@/contexts/APIContext";
 import { User } from "@/lib/types";
 import ChatView from "@/components/chat/ChatView";
 
-interface ChatPageProps {
-  params: Promise<{
-    id: string;
-  }>;
-}
-
-function ChatPageFallback() {
-  return (
-    <div className="flex items-center justify-center py-20">
-      <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
-    </div>
-  );
-}
-
-function ChatPageContent({ params }: ChatPageProps) {
-  const resolvedParams = use(params);
-  const router = useRouter();
-  const searchParams = useSearchParams();
+export default function ChatPage() {
+  const { id } = useParams();
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const initialGroupId = searchParams.get('groupId') ?? undefined;
   const { isAuthenticated, isLoading: authLoading } = useAuthContext();
   const usersService = useUsers();
@@ -36,9 +20,9 @@ function ChatPageContent({ params }: ChatPageProps) {
 
   useEffect(() => {
     if (!authLoading && !isAuthenticated) {
-      router.push('/');
+      navigate('/');
     }
-  }, [authLoading, isAuthenticated, router]);
+  }, [authLoading, isAuthenticated, navigate]);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -46,7 +30,7 @@ function ChatPageContent({ params }: ChatPageProps) {
       try {
         setIsLoading(true);
         setError(null);
-        const profile = await usersService.getUserProfile(resolvedParams.id);
+        const profile = await usersService.getUserProfile(id!);
         setProfileData(profile);
       } catch (err) {
         console.error('Failed to fetch profile:', err);
@@ -56,14 +40,14 @@ function ChatPageContent({ params }: ChatPageProps) {
       }
     };
     fetchData();
-  }, [resolvedParams.id, isAuthenticated, authLoading, usersService]);
+  }, [id!, isAuthenticated, authLoading, usersService]);
 
   const handleClose = () => {
-    router.push('/');
+    navigate('/');
   };
 
   const handleBack = () => {
-    router.push('/chat');
+    navigate('/chat');
   };
 
   if (authLoading || isLoading) {
@@ -80,7 +64,7 @@ function ChatPageContent({ params }: ChatPageProps) {
         <h2 className="text-xl font-bold text-red-600 mb-2">Error</h2>
         <p className="text-gray-600 mb-4">{error}</p>
         <button
-          onClick={() => router.push('/')}
+          onClick={() => navigate('/')}
           className="px-4 py-2 bg-[#041729] text-white rounded hover:bg-[#0a2d4a]"
         >
           Go Back
@@ -104,10 +88,4 @@ function ChatPageContent({ params }: ChatPageProps) {
   );
 }
 
-export default function ChatPage(props: ChatPageProps) {
-  return (
-    <Suspense fallback={<ChatPageFallback />}>
-      <ChatPageContent {...props} />
-    </Suspense>
-  );
-}
+export const Component = ChatPage;

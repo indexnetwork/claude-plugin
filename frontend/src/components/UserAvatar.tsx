@@ -1,8 +1,6 @@
-'use client';
-
 import { useState } from 'react';
-import Image from 'next/image';
 import Avatar from 'boring-avatars';
+import { apiUrl } from '@/lib/api';
 
 interface UserAvatarProps {
   id?: string;
@@ -17,10 +15,10 @@ function resolveAvatarSrc(avatar: string): string {
     return avatar;
   }
   if (avatar.startsWith('/api/storage/')) {
-    return avatar;
+    return apiUrl(avatar);
   }
   const cleanPath = avatar.startsWith('/') ? avatar.slice(1) : avatar;
-  return `/api/storage/${cleanPath}`;
+  return apiUrl(`/api/storage/${cleanPath}`);
 }
 
 function BoringFallback({ id, name, size, className }: Omit<UserAvatarProps, 'avatar'>) {
@@ -50,11 +48,12 @@ export default function UserAvatar({ id, name, avatar, size, className }: UserAv
       className={`rounded-full overflow-hidden flex-shrink-0${className ? ` ${className}` : ''}`}
       style={{ width: size, height: size }}
     >
-      <Image
+      <img
         src={resolveAvatarSrc(avatar)}
         alt={name || 'User'}
         width={size}
         height={size}
+        loading="lazy"
         className="w-full h-full object-cover"
         onError={() => setImgError(true)}
       />

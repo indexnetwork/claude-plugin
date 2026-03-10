@@ -1,9 +1,7 @@
-'use client';
-
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useXMTP } from '@/contexts/XMTPContext';
 import { Loader2, ArrowUp, MoreHorizontal, Trash2, ChevronDown, ChevronUp } from 'lucide-react';
-import Link from 'next/link';
+import { Link } from 'react-router';
 import UserAvatar from '@/components/UserAvatar';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -159,7 +157,7 @@ export default function ChatView({ userId, userName, userAvatar, initialGroupId,
       <div className="sticky top-0 bg-white z-10 px-4 py-3 flex items-center justify-between min-h-[68px]">
         <div className="flex items-center gap-3">
           <button onClick={handleBack} className="text-[#3D3D3D] hover:text-black transition-colors text-xl mr-2">&larr;</button>
-          <Link href={`/u/${userId}`} className="flex items-center gap-3 hover:opacity-80 transition-opacity">
+          <Link to={`/u/${userId}`} className="flex items-center gap-3 hover:opacity-80 transition-opacity">
             <UserAvatar avatar={userAvatar} id={userId} name={userName} size={44} />
             <h2 className="font-ibm-plex-mono font-bold text-lg text-black">{userName}</h2>
           </Link>

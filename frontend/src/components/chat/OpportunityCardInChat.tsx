@@ -1,7 +1,5 @@
-"use client";
-
 import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useNavigate } from "react-router";
 import { Bot, Check, CheckCircle2, Clock, X } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -179,7 +177,7 @@ export default function OpportunityCard({
   showScore = false,
   currentStatus,
 }: OpportunityCardProps) {
-  const router = useRouter();
+  const navigate = useNavigate();
   const [actionTaken, setActionTaken] = useState<
     "accepted" | "rejected" | null
   >(null);
@@ -228,12 +226,12 @@ export default function OpportunityCard({
   };
 
   const handleProfileClick = () => {
-    router.push(`/u/${card.userId}`);
+    navigate(`/u/${card.userId}`);
   };
 
   const handleNarratorClick = () => {
     if (card.narratorChip?.userId) {
-      router.push(`/u/${card.narratorChip.userId}`);
+      navigate(`/u/${card.narratorChip.userId}`);
     }
   };
 

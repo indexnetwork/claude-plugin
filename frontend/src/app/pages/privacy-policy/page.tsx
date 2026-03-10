@@ -181,3 +181,5 @@ export default function PrivacyPolicyPage() {
     </ClientLayout>
   );
 }
+
+export const Component = PrivacyPolicyPage;

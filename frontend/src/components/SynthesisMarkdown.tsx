@@ -1,10 +1,8 @@
-'use client';
-
 import { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import ReactMarkdown from 'react-markdown';
 import { Focus, Archive } from 'lucide-react';
-import { useRouter } from 'next/navigation';
+import { useNavigate } from 'react-router';
 import { useIntents } from '@/contexts/APIContext';
 import { useDiscoveryFilter } from '@/contexts/DiscoveryFilterContext';
 import { useNotifications } from '@/contexts/NotificationContext';
@@ -21,7 +19,7 @@ export default function SynthesisMarkdown({ content, className = '', onArchive, 
   const [popoverPosition, setPopoverPosition] = useState({ x: 0, y: 0 });
   const [currentLink, setCurrentLink] = useState<{ href: string; text: string; intentId?: string } | null>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
-  const router = useRouter();
+  const navigate = useNavigate();
   const intentsService = useIntents();
   useDiscoveryFilter(); // Context hook kept for future use
   const { success, error } = useNotifications();
@@ -110,7 +108,7 @@ export default function SynthesisMarkdown({ content, className = '', onArchive, 
     if (currentLink?.intentId) {
       try {
         // Navigate directly to intent route
-        router.push(`/i/${currentLink.intentId}`);
+        navigate(`/i/${currentLink.intentId}`);
       } catch (err) {
         console.error('Failed to navigate to intent:', err);
         error('Failed to load intent');

@@ -1,8 +1,6 @@
-'use client';
-
 import { createContext, useContext, useEffect, useState, useCallback, useRef, ReactNode } from 'react';
 import { useAuthContext } from './AuthContext';
-import { useAuthenticatedAPI } from '@/lib/api';
+import { useAuthenticatedAPI, apiUrl } from '@/lib/api';
 import { getJwtToken } from '@/lib/auth-client';
 import { createXmtpService, type XmtpConversation, type XmtpMessage, type XmtpChatContext } from '@/services/xmtp';
 
@@ -133,7 +131,7 @@ export function XMTPProvider({ children }: { children: ReactNode }) {
     }
 
     const connectSSE = async () => {
-      let url = '/api/xmtp/stream';
+      let url = apiUrl('/api/xmtp/stream');
       try {
         const token = await getJwtToken();
         url += `?token=${encodeURIComponent(token)}`;

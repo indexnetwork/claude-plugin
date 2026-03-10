@@ -1,5 +1,3 @@
-'use client';
-
 import { Zap, Type } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { Suggestion } from '@/hooks/useSuggestions';

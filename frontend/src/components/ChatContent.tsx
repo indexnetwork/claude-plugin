@@ -1,7 +1,5 @@
-"use client";
-
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useNavigate } from "react-router";
 import {
   ArrowUp,
   Pencil,
@@ -363,7 +361,7 @@ function AssistantMessageContent({
 }
 
 export default function ChatContent({ sessionIdParam }: ChatContentProps) {
-  const router = useRouter();
+  const navigate = useNavigate();
   const sessionIdFromUrl = sessionIdParam ?? null;
   const {
     messages,
@@ -706,9 +704,9 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
       return;
     }
     if (sessionId && !sessionIdFromUrl) {
-      router.push(`/d/${sessionId}`);
+      navigate(`/d/${sessionId}`);
     }
-  }, [sessionId, sessionIdFromUrl, router]);
+  }, [sessionId, sessionIdFromUrl, navigate]);
 
   const handleHomeOpportunityAction = useCallback(
     async (
@@ -742,7 +740,7 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
         const counterpartUserId =
           result.counterpartUserId ?? fallbackUserId;
         if (action === "accepted" && !isIntroducer && counterpartUserId) {
-          router.push(`/u/${counterpartUserId}/chat`);
+          navigate(`/u/${counterpartUserId}/chat`);
         } else if (action === "accepted" && isIntroducer) {
           showSuccess(
             "Introduction sent",
@@ -776,7 +774,7 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
         }));
       }
     },
-    [opportunitiesService, router, showError, showSuccess],
+    [opportunitiesService, navigate, showError, showSuccess],
   );
 
   const archiveProposalIntent = useCallback(
@@ -1491,7 +1489,7 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
           type="button"
           onClick={() => {
             clearChat({ abortStream: false });
-            router.push("/");
+            navigate("/");
           }}
           className="p-1 -ml-1 rounded-md hover:bg-gray-100 text-gray-600 hover:text-black transition-colors shrink-0"
           aria-label="Back to home"

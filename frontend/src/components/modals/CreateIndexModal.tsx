@@ -1,9 +1,6 @@
-'use client';
-
 import { useState, useCallback, useRef } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { X, Globe, Lock, ImagePlus } from 'lucide-react';
-import Image from 'next/image';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -107,7 +104,7 @@ export default function CreateIndexModal({ open, onOpenChange, onSubmit, uploadI
                 <div className="relative shrink-0">
                   <div className="w-[72px] h-[72px] rounded-full overflow-hidden">
                     {imagePreview ? (
-                      <Image src={imagePreview} alt="Preview" width={72} height={72} className="w-full h-full object-cover" />
+                      <img src={imagePreview} alt="Preview" width={72} height={72} loading="lazy" className="w-full h-full object-cover" />
                     ) : (
                       <IndexAvatar title={name || 'Network name'} size={72} rounded="full" />
                     )}

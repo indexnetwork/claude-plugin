@@ -1,13 +1,13 @@
-'use client';
-
-import { BlogPost } from '@/lib/blog';
-import Link from 'next/link';
+import { Link } from 'react-router';
 import { useState, useEffect } from 'react';
+import { BlogPost, getAllPosts } from '@/lib/blog';
 import Footer from '@/components/Footer';
+import { apiUrl } from '@/lib/api';
 
 export default function BlogPage() {
   const [posts, setPosts] = useState<BlogPost[]>([]);
-  
+  const [isLoading, setIsLoading] = useState(true);
+
   // Waitlist modal state
   const [isWaitlistOpen, setIsWaitlistOpen] = useState(false);
   const [waitlistForm, setWaitlistForm] = useState({
@@ -19,9 +19,9 @@ export default function BlogPage() {
   const [waitlistStatus, setWaitlistStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
 
   useEffect(() => {
-    fetch('/api/blog/posts')
-      .then(res => res.json())
-      .then(data => setPosts(data));
+    getAllPosts()
+      .then(data => setPosts(data))
+      .finally(() => setIsLoading(false));
   }, []);
 
   // Listen for custom event from header button
@@ -47,10 +47,10 @@ export default function BlogPage() {
   const handleWaitlistSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!waitlistForm.email || !waitlistForm.name) return;
-    
+
     setWaitlistStatus("loading");
     try {
-      const res = await fetch("/api/subscribe", {
+      const res = await fetch(apiUrl("/api/subscribe"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -75,7 +75,7 @@ export default function BlogPage() {
     <div className="flex flex-col min-h-[calc(100vh-76px)]">
       {/* Waitlist Modal */}
       {isWaitlistOpen && (
-        <div 
+        <div
           className="fixed inset-0 z-50 flex items-center justify-center p-4"
           role="dialog"
           aria-modal="true"
@@ -84,9 +84,9 @@ export default function BlogPage() {
         >
           {/* Backdrop */}
           <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" aria-hidden="true" />
-          
+
           {/* Modal */}
-          <div 
+          <div
             className="relative bg-white w-full max-w-md p-8 shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
@@ -217,7 +217,9 @@ export default function BlogPage() {
           </h1>
         </div>
 
-        {posts.length === 0 ? (
+        {isLoading ? (
+          <p className="text-black font-sans">Loading posts...</p>
+        ) : posts.length === 0 ? (
           <p className="text-black font-sans">No posts yet. Check back soon!</p>
         ) : (
           <div className="space-y-2 mt-8">
@@ -232,7 +234,7 @@ export default function BlogPage() {
                     }).replace(',', '')}
                   </time>
                   <div className="flex-1">
-                    <Link href={`/blog/${post.slug}`} className="text-black font-garamond text-lg font-bold underline">
+                    <Link to={`/blog/${post.slug}`} className="text-black font-garamond text-lg font-bold underline">
                       {post.title}
                     </Link>
                   </div>
@@ -247,3 +249,5 @@ export default function BlogPage() {
     </div>
   );
 }
+
+export const Component = BlogPage;
