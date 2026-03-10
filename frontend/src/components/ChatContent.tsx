@@ -54,6 +54,7 @@ import { DynamicIcon, type IconName } from "lucide-react/dynamic";
 const USE_HOME_API = true;
 
 const CHAT_INPUT_PLACEHOLDER = "What's on your mind?";
+const CONTACTS_SCOPE_ID = "__contacts__";
 
 interface PendingFile {
   id: string;
@@ -582,11 +583,10 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
     indexId: selectedIndexId,
     enabled: messages.length > 0,
   });
-  
 
   const handleIndexSelect = useCallback(
     (indexId: string | null) => {
-      if (indexId === "__contacts__") {
+      if (indexId === CONTACTS_SCOPE_ID) {
         setContactsOnly(true);
         setSelectedIndexIds([]);
       } else if (indexId === null) {
@@ -1064,6 +1064,134 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
     const globalIndex = indexes.find((i) => i.isGlobal);
     const selectedIndex = indexes.find((i) => selectedIndexIds.includes(i.id));
 
+    const renderScopeDropdown = () => {
+      if (indexes.length === 0) return null;
+      return (
+        <div className="relative shrink-0">
+          <button
+            type="button"
+            onClick={() => setIsIndexDropdownOpen(!isIndexDropdownOpen)}
+            className={cn(
+              "inline-flex items-center gap-1.5 py-1.5 rounded-full text-sm font-medium text-black transition-all hover:bg-gray-100",
+              isInputMultiline ? "px-1.5" : "px-3",
+            )}
+          >
+            {contactsOnly ? (
+              <Users className="w-4 h-4" />
+            ) : selectedIndex?.isGlobal ||
+              selectedIndex?.permissions?.joinPolicy ===
+                "invite_only" ? (
+              <Lock className="w-4 h-4" />
+            ) : (
+              <Globe className="w-4 h-4" />
+            )}
+            {!isInputMultiline && (
+              <span>
+                {contactsOnly ? "My Contacts" : selectedIndex?.title || "Everywhere"}
+              </span>
+            )}
+            <ChevronDown
+              className={cn(
+                "w-4 h-4 transition-transform",
+                isIndexDropdownOpen && "rotate-180",
+              )}
+            />
+          </button>
+          {isIndexDropdownOpen && (
+            <>
+              <div
+                className="fixed inset-0 z-10"
+                onClick={() => setIsIndexDropdownOpen(false)}
+              />
+              <div className="absolute right-0 top-full mt-2 z-20 bg-white border border-gray-200 rounded-lg shadow-lg py-1 min-w-40">
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleIndexSelect(null);
+                    setIsIndexDropdownOpen(false);
+                  }}
+                  className={cn(
+                    "w-full px-3 py-2 text-left text-sm text-[#3D3D3D] hover:bg-gray-50 flex items-center gap-2",
+                    selectedIndexIds.length === 0 && !contactsOnly &&
+                      "text-gray-900 font-medium",
+                  )}
+                >
+                  <Globe className="w-4 h-4" /> Everywhere
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleIndexSelect(CONTACTS_SCOPE_ID);
+                    setIsIndexDropdownOpen(false);
+                  }}
+                  className={cn(
+                    "w-full px-3 py-2 text-left text-sm text-[#3D3D3D] hover:bg-gray-50 flex items-center gap-2",
+                    contactsOnly && "text-gray-900 font-medium",
+                  )}
+                >
+                  <Users className="w-4 h-4" /> My Contacts
+                </button>
+                {globalIndex && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleIndexSelect(globalIndex.id);
+                      setIsIndexDropdownOpen(false);
+                    }}
+                    className={cn(
+                      "w-full px-3 py-2 text-left text-sm text-[#3D3D3D] hover:bg-gray-50 flex items-center gap-2",
+                      selectedIndexIds.includes(globalIndex.id) &&
+                        "text-gray-900 font-medium",
+                    )}
+                  >
+                    <Lock className="w-4 h-4" /> {globalIndex.title}
+                  </button>
+                )}
+                <div className="my-1 border-t border-gray-200" />
+                {[...indexes]
+                  .filter((i) => !i.isGlobal)
+                  .sort(
+                    (a, b) =>
+                      (a.permissions?.joinPolicy === "invite_only"
+                        ? 1
+                        : 0) -
+                        (b.permissions?.joinPolicy === "invite_only"
+                          ? 1
+                          : 0) ||
+                      (a.title || "").localeCompare(b.title || ""),
+                  )
+                  .map((index) => (
+                    <button
+                      key={index.id}
+                      type="button"
+                      onClick={() => {
+                        handleIndexSelect(index.id);
+                        setIsIndexDropdownOpen(false);
+                      }}
+                      className={cn(
+                        "w-full px-3 py-2 text-left text-sm text-[#3D3D3D] hover:bg-gray-50 flex items-center gap-2",
+                        selectedIndexIds.includes(index.id) &&
+                          "text-gray-900 font-medium",
+                      )}
+                    >
+                      {index.permissions?.joinPolicy ===
+                      "invite_only" ? (
+                        <Lock className="w-4 h-4 shrink-0" />
+                      ) : (
+                        <Globe className="w-4 h-4 shrink-0" />
+                      )}
+                      <span className="truncate">
+                        {index.title}
+                      </span>
+                    </button>
+                  ))}
+              </div>
+            </>
+          )}
+        </div>
+      );
+    };
+
     // API-driven home view (dynamic sections with Lucide icons)
     if (USE_HOME_API) {
       if (
@@ -1133,132 +1261,7 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
                       autoFocus
                       inputRef={inputRef}
                     />
-                    {indexes.length > 0 && (
-                    <div className="relative shrink-0">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setIsIndexDropdownOpen(!isIndexDropdownOpen)
-                        }
-                        className={cn(
-                          "inline-flex items-center gap-1.5 py-1.5 rounded-full text-sm font-medium text-black transition-all hover:bg-gray-100",
-                          isInputMultiline ? "px-1.5" : "px-3",
-                        )}
-                      >
-                        {contactsOnly ? (
-                          <Users className="w-4 h-4" />
-                        ) : selectedIndex?.isGlobal ||
-                        selectedIndex?.permissions?.joinPolicy ===
-                          "invite_only" ? (
-                          <Lock className="w-4 h-4" />
-                        ) : (
-                          <Globe className="w-4 h-4" />
-                        )}
-                        {!isInputMultiline && (
-                          <span>
-                            {contactsOnly ? "My Contacts" : selectedIndex?.title || "Everywhere"}
-                          </span>
-                        )}
-                        <ChevronDown
-                          className={cn(
-                            "w-4 h-4 transition-transform",
-                            isIndexDropdownOpen && "rotate-180",
-                          )}
-                        />
-                      </button>
-                      {isIndexDropdownOpen && (
-                        <>
-                          <div
-                            className="fixed inset-0 z-10"
-                            onClick={() => setIsIndexDropdownOpen(false)}
-                          />
-                          <div className="absolute right-0 top-full mt-2 z-20 bg-white border border-gray-200 rounded-lg shadow-lg py-1 min-w-40">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                handleIndexSelect(null);
-                                setIsIndexDropdownOpen(false);
-                              }}
-                              className={cn(
-                                "w-full px-3 py-2 text-left text-sm text-[#3D3D3D] hover:bg-gray-50 flex items-center gap-2",
-                                selectedIndexIds.length === 0 && !contactsOnly &&
-                                  "text-gray-900 font-medium",
-                              )}
-                            >
-                              <Globe className="w-4 h-4" /> Everywhere
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                handleIndexSelect("__contacts__");
-                                setIsIndexDropdownOpen(false);
-                              }}
-                              className={cn(
-                                "w-full px-3 py-2 text-left text-sm text-[#3D3D3D] hover:bg-gray-50 flex items-center gap-2",
-                                contactsOnly && "text-gray-900 font-medium",
-                              )}
-                            >
-                              <Users className="w-4 h-4" /> My Contacts
-                            </button>
-                            {globalIndex && (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  handleIndexSelect(globalIndex.id);
-                                  setIsIndexDropdownOpen(false);
-                                }}
-                                className={cn(
-                                  "w-full px-3 py-2 text-left text-sm text-[#3D3D3D] hover:bg-gray-50 flex items-center gap-2",
-                                  selectedIndexIds.includes(globalIndex.id) &&
-                                    "text-gray-900 font-medium",
-                                )}
-                              >
-                                <Lock className="w-4 h-4" /> {globalIndex.title}
-                              </button>
-                            )}
-                            <div className="my-1 border-t border-gray-200" />
-                            {[...indexes]
-                              .filter((i) => !i.isGlobal)
-                              .sort(
-                                (a, b) =>
-                                  (a.permissions?.joinPolicy === "invite_only"
-                                    ? 1
-                                    : 0) -
-                                    (b.permissions?.joinPolicy === "invite_only"
-                                      ? 1
-                                      : 0) ||
-                                  (a.title || "").localeCompare(b.title || ""),
-                              )
-                              .map((index) => (
-                                <button
-                                  key={index.id}
-                                  type="button"
-                                  onClick={() => {
-                                    handleIndexSelect(index.id);
-                                    setIsIndexDropdownOpen(false);
-                                  }}
-                                  className={cn(
-                                    "w-full px-3 py-2 text-left text-sm text-[#3D3D3D] hover:bg-gray-50 flex items-center gap-2",
-                                    selectedIndexIds.includes(index.id) &&
-                                      "text-gray-900 font-medium",
-                                  )}
-                                >
-                                  {index.permissions?.joinPolicy ===
-                                  "invite_only" ? (
-                                    <Lock className="w-4 h-4 shrink-0" />
-                                  ) : (
-                                    <Globe className="w-4 h-4 shrink-0" />
-                                  )}
-                                  <span className="truncate">
-                                    {index.title}
-                                  </span>
-                                </button>
-                              ))}
-                          </div>
-                        </>
-                      )}
-                      </div>
-                    )}
+                    {renderScopeDropdown()}
                     {isLoading ? (
                       <Button
                         type="button"
@@ -1427,127 +1430,7 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
                   autoFocus
                   inputRef={inputRef}
                 />
-                {indexes.length > 0 && (
-                <div className="relative shrink-0">
-                  <button
-                    type="button"
-                    onClick={() => setIsIndexDropdownOpen(!isIndexDropdownOpen)}
-                    className={cn(
-                      "inline-flex items-center gap-1.5 py-1.5 rounded-full text-sm font-medium text-black transition-all hover:bg-gray-100",
-                      isInputMultiline ? "px-1.5" : "px-3",
-                    )}
-                  >
-                    {selectedIndex?.isGlobal ||
-                    contactsOnly ? (
-                      <Users className="w-4 h-4" />
-                    ) : selectedIndex?.permissions?.joinPolicy === "invite_only" ? (
-                      <Lock className="w-4 h-4" />
-                    ) : (
-                      <Globe className="w-4 h-4" />
-                    )}
-                    {!isInputMultiline && (
-                      <span>
-                        {contactsOnly ? "My Contacts" : selectedIndex?.title || "Everywhere"}
-                      </span>
-                    )}
-                    <ChevronDown
-                      className={cn(
-                        "w-4 h-4 transition-transform",
-                        isIndexDropdownOpen && "rotate-180",
-                      )}
-                    />
-                  </button>
-                  {isIndexDropdownOpen && (
-                    <>
-                      <div
-                        className="fixed inset-0 z-10"
-                        onClick={() => setIsIndexDropdownOpen(false)}
-                      />
-                      <div className="absolute right-0 top-full mt-2 z-20 bg-white border border-gray-200 rounded-lg shadow-lg py-1 min-w-40">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            handleIndexSelect(null);
-                            setIsIndexDropdownOpen(false);
-                          }}
-                          className={cn(
-                            "w-full px-3 py-2 text-left text-sm text-[#3D3D3D] hover:bg-gray-50 flex items-center gap-2",
-                            selectedIndexIds.length === 0 && !contactsOnly &&
-                              "text-gray-900 font-medium",
-                          )}
-                        >
-                          <Globe className="w-4 h-4" /> Everywhere
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            handleIndexSelect("__contacts__");
-                            setIsIndexDropdownOpen(false);
-                          }}
-                          className={cn(
-                            "w-full px-3 py-2 text-left text-sm text-[#3D3D3D] hover:bg-gray-50 flex items-center gap-2",
-                            contactsOnly && "text-gray-900 font-medium",
-                          )}
-                        >
-                          <Users className="w-4 h-4" /> My Contacts
-                        </button>
-                        {globalIndex && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              handleIndexSelect(globalIndex.id);
-                              setIsIndexDropdownOpen(false);
-                            }}
-                            className={cn(
-                              "w-full px-3 py-2 text-left text-sm text-[#3D3D3D] hover:bg-gray-50 flex items-center gap-2",
-                              selectedIndexIds.includes(globalIndex.id) &&
-                                "text-gray-900 font-medium",
-                            )}
-                          >
-                            <Lock className="w-4 h-4" /> {globalIndex.title}
-                          </button>
-                        )}
-                        <div className="my-1 border-t border-gray-200" />
-                        {[...indexes]
-                          .filter((i) => !i.isGlobal)
-                          .sort(
-                            (a, b) =>
-                              (a.permissions?.joinPolicy === "invite_only"
-                                ? 1
-                                : 0) -
-                                (b.permissions?.joinPolicy === "invite_only"
-                                  ? 1
-                                  : 0) ||
-                              (a.title || "").localeCompare(b.title || ""),
-                          )
-                          .map((index) => (
-                            <button
-                              key={index.id}
-                              type="button"
-                              onClick={() => {
-                                handleIndexSelect(index.id);
-                                setIsIndexDropdownOpen(false);
-                              }}
-                              className={cn(
-                                "w-full px-3 py-2 text-left text-sm text-[#3D3D3D] hover:bg-gray-50 flex items-center gap-2",
-                                selectedIndexIds.includes(index.id) &&
-                                  "text-gray-900 font-medium",
-                              )}
-                            >
-                              {index.permissions?.joinPolicy ===
-                              "invite_only" ? (
-                                <Lock className="w-4 h-4 shrink-0" />
-                              ) : (
-                                <Globe className="w-4 h-4 shrink-0" />
-                              )}
-                              <span className="truncate">{index.title}</span>
-                            </button>
-                          ))}
-                      </div>
-                    </>
-                  )}
-                  </div>
-                )}
+                {renderScopeDropdown()}
                 {isLoading ? (
                   <Button
                     type="button"
