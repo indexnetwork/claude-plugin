@@ -211,20 +211,16 @@ async function enrichOpportunities(
     detail: `${baseEnriched.length} profile(s)`,
   });
 
-  // Batch-fetch user records (candidates + introducers) for name/avatar fallback.
-  const introducerUserIds = new Set<string>();
+  // Batch-fetch user records (candidates, introducers, and other party actors) for name/avatar fallback.
+  const allActorUserIds = new Set<string>();
   for (const item of baseEnriched) {
-    const introducer = item.opportunity.actors.find(
-      (a) => a.role === "introducer" && a.userId !== userId,
-    );
-    if (introducer?.userId) introducerUserIds.add(introducer.userId);
+    for (const actor of item.opportunity.actors) {
+      if (actor.userId && actor.userId !== userId) {
+        allActorUserIds.add(actor.userId);
+      }
+    }
   }
-  const candidateUserIds = [
-    ...new Set([
-      ...baseEnriched.map((item) => item.candidateUserId).filter(Boolean),
-      ...introducerUserIds,
-    ]),
-  ];
+  const candidateUserIds = [...allActorUserIds];
   const [viewerUser, ...userResults] = await Promise.all([
     database.getUser(userId),
     ...candidateUserIds.map((id) => database.getUser(id)),
