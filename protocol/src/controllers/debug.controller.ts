@@ -1,4 +1,4 @@
-import { eq, and, sql, desc, min, max, count } from 'drizzle-orm';
+import { eq, and, sql, desc, asc, min, max, count } from 'drizzle-orm';
 
 import db from '../lib/drizzle/drizzle';
 import { log } from '../lib/log';
@@ -11,6 +11,8 @@ import {
   indexes,
   indexMembers,
   opportunities,
+  chatSessions,
+  chatMessages,
 } from '../schemas/database.schema';
 
 import { AuthGuard, type AuthenticatedUser } from '../guards/auth.guard';
@@ -432,6 +434,111 @@ export class DebugController {
         opportunitiesReachHome,
         bottleneck,
       },
+    });
+  }
+
+  /**
+   * Returns a debug-friendly view of a chat session and its messages.
+   * Includes message list plus per-turn debug metadata (graph, iterations, tools)
+   * extracted from the message's subgraphResults JSONB field.
+   * @param _req - Incoming request (unused beyond guard processing)
+   * @param user - Authenticated user from AuthGuard
+   * @param params - Route params containing the session `id`
+   * @returns Diagnostic JSON payload for the chat session
+   */
+  @Get('/chat/:id')
+  @UseGuards(DebugGuard, AuthGuard)
+  async getChatDebug(_req: Request, user: AuthenticatedUser, params?: RouteParams) {
+    const sessionId = params?.id;
+    if (!sessionId) {
+      return Response.json({ error: 'Session ID is required' }, { status: 400 });
+    }
+
+    logger.verbose('Chat debug request', { sessionId, userId: user.id });
+
+    // ── 1. Fetch session (scoped to authenticated user) ──────────────────
+    const [session] = await db
+      .select({
+        id: chatSessions.id,
+        title: chatSessions.title,
+        indexId: chatSessions.indexId,
+        userId: chatSessions.userId,
+      })
+      .from(chatSessions)
+      .where(and(eq(chatSessions.id, sessionId), eq(chatSessions.userId, user.id)))
+      .limit(1);
+
+    if (!session) {
+      return Response.json({ error: 'Chat session not found' }, { status: 404 });
+    }
+
+    // ── 2. Fetch messages ordered by creation time ───────────────────────
+    const messageRows = await db
+      .select({
+        id: chatMessages.id,
+        role: chatMessages.role,
+        content: chatMessages.content,
+        routingDecision: chatMessages.routingDecision,
+        subgraphResults: chatMessages.subgraphResults,
+        createdAt: chatMessages.createdAt,
+      })
+      .from(chatMessages)
+      .where(eq(chatMessages.sessionId, sessionId))
+      .orderBy(asc(chatMessages.createdAt));
+
+    // ── 3. Build messages and turns ──────────────────────────────────────
+    const messages: Array<{ role: string; content: string }> = [];
+    const turns: Array<{
+      messageIndex: number;
+      graph: string | null;
+      iterations: number | null;
+      tools: Array<{
+        name: string;
+        args: Record<string, unknown>;
+        resultSummary: string;
+        success: boolean;
+      }>;
+    }> = [];
+
+    for (const msg of messageRows) {
+      const messageIndex = messages.length;
+      messages.push({ role: msg.role, content: msg.content });
+
+      if (msg.role === 'assistant') {
+        // Extract debug metadata from subgraphResults if available
+        const subgraph = msg.subgraphResults as Record<string, unknown> | null;
+        const debugMeta = subgraph?.debugMeta as
+          | { graph?: string; iterations?: number; tools?: Array<{
+              name: string;
+              args?: Record<string, unknown>;
+              resultSummary?: string;
+              success?: boolean;
+            }> }
+          | undefined;
+
+        turns.push({
+          messageIndex,
+          graph: debugMeta?.graph ?? null,
+          iterations: typeof debugMeta?.iterations === 'number' ? debugMeta.iterations : null,
+          tools: Array.isArray(debugMeta?.tools)
+            ? debugMeta.tools.map((t) => ({
+                name: t.name ?? 'unknown',
+                args: t.args ?? {},
+                resultSummary: t.resultSummary ?? '',
+                success: t.success ?? true,
+              }))
+            : [],
+        });
+      }
+    }
+
+    return Response.json({
+      sessionId: session.id,
+      exportedAt: new Date().toISOString(),
+      title: session.title ?? null,
+      indexId: session.indexId ?? null,
+      messages,
+      turns,
     });
   }
 }
