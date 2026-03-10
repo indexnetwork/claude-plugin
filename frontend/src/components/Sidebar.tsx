@@ -1,8 +1,5 @@
-'use client';
-
 import { useEffect, useState, useRef, useCallback } from 'react';
-import { useRouter, usePathname } from 'next/navigation';
-import Image from 'next/image';
+import { useNavigate, useLocation } from 'react-router';
 import { Link } from 'react-router';
 import { Compass, MessagesSquare, Loader2, ChevronDown, User as UserIcon, LogOut, Library, History, Network } from 'lucide-react';
 import { useAuthContext } from '@/contexts/AuthContext';
@@ -27,8 +24,8 @@ interface ChatSession {
 }
 
 export default function Sidebar() {
-  const router = useRouter();
-  const pathname = usePathname();
+  const navigate = useNavigate();
+  const { pathname } = useLocation();
   const { user, updateUser, refetchUser, signOut } = useAuthContext();
   const { isConnected: isReady, totalUnreadCount: xmtpUnreadCount } = useXMTP();
   const { sessionsVersion } = useAIChatSessions();
@@ -77,7 +74,7 @@ export default function Sidebar() {
 
   const handleDiscoverClick = () => {
     clearChat({ abortStream: false });
-    router.push('/');
+    navigate('/');
   };
 
   const handleChatClick = async () => {
@@ -89,7 +86,7 @@ export default function Sidebar() {
 
     const isMobile = typeof window !== 'undefined' && !window.matchMedia('(min-width: 1024px)').matches;
     if (isMobile) {
-      router.push('/chat');
+      navigate('/chat');
       return;
     }
 
@@ -110,11 +107,11 @@ export default function Sidebar() {
       const topConversation = Array.from(latestByRecipient.entries())
         .sort((a, b) => b[1] - a[1])[0];
       if (topConversation?.[0]) {
-        router.push(`/u/${topConversation[0]}/chat`);
+        navigate(`/u/${topConversation[0]}/chat`);
         return;
       }
 
-      router.push('/chat');
+      navigate('/chat');
     } catch (err) {
       console.error('Failed to fetch most recent chat:', err);
     } finally {
@@ -167,7 +164,7 @@ export default function Sidebar() {
       {/* Logo */}
       <div className="flex-shrink-0 px-4 py-6">
         <Link to="/">
-          <Image
+          <img
             src="/logos/logo-black-full.svg"
             alt="Index Network"
             width={160}
@@ -238,7 +235,7 @@ export default function Sidebar() {
                   return (
                     <button
                       key={session.id}
-                      onClick={() => router.push(`/d/${session.id}`)}
+                      onClick={() => navigate(`/d/${session.id}`)}
                       className={`w-full text-left py-1.5 px-2 rounded-md text-sm transition-colors flex items-center gap-1.5 ${
                         isSelected
                           ? 'bg-gray-100 text-black font-normal'
@@ -296,7 +293,7 @@ export default function Sidebar() {
                   className={`w-full px-4 py-2 text-left flex items-center gap-2.5 text-sm transition-colors ${
                     isNetworksView ? 'text-black font-medium bg-gray-50' : 'text-gray-700 hover:bg-gray-50'
                   }`}
-                  onClick={() => { setUserDropdownOpen(false); router.push('/networks'); }}
+                  onClick={() => { setUserDropdownOpen(false); navigate('/networks'); }}
                 >
                   <Network className="h-4 w-4 text-gray-400 flex-shrink-0" />
                   Networks
@@ -305,7 +302,7 @@ export default function Sidebar() {
                   className={`w-full px-4 py-2 text-left flex items-center gap-2.5 text-sm transition-colors ${
                     isLibraryView ? 'text-black font-medium bg-gray-50' : 'text-gray-700 hover:bg-gray-50'
                   }`}
-                  onClick={() => { setUserDropdownOpen(false); router.push('/library'); }}
+                  onClick={() => { setUserDropdownOpen(false); navigate('/library'); }}
                 >
                   <Library className="h-4 w-4 text-gray-400 flex-shrink-0" />
                   Library
@@ -314,7 +311,7 @@ export default function Sidebar() {
                   className={`w-full px-4 py-2 text-left flex items-center gap-2.5 text-sm transition-colors ${
                     isProfileView ? 'text-black font-medium bg-gray-50' : 'text-gray-700 hover:bg-gray-50'
                   }`}
-                  onClick={() => { setUserDropdownOpen(false); router.push('/profile'); }}
+                  onClick={() => { setUserDropdownOpen(false); navigate('/profile'); }}
                 >
                   <UserIcon className="h-4 w-4 text-gray-400 flex-shrink-0" />
                   Profile

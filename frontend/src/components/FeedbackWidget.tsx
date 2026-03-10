@@ -1,5 +1,3 @@
-"use client";
-
 import { useState, useRef, useEffect } from "react";
 import { Loader2, MessageSquare } from "lucide-react";
 import { useAIChat } from "@/contexts/AIChatContext";

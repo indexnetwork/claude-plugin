@@ -1,9 +1,6 @@
-'use client';
-
 import { PropsWithChildren, Suspense, useMemo, useState } from 'react';
 import { Link } from 'react-router';
-import Image from 'next/image';
-import { usePathname } from 'next/navigation';
+import { useLocation } from 'react-router';
 import Header from "@/components/Header";
 import Sidebar from "@/components/Sidebar";
 import ChatSidebar from "@/components/ChatSidebar";
@@ -13,7 +10,7 @@ import { XMTPProvider } from "@/contexts/XMTPContext";
 import { useAuthContext } from "@/contexts/AuthContext";
 
 export default function ClientWrapper({ children }: PropsWithChildren) {
-  const pathname = usePathname();
+  const { pathname } = useLocation();
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const { isAuthenticated } = useAuthContext();
 
@@ -130,7 +127,7 @@ export default function ClientWrapper({ children }: PropsWithChildren) {
                         fallback={
                           <header className="w-full py-4 px-4 flex justify-between items-center">
                             <Link to="/">
-                              <Image
+                              <img
                                 src="/logos/logo-black-full.svg"
                                 alt="Index Network"
                                 width={200}

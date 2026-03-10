@@ -1,5 +1,3 @@
-'use client';
-
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useXMTP } from '@/contexts/XMTPContext';
 import { Loader2, ArrowUp, MoreHorizontal, Trash2, ChevronDown, ChevronUp } from 'lucide-react';

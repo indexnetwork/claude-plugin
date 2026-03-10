@@ -1,8 +1,5 @@
-"use client";
-
 import { useState, useEffect, useCallback, useRef } from "react";
-import { useRouter } from "next/navigation";
-import Image from "next/image";
+import { useNavigate } from "react-router";
 import { Link } from "react-router";
 import * as Tabs from "@radix-ui/react-tabs";
 import { Loader2, Camera, ArrowUpRight, Trash2, Sparkles } from "lucide-react";
@@ -19,7 +16,7 @@ import { ContentContainer } from "@/components/layout";
 import { SaveBarProvider } from "@/contexts/SaveBarContext";
 
 export default function ProfilePage() {
-  const router = useRouter();
+  const navigate = useNavigate();
   const { user, isAuthenticated, isLoading: authLoading, refetchUser } = useAuthContext();
   const authService = useAuth();
   const { success, error } = useNotifications();
@@ -48,8 +45,8 @@ export default function ProfilePage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (!authLoading && !isAuthenticated) router.push("/");
-  }, [authLoading, isAuthenticated, router]);
+    if (!authLoading && !isAuthenticated) navigate("/");
+  }, [authLoading, isAuthenticated, navigate]);
 
   const resetForm = useCallback((u: typeof user) => {
     if (!u) return;
@@ -201,11 +198,12 @@ export default function ProfilePage() {
               >
                 <div className="w-[72px] h-[72px] rounded-full overflow-hidden bg-gray-100">
                   {avatarPreview ? (
-                    <Image
+                    <img
                       src={avatarPreview}
                       alt={user?.name || "Avatar"}
                       width={72}
                       height={72}
+                      loading="lazy"
                       className="w-full h-full object-cover"
                     />
                   ) : (
@@ -457,3 +455,5 @@ export default function ProfilePage() {
     </SaveBarProvider>
   );
 }
+
+export const Component = ProfilePage;

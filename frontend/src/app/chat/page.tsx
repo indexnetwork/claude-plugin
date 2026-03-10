@@ -1,20 +1,18 @@
-"use client";
-
 import { useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useNavigate } from "react-router";
 import { MessagesSquare } from "lucide-react";
 import { useAuthContext } from "@/contexts/AuthContext";
 import ChatSidebar from "@/components/ChatSidebar";
 
 export default function ChatLandingPage() {
-  const router = useRouter();
+  const navigate = useNavigate();
   const { isAuthenticated, isLoading: authLoading } = useAuthContext();
 
   useEffect(() => {
     if (!authLoading && !isAuthenticated) {
-      router.push('/');
+      navigate('/');
     }
-  }, [authLoading, isAuthenticated, router]);
+  }, [authLoading, isAuthenticated, navigate]);
 
   return (
     <div className="h-full">
@@ -30,3 +28,5 @@ export default function ChatLandingPage() {
     </div>
   );
 }
+
+export const Component = ChatLandingPage;

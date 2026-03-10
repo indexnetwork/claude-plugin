@@ -1,5 +1,3 @@
-"use client";
-
 import React, { useState, useCallback, useRef } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { Button } from "@/components/ui/button";
@@ -9,7 +7,6 @@ import { X, Camera, Trash2, ImagePlus } from "lucide-react";
 import { User } from "@/lib/types";
 import { useAuth } from "@/contexts/APIContext";
 import { validateFiles } from "@/lib/file-validation";
-import Image from "next/image";
 import UserAvatar from "@/components/UserAvatar";
 
 interface ProfileSettingsModalProps {
@@ -194,7 +191,7 @@ export default function ProfileSettingsModal({ open, onOpenChange, user, onUserU
               <div className="relative">
                 <div className="w-24 h-24 rounded-full overflow-hidden bg-gray-200 border-2 border-gray-300">
                   {avatarPreview ? (
-                    <Image src={avatarPreview} alt="Avatar preview" width={96} height={96} className="w-full h-full object-cover" />
+                    <img src={avatarPreview} alt="Avatar preview" width={96} height={96} loading="lazy" className="w-full h-full object-cover" />
                   ) : (
                     <UserAvatar id={user?.id} name={user?.name} avatar={user?.avatar} size={96} className="w-full h-full object-cover" />
                   )}

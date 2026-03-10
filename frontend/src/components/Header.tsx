@@ -1,8 +1,5 @@
-'use client';
-
-import { usePathname, useSearchParams, useRouter } from "next/navigation";
+import { useLocation, useSearchParams, useNavigate } from "react-router";
 import { Link } from "react-router";
-import Image from "next/image";
 import { useAuthContext } from '@/contexts/AuthContext';
 import { useEffect, useState, useRef } from 'react';
 
@@ -12,9 +9,9 @@ interface HeaderProps {
 }
 
 export default function Header({ showHeaderButtons = true, forcePublicView = false }: HeaderProps) {
-  const pathname = usePathname();
-  const searchParams = useSearchParams();
-  const router = useRouter();
+  const { pathname } = useLocation();
+  const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
   const { isAuthenticated, isReady, openLoginModal } = useAuthContext();
   const [isAlpha, setIsAlpha] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -41,15 +38,15 @@ export default function Header({ showHeaderButtons = true, forcePublicView = fal
   useEffect(() => {
     if (isAuthenticated && loginInitiatedRef.current) {
       loginInitiatedRef.current = false;
-      router.push('/');
+      navigate('/');
     }
-  }, [isAuthenticated, router]);
+  }, [isAuthenticated, navigate]);
 
   if (!isReady) {
     return (
       <header className="w-full py-4 px-4 flex justify-between items-center">
         <Link to="/">
-          <Image
+          <img
             src="/logos/logo-black-full.svg"
             alt="Index Network"
             width={200}
@@ -64,7 +61,7 @@ export default function Header({ showHeaderButtons = true, forcePublicView = fal
 
   const ctaButton = isAuthenticated ? (
     <button
-      onClick={() => router.push('/')}
+      onClick={() => navigate('/')}
       className="bg-[#041729] text-white rounded-[2px] px-3 sm:px-5 py-2 sm:py-3 font-semibold text-sm inline-flex items-center gap-2 transition-all hover:bg-[#0a2d4a] hover:-translate-y-[1px] uppercase tracking-wider cursor-pointer"
     >
       Go to App
@@ -105,7 +102,7 @@ export default function Header({ showHeaderButtons = true, forcePublicView = fal
     <div className="relative">
       <header className="w-full pt-4 pb-4 flex justify-between items-center">
         <Link to="/">
-          <Image
+          <img
             src="/logos/logo-black-full.svg"
             alt="Index Network"
             width={200}

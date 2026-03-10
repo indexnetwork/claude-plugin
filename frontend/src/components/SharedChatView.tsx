@@ -1,5 +1,3 @@
-"use client";
-
 import { useEffect, useState } from "react";
 import { Loader2, Share2 } from "lucide-react";
 import { ContentContainer } from "@/components/layout";

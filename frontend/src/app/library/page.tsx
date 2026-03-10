@@ -1,7 +1,5 @@
-"use client";
-
 import { useState, useEffect, useCallback } from "react";
-import { useRouter } from "next/navigation";
+import { useNavigate } from "react-router";
 import * as Tabs from "@radix-ui/react-tabs";
 import { Loader2, Trash2, ExternalLink } from "lucide-react";
 import { useAuthContext } from "@/contexts/AuthContext";
@@ -53,7 +51,7 @@ type Integration = {
 };
 
 export default function LibraryPage() {
-  const router = useRouter();
+  const navigate = useNavigate();
   const { isAuthenticated, isLoading: authLoading } = useAuthContext();
   const { filesService, linksService, intentsService } = useAPI();
   const integrationsService = useIntegrations();
@@ -118,9 +116,9 @@ export default function LibraryPage() {
   // Redirect if not authenticated
   useEffect(() => {
     if (!authLoading && !isAuthenticated) {
-      router.push('/');
+      navigate('/');
     }
-  }, [authLoading, isAuthenticated, router]);
+  }, [authLoading, isAuthenticated, navigate]);
 
   // Load intents
   const loadIntents = useCallback(async () => {
@@ -450,7 +448,7 @@ export default function LibraryPage() {
                     key={integration.type}
                     className="group flex items-center gap-3 p-3 border border-gray-200 rounded-sm hover:border-gray-300 transition-colors"
                   >
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
+
                     <img 
                       src={`/integrations/${integration.type}.png`} 
                       width={24} 
@@ -604,3 +602,5 @@ export default function LibraryPage() {
     </ClientLayout>
   );
 }
+
+export const Component = LibraryPage;

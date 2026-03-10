@@ -23,4 +23,6 @@ export default function NotFound() {
       </div>
     </div>
   );
-} 
+}
+
+export const Component = NotFound;

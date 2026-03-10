@@ -1,7 +1,4 @@
-'use client';
-
 import { useState, useEffect } from 'react';
-import Image from 'next/image';
 import Avatar from 'boring-avatars';
 
 interface IndexAvatarProps {
@@ -54,11 +51,12 @@ export default function IndexAvatar({ id, title, imageUrl, size, className = '',
       className={`overflow-hidden shrink-0 ${roundedClass} ${className}`}
       style={{ width: size, height: size }}
     >
-      <Image
+      <img
         src={resolveIndexImageSrc(imageUrl)}
         alt={title || 'Network'}
         width={size}
         height={size}
+        loading="lazy"
         className="w-full h-full object-cover"
         onError={() => setImgError(true)}
       />

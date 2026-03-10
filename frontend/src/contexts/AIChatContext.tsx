@@ -1,5 +1,3 @@
-"use client";
-
 import React, {
   createContext,
   useContext,
@@ -7,7 +5,7 @@ import React, {
   useCallback,
   useRef,
 } from "react";
-import { usePathname } from "next/navigation";
+import { useLocation } from "react-router";
 import { useAIChatSessions } from "@/contexts/AIChatSessionsContext";
 import { apiClient } from "@/lib/api";
 import type { Suggestion } from "@/hooks/useSuggestions";
@@ -122,7 +120,7 @@ function getScopeIndexIdFromPathname(pathname: string | null): string | null {
 }
 
 export function AIChatProvider({ children }: { children: React.ReactNode }) {
-  const pathname = usePathname();
+  const { pathname } = useLocation();
   const [scopeIndexIdOverride, setScopeIndexIdOverride] = useState<
     string | null
   >(null);

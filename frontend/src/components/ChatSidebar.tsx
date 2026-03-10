@@ -1,7 +1,5 @@
-'use client';
-
 import { useEffect, useState, useRef } from 'react';
-import { useRouter, usePathname } from 'next/navigation';
+import { useNavigate, useLocation } from 'react-router';
 import { MoreHorizontal, Trash2, Loader2 } from 'lucide-react';
 import UserAvatar from '@/components/UserAvatar';
 import { useXMTP } from '@/contexts/XMTPContext';
@@ -39,8 +37,8 @@ const formatConversationTime = (timestamp: number) => {
 };
 
 export default function ChatSidebar() {
-  const router = useRouter();
-  const pathname = usePathname();
+  const navigate = useNavigate();
+  const { pathname } = useLocation();
   const { user } = useAuthContext();
   const { isConnected, conversations, refreshConversations, deleteConversation } = useXMTP();
   
@@ -75,7 +73,7 @@ export default function ChatSidebar() {
   return (
     <div className="flex flex-col h-full overflow-hidden">
       <div className="lg:hidden px-4 py-3 min-h-[68px] flex items-center gap-3">
-        <button onClick={() => router.push('/')} className="text-[#3D3D3D] hover:text-black transition-colors text-xl mr-2">&larr;</button>
+        <button onClick={() => navigate('/')} className="text-[#3D3D3D] hover:text-black transition-colors text-xl mr-2">&larr;</button>
         <h2 className="text-lg font-bold text-black font-ibm-plex-mono">Conversations</h2>
       </div>
       <div className="flex-1 overflow-y-auto px-4 pt-4 lg:pt-4">
@@ -94,7 +92,7 @@ export default function ChatSidebar() {
                 className="relative group flex items-center py-2 px-2 -mx-2 rounded-md transition-colors hover:bg-gray-50"
               >
                 <button
-                  onClick={() => router.push(chat.peerUserId ? `/u/${chat.peerUserId}/chat` : `/chat`)}
+                  onClick={() => navigate(chat.peerUserId ? `/u/${chat.peerUserId}/chat` : `/chat`)}
                   className="flex-1 flex items-center gap-3 text-sm text-left pr-10 min-w-0 text-gray-700 hover:text-black"
                 >
                   <UserAvatar avatar={chat.peerAvatar} id={chat.peerUserId ?? chat.groupId} name={chat.name} size={28} className="flex-shrink-0" />
@@ -128,7 +126,7 @@ export default function ChatSidebar() {
                         setChatMenuOpen(null);
                         await deleteConversation(chat.groupId);
                         if (pathname?.includes(chat.peerUserId ?? '')) {
-                          router.push('/');
+                          navigate('/');
                         }
                       }}
                       className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors"

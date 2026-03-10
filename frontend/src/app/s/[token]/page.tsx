@@ -1,13 +1,9 @@
-"use client";
-
-import { use } from "react";
+import { useParams } from "react-router";
 import SharedChatView from "@/components/SharedChatView";
 
-export default function SharedConversationPage({
-  params,
-}: {
-  params: Promise<{ token: string }>;
-}) {
-  const { token } = use(params);
-  return <SharedChatView token={token} />;
+export default function SharedConversationPage() {
+  const { token } = useParams();
+  return <SharedChatView token={token!} />;
 }
+
+export const Component = SharedConversationPage;

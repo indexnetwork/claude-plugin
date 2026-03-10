@@ -1,5 +1,3 @@
-"use client";
-
 import { createContext, useContext, ReactNode } from "react";
 
 const SaveBarContext = createContext<boolean>(false);

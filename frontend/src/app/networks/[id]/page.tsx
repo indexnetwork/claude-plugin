@@ -1,7 +1,5 @@
-'use client';
-
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams, useNavigate } from 'react-router';
 import { ChevronLeft, Loader2, Globe, Lock, Users, LogOut } from 'lucide-react';
 import * as Tabs from '@radix-ui/react-tabs';
 
@@ -17,7 +15,7 @@ import { Index } from '@/lib/types';
 
 export default function NetworkDetailPage() {
   const params = useParams();
-  const router = useRouter();
+  const navigate = useNavigate();
   const { user } = useAuthContext();
   const { indexes } = useIndexesState();
   const indexesService = useIndexes();
@@ -94,8 +92,8 @@ export default function NetworkDetailPage() {
     updateNetworkFromContext();
   }, [indexes, network, checkOwnership, user?.id, isOwner]);
 
-  const handleDeleted = () => router.push('/networks');
-  const handleLeft = () => router.push('/networks');
+  const handleDeleted = () => navigate('/networks');
+  const handleLeft = () => navigate('/networks');
 
   const isPublic = network?.permissions?.joinPolicy === 'anyone';
 
@@ -107,7 +105,7 @@ export default function NetworkDetailPage() {
           {/* Back */}
           <button
             type="button"
-            onClick={() => router.push('/networks')}
+            onClick={() => navigate('/networks')}
             className="flex items-center gap-1 text-xs text-gray-400 hover:text-black transition-colors mb-6"
           >
             <ChevronLeft className="h-3.5 w-3.5" />
@@ -121,7 +119,7 @@ export default function NetworkDetailPage() {
           ) : notFound ? (
             <div className="py-16 text-center">
               <p className="text-sm font-medium text-gray-700 mb-1">Network not found</p>
-              <button onClick={() => router.push('/networks')} className="text-xs text-gray-400 hover:text-black transition-colors">
+              <button onClick={() => navigate('/networks')} className="text-xs text-gray-400 hover:text-black transition-colors">
                 Back to Networks
               </button>
             </div>
@@ -207,3 +205,5 @@ export default function NetworkDetailPage() {
     </ClientLayout>
   );
 }
+
+export const Component = NetworkDetailPage;

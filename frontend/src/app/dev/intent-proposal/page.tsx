@@ -1,5 +1,3 @@
-"use client";
-
 import { useState } from "react";
 import { RotateCcw } from "lucide-react";
 import IntentProposalCard, {
@@ -71,3 +69,5 @@ export default function IntentProposalTestPage() {
     </div>
   );
 }
+
+export const Component = IntentProposalTestPage;

@@ -161,3 +161,5 @@ export default function TermsOfUsePage() {
     </ClientLayout>
   );
 }
+
+export const Component = TermsOfUsePage;

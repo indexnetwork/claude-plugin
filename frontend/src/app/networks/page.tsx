@@ -1,7 +1,5 @@
-'use client';
-
 import { useCallback, useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useNavigate } from 'react-router';
 import * as Tabs from '@radix-ui/react-tabs';
 import { Plus, Users, Loader2 } from 'lucide-react';
 import IndexAvatar from '@/components/IndexAvatar';
@@ -16,7 +14,7 @@ import { useIndexesState } from '@/contexts/IndexesContext';
 import { Index as IndexType } from '@/lib/types';
 
 export default function NetworksPage() {
-  const router = useRouter();
+  const navigate = useNavigate();
   const { user } = useAuthContext();
   const { success, error } = useNotifications();
   const indexesService = useIndexes();
@@ -80,13 +78,13 @@ export default function NetworksPage() {
       });
       addIndex(newIndex);
       setCreateIndexModalOpen(false);
-      router.push(`/networks/${newIndex.id}`);
+      navigate(`/networks/${newIndex.id}`);
       success('Network created successfully');
     } catch (err) {
       console.error('Error creating network:', err);
       error('Failed to create network');
     }
-  }, [indexesService, addIndex, router, success, error]);
+  }, [indexesService, addIndex, navigate, success, error]);
 
   return (
     <ClientLayout>
@@ -137,7 +135,7 @@ export default function NetworksPage() {
                       return (
                         <button
                           key={network.id}
-                          onClick={() => router.push(`/networks/${network.id}`)}
+                          onClick={() => navigate(`/networks/${network.id}`)}
                           className="w-full flex items-center gap-3 py-3 hover:bg-gray-50 -mx-2 px-2 rounded-sm transition-colors text-left group"
                         >
                           <div className="w-10 h-10 rounded-full overflow-hidden shrink-0">
@@ -226,3 +224,5 @@ export default function NetworksPage() {
     </ClientLayout>
   );
 }
+
+export const Component = NetworksPage;

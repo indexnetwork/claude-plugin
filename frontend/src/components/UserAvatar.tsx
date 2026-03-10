@@ -1,7 +1,4 @@
-'use client';
-
 import { useState } from 'react';
-import Image from 'next/image';
 import Avatar from 'boring-avatars';
 
 interface UserAvatarProps {
@@ -50,11 +47,12 @@ export default function UserAvatar({ id, name, avatar, size, className }: UserAv
       className={`rounded-full overflow-hidden flex-shrink-0${className ? ` ${className}` : ''}`}
       style={{ width: size, height: size }}
     >
-      <Image
+      <img
         src={resolveAvatarSrc(avatar)}
         alt={name || 'User'}
         width={size}
         height={size}
+        loading="lazy"
         className="w-full h-full object-cover"
         onError={() => setImgError(true)}
       />

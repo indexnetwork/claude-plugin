@@ -1,11 +1,5 @@
-import type { Metadata } from "next";
 import ClientLayout from "@/components/ClientLayout";
 import Footer from "@/components/Footer";
-
-export const metadata: Metadata = {
-  title: "About | Index Network",
-  description: "Index is a private, intent-driven discovery protocol. Meet your next idea partner.",
-};
 
 export default function AboutPage() {
   return (
@@ -50,3 +44,5 @@ export default function AboutPage() {
     </ClientLayout>
   );
 }
+
+export const Component = AboutPage;

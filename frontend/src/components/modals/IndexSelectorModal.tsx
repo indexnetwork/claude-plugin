@@ -1,5 +1,3 @@
-'use client';
-
 import * as Dialog from '@radix-ui/react-dialog';
 import { Crown, Plus, Users, X } from 'lucide-react';
 import IndexAvatar from '@/components/IndexAvatar';
