@@ -22,9 +22,9 @@ export function DebugCopyButton({
   title = "Copy debug JSON",
   iconSize = "w-4 h-4",
 }: DebugCopyButtonProps) {
-  // Only render in development builds — this is a build-time constant
-  // so Vite will tree-shake the entire component in production.
-  if (!import.meta.env.DEV) return null;
+  // Show in local dev (build-time constant) or when explicitly enabled via env var
+  // (e.g. VITE_ENABLE_DEBUG=true on staging deployments).
+  if (!import.meta.env.DEV && import.meta.env.VITE_ENABLE_DEBUG !== "true") return null;
 
   const [state, setState] = useState<"idle" | "loading" | "copied" | "error">("idle");
 
