@@ -22,10 +22,11 @@ export function DebugCopyButton({
   title = "Copy debug JSON",
   iconSize = "w-4 h-4",
 }: DebugCopyButtonProps) {
-  const [state, setState] = useState<"idle" | "loading" | "copied" | "error">("idle");
-
-  // Only render in development builds
+  // Only render in development builds — this is a build-time constant
+  // so Vite will tree-shake the entire component in production.
   if (!import.meta.env.DEV) return null;
+
+  const [state, setState] = useState<"idle" | "loading" | "copied" | "error">("idle");
 
   const handleClick = useCallback(async () => {
     if (state === "loading") return;
