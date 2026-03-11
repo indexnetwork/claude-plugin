@@ -12,7 +12,6 @@ import {
   ChevronLeft,
   Share2,
   Check,
-  Bug,
   Users,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -33,6 +32,7 @@ import IntentProposalCard, {
 } from "@/components/chat/IntentProposalCard";
 import { SuggestionChips } from "@/components/chat/SuggestionChips";
 import { ToolCallsDisplay } from "@/components/chat/ToolCallsDisplay";
+import { DebugCopyButton } from "@/components/DebugCopyButton";
 import { ContentContainer } from "@/components/layout";
 import { cn } from "@/lib/utils";
 import ReactMarkdown from "react-markdown";
@@ -376,7 +376,6 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
     setScopeIndexId,
     sessionIndexId,
     updateSessionTitle,
-    debugMetaByTurn,
     setContactsOnly: setContactsOnlyContext,
   } = useAIChat();
   const uploadServiceV2 = useUploadServiceV2();
@@ -397,7 +396,6 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
   const [isInputMultiline, setIsInputMultiline] = useState(false);
   const [isTextareaMultiline, setIsTextareaMultiline] = useState(false);
   const [shareCopied, setShareCopied] = useState(false);
-  const [debugCopied, setDebugCopied] = useState(false);
   const [gmailConnected, setGmailConnected] = useState(false);
 
   const handleShare = useCallback(async () => {
@@ -412,40 +410,6 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
       showError("Failed to create share link");
     }
   }, [sessionId, showError]);
-
-  const handleCopyDebug = useCallback(async () => {
-    const exportedAt = new Date().toISOString();
-    const exportMessages = messages.map((m) => ({
-      role: m.role,
-      content: m.content,
-    }));
-    const assistantIndices = messages
-      .map((msg, i) => (msg.role === "assistant" ? i : -1))
-      .filter((i) => i >= 0);
-    const turns = assistantIndices.map((msgIdx, idx) => {
-      const meta = debugMetaByTurn[idx] ?? null;
-      return {
-        messageIndex: msgIdx,
-        graph: meta?.graph ?? null,
-        iterations: meta?.iterations ?? null,
-        tools: meta?.tools ?? null,
-      };
-    });
-    const payload = {
-      sessionId: sessionId ?? null,
-      exportedAt,
-      messages: exportMessages,
-      turns,
-    };
-    const json = JSON.stringify(payload, null, 2);
-    try {
-      await navigator.clipboard.writeText(json);
-      setDebugCopied(true);
-      setTimeout(() => setDebugCopied(false), 2000);
-    } catch {
-      showError("Failed to copy debug to clipboard");
-    }
-  }, [messages, debugMetaByTurn, sessionId, showError]);
 
   // Keep ref in sync with sessionId
   useEffect(() => {
@@ -1199,10 +1163,11 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
         return (
           <div className="px-6 lg:px-8 pb-12">
             <ContentContainer className="text-left">
-              <div className="mt-12 mb-6">
+              <div className="mt-12 mb-6 flex items-center justify-center gap-2">
                 <h1 className="text-[28px] font-bold text-black font-ibm-plex-mono text-center">
                   Find your others
                 </h1>
+                <DebugCopyButton fetchPath="/debug/home" title="Copy home debug JSON" iconSize="w-5 h-5" />
               </div>
               <div className="bg-[linear-gradient(to_bottom,transparent_50%,#ffffff_50%)]">
                 <form
@@ -1368,10 +1333,11 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
     return (
       <div className="px-6 lg:px-8 bg-white pb-12">
         <ContentContainer className="text-left">
-          <div className="mt-12 mb-6">
+          <div className="mt-12 mb-6 flex items-center justify-center gap-2">
             <h1 className="text-[28px] font-bold text-black font-ibm-plex-mono text-center">
               Find your others
             </h1>
+            <DebugCopyButton fetchPath="/debug/home" title="Copy home debug JSON" iconSize="w-5 h-5" />
           </div>
           <div className="bg-[linear-gradient(to_bottom,transparent_50%,#ffffff_50%)]">
             <form
@@ -1549,19 +1515,9 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
                     <Share2 className="h-4 w-4" />
                   )}
                 </button>
-                <button
-                  type="button"
-                  onClick={handleCopyDebug}
-                  title={debugCopied ? "Copied!" : "Copy debug (conversation + meta)"}
-                  className="shrink-0 p-1 rounded text-gray-500 hover:text-[#4091BB] hover:bg-gray-100 focus:outline-none"
-                  aria-label="Copy debug"
-                >
-                  {debugCopied ? (
-                    <Check className="h-4 w-4 text-green-500" />
-                  ) : (
-                    <Bug className="h-4 w-4" />
-                  )}
-                </button>
+                {sessionId && (
+                  <DebugCopyButton fetchPath={`/debug/chat/${sessionId}`} title="Copy chat debug JSON" />
+                )}
               </>
             )}
             {boundIndex && (

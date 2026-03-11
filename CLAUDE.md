@@ -236,6 +236,7 @@ IntentEvents.onCreated({ intentId, userId, payload?, previousStatus? });
 - `UserController` - User management
 - `LinkController` - Link management
 - `MessagingController` - Messaging operations
+- `DebugController` - Debug endpoints for pipeline tracing (dev/admin only, gated by `DebugGuard`)
 - `QueuesController` - Bull Board queue monitoring UI
 
 ### Frontend Architecture

@@ -1,6 +1,8 @@
 import { useMemo } from 'react';
 import { Calendar, Trash2, ExternalLink, FileText, Link as LinkIcon, Slack, MessageSquare } from 'lucide-react';
+
 import { cn } from '@/lib/utils';
+import { DebugCopyButton } from './DebugCopyButton';
 
 interface BaseIntent {
   id: string;
@@ -131,6 +133,7 @@ export default function IntentList<T extends BaseIntent>({
 
               {/* Actions */}
               <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                <DebugCopyButton fetchPath={`/debug/intents/${intent.id}`} />
                 {onOpenIntentSource && canOpenSource && (
                   <button
                     onClick={(e) => {
