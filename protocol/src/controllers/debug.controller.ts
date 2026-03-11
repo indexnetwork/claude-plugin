@@ -22,9 +22,6 @@ type RouteParams = Record<string, string>;
 
 const logger = log.controller.from('debug');
 
-/** Statuses that are considered actionable (the opportunity is still "live"). */
-const ACTIONABLE_STATUSES = new Set(['pending', 'viewed']);
-
 /**
  * Debug controller exposing diagnostic endpoints for internal use.
  * All routes are gated by DebugGuard (dev-only or explicit opt-in)
@@ -174,17 +171,21 @@ export class DebugController {
     const isInAtLeastOneIndex = indexRows.length > 0;
     const hasOpportunities = opportunityRows.length > 0;
 
-    // Check if all opportunities are non-actionable
-    const actionableCount = opportunityRows.filter((o) => ACTIONABLE_STATUSES.has(o.status)).length;
+    // Check if all opportunities are filtered from home (using role-aware helpers)
+    const actionableCount = opportunityRows.filter((o) => {
+      const actors = o.actors as Array<{ userId: string; role: string }>;
+      return (
+        canUserSeeOpportunity(actors, o.status, user.id) &&
+        isActionableForViewer(actors, o.status, user.id)
+      );
+    }).length;
     const allOpportunitiesFilteredFromHome = hasOpportunities && actionableCount === 0;
 
     // Build filterReasons: list non-actionable statuses with counts
     const filterReasons: string[] = [];
     if (allOpportunitiesFilteredFromHome) {
       for (const [status, cnt] of Object.entries(byStatus)) {
-        if (!ACTIONABLE_STATUSES.has(status)) {
-          filterReasons.push(`${status}: ${cnt}`);
-        }
+        filterReasons.push(`${status}: ${cnt}`);
       }
     }
 
@@ -233,10 +234,10 @@ export class DebugController {
     const totalIntents = userIntents.length;
     const activeIntents = userIntents.filter((i) => !i.isArchived);
     const archivedIntents = userIntents.filter((i) => i.isArchived);
-    const withEmbeddings = userIntents.filter((i) => i.hasEmbedding).length;
+    const withEmbeddings = activeIntents.filter((i) => i.hasEmbedding).length;
 
-    // Count intents that have at least one HyDE document
-    const hydeIntentRows = totalIntents > 0
+    // Count active intents that have at least one HyDE document
+    const hydeIntentRows = activeIntents.length > 0
       ? await db
           .selectDistinct({ sourceId: hydeDocuments.sourceId })
           .from(hydeDocuments)
@@ -244,7 +245,7 @@ export class DebugController {
             and(
               eq(hydeDocuments.sourceType, 'intent'),
               sql`${hydeDocuments.sourceId} IN (${sql.join(
-                userIntents.map((i) => sql`${i.id}`),
+                activeIntents.map((i) => sql`${i.id}`),
                 sql`, `,
               )})`,
             ),
@@ -252,14 +253,14 @@ export class DebugController {
       : [];
     const withHydeDocuments = hydeIntentRows.length;
 
-    // Count intents assigned to at least one index
-    const indexedIntentRows = totalIntents > 0
+    // Count active intents assigned to at least one index
+    const indexedIntentRows = activeIntents.length > 0
       ? await db
           .selectDistinct({ intentId: intentIndexes.intentId })
           .from(intentIndexes)
           .where(
             sql`${intentIndexes.intentId} IN (${sql.join(
-              userIntents.map((i) => sql`${i.id}`),
+              activeIntents.map((i) => sql`${i.id}`),
               sql`, `,
             )})`,
           )
@@ -334,8 +335,6 @@ export class DebugController {
     for (const o of opportunityRows) {
       oppByStatus[o.status] = (oppByStatus[o.status] ?? 0) + 1;
     }
-
-    const actionableCount = opportunityRows.filter((o) => ACTIONABLE_STATUSES.has(o.status)).length;
 
     // ── 4. Simulate home view filtering ──────────────────────────────────
     let notVisible = 0;
@@ -415,7 +414,7 @@ export class DebugController {
       opportunities: {
         total: opportunityRows.length,
         byStatus: oppByStatus,
-        actionable: actionableCount,
+        actionable: cardsReturned,
       },
       homeView: {
         cardsReturned,

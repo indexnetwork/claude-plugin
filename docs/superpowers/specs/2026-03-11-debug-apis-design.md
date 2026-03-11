@@ -10,7 +10,7 @@ Three server-side debug endpoints behind a dev/admin gate, with frontend bug ico
 
 ## Endpoints
 
-### `GET /api/intents/:id/debug`
+### `GET /debug/intents/:id`
 
 Per-intent pipeline trace. Returns:
 
@@ -66,7 +66,7 @@ Per-intent pipeline trace. Returns:
 }
 ```
 
-### `GET /api/opportunities/home/debug`
+### `GET /debug/home`
 
 Home-level overview for the authenticated user. Returns:
 
@@ -120,7 +120,7 @@ Home-level overview for the authenticated user. Returns:
 }
 ```
 
-### `GET /api/chat/sessions/:id/debug`
+### `GET /debug/chat/:id`
 
 Server-side chat debug (replaces current frontend-only assembly). Returns:
 
@@ -162,14 +162,14 @@ Environment-based guard (`DebugGuard`):
 
 ### `DebugCopyButton` shared component
 - Renders Lucide `Bug` icon button (same style as existing chat debug)
-- Props: `fetchUrl: string`
+- Props: `fetchPath: string`
 - onClick: fetches the URL, copies JSON response to clipboard, shows green checkmark for 2s
 - Handles loading state (spinner) and error state (red X)
 
 ### Placement
-- **Library > Intents**: bug icon per intent row → calls `/api/intents/:id/debug`
-- **Home page**: bug icon in header/toolbar → calls `/api/opportunities/home/debug`
-- **Chat**: refactor existing bug icon to use `DebugCopyButton` → calls `/api/chat/sessions/:id/debug`
+- **Library > Intents**: bug icon per intent row → calls `/debug/intents/:id`
+- **Home page**: bug icon in header/toolbar → calls `/debug/home`
+- **Chat**: refactor existing bug icon to use `DebugCopyButton` → calls `/debug/chat/:id`
 
 ### Chat cleanup
 - Remove `debugMetaByTurn` state from `AIChatContext`

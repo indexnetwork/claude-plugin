@@ -24,6 +24,9 @@ export function DebugCopyButton({
 }: DebugCopyButtonProps) {
   const [state, setState] = useState<"idle" | "loading" | "copied" | "error">("idle");
 
+  // Only render in development builds
+  if (!import.meta.env.DEV) return null;
+
   const handleClick = useCallback(async () => {
     if (state === "loading") return;
     setState("loading");

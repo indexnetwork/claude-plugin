@@ -279,6 +279,9 @@ Bun.serve({
             if (message === 'User not found' || message === 'Account deactivated') {
               return new Response(JSON.stringify({ error: message }), { status: 403, headers: { 'Content-Type': 'application/json', ...corsHeaders } });
             }
+            if (message === 'Not found') {
+              return new Response(JSON.stringify({ error: message }), { status: 404, headers: { 'Content-Type': 'application/json', ...corsHeaders } });
+            }
 
             return new Response(JSON.stringify({ error: message }), { status: 500, headers: { 'Content-Type': 'application/json', ...corsHeaders } });
           }
