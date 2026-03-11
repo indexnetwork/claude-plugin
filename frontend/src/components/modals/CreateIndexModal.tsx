@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
-import { X, Globe, Lock, ImagePlus } from 'lucide-react';
+import { X, Globe, Lock, Camera } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -101,7 +101,13 @@ export default function CreateIndexModal({ open, onOpenChange, onSubmit, uploadI
             <form onSubmit={handleSubmit} className="space-y-5">
               {/* Identity header: circle image left, name/placeholder right */}
               <div className="flex items-center gap-5">
-                <div className="relative shrink-0">
+                <button
+                  type="button"
+                  aria-label="Upload network image"
+                  onClick={() => uploadIndexImage && fileInputRef.current?.click()}
+                  disabled={isSubmitting || !uploadIndexImage}
+                  className="relative flex-shrink-0 group cursor-pointer disabled:cursor-not-allowed"
+                >
                   <div className="w-[72px] h-[72px] rounded-full overflow-hidden">
                     {imagePreview ? (
                       <img src={imagePreview} alt="Preview" width={72} height={72} loading="lazy" className="w-full h-full object-cover" />
@@ -109,16 +115,10 @@ export default function CreateIndexModal({ open, onOpenChange, onSubmit, uploadI
                       <IndexAvatar title={name || 'Network name'} size={72} rounded="full" />
                     )}
                   </div>
-                  <button
-                    type="button"
-                    aria-label="Upload network image"
-                    onClick={() => uploadIndexImage && fileInputRef.current?.click()}
-                    disabled={isSubmitting || !uploadIndexImage}
-                    className="absolute -bottom-2 -right-2 bg-white border-2 border-gray-300 rounded-full p-2 hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    <ImagePlus className="w-4 h-4 text-gray-600" />
-                  </button>
-                </div>
+                  <div className="absolute inset-0 rounded-full bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity duration-150 flex items-center justify-center">
+                    <Camera className="w-4 h-4 text-white" />
+                  </div>
+                </button>
                 <input
                   ref={fileInputRef}
                   type="file"

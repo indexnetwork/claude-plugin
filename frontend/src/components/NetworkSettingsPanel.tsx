@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import * as AlertDialog from '@radix-ui/react-alert-dialog';
-import { Copy, Globe, Lock, Trash2, Plus, Check, ChevronRight, ChevronDown, ImagePlus } from 'lucide-react';
+import { Copy, Globe, Lock, Trash2, Plus, Check, ChevronRight, ChevronDown, Camera } from 'lucide-react';
 import { Index } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -367,7 +367,12 @@ export default function NetworkSettingsPanel({ index, onDeleted, activeTab }: Ne
         <div className="space-y-6">
           {/* Identity header: circle image left, title/placeholder right */}
           <div className="flex items-center gap-5">
-            <div className="relative shrink-0">
+            <button
+              type="button"
+              onClick={() => imageInputRef.current?.click()}
+              disabled={isSavingSettings}
+              className="relative flex-shrink-0 group cursor-pointer disabled:cursor-not-allowed"
+            >
               <div className="w-[72px] h-[72px] rounded-full overflow-hidden">
                 {displayImageUrl ? (
                   <img src={resolveIndexImageSrc(displayImageUrl)} alt="Network" width={72} height={72} loading="lazy" className="w-full h-full object-cover" />
@@ -375,15 +380,10 @@ export default function NetworkSettingsPanel({ index, onDeleted, activeTab }: Ne
                   <IndexAvatar id={index.id} title={title || index.title} size={72} rounded="full" />
                 )}
               </div>
-              <button
-                type="button"
-                onClick={() => imageInputRef.current?.click()}
-                disabled={isSavingSettings}
-                className="absolute -bottom-2 -right-2 bg-white border-2 border-gray-300 rounded-full p-2 hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <ImagePlus className="w-4 h-4 text-gray-600" />
-              </button>
-            </div>
+              <div className="absolute inset-0 rounded-full bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity duration-150 flex items-center justify-center">
+                <Camera className="w-4 h-4 text-white" />
+              </div>
+            </button>
             <input
               ref={imageInputRef}
               type="file"
