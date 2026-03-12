@@ -1113,6 +1113,20 @@ export class ChatDatabaseAdapter {
     return row ? { id: row.id, title: row.title } : null;
   }
 
+  /**
+   * Check whether an index is a personal index.
+   * @param indexId - The index to check
+   * @returns true if the index has isPersonal = true
+   */
+  async isPersonalIndex(indexId: string): Promise<boolean> {
+    const rows = await db
+      .select({ isPersonal: schema.indexes.isPersonal })
+      .from(schema.indexes)
+      .where(and(eq(schema.indexes.id, indexId), isNull(schema.indexes.deletedAt)))
+      .limit(1);
+    return rows[0]?.isPersonal === true;
+  }
+
   async getIndexWithPermissions(indexId: string): Promise<{ id: string; title: string; permissions: { joinPolicy: 'anyone' | 'invite_only' } } | null> {
     const rows = await db
       .select({ id: indexes.id, title: indexes.title, permissions: indexes.permissions })
@@ -1225,8 +1239,9 @@ export class ChatDatabaseAdapter {
     
     const whereConditions = [
       isNull(schema.indexes.deletedAt),
+      eq(schema.indexes.isPersonal, false),
     ];
-    
+
     if (excludeIds.length > 0) {
       whereConditions.push(notInArray(schema.indexes.id, excludeIds));
     }
