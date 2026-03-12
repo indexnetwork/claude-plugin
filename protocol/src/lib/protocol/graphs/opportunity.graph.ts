@@ -120,7 +120,10 @@ export class OpportunityGraphFactory {
             requestedIndexId: state.indexId ?? undefined,
           },
           async () => {
-            const userIndexIds = await this.database.getUserIndexIds(state.userId);
+            // Use getIndexMemberships (all memberships) for search scope — NOT getUserIndexIds
+            // (which filters by autoAssign=true and is intended only for intent assignment).
+            const memberships = await this.database.getIndexMemberships(state.userId);
+            const userIndexIds = memberships.map(m => m.indexId) as Id<'indexes'>[];
             if (userIndexIds.length === 0) {
               logger.verbose('[Graph:Prep] User has no index memberships - cannot find opportunities');
               return {

@@ -1616,6 +1616,7 @@ export type OpportunityGraphDatabase = Pick<
   | 'getOpportunityBetweenActors'
   | 'findOverlappingOpportunities'
   | 'getUserIndexIds'
+  | 'getIndexMemberships'
   | 'getActiveIntents'
   | 'getIndexIdsForIntent'
   | 'getIndex'

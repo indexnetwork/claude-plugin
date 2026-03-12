@@ -70,6 +70,10 @@ function createMockGraph(deps?: {
     getOpportunityBetweenActors: () => Promise.resolve(null),
     findOverlappingOpportunities: () => Promise.resolve([]),
     getUserIndexIds: deps?.getUserIndexIds ?? (() => Promise.resolve(['idx-1'] as Id<'indexes'>[])),
+    getIndexMemberships: async () => {
+      const ids = deps?.getUserIndexIds ? await deps.getUserIndexIds() : ['idx-1'] as Id<'indexes'>[];
+      return ids.map(id => ({ indexId: id, indexTitle: 'Test Index', indexPrompt: null, permissions: ['member'], memberPrompt: null, autoAssign: true, joinedAt: new Date() }));
+    },
     getActiveIntents:
       deps?.getActiveIntents ??
       (() =>
@@ -155,6 +159,10 @@ function createMockGraphWithFnOverrides(deps?: {
     getOpportunityBetweenActors: () => Promise.resolve(null),
     findOverlappingOpportunities: () => Promise.resolve([]),
     getUserIndexIds: deps?.getUserIndexIds ?? (() => Promise.resolve(['idx-1'] as Id<'indexes'>[])),
+    getIndexMemberships: async () => {
+      const ids = deps?.getUserIndexIds ? await deps.getUserIndexIds() : ['idx-1'] as Id<'indexes'>[];
+      return ids.map(id => ({ indexId: id, indexTitle: 'Test Index', indexPrompt: null, permissions: ['member'], memberPrompt: null, autoAssign: true, joinedAt: new Date() }));
+    },
     getActiveIntents: (userId: string) =>
       deps?.getActiveIntentsFn
         ? deps.getActiveIntentsFn(userId)
@@ -1306,6 +1314,7 @@ describe('Opportunity Graph', () => {
         getOpportunityBetweenActors: () => Promise.resolve(null),
         findOverlappingOpportunities: () => Promise.resolve([]),
         getUserIndexIds: () => Promise.resolve(['idx-1'] as Id<'indexes'>[]),
+        getIndexMemberships: async () => [{ indexId: 'idx-1', indexTitle: 'Test Index', indexPrompt: null, permissions: ['member'], memberPrompt: null, autoAssign: true, joinedAt: new Date() }],
         getActiveIntents: async (userId: string) => {
           if (userId === onBehalfUserId) {
             return [{
