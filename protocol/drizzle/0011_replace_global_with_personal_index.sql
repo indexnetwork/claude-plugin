@@ -6,6 +6,7 @@
 DELETE FROM intent_indexes WHERE index_id IN (SELECT id FROM indexes WHERE is_global = true);--> statement-breakpoint
 DELETE FROM index_members WHERE index_id IN (SELECT id FROM indexes WHERE is_global = true);--> statement-breakpoint
 UPDATE chat_sessions SET index_id = NULL WHERE index_id IN (SELECT id FROM indexes WHERE is_global = true);--> statement-breakpoint
+UPDATE integrations SET index_id = NULL WHERE index_id IN (SELECT id FROM indexes WHERE is_global = true);--> statement-breakpoint
 DELETE FROM indexes WHERE is_global = true;--> statement-breakpoint
 
 -- Deduplicate intent_indexes before adding PK

@@ -53,7 +53,19 @@ export async function ensurePersonalIndex(userId: string): Promise<string> {
     autoAssign: false,
   }).onConflictDoNothing();
 
-  return indexId;
+  // Re-query to return the actual persisted ID (handles race with concurrent calls)
+  const persisted = await db
+    .select({ id: schema.indexes.id })
+    .from(schema.indexes)
+    .where(
+      and(
+        eq(schema.indexes.isPersonal, true),
+        eq(schema.indexes.ownerId, userId),
+      )
+    )
+    .limit(1);
+
+  return persisted[0]?.id ?? indexId;
 }
 
 /**
