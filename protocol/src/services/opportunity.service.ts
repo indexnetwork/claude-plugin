@@ -284,6 +284,8 @@ export class OpportunityService {
 
     await this.db.acceptSiblingOpportunities(userId, counterpart.userId, opportunityId);
 
+    await this.db.upsertContact({ ownerId: userId, userId: counterpart.userId, source: 'manual' });
+
     return {
       opportunity: updated,
       counterpartUserId: counterpart.userId,

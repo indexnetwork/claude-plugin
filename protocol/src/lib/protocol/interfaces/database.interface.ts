@@ -1665,6 +1665,7 @@ export type OpportunityControllerDatabase = Pick<
   | 'getIndexMemberships'
   | 'getProfile'
   | 'getActiveIntents'
+  | 'upsertContact'
 >;
 
 /**
