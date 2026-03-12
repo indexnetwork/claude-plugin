@@ -231,6 +231,12 @@ export const OpportunityGraphState = Annotation.Root({
     default: () => [],
   }),
 
+  /** Per-index relevancy scores for dedup tie-breaking. Background path: from intent_indexes. Chat path: transient from IntentIndexer. */
+  indexRelevancyScores: Annotation<Record<string, number>>({
+    reducer: (curr, next) => next ?? curr,
+    default: () => ({}),
+  }),
+
   /** Whether discovery used intent (path A) or profile (path B/C). Used by persist for triggeredBy. */
   discoverySource: Annotation<'intent' | 'profile'>({
     reducer: (curr, next) => next ?? curr,
