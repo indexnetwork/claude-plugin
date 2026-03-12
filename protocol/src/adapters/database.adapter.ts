@@ -2479,6 +2479,7 @@ export class ChatDatabaseAdapter {
             and(
               eq(schema.indexMembers.indexId, personalIndexId),
               eq(schema.indexMembers.userId, contact.userId),
+              sql`${schema.indexMembers.permissions} = ARRAY['contact']`,
             )
           );
 

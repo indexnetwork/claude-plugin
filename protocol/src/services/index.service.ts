@@ -72,6 +72,7 @@ export class IndexService {
    * Update index permissions. Owner-only.
    */
   async updatePermissions(indexId: string, userId: string, data: { joinPolicy?: 'anyone' | 'invite_only'; allowGuestVibeCheck?: boolean }) {
+    await this.assertNotPersonal(indexId);
     logger.verbose('[IndexService] Updating permissions', { indexId, userId });
     return this.adapter.updateIndexSettings(indexId, userId, data);
   }
@@ -198,7 +199,7 @@ export class IndexService {
   private async assertNotPersonal(indexId: string): Promise<void> {
     const isPersonal = await this.adapter.isPersonalIndex(indexId);
     if (isPersonal) {
-      throw new Error('Personal indexes cannot be modified directly.');
+      throw new Error('Access denied: personal indexes cannot be modified directly.');
     }
   }
 }
