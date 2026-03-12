@@ -46,11 +46,13 @@ Nullable so existing rows don't need backfilling. All new assignments populate i
 
 Already runs IntentIndexer and computes a `finalScore`. Persist it as `relevancyScore` when calling `assignIntentToIndex`. No new LLM calls — the score exists today but is discarded.
 
+Note: `intent_index.graph.ts` has multiple assignment paths — direct assignment (line 74, `skipEvaluation=true`), no-context (line 90), no-prompts (line 99), and fully evaluated (line 155). The non-evaluated paths should pass `relevancyScore = 1.0` (no basis to score). The evaluated path passes the computed `finalScore`.
+
 ### Auto-assign path (IntentQueue.handleGenerateHyde)
 
-Currently does direct inserts without evaluation. Changes to:
+Currently does direct inserts without evaluation. This path operates on the user's `autoAssign=true` indexes only (scoped by `getUserIndexIds`). Changes to:
 
-1. Fetch index prompt and member prompt for each of the user's indexes.
+1. Fetch index prompt and member prompt for each of the user's auto-assign indexes via `getIndexMemberContext`.
 2. Indexes where both prompts are null get assigned directly with `relevancyScore = 1.0` (no basis to score against).
 3. Run IntentIndexer in parallel for remaining indexes.
 4. Persist all assignments with `relevancyScore`.
@@ -79,34 +81,39 @@ Currently does direct inserts without evaluation. Changes to:
 - Add `relevancyScore: numeric('relevancy_score')` to `intentIndexes` table.
 
 ### Database adapter (`database.adapter.ts`)
-- `assignIntentToIndex(intentId, indexId, relevancyScore?)`: Add optional score parameter. Use `onConflictDoUpdate` to update score on re-assignment.
+- `assignIntentToIndex(intentId, indexId, relevancyScore?)`: Add optional score parameter. Use `onConflictDoUpdate` to update score on re-assignment. Note: this method exists in multiple adapter classes within the file (lines 512, 1441, 3454, wrapper at 4341) — all implementations must be updated consistently.
 - Add `getIntentIndexScores(intentId): Promise<Array<{ indexId: string; relevancyScore: number | null }>>`: Used by opportunity graph to look up scores for trigger intent.
 
 ### Database interface (`database.interface.ts`)
 - Add `getIntentIndexScores` to `OpportunityGraphDatabase`.
+- Add `getIndexMemberContext` to `OpportunityGraphDatabase` (needed by chat path scope node to fetch index/member prompts for IntentIndexer scoring).
+
+### Intent queue types (`intent.queue.ts`)
+- `IntentQueueDatabase` is a `Pick<>` from the adapter — the `assignIntentToIndex` signature change propagates automatically. Mention here to avoid implementer confusion.
 
 ### Intent Index Graph (`intent_index.graph.ts`)
-- Pass computed `finalScore` as `relevancyScore` to `assignIntentToIndex`.
+- Evaluated path (line 155): pass `finalScore` as `relevancyScore`.
+- Non-evaluated paths (lines 74, 90, 99): pass `relevancyScore = 1.0`.
 
 ### Intent Queue (`intent.queue.ts` — `handleGenerateHyde`)
 - Replace direct `assignIntentToIndex` loop with:
-  1. Fetch prompts for user's indexes.
+  1. Fetch prompts for user's auto-assign indexes via `getIndexMemberContext`.
   2. Filter out no-prompt indexes (assign with score 1.0).
   3. Run IntentIndexer in parallel for the rest.
   4. Assign all with `relevancyScore`.
 
 ### Opportunity Graph (`opportunity.graph.ts`)
 
-**Evaluation node:**
+**Evaluation node — dedup filter:**
+- The existing dedup (lines 807-813) collapses candidates by `candidateUserId`, keeping highest similarity. The tie-breaking logic must be integrated *inside* this dedup filter — when two candidates have equal similarity but different indexIds, the filter keeps the one whose index has the highest `relevancyScore`.
 - Remove `sourceIndexId = state.targetIndexes[0]?.indexId` (line 855).
 - Source entity's indexId = candidate's indexId (already set per-candidate at line 902).
-- Dedup tie-breaking: on equal similarity, prefer index with highest `relevancyScore` for trigger intent (background) or highest on-the-fly score (chat).
 
-**Scope node (chat path only):**
-- After determining targetIndexes, run IntentIndexer on searchQuery vs each target index (parallel, skip no-prompt).
-- Store transient scores on state for dedup tie-breaking.
+**Scope node:**
+- Background path: look up trigger intent's `intent_indexes` rows with `relevancyScore` via `getIntentIndexScores`. Store on state for dedup tie-breaking.
+- Chat path: run IntentIndexer on searchQuery vs each target index (parallel, skip no-prompt). Requires index/member prompts via `getIndexMemberContext`. Store transient scores on state for dedup tie-breaking.
 
-**Read node (line 1706-1709):**
+**Read node (`readNode`):**
 - Counterpart-actor fix stays as-is — still correct since the counterpart's indexId now reflects the highest-relevancy shared index.
 
 ### Migration
