@@ -30,6 +30,7 @@ import {
   type EvaluatorInput,
 } from '../agents/opportunity.evaluator';
 import type { OpportunityGraphDatabase } from '../interfaces/database.interface';
+import { IntentIndexer } from '../agents/intent.indexer';
 import { validateOpportunityActors } from '../support/opportunity.utils';
 
 /** Optional evaluator for testing (avoids LLM calls). */
@@ -220,9 +221,60 @@ export class OpportunityGraphFactory {
             targetIndexesCount: targetIndexes.length,
             indexes: targetIndexes.map(i => i.title),
           });
+
+          // ── Populate index relevancy scores for dedup tie-breaking ──
+          let indexRelevancyScores: Record<string, number> = {};
+
+          if (state.triggerIntentId) {
+            // Background path: look up persisted scores from intent_indexes
+            try {
+              const scores = await this.database.getIntentIndexScores(state.triggerIntentId);
+              for (const { indexId, relevancyScore } of scores) {
+                if (relevancyScore != null) {
+                  indexRelevancyScores[indexId] = relevancyScore;
+                }
+              }
+            } catch (err) {
+              logger.warn('[Graph:Scope] Failed to load intent index scores', { triggerIntentId: state.triggerIntentId, error: err });
+            }
+          } else if (state.searchQuery?.trim()) {
+            // Chat path: score query against target indexes in parallel
+            try {
+              const indexer = new IntentIndexer();
+              const scorableIndexes = targetIndexes.filter(ti => ti.title !== 'Unknown');
+              const scoringPromises = scorableIndexes.map(async (ti) => {
+                try {
+                  const ctx = await this.database.getIndexMemberContext(ti.indexId, state.userId);
+                  if (!ctx?.indexPrompt?.trim() && !ctx?.memberPrompt?.trim()) {
+                    return { indexId: ti.indexId, score: 1.0 };
+                  }
+                  const result = await indexer.invoke(
+                    state.searchQuery!,
+                    ctx?.indexPrompt ?? null,
+                    ctx?.memberPrompt ?? null,
+                  );
+                  if (!result) return { indexId: ti.indexId, score: 1.0 };
+                  const score = ctx?.indexPrompt && ctx?.memberPrompt
+                    ? result.indexScore * 0.6 + result.memberScore * 0.4
+                    : ctx?.indexPrompt ? result.indexScore : result.memberScore;
+                  return { indexId: ti.indexId, score };
+                } catch {
+                  return { indexId: ti.indexId, score: 1.0 };
+                }
+              });
+              const results = await Promise.all(scoringPromises);
+              for (const { indexId, score } of results) {
+                indexRelevancyScores[indexId] = score;
+              }
+            } catch (err) {
+              logger.warn('[Graph:Scope] Failed to score query against indexes', { error: err });
+            }
+          }
+
           const totalMembers = targetIndexes.reduce((sum, i) => sum + i.memberCount, 0);
           return {
             targetIndexes,
+            indexRelevancyScores,
             trace: [{
               node: "scope",
               detail: `Searching ${targetIndexes.length} index(es): ${targetIndexes.map(i => `${i.title} (${i.memberCount})`).join(', ')}`,
@@ -804,13 +856,26 @@ export class OpportunityGraphFactory {
         const sortedCandidates = [...state.candidates]
           .sort((a, b) => b.similarity - a.similarity);
 
-        // Dedup by userId — keep the entry with highest similarity (first after sort)
-        const seenUserIds = new Set<string>();
-        const dedupedCandidates = sortedCandidates.filter((c) => {
-          if (seenUserIds.has(c.candidateUserId)) return false;
-          seenUserIds.add(c.candidateUserId);
-          return true;
-        });
+        // Dedup by userId — when same similarity, prefer index with highest relevancyScore
+        const bestByUser = new Map<string, CandidateMatch>();
+        for (const c of sortedCandidates) {
+          const existing = bestByUser.get(c.candidateUserId);
+          if (!existing) {
+            bestByUser.set(c.candidateUserId, c);
+          } else if (c.similarity > existing.similarity) {
+            bestByUser.set(c.candidateUserId, c);
+          } else if (c.similarity === existing.similarity) {
+            // Tie-break: prefer index with higher relevancy score
+            const cScore = state.indexRelevancyScores[c.indexId] ?? 0;
+            const existingScore = state.indexRelevancyScores[existing.indexId] ?? 0;
+            if (cScore > existingScore) {
+              bestByUser.set(c.candidateUserId, c);
+            }
+          }
+        }
+        const dedupedCandidates = Array.from(bestByUser.values());
+        // Re-sort by similarity descending (Map iteration order doesn't guarantee sort)
+        dedupedCandidates.sort((a, b) => b.similarity - a.similarity);
 
         if (dedupedCandidates.length < sortedCandidates.length) {
           logger.info("[Graph:Evaluation] Deduped candidates by userId", {
@@ -852,7 +917,6 @@ export class OpportunityGraphFactory {
         try {
           const discoveryUserId = state.onBehalfOfUserId ?? state.userId;
           const sourceProfile = await this.database.getProfile(discoveryUserId);
-          const sourceIndexId = state.targetIndexes[0]?.indexId ?? state.userIndexes[0];
           const sourceEntity: EvaluatorEntity = {
             userId: discoveryUserId,
             profile: {
@@ -868,7 +932,7 @@ export class OpportunityGraphFactory {
               payload: i.payload,
               summary: i.summary,
             })),
-            indexId: sourceIndexId ?? ('' as Id<'indexes'>),
+            indexId: '' as Id<'indexes'>,  // Placeholder — overwritten per-pairing below
             ragScore: undefined,
             matchedVia: undefined,
           };
@@ -988,12 +1052,28 @@ export class OpportunityGraphFactory {
           const evaluatedOpportunities: EvaluatedOpportunity[] = pairwiseOpportunities.map((op) => ({
             reasoning: op.reasoning,
             score: op.score,
-            actors: op.actors.map((a) => ({
-              userId: a.userId as Id<'users'>,
-              role: a.role,
-              intentId: a.intentId as Id<'intents'> | undefined,
-              indexId: userIdToIndexId.get(a.userId) ?? (entities.find((e) => e.userId === a.userId)?.indexId as Id<'indexes'>),
-            })),
+            actors: op.actors.map((a) => {
+              const isSource = a.userId === discoveryUserId;
+              if (isSource) {
+                // Source actor inherits the counterpart's indexId (shared match context)
+                const counterpart = op.actors.find((other) => other.userId !== a.userId);
+                const counterpartIndexId = counterpart
+                  ? userIdToIndexId.get(counterpart.userId) ?? (entities.find((e) => e.userId === counterpart.userId)?.indexId as Id<'indexes'>)
+                  : undefined;
+                return {
+                  userId: a.userId as Id<'users'>,
+                  role: a.role,
+                  intentId: a.intentId as Id<'intents'> | undefined,
+                  indexId: counterpartIndexId ?? userIdToIndexId.get(a.userId) ?? ('' as Id<'indexes'>),
+                };
+              }
+              return {
+                userId: a.userId as Id<'users'>,
+                role: a.role,
+                intentId: a.intentId as Id<'intents'> | undefined,
+                indexId: userIdToIndexId.get(a.userId) ?? (entities.find((e) => e.userId === a.userId)?.indexId as Id<'indexes'>),
+              };
+            }),
           }));
 
           const passed = evaluatedOpportunities.filter((o) => o.score >= minScore);
