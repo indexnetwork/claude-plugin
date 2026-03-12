@@ -86,8 +86,6 @@ beforeAll(async () => {
     id: contactIntentId,
     userId: contactUserId,
     payload: TEST_PREFIX + 'I am looking for collaborators',
-    confidence: 0.9,
-    inferenceType: 'explicit',
     sourceType: 'discovery_form',
     status: 'ACTIVE',
   });

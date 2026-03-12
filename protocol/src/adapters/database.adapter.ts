@@ -2460,58 +2460,60 @@ export class ChatDatabaseAdapter {
    * @param contactId - The contact record ID
    */
   async removeContact(ownerId: string, contactId: string): Promise<void> {
-    // Look up the contact's userId before soft-deleting
-    const [contact] = await db
-      .select({ userId: schema.userContacts.userId })
-      .from(schema.userContacts)
-      .where(
-        and(
-          eq(schema.userContacts.id, contactId),
-          eq(schema.userContacts.ownerId, ownerId),
-        )
-      );
+    await db.transaction(async (tx) => {
+      // Look up the contact's userId before soft-deleting
+      const [contact] = await tx
+        .select({ userId: schema.userContacts.userId })
+        .from(schema.userContacts)
+        .where(
+          and(
+            eq(schema.userContacts.id, contactId),
+            eq(schema.userContacts.ownerId, ownerId),
+          )
+        );
 
-    // Soft-delete the contact
-    await db
-      .update(schema.userContacts)
-      .set({ deletedAt: new Date() })
-      .where(
-        and(
-          eq(schema.userContacts.id, contactId),
-          eq(schema.userContacts.ownerId, ownerId)
-        )
-      );
+      // Soft-delete the contact
+      await tx
+        .update(schema.userContacts)
+        .set({ deletedAt: new Date() })
+        .where(
+          and(
+            eq(schema.userContacts.id, contactId),
+            eq(schema.userContacts.ownerId, ownerId)
+          )
+        );
 
-    // Clean up personal index membership and intent assignments
-    if (contact) {
-      const personalIndexId = await getPersonalIndexId(ownerId);
-      if (personalIndexId) {
-        await db.delete(schema.indexMembers)
-          .where(
-            and(
-              eq(schema.indexMembers.indexId, personalIndexId),
-              eq(schema.indexMembers.userId, contact.userId),
-              sql`${schema.indexMembers.permissions} = ARRAY['contact']`,
-            )
-          );
-
-        // Remove contact's intents from the personal index
-        const contactIntentIds = await db
-          .select({ id: schema.intents.id })
-          .from(schema.intents)
-          .where(eq(schema.intents.userId, contact.userId));
-
-        if (contactIntentIds.length > 0) {
-          await db.delete(schema.intentIndexes)
+      // Clean up personal index membership and intent assignments
+      if (contact) {
+        const personalIndexId = await getPersonalIndexId(ownerId);
+        if (personalIndexId) {
+          await tx.delete(schema.indexMembers)
             .where(
               and(
-                eq(schema.intentIndexes.indexId, personalIndexId),
-                inArray(schema.intentIndexes.intentId, contactIntentIds.map(i => i.id)),
+                eq(schema.indexMembers.indexId, personalIndexId),
+                eq(schema.indexMembers.userId, contact.userId),
+                sql`${schema.indexMembers.permissions} = ARRAY['contact']`,
               )
             );
+
+          // Remove contact's intents from the personal index
+          const contactIntentIds = await tx
+            .select({ id: schema.intents.id })
+            .from(schema.intents)
+            .where(eq(schema.intents.userId, contact.userId));
+
+          if (contactIntentIds.length > 0) {
+            await tx.delete(schema.intentIndexes)
+              .where(
+                and(
+                  eq(schema.intentIndexes.indexId, personalIndexId),
+                  inArray(schema.intentIndexes.intentId, contactIntentIds.map(i => i.id)),
+                )
+              );
+          }
         }
       }
-    }
+    });
   }
 
   /**
