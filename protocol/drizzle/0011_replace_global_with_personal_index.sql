@@ -22,7 +22,6 @@ ALTER TABLE "indexes" ADD COLUMN "owner_id" text;--> statement-breakpoint
 ALTER TABLE "indexes" ADD CONSTRAINT "indexes_owner_id_users_id_fk" FOREIGN KEY ("owner_id") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 CREATE UNIQUE INDEX "indexes_is_personal_owner" ON "indexes" USING btree ("is_personal","owner_id") WHERE is_personal = true;--> statement-breakpoint
 ALTER TABLE "indexes" DROP COLUMN "is_global";--> statement-breakpoint
-ALTER TABLE "indexes" ADD CONSTRAINT "personal_owner_check" CHECK (NOT is_personal OR owner_id IS NOT NULL);--> statement-breakpoint
 
 -- ============================================================================
 -- PHASE 3: Data backfill — create personal indexes for every user
@@ -50,4 +49,9 @@ SELECT int.id, i.id, NOW()
 FROM user_contacts uc
 JOIN indexes i ON i.owner_id = uc.owner_id AND i.is_personal = true
 JOIN intents int ON int.user_id = uc.user_id AND int.status = 'ACTIVE' AND int.archived_at IS NULL
-WHERE uc.deleted_at IS NULL ON CONFLICT DO NOTHING;
+WHERE uc.deleted_at IS NULL ON CONFLICT DO NOTHING;--> statement-breakpoint
+
+-- ============================================================================
+-- PHASE 4: Add CHECK constraint after backfill (all personal indexes now have owner_id)
+-- ============================================================================
+ALTER TABLE "indexes" ADD CONSTRAINT "personal_owner_check" CHECK (NOT is_personal OR owner_id IS NOT NULL);
