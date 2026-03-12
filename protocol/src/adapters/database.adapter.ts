@@ -509,8 +509,13 @@ export class IntentDatabaseAdapter {
    * @returns Promise that resolves when the row is inserted.
    * @throws May throw on database insertion errors (db.insert/schema.intentIndexes).
    */
-  async assignIntentToIndex(intentId: string, indexId: string): Promise<void> {
-    await db.insert(schema.intentIndexes).values({ intentId, indexId }).onConflictDoNothing();
+  async assignIntentToIndex(intentId: string, indexId: string, relevancyScore?: number): Promise<void> {
+    await db.insert(schema.intentIndexes)
+      .values({ intentId, indexId, relevancyScore: relevancyScore != null ? String(relevancyScore) : null })
+      .onConflictDoUpdate({
+        target: [schema.intentIndexes.intentId, schema.intentIndexes.indexId],
+        set: { relevancyScore: relevancyScore != null ? String(relevancyScore) : null },
+      });
   }
 
   /**
@@ -1438,8 +1443,27 @@ export class ChatDatabaseAdapter {
     return rows.length > 0;
   }
 
-  async assignIntentToIndex(intentId: string, indexId: string): Promise<void> {
-    await db.insert(intentIndexes).values({ intentId, indexId }).onConflictDoNothing();
+  async assignIntentToIndex(intentId: string, indexId: string, relevancyScore?: number): Promise<void> {
+    await db.insert(intentIndexes)
+      .values({ intentId, indexId, relevancyScore: relevancyScore != null ? String(relevancyScore) : null })
+      .onConflictDoUpdate({
+        target: [intentIndexes.intentId, intentIndexes.indexId],
+        set: { relevancyScore: relevancyScore != null ? String(relevancyScore) : null },
+      });
+  }
+
+  async getIntentIndexScores(intentId: string): Promise<Array<{ indexId: string; relevancyScore: number | null }>> {
+    const rows = await db
+      .select({
+        indexId: intentIndexes.indexId,
+        relevancyScore: intentIndexes.relevancyScore,
+      })
+      .from(intentIndexes)
+      .where(eq(intentIndexes.intentId, intentId));
+    return rows.map(r => ({
+      indexId: r.indexId,
+      relevancyScore: r.relevancyScore != null ? Number(r.relevancyScore) : null,
+    }));
   }
 
   async unassignIntentFromIndex(intentId: string, indexId: string): Promise<void> {
@@ -3451,8 +3475,13 @@ export class IndexGraphDatabaseAdapter {
     return rows.length > 0;
   }
 
-  async assignIntentToIndex(intentId: string, indexId: string): Promise<void> {
-    await db.insert(intentIndexes).values({ intentId, indexId }).onConflictDoNothing();
+  async assignIntentToIndex(intentId: string, indexId: string, relevancyScore?: number): Promise<void> {
+    await db.insert(intentIndexes)
+      .values({ intentId, indexId, relevancyScore: relevancyScore != null ? String(relevancyScore) : null })
+      .onConflictDoUpdate({
+        target: [intentIndexes.intentId, intentIndexes.indexId],
+        set: { relevancyScore: relevancyScore != null ? String(relevancyScore) : null },
+      });
   }
 
   async unassignIntentFromIndex(intentId: string, indexId: string): Promise<void> {
@@ -4338,11 +4367,11 @@ export function createUserDatabase(db: ChatDatabaseAdapter, authUserId: string):
         await db.assignIntentToIndex(intentId, indexId);
       }
     },
-    assignIntentToIndex: async (intentId, indexId) => {
+    assignIntentToIndex: async (intentId, indexId, relevancyScore?) => {
       const intent = await db.getIntent(intentId);
       if (!intent) throw new Error('Intent not found');
       if (intent.userId !== authUserId) throw new Error('Access denied: intent not owned by user');
-      return db.assignIntentToIndex(intentId, indexId);
+      return db.assignIntentToIndex(intentId, indexId, relevancyScore);
     },
     unassignIntentFromIndex: async (intentId, indexId) => {
       const intent = await db.getIntent(intentId);
