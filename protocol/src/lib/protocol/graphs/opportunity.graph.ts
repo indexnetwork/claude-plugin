@@ -817,32 +817,8 @@ export class OpportunityGraphFactory {
           });
         }
 
-        // Contacts-only filter: restrict to user's imported contacts
-        let filteredCandidates = dedupedCandidates;
-        if (state.contactsOnly) {
-          try {
-            const contactUserIds = await this.database.getContactUserIds(state.userId);
-            if (contactUserIds.length === 0) {
-              logger.verbose('[Graph:Evaluation] contactsOnly=true but user has no contacts');
-              return { evaluatedOpportunities: [], remainingCandidates: [], trace: [{ node: 'evaluation', detail: 'Contacts filter: no contacts found' }] };
-            }
-            const contactSet = new Set(contactUserIds);
-            filteredCandidates = dedupedCandidates.filter((c) => contactSet.has(c.candidateUserId));
-            logger.verbose('[Graph:Evaluation] Contacts filter applied', {
-              before: dedupedCandidates.length,
-              after: filteredCandidates.length,
-            });
-            if (filteredCandidates.length === 0) {
-              return { evaluatedOpportunities: [], remainingCandidates: [], trace: [{ node: 'evaluation', detail: 'Contacts filter: no candidates in contacts' }] };
-            }
-          } catch (error) {
-            logger.error('[Graph:Evaluation] Failed to load contacts for contacts filter', { error, userId: state.userId });
-            return { evaluatedOpportunities: [], remainingCandidates: [], error: 'Failed to load contacts for contacts-only filtering.' };
-          }
-        }
-
-        const batchToEvaluate = filteredCandidates.slice(0, EVAL_BATCH_SIZE);
-        const remaining = filteredCandidates.slice(EVAL_BATCH_SIZE);
+        const batchToEvaluate = dedupedCandidates.slice(0, EVAL_BATCH_SIZE);
+        const remaining = dedupedCandidates.slice(EVAL_BATCH_SIZE);
 
         // Early termination: if search was query-driven and no query-sourced candidates remain,
         // clear remaining to prevent pointless pagination through profile-similarity leftovers

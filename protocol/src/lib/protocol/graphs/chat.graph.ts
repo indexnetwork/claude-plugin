@@ -150,7 +150,6 @@ export class ChatGraphFactory {
       sessionId: string;
       maxContextMessages?: number;
       indexId?: string;
-      contactsOnly?: boolean;
     },
     checkpointer?: MemorySaver | PostgresSaver,
     signal?: AbortSignal,
@@ -212,7 +211,6 @@ export class ChatGraphFactory {
             scraper,
             indexId,
             sessionId: state.sessionId,
-            contactsOnly: state.contactsOnly,
           });
           // Direct streaming writer - emit events immediately instead of buffering
           const directWriter = (data: unknown) => {
