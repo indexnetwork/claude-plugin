@@ -498,7 +498,26 @@ export class IntentDatabaseAdapter {
    * @throws May throw on database insertion errors (db.insert/schema.intentIndexes).
    */
   async assignIntentToIndex(intentId: string, indexId: string): Promise<void> {
-    await db.insert(schema.intentIndexes).values({ intentId, indexId });
+    await db.insert(schema.intentIndexes).values({ intentId, indexId }).onConflictDoNothing();
+  }
+
+  /**
+   * Returns personal index IDs where the given user is a contact member.
+   * @param userId - The user whose contact memberships to look up
+   * @returns Array of personal index IDs
+   */
+  async getPersonalIndexesForContact(userId: string): Promise<{ indexId: string }[]> {
+    return db
+      .select({ indexId: schema.indexMembers.indexId })
+      .from(schema.indexMembers)
+      .innerJoin(schema.indexes, eq(schema.indexes.id, schema.indexMembers.indexId))
+      .where(
+        and(
+          eq(schema.indexMembers.userId, userId),
+          eq(schema.indexes.isPersonal, true),
+          sql`'contact' = ANY(${schema.indexMembers.permissions})`,
+        )
+      );
   }
 
   /**
@@ -1393,7 +1412,7 @@ export class ChatDatabaseAdapter {
   }
 
   async assignIntentToIndex(intentId: string, indexId: string): Promise<void> {
-    await db.insert(intentIndexes).values({ intentId, indexId });
+    await db.insert(intentIndexes).values({ intentId, indexId }).onConflictDoNothing();
   }
 
   async unassignIntentFromIndex(intentId: string, indexId: string): Promise<void> {
@@ -2414,6 +2433,18 @@ export class ChatDatabaseAdapter {
    * @param contactId - The contact record ID
    */
   async removeContact(ownerId: string, contactId: string): Promise<void> {
+    // Look up the contact's userId before soft-deleting
+    const [contact] = await db
+      .select({ userId: schema.userContacts.userId })
+      .from(schema.userContacts)
+      .where(
+        and(
+          eq(schema.userContacts.id, contactId),
+          eq(schema.userContacts.ownerId, ownerId),
+        )
+      );
+
+    // Soft-delete the contact
     await db
       .update(schema.userContacts)
       .set({ deletedAt: new Date() })
@@ -2421,6 +2452,55 @@ export class ChatDatabaseAdapter {
         and(
           eq(schema.userContacts.id, contactId),
           eq(schema.userContacts.ownerId, ownerId)
+        )
+      );
+
+    // Clean up personal index membership and intent assignments
+    if (contact) {
+      const personalIndexId = await getPersonalIndexId(ownerId);
+      if (personalIndexId) {
+        await db.delete(schema.indexMembers)
+          .where(
+            and(
+              eq(schema.indexMembers.indexId, personalIndexId),
+              eq(schema.indexMembers.userId, contact.userId),
+            )
+          );
+
+        // Remove contact's intents from the personal index
+        const contactIntentIds = await db
+          .select({ id: schema.intents.id })
+          .from(schema.intents)
+          .where(eq(schema.intents.userId, contact.userId));
+
+        if (contactIntentIds.length > 0) {
+          await db.delete(schema.intentIndexes)
+            .where(
+              and(
+                eq(schema.intentIndexes.indexId, personalIndexId),
+                inArray(schema.intentIndexes.intentId, contactIntentIds.map(i => i.id)),
+              )
+            );
+        }
+      }
+    }
+  }
+
+  /**
+   * Returns personal index IDs where the given user is a contact member.
+   * @param userId - The user whose contact memberships to look up
+   * @returns Array of personal index IDs
+   */
+  async getPersonalIndexesForContact(userId: string): Promise<{ indexId: string }[]> {
+    return db
+      .select({ indexId: schema.indexMembers.indexId })
+      .from(schema.indexMembers)
+      .innerJoin(schema.indexes, eq(schema.indexes.id, schema.indexMembers.indexId))
+      .where(
+        and(
+          eq(schema.indexMembers.userId, userId),
+          eq(schema.indexes.isPersonal, true),
+          sql`'contact' = ANY(${schema.indexMembers.permissions})`,
         )
       );
   }
@@ -2661,6 +2741,48 @@ export class ChatDatabaseAdapter {
               deletedAt: null,
             },
           });
+
+        // Sync new contacts to the owner's personal index
+        const newContactUserIds = contactsToUpsert
+          .filter(c => !existingUserIds.has(c.userId))
+          .map(c => c.userId);
+
+        if (newContactUserIds.length > 0) {
+          const personalIndexId = await getPersonalIndexId(ownerId);
+          if (personalIndexId) {
+            // Add new contacts as members of the personal index
+            const contactMemberValues = newContactUserIds.map(userId => ({
+              indexId: personalIndexId,
+              userId,
+              permissions: ['contact'] as string[],
+              autoAssign: false,
+            }));
+            await tx.insert(schema.indexMembers)
+              .values(contactMemberValues)
+              .onConflictDoNothing();
+
+            // Backfill active intents for new contacts into the personal index
+            const contactIntents = await tx
+              .select({ id: schema.intents.id })
+              .from(schema.intents)
+              .where(
+                and(
+                  inArray(schema.intents.userId, newContactUserIds),
+                  eq(schema.intents.status, 'ACTIVE'),
+                  isNull(schema.intents.archivedAt),
+                )
+              );
+
+            if (contactIntents.length > 0) {
+              await tx.insert(schema.intentIndexes)
+                .values(contactIntents.map(i => ({
+                  intentId: i.id,
+                  indexId: personalIndexId,
+                })))
+                .onConflictDoNothing();
+            }
+          }
+        }
       }
 
       return { newGhosts, newContacts };
@@ -3300,7 +3422,7 @@ export class IndexGraphDatabaseAdapter {
   }
 
   async assignIntentToIndex(intentId: string, indexId: string): Promise<void> {
-    await db.insert(intentIndexes).values({ intentId, indexId });
+    await db.insert(intentIndexes).values({ intentId, indexId }).onConflictDoNothing();
   }
 
   async unassignIntentFromIndex(intentId: string, indexId: string): Promise<void> {

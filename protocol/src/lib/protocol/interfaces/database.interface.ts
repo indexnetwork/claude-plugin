@@ -1159,6 +1159,15 @@ export interface Database {
   /** Soft-delete a contact. */
   removeContact(ownerId: string, contactId: string): Promise<void>;
 
+  /**
+   * Returns the IDs of personal indexes where the given user is a contact member.
+   * Used for auto-assigning new intents to personal indexes of contacts who imported this user.
+   *
+   * @param userId - The user whose contact memberships to look up
+   * @returns Array of personal index IDs
+   */
+  getPersonalIndexesForContact(userId: string): Promise<{ indexId: string }[]>;
+
   /** Find a user by email. */
   getUserByEmail(email: string): Promise<{ id: string; name: string; email: string; isGhost: boolean } | null>;
 }
@@ -1571,6 +1580,8 @@ export type ChatGraphCompositeDatabase = Pick<
   | 'getIndexIdsForIntent'
   // Contact Operations (for contacts-only discovery)
   | 'getContactUserIds'
+  // Personal index auto-assignment (used by intent graph executor)
+  | 'getPersonalIndexesForContact'
   // Index Ownership Operations (owner-only)
   | 'getOwnedIndexes'
   | 'isIndexOwner'
@@ -1667,6 +1678,9 @@ export type IntentGraphDatabase = Pick<
   | 'getUser'
   // Profile check (prepNode gate for write operations)
   | 'getProfile'
+  // Personal index auto-assignment
+  | 'getPersonalIndexesForContact'
+  | 'assignIntentToIndex'
 >;
 
 /**
