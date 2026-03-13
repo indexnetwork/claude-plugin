@@ -2171,12 +2171,14 @@ export class ChatDatabaseAdapter {
 
     const memberCount = await this.getIndexMemberCount(row.id);
 
+    const perms = row.permissions as { joinPolicy?: string } | null;
+
     return {
       id: row.id,
       title: row.title,
       prompt: row.prompt,
       imageUrl: row.imageUrl,
-      permissions: row.permissions,
+      joinPolicy: (perms?.joinPolicy ?? 'invite_only') as 'anyone' | 'invite_only',
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
       user: { id: row.ownerId, name: row.userName, avatar: row.userAvatar },

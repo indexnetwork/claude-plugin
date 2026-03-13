@@ -78,6 +78,8 @@ export default function InvitationPage() {
               navigate('/onboarding');
               return;
             }
+            // Clean up deferred invite code since user will join explicitly via button
+            localStorage.removeItem('pendingInviteCode');
             setState(prev => ({ ...prev, user: response.user || null, step: 'ready-to-join' }));
           }
         } catch (err) {
@@ -99,7 +101,7 @@ export default function InvitationPage() {
     };
 
     loadIndexAndCheckAuth();
-  }, [code, isAuthenticated, isReady, api]);
+  }, [code, isAuthenticated, isReady, api, navigate]);
 
   // Trigger reload when user authenticates
   useEffect(() => {

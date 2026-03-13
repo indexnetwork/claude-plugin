@@ -290,7 +290,7 @@ interface LocalMessage {
 
 export default function OnboardingPage() {
   const navigate = useNavigate();
-  const { user, refetchUser, isReady, isAuthenticated } = useAuthContext();
+  const { user, refetchUser } = useAuthContext();
   const {
     messages: chatMessages,
     sendMessage,
@@ -320,18 +320,6 @@ export default function OnboardingPage() {
 
   // Networks panel join tracking
   const [networkPanelPendingJoinIds, setNetworkPanelPendingJoinIds] = useState<Set<string>>(new Set());
-
-  // Accept a pending invitation in the background (deferred from /l/:code)
-  useEffect(() => {
-    if (!isReady || !isAuthenticated) return;
-    const pendingCode = localStorage.getItem('pendingInviteCode');
-    if (!pendingCode) return;
-    localStorage.removeItem('pendingInviteCode');
-    indexesService
-      .acceptInvitation(pendingCode)
-      .then(() => refreshIndexes())
-      .catch(() => {});
-  }, [isReady, isAuthenticated, indexesService, refreshIndexes]);
 
   // Build the greeting from the user's name
   const fullGreeting = GREETING_TEMPLATE.replace("{{userName}}", `**${user?.name ?? "there"}**`);
@@ -403,11 +391,25 @@ export default function OnboardingPage() {
   useEffect(() => {
     if (!user?.onboarding?.completedAt || hasTriggeredRedirect.current) return;
     hasTriggeredRedirect.current = true;
+
+    // Accept pending invitation deferred from /l/:code (only after onboarding completes)
+    const pendingCode = localStorage.getItem('pendingInviteCode');
+    if (pendingCode) {
+      localStorage.removeItem('pendingInviteCode');
+      indexesService
+        .acceptInvitation(pendingCode)
+        .then(() => refreshIndexes())
+        .catch((err) => {
+          console.error('Failed to accept deferred invitation:', err);
+          showError('Could not join the network from your invitation link. Please try the link again.');
+        });
+    }
+
     setIsTransitioning(true);
     const target = sessionId ? `/d/${sessionId}` : "/";
     const timer = setTimeout(() => navigate(target, { replace: true }), 700);
     return () => clearTimeout(timer);
-  }, [user?.onboarding?.completedAt, sessionId, navigate]);
+  }, [user?.onboarding?.completedAt, sessionId, navigate, indexesService, refreshIndexes, showError]);
 
   // Opportunity actions
   const handleOpportunityAction = useCallback(
