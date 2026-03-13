@@ -1,6 +1,6 @@
-import { pgTable, pgEnum, text, timestamp, bigint, boolean, json, jsonb, varchar, integer, uniqueIndex, index, doublePrecision, numeric, primaryKey, unique, check } from 'drizzle-orm/pg-core';
+import { pgTable, pgEnum, text, timestamp, bigint, boolean, json, jsonb, varchar, integer, uniqueIndex, index, doublePrecision, numeric, primaryKey, unique } from 'drizzle-orm/pg-core';
 import { vector } from 'drizzle-orm/pg-core';
-import { relations, sql } from 'drizzle-orm';
+import { relations } from 'drizzle-orm';
 import type { Id } from '../types/common.types';
 
 // Enums
@@ -279,7 +279,6 @@ export const indexes = pgTable('indexes', {
   prompt: text('prompt'),
   imageUrl: text('image_url'),
   isPersonal: boolean('is_personal').default(false).notNull(),
-  ownerId: text('owner_id').references(() => users.id),
   permissions: json('permissions').$type<{
     joinPolicy: 'anyone' | 'invite_only';
     invitationLink: { code: string } | null;
@@ -292,10 +291,7 @@ export const indexes = pgTable('indexes', {
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
   deletedAt: timestamp('deleted_at'),
-}, (t) => ({
-  personalOwnerUnique: uniqueIndex('indexes_is_personal_owner').on(t.isPersonal, t.ownerId).where(sql`is_personal = true`),
-  personalOwnerCheck: check('personal_owner_check', sql`NOT is_personal OR owner_id IS NOT NULL`),
-}));
+});
 
 export const indexMembers = pgTable('index_members', {
   indexId: text('index_id').notNull().references(() => indexes.id),
@@ -308,6 +304,14 @@ export const indexMembers = pgTable('index_members', {
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 }, (table) => ({
   pk: primaryKey({ columns: [table.indexId, table.userId] }),
+}));
+
+export const personalIndexes = pgTable('personal_indexes', {
+  userId: text('user_id').notNull().references(() => users.id),
+  indexId: text('index_id').notNull().references(() => indexes.id),
+}, (t) => ({
+  pk: primaryKey({ columns: [t.userId] }),
+  indexUnique: uniqueIndex('personal_indexes_index_id_unique').on(t.indexId),
 }));
 
 export const files = pgTable('files', {
@@ -451,11 +455,10 @@ export const intentsRelations = relations(intents, ({ one, many }) => ({
   }),
 }));
 
-export const indexesRelations = relations(indexes, ({ many, one }) => ({
+export const indexesRelations = relations(indexes, ({ many }) => ({
   members: many(indexMembers),
   intents: many(intentIndexes),
   integrations: many(userIntegrations),
-  owner: one(users, { fields: [indexes.ownerId], references: [users.id] }),
 }));
 
 export const indexMembersRelations = relations(indexMembers, ({ one }) => ({
@@ -466,6 +469,17 @@ export const indexMembersRelations = relations(indexMembers, ({ one }) => ({
   user: one(users, {
     fields: [indexMembers.userId],
     references: [users.id],
+  }),
+}));
+
+export const personalIndexesRelations = relations(personalIndexes, ({ one }) => ({
+  user: one(users, {
+    fields: [personalIndexes.userId],
+    references: [users.id],
+  }),
+  index: one(indexes, {
+    fields: [personalIndexes.indexId],
+    references: [indexes.id],
   }),
 }));
 
@@ -582,3 +596,5 @@ export type NewOpportunity = typeof opportunities.$inferInsert;
 export type UserContact = typeof userContacts.$inferSelect;
 export type NewUserContact = typeof userContacts.$inferInsert;
 export type ContactSource = typeof contactSourceEnum.enumValues[number];
+export type PersonalIndex = typeof personalIndexes.$inferSelect;
+export type NewPersonalIndex = typeof personalIndexes.$inferInsert;
