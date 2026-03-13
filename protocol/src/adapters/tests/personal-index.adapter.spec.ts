@@ -23,6 +23,7 @@ import {
   intents,
   intentIndexes,
   userContacts,
+  personalIndexes,
 } from '../../schemas/database.schema';
 import {
   ensurePersonalIndex,
@@ -125,6 +126,9 @@ afterAll(async () => {
   await db.delete(intents).where(
     inArray(intents.userId, allUserIds),
   );
+  await db.delete(personalIndexes).where(
+    inArray(personalIndexes.userId, allUserIds),
+  );
   await db.delete(indexes).where(
     inArray(indexes.id, allIndexIds),
   );
@@ -139,7 +143,7 @@ afterAll(async () => {
 // ─── ensurePersonalIndex ────────────────────────────────────────────────────────
 
 describe('ensurePersonalIndex', () => {
-  it('creates a personal index with correct title and ownerId', async () => {
+  it('creates a personal index with correct title and personal_indexes entry', async () => {
     const [row] = await db
       .select()
       .from(indexes)
@@ -148,7 +152,15 @@ describe('ensurePersonalIndex', () => {
     expect(row).toBeDefined();
     expect(row.title).toBe('My Network');
     expect(row.isPersonal).toBe(true);
-    expect(row.ownerId).toBe(fixture.ownerUserId);
+
+    // Verify personal_indexes mapping
+    const [mapping] = await db
+      .select()
+      .from(personalIndexes)
+      .where(eq(personalIndexes.userId, fixture.ownerUserId));
+
+    expect(mapping).toBeDefined();
+    expect(mapping.indexId).toBe(fixture.personalIndexId);
   });
 
   it('creates an owner membership with ["owner"] permissions', async () => {
@@ -166,20 +178,30 @@ describe('ensurePersonalIndex', () => {
     expect(membership.permissions).toEqual(['owner']);
   });
 
+  it('creates owner membership with autoAssign enabled', async () => {
+    const [membership] = await db
+      .select()
+      .from(indexMembers)
+      .where(
+        and(
+          eq(indexMembers.indexId, fixture.personalIndexId),
+          eq(indexMembers.userId, fixture.ownerUserId),
+        ),
+      );
+
+    expect(membership).toBeDefined();
+    expect(membership.autoAssign).toBe(true);
+  });
+
   it('is idempotent — calling twice returns the same index ID', async () => {
     const secondCall = await ensurePersonalIndex(fixture.ownerUserId);
     expect(secondCall).toBe(fixture.personalIndexId);
 
     // Verify only one personal index exists for this user
     const rows = await db
-      .select({ id: indexes.id })
-      .from(indexes)
-      .where(
-        and(
-          eq(indexes.isPersonal, true),
-          eq(indexes.ownerId, fixture.ownerUserId),
-        ),
-      );
+      .select({ indexId: personalIndexes.indexId })
+      .from(personalIndexes)
+      .where(eq(personalIndexes.userId, fixture.ownerUserId));
     expect(rows).toHaveLength(1);
   });
 });
@@ -266,7 +288,7 @@ describe('importContactsBulk → personal index sync', () => {
     expect(membership).toBeDefined();
     expect(membership.permissions).toEqual(['contact']);
 
-    // Verify the contact's active intent was backfilled into the personal index
+    // Verify the contact's active intent was NOT backfilled into the personal index
     const intentLinks = await db
       .select()
       .from(intentIndexes)
@@ -276,7 +298,7 @@ describe('importContactsBulk → personal index sync', () => {
           eq(intentIndexes.intentId, fixture.contactIntentId),
         ),
       );
-    expect(intentLinks).toHaveLength(1);
+    expect(intentLinks).toHaveLength(0);
 
     // Record the contact record ID for removal test
     const [contactRecord] = await db
