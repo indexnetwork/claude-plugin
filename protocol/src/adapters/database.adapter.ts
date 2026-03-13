@@ -50,7 +50,7 @@ export async function ensurePersonalIndex(userId: string): Promise<string> {
     indexId,
     userId,
     permissions: ['owner'],
-    autoAssign: false,
+    autoAssign: true,
   }).onConflictDoNothing();
 
   // Re-query to return the actual persisted ID (handles race with concurrent calls)
@@ -2815,26 +2815,6 @@ export class ChatDatabaseAdapter {
               .values(contactMemberValues)
               .onConflictDoNothing();
 
-            // Backfill active intents for new contacts into the personal index
-            const contactIntents = await tx
-              .select({ id: schema.intents.id })
-              .from(schema.intents)
-              .where(
-                and(
-                  inArray(schema.intents.userId, newContactUserIds),
-                  eq(schema.intents.status, 'ACTIVE'),
-                  isNull(schema.intents.archivedAt),
-                )
-              );
-
-            if (contactIntents.length > 0) {
-              await tx.insert(schema.intentIndexes)
-                .values(contactIntents.map(i => ({
-                  intentId: i.id,
-                  indexId: personalIndexId,
-                })))
-                .onConflictDoNothing();
-            }
           }
         }
       }

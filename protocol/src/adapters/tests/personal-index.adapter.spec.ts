@@ -166,6 +166,21 @@ describe('ensurePersonalIndex', () => {
     expect(membership.permissions).toEqual(['owner']);
   });
 
+  it('creates owner membership with autoAssign enabled', async () => {
+    const [membership] = await db
+      .select()
+      .from(indexMembers)
+      .where(
+        and(
+          eq(indexMembers.indexId, fixture.personalIndexId),
+          eq(indexMembers.userId, fixture.ownerUserId),
+        ),
+      );
+
+    expect(membership).toBeDefined();
+    expect(membership.autoAssign).toBe(true);
+  });
+
   it('is idempotent — calling twice returns the same index ID', async () => {
     const secondCall = await ensurePersonalIndex(fixture.ownerUserId);
     expect(secondCall).toBe(fixture.personalIndexId);
@@ -266,7 +281,7 @@ describe('importContactsBulk → personal index sync', () => {
     expect(membership).toBeDefined();
     expect(membership.permissions).toEqual(['contact']);
 
-    // Verify the contact's active intent was backfilled into the personal index
+    // Verify the contact's active intent was NOT backfilled into the personal index
     const intentLinks = await db
       .select()
       .from(intentIndexes)
@@ -276,7 +291,7 @@ describe('importContactsBulk → personal index sync', () => {
           eq(intentIndexes.intentId, fixture.contactIntentId),
         ),
       );
-    expect(intentLinks).toHaveLength(1);
+    expect(intentLinks).toHaveLength(0);
 
     // Record the contact record ID for removal test
     const [contactRecord] = await db
