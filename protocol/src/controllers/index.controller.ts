@@ -399,8 +399,10 @@ export class IndexController {
       return Response.json(result);
     } catch (err: unknown) {
       const msg = errorMessage(err);
-      return new Response(JSON.stringify({ error: msg }), {
-        status: 400,
+      const isKnownError = msg.includes('Invalid or expired invitation link');
+      logger.warn('Failed to accept invitation', { error: msg, userId: user.id });
+      return new Response(JSON.stringify({ error: isKnownError ? msg : 'Failed to accept invitation' }), {
+        status: isKnownError ? 400 : 500,
         headers: { 'Content-Type': 'application/json' },
       });
     }

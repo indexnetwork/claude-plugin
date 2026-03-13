@@ -2133,7 +2133,8 @@ export class ChatDatabaseAdapter {
 
   /**
    * Get an index by its invitation link code (public access, no auth required).
-   * Returns the index with owner info and member count if the code matches.
+   * @param code - The invitation link code from the URL
+   * @returns The index with owner info, member count, and joinPolicy, or null if not found
    */
   async getIndexByShareCode(code: string) {
     const rows = await db
@@ -2161,7 +2162,8 @@ export class ChatDatabaseAdapter {
       .where(
         and(
           sql`${indexes.permissions}->'invitationLink'->>'code' = ${code}`,
-          isNull(indexes.deletedAt)
+          isNull(indexes.deletedAt),
+          eq(indexes.isPersonal, false)
         )
       )
       .limit(1);
@@ -2188,7 +2190,10 @@ export class ChatDatabaseAdapter {
 
   /**
    * Accept an invitation to join an index using the invitation code.
-   * Throws if the code is invalid or the index is not found.
+   * @param code - The invitation link code
+   * @param userId - The authenticated user accepting the invitation
+   * @returns The index, membership details, and alreadyMember flag
+   * @throws Error if the code is invalid or the index is not found
    */
   async acceptIndexInvitation(code: string, userId: string) {
     const index = await this.getIndexByShareCode(code);

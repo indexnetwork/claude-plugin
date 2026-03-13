@@ -53,7 +53,10 @@ describe("Invitation Endpoints Integration", () => {
       body: JSON.stringify({ title: "Invite Test Index", prompt: "Testing invitations", joinPolicy: "invite_only" }),
     });
     const createRes = await controller.create(createReq, mockOwner());
+    expect(createRes.status).toBe(200);
     const createData = (await createRes.json()) as { index?: { id: string; permissions?: Record<string, unknown> } };
+    expect(createData.index).not.toBeNull();
+    expect(createData.index!.id).toBeTruthy();
     createdIndexId = createData.index!.id;
 
     // Update permissions to generate invitation link code
@@ -63,7 +66,9 @@ describe("Invitation Endpoints Integration", () => {
       body: JSON.stringify({ joinPolicy: "invite_only" }),
     });
     const updateRes = await controller.updatePermissions(updateReq, mockOwner(), { id: createdIndexId });
+    expect(updateRes.status).toBe(200);
     const updateData = (await updateRes.json()) as { index?: { permissions?: { invitationLink?: { code: string } } } };
+    expect(updateData.index?.permissions?.invitationLink?.code).toBeTruthy();
     invitationCode = updateData.index!.permissions!.invitationLink!.code;
   });
 
@@ -92,7 +97,7 @@ describe("Invitation Endpoints Integration", () => {
       const data = (await res.json()) as { index?: { id: string; title: string } };
 
       expect(res.status).toBe(200);
-      expect(data.index).toBeDefined();
+      expect(data.index).not.toBeNull();
       expect(data.index!.id).toBe(createdIndexId);
       expect(data.index!.title).toBe("Invite Test Index");
     });
@@ -112,8 +117,6 @@ describe("Invitation Endpoints Integration", () => {
       const data = (await res.json()) as { index?: Record<string, unknown> };
 
       expect(res.status).toBe(200);
-      // The public response should NOT contain the full permissions object
-      // (which would leak invitationLink.code, joinPolicy internals, etc.)
       expect(data.index!.permissions).toBeUndefined();
     });
 
@@ -123,9 +126,8 @@ describe("Invitation Endpoints Integration", () => {
       const data = (await res.json()) as { index?: { user?: { id: string; name: string }; _count?: { members: number } } };
 
       expect(res.status).toBe(200);
-      expect(data.index!.user).toBeDefined();
       expect(data.index!.user!.id).toBe(ownerUserId);
-      expect(data.index!._count).toBeDefined();
+      expect(data.index!.user!.name).toBe("Invite Owner");
       expect(data.index!._count!.members).toBeGreaterThanOrEqual(1);
     });
   });
@@ -139,9 +141,7 @@ describe("Invitation Endpoints Integration", () => {
       const data = (await res.json()) as { index?: { id: string }; membership?: { id: string }; alreadyMember?: boolean };
 
       expect(res.status).toBe(200);
-      expect(data.index).toBeDefined();
       expect(data.index!.id).toBe(createdIndexId);
-      expect(data.membership).toBeDefined();
       expect(data.membership!.id).toBe(joinerUserId);
       expect(data.alreadyMember).toBe(false);
     });

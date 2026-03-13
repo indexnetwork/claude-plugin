@@ -395,11 +395,14 @@ export default function OnboardingPage() {
     // Accept pending invitation deferred from /l/:code (only after onboarding completes)
     const pendingCode = localStorage.getItem('pendingInviteCode');
     if (pendingCode) {
-      localStorage.removeItem('pendingInviteCode');
       indexesService
         .acceptInvitation(pendingCode)
-        .then(() => refreshIndexes())
+        .then(async () => {
+          localStorage.removeItem('pendingInviteCode');
+          await refreshIndexes();
+        })
         .catch((err) => {
+          // Keep code in localStorage so user can retry via the invitation link
           console.error('Failed to accept deferred invitation:', err);
           showError('Could not join the network from your invitation link. Please try the link again.');
         });
