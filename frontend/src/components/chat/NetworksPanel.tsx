@@ -33,8 +33,8 @@ export default function NetworksPanel({ onJoin, pendingJoinIds = new Set() }: Ne
       .finally(() => setLoading(false));
   }, [indexesService]);
 
-  const joinedIds = new Set(joinedIndexes.filter((i) => !i.isPersonal).map((i) => i.id));
-  const joined = publicNetworks.filter((n) => joinedIds.has(n.id));
+  const joinedNonPersonal = joinedIndexes.filter((i) => !i.isPersonal);
+  const joinedIds = new Set(joinedNonPersonal.map((i) => i.id));
   const joinable = publicNetworks.filter((n) => !joinedIds.has(n.id));
 
   if (loading) {
@@ -45,7 +45,7 @@ export default function NetworksPanel({ onJoin, pendingJoinIds = new Set() }: Ne
     );
   }
 
-  if (publicNetworks.length === 0) {
+  if (joinedNonPersonal.length === 0 && publicNetworks.length === 0) {
     return (
       <p className="text-sm text-gray-400 py-4">No public networks available</p>
     );
@@ -53,13 +53,13 @@ export default function NetworksPanel({ onJoin, pendingJoinIds = new Set() }: Ne
 
   return (
     <div className="mt-3 rounded-2xl border border-[#E8E8E8] bg-[#FAFAFA] overflow-hidden">
-      {joined.length > 0 && (
+      {joinedNonPersonal.length > 0 && (
         <div>
           <p className="px-4 pt-3 pb-1 text-[10px] uppercase tracking-wider text-gray-400 font-medium">
             Joined
           </p>
           <div className="divide-y divide-gray-100">
-            {joined.map((network) => (
+            {joinedNonPersonal.map((network) => (
               <div key={network.id} className="flex items-center gap-3 px-4 py-2.5">
                 <div className="w-9 h-9 rounded-full overflow-hidden shrink-0">
                   <IndexAvatar
@@ -88,7 +88,7 @@ export default function NetworksPanel({ onJoin, pendingJoinIds = new Set() }: Ne
 
       {joinable.length > 0 && (
         <div>
-          {joined.length > 0 && <div className="border-t border-gray-100" />}
+          {joinedNonPersonal.length > 0 && <div className="border-t border-gray-100" />}
           <p className="px-4 pt-3 pb-1 text-[10px] uppercase tracking-wider text-gray-400 font-medium">
             Discover
           </p>
