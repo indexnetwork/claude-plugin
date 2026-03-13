@@ -1,24 +1,28 @@
 import './startup.env';
 
 import { ChatController } from './controllers/chat.controller';
+import { DebugController } from './controllers/debug.controller';
 import { S3StorageAdapter } from './adapters/storage.adapter';
 import { IndexController } from './controllers/index.controller';
 import { IntentController } from './controllers/intent.controller';
-import { FileController } from './controllers/file.controller';
 import { LinkController } from './controllers/link.controller';
 import { OpportunityController, IndexOpportunityController } from './controllers/opportunity.controller';
 import { AuthController } from './controllers/auth.controller';
 import { ProfileController } from './controllers/profile.controller';
-import { UploadController } from './controllers/upload.controller';
 import { UserController } from './controllers/user.controller';
+import { StorageController } from './controllers/storage.controller';
+import { SubscribeController } from './controllers/subscribe.controller';
+import { fileService } from './services/file.service';
 import { MessagingController } from './controllers/messaging.controller';
-import { MessagingDatabaseAdapter } from './adapters/database.adapter';
+import { MessagingDatabaseAdapter, ensurePersonalIndex } from './adapters/database.adapter';
 import { MessagingService } from './services/messaging.service';
 import path from 'path';
 import { RouteRegistry } from './lib/router/router.decorators';
 import { log } from './lib/log';
-import { auth, setWalletHook } from './lib/auth';
-import { getCorsHeaders } from './lib/cors';
+import { createAuth } from './lib/betterauth/betterauth';
+import { AuthDatabaseAdapter } from './adapters/auth.adapter';
+import { getCorsHeaders, getTrustedOrigins } from './lib/cors';
+import { sendMagicLinkEmail } from './lib/email/magic-link.handler';
 import { adminQueuesApp } from './controllers/queues.controller';
 import { getStats } from './lib/performance';
 // Bootstrap queue workers and HyDE crons (only in this process, not in CLI e.g. db:seed)
@@ -29,6 +33,7 @@ import { hydeQueue } from './queues/hyde.queue';
 import { emailQueue } from './queues/email.queue';
 import { profileQueue } from './queues/profile.queue';
 import { IndexMembershipEvents } from './events/index_membership.event';
+import { IntentEvents } from './events/intent.event';
 
 intentQueue.startWorker();
 opportunityQueue.startWorker();
@@ -41,6 +46,10 @@ IndexMembershipEvents.onMemberAdded = (userId: string) => {
   profileQueue.addEnsureProfileHydeJob({ userId }).catch((err) => {
     log.job.from('IndexMembership').error('Failed to enqueue ensure_profile_hyde', { userId, error: err });
   });
+};
+
+IntentEvents.onArchived = (intentId: string, userId: string) => {
+  log.job.from('IntentEvents').verbose('Intent archived', { intentId, userId });
 };
 
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3001;
@@ -94,12 +103,22 @@ if (!walletMasterKeyHex || walletMasterKeyHex.length !== 64) {
 const walletMasterKey = Buffer.from(walletMasterKeyHex, 'hex');
 
 const messagingStore = new MessagingDatabaseAdapter(walletMasterKey);
-setWalletHook((userId) => messagingStore.ensureWallet(userId));
+
+const authDb = new AuthDatabaseAdapter();
+const auth = createAuth({
+  authDb,
+  getTrustedOrigins,
+  sendMagicLinkEmail,
+  ensureWallet: (userId) => messagingStore.ensureWallet(userId),
+  ensurePersonalIndex,
+});
 const messagingService = new MessagingService(messagingStore, {
   xmtpEnv: (process.env.XMTP_ENV as 'dev' | 'production' | 'local') || 'dev',
   xmtpDbDir: path.resolve(import.meta.dir, '../.xmtp'),
   walletMasterKey,
 });
+// Set storage adapter on fileService for S3 file operations
+fileService.setStorageAdapter(storageAdapter);
 
 const controllerInstances = new Map();
 controllerInstances.set(AuthController, new AuthController());
@@ -107,13 +126,14 @@ controllerInstances.set(ProfileController, new ProfileController());
 controllerInstances.set(ChatController, new ChatController());
 controllerInstances.set(IndexController, new IndexController());
 controllerInstances.set(IntentController, new IntentController());
-controllerInstances.set(FileController, new FileController());
 controllerInstances.set(LinkController, new LinkController());
 controllerInstances.set(OpportunityController, new OpportunityController());
 controllerInstances.set(IndexOpportunityController, new IndexOpportunityController());
-controllerInstances.set(UploadController, new UploadController(storageAdapter));
 controllerInstances.set(UserController, new UserController());
 controllerInstances.set(MessagingController, new MessagingController(messagingService));
+controllerInstances.set(StorageController, new StorageController(storageAdapter));
+controllerInstances.set(SubscribeController, new SubscribeController());
+controllerInstances.set(DebugController, new DebugController());
 
 logger.info('Routes registered', { prefix: GLOBAL_PREFIX });
 
@@ -127,7 +147,7 @@ Bun.serve({
 
     const corsHeaders = getCorsHeaders(req);
 
-    logger.info('Request', { method, path: url.pathname });
+    logger.verbose('Request', { method, path: url.pathname });
 
     // Handle OPTIONS preflight requests
     if (method === 'OPTIONS') {
@@ -194,14 +214,13 @@ Bun.serve({
         let fullPath = GLOBAL_PREFIX + controllerDef.path + route.path;
         // Normalize double slashes
         fullPath = fullPath.replace(/\/+/g, '/');
-        // Remove trailing slash if strictly matching, or just strip both
         const hasParams = fullPath.includes(':');
         const params = hasParams ? matchPath(fullPath, url.pathname) : null;
         const isMatch = url.pathname === fullPath || params !== null;
 
         if (isMatch) {
           const routeParams = params ?? {} as Record<string, string>;
-          logger.info('Matched route', { path: fullPath, handler: `${target.name}.${String(route.methodName)}`, params: routeParams });
+          logger.verbose('Matched route', { path: fullPath, handler: `${target.name}.${String(route.methodName)}`, params: routeParams });
           try {
             const instance = controllerInstances.get(target);
             if (!instance) {
@@ -211,20 +230,20 @@ Bun.serve({
 
             // Execute Guards
             const guards = RouteRegistry.getGuards(target, route.methodName);
-            logger.info('Guards found', { count: guards.length });
+            logger.verbose('Guards found', { count: guards.length });
             let guardResult: any = null;
 
             for (const guard of guards) {
-              logger.info('Executing guard', { guard: guard.name || 'anonymous' });
+              logger.verbose('Executing guard', { guard: guard.name || 'anonymous' });
               guardResult = await guard(req);
-              logger.info('Guard execution successful');
+              logger.verbose('Guard execution successful');
             }
 
             // Invoke handler: (req, user, params?)
             const handler = instance[route.methodName];
-            logger.info('Invoking handler', { handler: String(route.methodName) });
+            logger.verbose('Invoking handler', { handler: String(route.methodName) });
             const result = await handler.call(instance, req, guardResult, routeParams);
-            logger.info('Handler invoked successfully');
+            logger.verbose('Handler invoked successfully');
 
             // If result is a Response object, add CORS headers and return it.
             if (result instanceof Response) {
@@ -256,6 +275,9 @@ Bun.serve({
             if (message === 'User not found' || message === 'Account deactivated') {
               return new Response(JSON.stringify({ error: message }), { status: 403, headers: { 'Content-Type': 'application/json', ...corsHeaders } });
             }
+            if (message === 'Not found') {
+              return new Response(JSON.stringify({ error: message }), { status: 404, headers: { 'Content-Type': 'application/json', ...corsHeaders } });
+            }
 
             return new Response(JSON.stringify({ error: message }), { status: 500, headers: { 'Content-Type': 'application/json', ...corsHeaders } });
           }
@@ -263,9 +285,26 @@ Bun.serve({
       }
     }
 
-    logger.info('No match found', { path: url.pathname });
+    logger.verbose('No match found', { path: url.pathname });
     return new Response('Not Found', { status: 404, headers: corsHeaders });
   },
 });
 
 logger.info('Server running', { port: PORT });
+
+
+// Graceful shutdown: close BullMQ workers so stale workers don't linger after restart
+const shutdown = async () => {
+  logger.info('Shutting down workers...');
+  await Promise.allSettled([
+    profileQueue.close(),
+    intentQueue.close(),
+    opportunityQueue.close(),
+    notificationQueue.close(),
+    emailQueue.close(),
+  ]);
+  logger.info('Workers closed');
+  process.exit(0);
+};
+process.on('SIGINT', shutdown);
+process.on('SIGTERM', shutdown);

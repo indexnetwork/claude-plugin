@@ -8,6 +8,8 @@ import type { HydeGraphDatabase } from '../lib/protocol/interfaces/database.inte
 import type { IntentGraphQueue } from '../lib/protocol/interfaces/queue.interface';
 import { HydeGraphFactory } from '../lib/protocol/graphs/hyde.graph';
 import { HydeGenerator } from '../lib/protocol/agents/hyde.generator';
+import { LensInferrer } from '../lib/protocol/agents/lens.inferrer';
+import { IntentIndexer } from '../lib/protocol/agents/intent.indexer';
 import { opportunityQueue } from './opportunity.queue';
 
 /** BullMQ queue name for intent HyDE generation and deletion jobs. */
@@ -30,7 +32,7 @@ export type IntentJobPayload = IntentJobData | IntentDeleteData;
 /** Minimal database interface for intent queue (used when deps provided in tests). */
 export type IntentQueueDatabase = Pick<
   ChatDatabaseAdapter,
-  'getIntentForIndexing' | 'getUserIndexIds' | 'assignIntentToIndex' | 'deleteHydeDocumentsForSource'
+  'getIntentForIndexing' | 'getUserIndexIds' | 'assignIntentToIndex' | 'deleteHydeDocumentsForSource' | 'getIndexMemberContext'
 >;
 
 /**
@@ -43,7 +45,6 @@ export interface IntentQueueDeps {
     sourceText: string;
     sourceType: string;
     sourceId: string;
-    strategies: ('mirror' | 'reciprocal')[];
     forceRegenerate: boolean;
   }) => Promise<void>;
   addOpportunityJob?: (data: { intentId: string; userId: string }) => Promise<unknown>;
@@ -128,7 +129,6 @@ export class IntentQueue implements IntentGraphQueue {
    * @param data - Job payload
    */
   async processJob(name: string, data: IntentJobPayload): Promise<void> {
-    this.queueLogger.info(`[IntentProcessor] Processing job (${name})`);
     switch (name) {
       case 'generate_hyde':
         await this.handleGenerateHyde(data as IntentJobData);
@@ -169,6 +169,14 @@ export class IntentQueue implements IntentGraphQueue {
     this.worker = QueueFactory.createWorker<IntentJobPayload>(QUEUE_NAME, processor);
   }
 
+  async close(): Promise<void> {
+    if (this.worker) {
+      await this.worker.close();
+      this.worker = null;
+    }
+    await this.queue.close();
+  }
+
   private async handleGenerateHyde(
     data: IntentJobData,
     overrides?: { addOpportunityJob?: (d: { intentId: string; userId: string }) => Promise<unknown> }
@@ -180,17 +188,70 @@ export class IntentQueue implements IntentGraphQueue {
       this.logger.warn('[IntentHyde] Intent not found, skipping', { intentId });
       return;
     }
+    this.logger.info('[IntentHyde] Starting HyDE generation', { intentId, userId });
+    this.logger.debug('[IntentHyde] Intent payload preview', { intentId, payload: intent.payload?.slice(0, 80) });
+    let assignedIndexCount = 0;
     try {
       const userIndexIds = await db.getUserIndexIds(userId);
-      for (const indexId of userIndexIds) {
+      this.logger.info('[IntentHyde] User indexes found', { intentId, userId, indexCount: userIndexIds.length, indexIds: userIndexIds });
+
+      // Fetch prompts for each index to determine which need scoring
+      const indexContexts = await Promise.all(
+        userIndexIds.map(async (indexId) => {
+          const ctx = await db.getIndexMemberContext(indexId, userId);
+          return { indexId, ctx };
+        })
+      );
+
+      // Split: no-prompt indexes get score 1.0, others need IntentIndexer
+      const noPromptIndexes = indexContexts.filter(
+        ({ ctx }) => !ctx?.indexPrompt?.trim() && !ctx?.memberPrompt?.trim()
+      );
+      const scorableIndexes = indexContexts.filter(
+        ({ ctx }) => ctx?.indexPrompt?.trim() || ctx?.memberPrompt?.trim()
+      );
+
+      // Assign no-prompt indexes with default score
+      for (const { indexId } of noPromptIndexes) {
         try {
-          await db.assignIntentToIndex(intentId, indexId);
+          await db.assignIntentToIndex(intentId, indexId, 1.0);
+          assignedIndexCount++;
         } catch (assignErr) {
-          this.logger.debug('[IntentHyde] Assign intent to index skipped', {
-            intentId,
-            indexId,
-            error: assignErr,
-          });
+          this.logger.debug('[IntentHyde] Assign intent to index skipped', { intentId, indexId, error: assignErr });
+        }
+      }
+
+      // Score and assign scorable indexes in parallel
+      if (scorableIndexes.length > 0) {
+        const indexer = new IntentIndexer();
+        const scoringResults = await Promise.all(
+          scorableIndexes.map(async ({ indexId, ctx }) => {
+            try {
+              const result = await indexer.invoke(
+                intent.payload,
+                ctx?.indexPrompt ?? null,
+                ctx?.memberPrompt ?? null,
+              );
+              const score = result
+                ? (ctx?.indexPrompt && ctx?.memberPrompt
+                    ? result.indexScore * 0.6 + result.memberScore * 0.4
+                    : ctx?.indexPrompt ? result.indexScore : result.memberScore)
+                : 1.0;
+              return { indexId, score };
+            } catch (err) {
+              this.logger.warn('[IntentHyde] IntentIndexer failed for index, using default score', { intentId, indexId, error: err });
+              return { indexId, score: 1.0 };
+            }
+          })
+        );
+
+        for (const { indexId, score } of scoringResults) {
+          try {
+            await db.assignIntentToIndex(intentId, indexId, score);
+            assignedIndexCount++;
+          } catch (assignErr) {
+            this.logger.debug('[IntentHyde] Assign intent to index skipped', { intentId, indexId, error: assignErr });
+          }
         }
       }
     } catch (err) {
@@ -200,28 +261,28 @@ export class IntentQueue implements IntentGraphQueue {
         error: err,
       });
     }
+    this.logger.info('[IntentHyde] Index assignment complete', { intentId, assignedIndexCount });
     if (this.deps?.invokeHyde) {
       await this.deps.invokeHyde({
         sourceText: intent.payload,
         sourceType: 'intent',
         sourceId: intentId,
-        strategies: ['mirror', 'reciprocal'],
         forceRegenerate: true,
       });
     } else {
       const embedder = new EmbedderAdapter();
       const cache = new RedisCacheAdapter();
+      const inferrer = new LensInferrer();
       const generator = new HydeGenerator();
-      const hydeGraph = new HydeGraphFactory(this.graphDb, embedder, cache, generator).createGraph();
+      const hydeGraph = new HydeGraphFactory(this.graphDb, embedder, cache, inferrer, generator).createGraph();
       await hydeGraph.invoke({
         sourceText: intent.payload,
         sourceType: 'intent',
         sourceId: intentId,
-        strategies: ['mirror', 'reciprocal'],
         forceRegenerate: true,
       });
     }
-    this.logger.info('[IntentHyde] Generated HyDE for intent', { intentId, userId });
+    this.logger.info('[IntentHyde] HyDE generation complete, enqueuing opportunity discovery', { intentId, userId });
     const addJob =
       overrides?.addOpportunityJob ??
       this.deps?.addOpportunityJob ??
@@ -235,7 +296,7 @@ export class IntentQueue implements IntentGraphQueue {
     const { intentId } = data;
     const db = this.deps?.database ?? this.database;
     await db.deleteHydeDocumentsForSource('intent', intentId);
-    this.logger.info('[IntentHyde] Deleted HyDE documents for intent', { intentId });
+    this.logger.verbose('[IntentHyde] Deleted HyDE documents for intent', { intentId });
   }
 }
 

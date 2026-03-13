@@ -29,7 +29,7 @@ export class IndexGraphFactory {
      */
     const readNode = async (state: typeof IndexGraphState.State) => {
       return timed("IndexGraph.read", async () => {
-        logger.info("Read indexes", { userId: state.userId, indexId: state.indexId, showAll: state.showAll });
+        logger.verbose("Read indexes", { userId: state.userId, indexId: state.indexId, showAll: state.showAll });
 
         try {
           const [allMemberships, ownedIndexes, publicIndexesResult] = await Promise.all([
@@ -48,7 +48,7 @@ export class IndexGraphFactory {
                 readResult: {
                   memberOf: [],
                   owns: [],
-                  summary: { memberOfCount: 0, ownsCount: 0, scopeNote: "Index not found or you are not a member." },
+                  stats: { memberOfCount: 0, ownsCount: 0, scopeNote: "Index not found or you are not a member." },
                 },
               };
             }
@@ -62,7 +62,7 @@ export class IndexGraphFactory {
                 owns: owned
                   ? [{ indexId: owned.id, title: owned.title, description: owned.prompt, memberCount: owned.memberCount, intentCount: owned.intentCount, joinPolicy: owned.permissions.joinPolicy }]
                   : [],
-                summary: { memberOfCount: membership ? 1 : 0, ownsCount: owned ? 1 : 0, scopeNote: "Showing current index. Use showAll: true for all indexes." },
+                stats: { memberOfCount: membership ? 1 : 0, ownsCount: owned ? 1 : 0, scopeNote: "Showing current index. Use showAll: true for all indexes." },
               },
             };
           }
@@ -81,7 +81,7 @@ export class IndexGraphFactory {
               memberOf: allMemberships.map((m) => ({ indexId: m.indexId, title: m.indexTitle, description: m.indexPrompt, autoAssign: m.autoAssign, joinedAt: m.joinedAt })),
               owns: ownedIndexes.map((o) => ({ indexId: o.id, title: o.title, description: o.prompt, memberCount: o.memberCount, intentCount: o.intentCount, joinPolicy: o.permissions.joinPolicy })),
               publicIndexes,
-              summary: { memberOfCount: allMemberships.length, ownsCount: ownedIndexes.length, publicIndexesCount: publicIndexes.length },
+              stats: { memberOfCount: allMemberships.length, ownsCount: ownedIndexes.length, publicIndexesCount: publicIndexes.length },
             },
           };
         } catch (err) {
@@ -96,7 +96,7 @@ export class IndexGraphFactory {
      */
     const createNode = async (state: typeof IndexGraphState.State) => {
       return timed("IndexGraph.create", async () => {
-        logger.info("Create index", { userId: state.userId, createInput: state.createInput });
+        logger.verbose("Create index", { userId: state.userId, createInput: state.createInput });
 
         if (!state.createInput?.title?.trim()) {
           return { mutationResult: { success: false, error: "Title is required." } };
@@ -107,6 +107,7 @@ export class IndexGraphFactory {
           const index = await this.database.createIndex({
             title: state.createInput.title.trim(),
             prompt: state.createInput.prompt?.trim() || undefined,
+            imageUrl: state.createInput.imageUrl ?? undefined,
             joinPolicy: state.createInput.joinPolicy,
           });
           createdIndexId = index.id;
@@ -142,7 +143,7 @@ export class IndexGraphFactory {
     const updateNode = async (state: typeof IndexGraphState.State) => {
       return timed("IndexGraph.update", async () => {
         const indexId = state.indexId;
-        logger.info("Update index", { userId: state.userId, indexId, updateInput: state.updateInput });
+        logger.verbose("Update index", { userId: state.userId, indexId, updateInput: state.updateInput });
 
         if (!indexId) {
           return { mutationResult: { success: false, error: "indexId is required for update." } };
@@ -176,7 +177,7 @@ export class IndexGraphFactory {
     const deleteNode = async (state: typeof IndexGraphState.State) => {
       return timed("IndexGraph.delete", async () => {
         const indexId = state.indexId;
-        logger.info("Delete index", { userId: state.userId, indexId });
+        logger.verbose("Delete index", { userId: state.userId, indexId });
 
         if (!indexId) {
           return { mutationResult: { success: false, error: "indexId is required for delete." } };

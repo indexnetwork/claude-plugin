@@ -31,6 +31,7 @@ export const IndexGraphState = Annotation.Root({
   createInput: Annotation<{
     title: string;
     prompt?: string;
+    imageUrl?: string | null;
     joinPolicy?: 'anyone' | 'invite_only';
   } | undefined>({
     reducer: (_, next) => next,
@@ -41,6 +42,7 @@ export const IndexGraphState = Annotation.Root({
   updateInput: Annotation<{
     title?: string;
     prompt?: string | null;
+    imageUrl?: string | null;
     joinPolicy?: 'anyone' | 'invite_only';
     allowGuestVibeCheck?: boolean;
   } | undefined>({
@@ -73,9 +75,17 @@ export const IndexGraphState = Annotation.Root({
       intentCount: number;
       joinPolicy: string;
     }>;
-    summary: {
+    publicIndexes?: Array<{
+      indexId: string;
+      title: string;
+      description: string | null;
+      memberCount: number;
+      owner: { name: string; avatar: string | null } | null;
+    }>;
+    stats: {
       memberOfCount: number;
       ownsCount: number;
+      publicIndexesCount?: number;
       scopeNote?: string;
     };
   } | undefined>({

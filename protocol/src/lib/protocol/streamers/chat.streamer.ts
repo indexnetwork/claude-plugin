@@ -1,4 +1,4 @@
-import { BaseMessage, HumanMessage } from "@langchain/core/messages";
+import { AIMessage, BaseMessage, HumanMessage } from "@langchain/core/messages";
 import { MemorySaver } from "@langchain/langgraph";
 import { PostgresSaver } from "@langchain/langgraph-checkpoint-postgres";
 import { protocolLogger } from "../support/protocol.logger";
@@ -9,9 +9,13 @@ import type {
 import {
   createDebugMetaEvent,
   createErrorEvent,
+  createIterationStartEvent,
+  createLlmStartEvent,
+  createLlmEndEvent,
   createResponseCompleteEvent,
   createStatusEvent,
   createTokenEvent,
+  createToolActivityEvent,
 } from "../../../types/chat-streaming.types";
 import type { AgentStreamEvent } from "../agents/chat.agent";
 
@@ -56,8 +60,10 @@ export class ChatStreamer {
       sessionId: string;
       maxContextMessages?: number;
       indexId?: string;
+      prefillMessages?: Array<{ role: "assistant" | "user"; content: string }>;
     },
     checkpointer?: MemorySaver | PostgresSaver,
+    signal?: AbortSignal,
   ): AsyncGenerator<ChatStreamEvent> {
     const {
       userId,
@@ -65,8 +71,9 @@ export class ChatStreamer {
       sessionId,
       maxContextMessages = 20,
       indexId,
+      prefillMessages,
     } = input;
-    logger.info("Starting context-aware streaming", {
+    logger.verbose("Starting context-aware streaming", {
       userId,
       sessionId,
       maxContextMessages,
@@ -82,10 +89,16 @@ export class ChatStreamer {
         maxContextMessages,
       );
 
-      // Add current message
-      const allMessages = [...previousMessages, new HumanMessage(message)];
+      // Inject prefill messages (e.g. hardcoded onboarding greeting) only for fresh sessions
+      const prefill: BaseMessage[] = previousMessages.length === 0
+        ? (prefillMessages ?? []).map((pm) =>
+            pm.role === "assistant" ? new AIMessage(pm.content) : new HumanMessage(pm.content),
+          )
+        : [];
 
-      logger.info("Context prepared", {
+      const allMessages = [...previousMessages, ...prefill, new HumanMessage(message)];
+
+      logger.verbose("Context prepared", {
         previousCount: previousMessages.length,
         totalCount: allMessages.length,
       });
@@ -95,6 +108,7 @@ export class ChatStreamer {
         { userId, messages: allMessages, indexId },
         sessionId,
         checkpointer,
+        signal,
       );
     } catch (error) {
       logger.error("Stream error", {
@@ -127,6 +141,7 @@ export class ChatStreamer {
     input: { userId: string; messages: BaseMessage[]; indexId?: string },
     sessionId: string,
     checkpointer?: MemorySaver | PostgresSaver,
+    signal?: AbortSignal,
   ): AsyncGenerator<ChatStreamEvent> {
     const graph = this.createStreamingGraph(checkpointer);
 
@@ -147,13 +162,15 @@ export class ChatStreamer {
       // Custom events come from config.writer() inside agentLoopNode.
       const eventStream = await graph.stream(initialState, {
         streamMode: ["custom", "updates"] as const,
-        configurable: { thread_id: sessionId },
+        configurable: { thread_id: sessionId, signal },
+        signal,
       });
 
       // Emit initial status
       yield createStatusEvent(sessionId, "Processing your message...");
 
       for await (const tuple of eventStream) {
+        if (signal?.aborted) break;
         // graph.stream with multiple modes yields [mode, chunk] tuples
         const [mode, chunk] = tuple as [string, unknown];
 
@@ -163,17 +180,47 @@ export class ChatStreamer {
         if (mode === "custom") {
           const event = chunk as AgentStreamEvent;
 
+          if (event.type === "iteration_start") {
+            yield createIterationStartEvent(sessionId, event.iteration);
+          }
+
+          if (event.type === "llm_start") {
+            yield createLlmStartEvent(sessionId, event.iteration);
+          }
+
           if (event.type === "text_chunk" && event.content) {
             yield createTokenEvent(sessionId, event.content);
           }
 
-          // tool_activity "end" events are logged but not forwarded to
-          // the frontend — the LLM's own text provides the narration.
+          if (event.type === "llm_end") {
+            yield createLlmEndEvent(
+              sessionId,
+              event.iteration,
+              event.hasToolCalls,
+              event.toolNames,
+            );
+          }
+
           if (event.type === "tool_activity") {
-            logger.debug("Tool activity", {
-              name: event.name,
-              success: event.success,
-            });
+            logger.debug("Tool activity", { name: event.name, phase: event.phase });
+            if (event.phase === "start") {
+              yield createToolActivityEvent(
+                sessionId,
+                event.name,
+                event.name,
+                "start",
+              );
+            } else {
+              yield createToolActivityEvent(
+                sessionId,
+                event.name,
+                event.name,
+                "end",
+                event.success,
+                event.summary,
+                event.steps,
+              );
+            }
           }
         }
 
@@ -218,7 +265,7 @@ export class ChatStreamer {
             );
           }
 
-          logger.info("Agent loop complete (updates)", {
+          logger.verbose("Agent loop complete (updates)", {
             responseLength: responseText.length,
           });
         }

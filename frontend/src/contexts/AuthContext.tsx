@@ -1,7 +1,5 @@
-'use client';
-
 import { createContext, useContext, useEffect, useState, useCallback, ReactNode } from 'react';
-import { useRouter, usePathname } from 'next/navigation';
+import { useNavigate, useLocation } from 'react-router';
 import { authClient, clearJwtToken } from '@/lib/auth-client';
 import { useAuthenticatedAPI } from '../lib/api';
 import { useAuthService } from '../services/auth';
@@ -32,8 +30,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [userFetchAttempted, setUserFetchAttempted] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loginModalOpen, setLoginModalOpen] = useState(false);
-  const router = useRouter();
-  const pathname = usePathname();
+  const navigate = useNavigate();
+  const { pathname } = useLocation();
   const api = useAuthenticatedAPI();
   const authService = useAuthService();
 
@@ -51,8 +49,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signOut = useCallback(async () => {
     clearJwtToken();
     await authClient.signOut();
-    router.push('/');
-  }, [router]);
+    navigate('/');
+  }, [navigate]);
 
   const fetchUser = useCallback(async () => {
     if (!authenticated || !ready) return;
@@ -112,18 +110,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (authenticated && !user && !userFetchAttempted) return;
 
     const isHomePage = pathname === '/';
-    const isPublicPage = pathname.startsWith('/simulation') || pathname.startsWith('/l') || pathname.startsWith('/index/') || pathname.startsWith('/blog') || pathname.startsWith('/pages') || pathname.startsWith('/about') || pathname.startsWith('/login') || pathname.startsWith('/s/');
+    const isOnboardingPage = pathname === '/onboarding';
+    const isPublicPage = pathname.startsWith('/simulation') || pathname.startsWith('/l') || pathname.startsWith('/index/') || pathname.startsWith('/blog') || pathname.startsWith('/pages') || pathname.startsWith('/about') || pathname.startsWith('/login') || pathname.startsWith('/s/') || pathname.startsWith('/oauth/');
     const isProtectedPage = pathname.startsWith('/i/');
 
     const shouldRedirectToHome = !authenticated && (isProtectedPage || (!isHomePage && !isPublicPage));
 
     if (shouldRedirectToHome) {
-      router.push('/');
+      navigate('/');
       return;
     }
 
+    // Force redirect to /onboarding when onboarding is not complete
+    if (authenticated && user && !user.onboarding?.completedAt) {
+      if (!isOnboardingPage && !isPublicPage) {
+        navigate('/onboarding', { replace: true });
+        return;
+      }
+    }
+
     setIsLoading(false);
-  }, [authenticated, ready, router, pathname, user, userLoading, userFetchAttempted]);
+  }, [authenticated, ready, navigate, pathname, user, userLoading, userFetchAttempted]);
 
   return (
     <AuthContext.Provider

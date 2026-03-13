@@ -1,9 +1,6 @@
-'use client';
-
 import { PropsWithChildren, Suspense, useMemo, useState } from 'react';
-import Link from 'next/link';
-import Image from 'next/image';
-import { usePathname } from 'next/navigation';
+import { Link } from 'react-router';
+import { useLocation } from 'react-router';
 import Header from "@/components/Header";
 import Sidebar from "@/components/Sidebar";
 import ChatSidebar from "@/components/ChatSidebar";
@@ -13,12 +10,19 @@ import { XMTPProvider } from "@/contexts/XMTPContext";
 import { useAuthContext } from "@/contexts/AuthContext";
 
 export default function ClientWrapper({ children }: PropsWithChildren) {
-  const pathname = usePathname();
+  const { pathname } = useLocation();
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const { isAuthenticated } = useAuthContext();
 
   const appRoutes = ['/', '/d', '/i', '/u', '/library', '/networks', '/chat', '/profile'];
   const publicRoutes = ['/l', '/index', '/blog', '/about'];
+  const bareRoutes = ['/onboarding', '/oauth/callback'];
+
+  const isBareRoute = useMemo(() => {
+    return bareRoutes.some(route =>
+      pathname === route || pathname?.startsWith(route + '/')
+    );
+  }, [pathname]);
 
   const isAppRoute = useMemo(() => {
     if (!isAuthenticated) return false;
@@ -33,8 +37,8 @@ export default function ClientWrapper({ children }: PropsWithChildren) {
     );
   }, [pathname]);
 
-  const showSidebar = isAppRoute && !isPublicRoute;
-  const showHeader = !showSidebar;
+  const showSidebar = isAppRoute && !isPublicRoute && !isBareRoute;
+  const showHeader = !showSidebar && !isBareRoute;
 
   const isLandingOrBlog = useMemo(() =>
     (pathname === '/' && !isAuthenticated) ||
@@ -46,6 +50,10 @@ export default function ClientWrapper({ children }: PropsWithChildren) {
   const isMessagesView = useMemo(() => 
     pathname === '/chat' || (pathname?.includes('/chat') && pathname?.startsWith('/u/')),
   [pathname]);
+
+  if (isBareRoute) {
+    return <IndexesProvider>{children}</IndexesProvider>;
+  }
 
   return (
     <IndexesProvider>
@@ -129,8 +137,8 @@ export default function ClientWrapper({ children }: PropsWithChildren) {
                       <Suspense
                         fallback={
                           <header className="w-full py-4 px-4 flex justify-between items-center">
-                            <Link href="/">
-                              <Image
+                            <Link to="/">
+                              <img
                                 src="/logos/logo-black-full.svg"
                                 alt="Index Network"
                                 width={200}

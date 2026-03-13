@@ -1,9 +1,10 @@
-import { ChatOpenAI } from "@langchain/openai";
+import type { ChatOpenAI } from "@langchain/openai";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { tool } from "@langchain/core/tools";
 import { z } from "zod";
 import { log } from "../../log";
 import { Timed } from "../../performance";
+import { createModel } from "./model.config";
 
 // ──────────────────────────────────────────────────────────────
 // Response schema
@@ -28,13 +29,7 @@ const logger = log.lib.from("IntentIndexer");
 import { config } from "dotenv";
 config({ path: ".env.development", override: true });
 
-const model = new ChatOpenAI({
-  model: "google/gemini-2.5-flash",
-  configuration: {
-    baseURL: process.env.OPENROUTER_BASE_URL || "https://openrouter.ai/api/v1",
-    apiKey: process.env.OPENROUTER_API_KEY,
-  },
-});
+const model = createModel("intentIndexer");
 
 // ──────────────────────────────────────────────────────────────
 // 1. SYSTEM PROMPT
@@ -118,7 +113,7 @@ export class IntentIndexer {
     memberPrompt: string | null,
     sourceName?: string | null
   ): Promise<IntentIndexerOutput | null> {
-    logger.info("[IntentIndexer.invoke] Evaluating intent");
+    logger.verbose("[IntentIndexer.invoke] Evaluating intent");
 
     const contextParts: string[] = [];
     if (sourceName) contextParts.push(`Source: ${sourceName}`);
@@ -144,7 +139,7 @@ export class IntentIndexer {
       const result = await this.model.invoke(messages);
       const output = responseFormat.parse(result) as IntentIndexerOutput;
 
-      logger.info("[IntentIndexer.invoke] Evaluation complete", {
+      logger.verbose("[IntentIndexer.invoke] Evaluation complete", {
         indexScore: output.indexScore,
         memberScore: output.memberScore,
       });

@@ -1,5 +1,3 @@
-'use client';
-
 import { createContext, useContext, ReactNode, useState, useEffect, useCallback, useRef } from 'react';
 import { Index } from '@/lib/types';
 import { useAuthContext } from '@/contexts/AuthContext';
@@ -67,7 +65,11 @@ export function IndexesProvider({ children }: { children: ReactNode }) {
     if (isAuthenticated && !hasFetchedRef.current) {
       refreshIndexes();
     } else if (!isAuthenticated) {
+      setIndexes([]);
       setLoading(false);
+      setError(null);
+      hasFetchedRef.current = false;
+      hasDataRef.current = false;
       pendingJoinProcessedRef.current = false;
     }
   }, [isAuthenticated, refreshIndexes]);

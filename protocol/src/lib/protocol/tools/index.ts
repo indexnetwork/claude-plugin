@@ -7,10 +7,12 @@ import { ProfileGraphFactory } from "../graphs/profile.graph";
 import { OpportunityGraphFactory } from "../graphs/opportunity.graph";
 import { HydeGraphFactory } from "../graphs/hyde.graph";
 import { HydeGenerator } from "../agents/hyde.generator";
+import { LensInferrer } from "../agents/lens.inferrer";
 import { IndexGraphFactory } from "../graphs/index.graph";
 import { IndexMembershipGraphFactory } from "../graphs/index_membership.graph";
 import { IntentIndexGraphFactory } from "../graphs/intent_index.graph";
 import { RedisCacheAdapter } from "../../../adapters/cache.adapter";
+import { ComposioIntegrationAdapter } from "../../../adapters/integration.adapter";
 import {
   chatDatabaseAdapter,
   createUserDatabase,
@@ -31,6 +33,8 @@ import { createIntentTools } from "./intent.tools";
 import { createIndexTools } from "./index.tools";
 import { createOpportunityTools } from "./opportunity.tools";
 import { createUtilityTools } from "./utility.tools";
+import { createIntegrationTools } from "./integration.tools";
+import { createContactTools } from "./contact.tools";
 
 // Re-export types for consumers
 export type { ToolContext, ResolvedToolContext } from "./tool.helpers";
@@ -76,7 +80,7 @@ export async function createChatTools(
   }) {
     return tool(
       async (query: z.infer<T>) => {
-        logger.info(`Tool: ${opts.name}`, {
+        logger.verbose(`Tool: ${opts.name}`, {
           context: { userId: resolvedContext.userId, indexId: resolvedContext.indexId },
           query,
         });
@@ -98,11 +102,13 @@ export async function createChatTools(
   const intentGraph = new IntentGraphFactory(database, embedder, intentQueue).createGraph();
   const profileGraph = new ProfileGraphFactory(database, embedder, scraper).createGraph();
   const hydeCache: HydeCache = new RedisCacheAdapter();
+  const lensInferrer = new LensInferrer();
   const hydeGenerator = new HydeGenerator();
   const compiledHydeGraph = new HydeGraphFactory(
     database as unknown as HydeGraphDatabase,
     embedder,
     hydeCache,
+    lensInferrer,
     hydeGenerator
   ).createGraph();
   const opportunityGraph = new OpportunityGraphFactory(
@@ -125,12 +131,16 @@ export async function createChatTools(
   const systemDb = deps.systemDb ?? createSystemDatabase(database as Parameters<typeof createSystemDatabase>[0], resolvedContext.userId, indexScope, embedder);
 
   // ─── Assemble dependencies ─────────────────────────────────────────────────
+  const cache = new RedisCacheAdapter();
+  const integration = new ComposioIntegrationAdapter();
   const toolDeps: ToolDeps = {
     database,
     userDb,
     systemDb,
     scraper,
     embedder,
+    cache,
+    integration,
     graphs: {
       profile: profileGraph,
       intent: intentGraph,
@@ -147,6 +157,8 @@ export async function createChatTools(
   const indexTools = createIndexTools(defineTool, toolDeps);
   const opportunityTools = createOpportunityTools(defineTool, toolDeps);
   const utilityTools = createUtilityTools(defineTool, toolDeps);
+  const contactTools = createContactTools(defineTool, toolDeps);
+  const integrationTools = createIntegrationTools(defineTool, toolDeps);
 
   // Chat only proposes opportunities from the conversation (create_opportunities).
   // Other opportunities are shown on the home view; do not give the agent list_opportunities.
@@ -160,6 +172,8 @@ export async function createChatTools(
     ...indexTools,
     ...opportunityToolsForChat,
     ...utilityTools,
+    ...integrationTools,
+    ...contactTools,
   ];
 }
 

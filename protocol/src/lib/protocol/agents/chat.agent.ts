@@ -1,4 +1,4 @@
-import { ChatOpenAI } from "@langchain/openai";
+import type { ChatOpenAI } from "@langchain/openai";
 import {
   BaseMessage,
   SystemMessage,
@@ -13,6 +13,7 @@ import {
 import { resolveChatContext } from "../tools/tool.helpers";
 import { ITERATION_NUDGE, buildSystemContent } from "./chat.prompt";
 import { protocolLogger } from "../support/protocol.logger";
+import { createModel } from "./model.config";
 import { sanitizeForDebugMeta } from "../support/debug-meta.sanitizer";
 import type { DebugMetaToolCall } from "../../../types/chat-streaming.types";
 import { Timed } from "../../performance";
@@ -35,17 +36,29 @@ export type StreamWriter = (data: unknown) => void;
 /**
  * Events emitted by `streamRun()` via the writer callback.
  *
- * - `text_chunk`    — a token (or group of tokens) of model text to stream
- * - `tool_activity` — emitted when a tool finishes (for logging / analytics)
+ * - `iteration_start` — new agent loop iteration begins
+ * - `llm_start`       — LLM begins generating response
+ * - `text_chunk`      — a token (or group of tokens) of model text
+ * - `llm_end`         — LLM finished generating (may have tool calls)
+ * - `tool_activity`   — tool starts or finishes execution
  */
 export type AgentStreamEvent =
+  | { type: "iteration_start"; iteration: number }
+  | { type: "llm_start"; iteration: number }
   | { type: "text_chunk"; content: string }
+  | { type: "llm_end"; iteration: number; hasToolCalls: boolean; toolNames?: string[] }
+  | {
+      type: "tool_activity";
+      phase: "start";
+      name: string;
+    }
   | {
       type: "tool_activity";
       phase: "end";
       name: string;
       success: boolean;
       summary?: string;
+      steps?: Array<{ step: string; detail?: string; data?: Record<string, unknown> }>;
     };
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -135,33 +148,7 @@ export class ChatAgent {
     private resolvedContext: ResolvedToolContext,
     tools: Awaited<ReturnType<typeof createChatTools>>,
   ) {
-    // Thinking model for tool use: better reasoning over tool inputs/outputs (OpenRouter reasoning tokens)
-    const chatModel = process.env.CHAT_MODEL ?? "google/gemini-3-pro-preview";
-    const reasoningEffort =
-      (process.env.CHAT_REASONING_EFFORT as
-        | "minimal"
-        | "low"
-        | "medium"
-        | "high"
-        | "xhigh"
-        | undefined) ?? "low";
-
-    this.model = new ChatOpenAI({
-      model: chatModel,
-      configuration: {
-        baseURL:
-          process.env.OPENROUTER_BASE_URL || "https://openrouter.ai/api/v1",
-        apiKey: process.env.OPENROUTER_API_KEY,
-      },
-      maxTokens: 8192,
-      // OpenRouter: reasoning budget for thinking models (Gemini 3, etc.)
-      modelKwargs: {
-        reasoning: {
-          effort: reasoningEffort,
-          exclude: true, // don't stream thinking tokens to the user
-        },
-      },
-    });
+    this.model = createModel("chat");
 
     // Store tools and index by name
     this.tools = tools;
@@ -213,7 +200,7 @@ export class ChatAgent {
       fullMessages.push(new SystemMessage(ITERATION_NUDGE));
     }
 
-    logger.info("Agent iteration", {
+    logger.verbose("Agent iteration", {
       iteration: iterationCount,
       messageCount: messages.length,
       pastSoftLimit: iterationCount >= SOFT_ITERATION_LIMIT,
@@ -234,7 +221,7 @@ export class ChatAgent {
     const toolCalls = response.tool_calls || [];
 
     if (toolCalls.length > 0) {
-      logger.info("Agent made tool calls", {
+      logger.verbose("Agent made tool calls", {
         iteration: iterationCount,
         toolCount: toolCalls.length,
         tools: toolCalls.map((tc) => tc.name),
@@ -277,7 +264,7 @@ export class ChatAgent {
       iteration: iterationCount,
       responseText,
     });
-    logger.info("Agent produced response", {
+    logger.verbose("Agent produced response", {
       iteration: iterationCount,
       responseLength: responseText.length,
     });
@@ -317,7 +304,7 @@ export class ChatAgent {
         }
 
         try {
-          logger.info("Executing tool", { name: tc.name, args: tc.args });
+          logger.verbose("Executing tool", { name: tc.name, args: tc.args });
           let result = await tool.invoke(tc.args);
           let resultStr =
             typeof result === "string" ? result : JSON.stringify(result);
@@ -331,7 +318,7 @@ export class ChatAgent {
           }
 
           logger.debug("Tool response", { name: tc.name, result: resultStr });
-          logger.info("Tool completed", {
+          logger.verbose("Tool completed", {
             name: tc.name,
             resultLength: resultStr.length,
           });
@@ -386,7 +373,7 @@ export class ChatAgent {
     const createOpportunitiesTool = this.toolsByName.get("create_opportunities");
     if (!createIntentTool || !createOpportunitiesTool) return null;
 
-    logger.info("Create-intent signal: auto-calling create_intent then create_opportunities");
+    logger.verbose("Create-intent signal: auto-calling create_intent then create_opportunities");
     const createIntentResult = await createIntentTool.invoke({
       description: parsed.data.suggestedIntentDescription,
       indexId: (originalArgs as { indexId?: string }).indexId,
@@ -408,6 +395,33 @@ export class ChatAgent {
 
     const newResult = await createOpportunitiesTool.invoke(originalArgs);
     return typeof newResult === "string" ? newResult : JSON.stringify(newResult);
+  }
+
+  /**
+   * Detect hallucinated ```intent_proposal or ```opportunity blocks in model text
+   * that were NOT generated by the corresponding tool call.
+   *
+   * @returns Block info if hallucination detected, null otherwise
+   */
+  private detectHallucinatedBlock(
+    text: string,
+    toolsUsed: Array<{ name: string; success: boolean }>,
+  ): { type: string; tool: string; description: string } | null {
+    // Only trust successful create_intent calls — a failed attempt doesn't produce
+    // a valid proposalId, so a subsequent inline block is still hallucinated.
+    const hasSuccessfulCreateIntent = toolsUsed.some(
+      (t) => t.name === "create_intent" && t.success,
+    );
+
+    // Check for hallucinated intent_proposal
+    if (text.includes("```intent_proposal") && !hasSuccessfulCreateIntent) {
+      const match = text.match(/```intent_proposal\s*\n\s*\{[^}]*"description"\s*:\s*"([^"]+)"/);
+      if (match) {
+        return { type: "intent_proposal", tool: "create_intent", description: match[1] };
+      }
+    }
+
+    return null;
   }
 
   /**
@@ -479,12 +493,14 @@ export class ChatAgent {
    *
    * @param initialMessages - Starting conversation messages
    * @param writer - Callback to emit streaming events (from `config.writer`)
+   * @param signal - Optional AbortSignal to cancel the streaming LLM call and tool execution
    * @returns Final response metadata (same shape as `run()`)
    */
   @Timed()
   async streamRun(
     initialMessages: BaseMessage[],
     writer?: StreamWriter,
+    signal?: AbortSignal,
   ): Promise<{
     responseText: string;
     messages: BaseMessage[];
@@ -501,10 +517,15 @@ export class ChatAgent {
 
     let messages = initialMessages;
     let iterationCount = 0;
-    let fullResponseText = "";
     const toolsDebug: DebugMetaToolCall[] = [];
 
     while (iterationCount < HARD_ITERATION_LIMIT) {
+      if (signal?.aborted) {
+        logger.verbose("Stream aborted by client", { iterationCount });
+        break;
+      }
+      emit({ type: "iteration_start", iteration: iterationCount });
+
       const systemContent = buildSystemContent(this.resolvedContext);
       const fullMessages: BaseMessage[] = [
         new SystemMessage(systemContent),
@@ -514,28 +535,37 @@ export class ChatAgent {
         fullMessages.push(new SystemMessage(ITERATION_NUDGE));
       }
 
-      logger.info("Streaming iteration", {
+      logger.verbose("Streaming iteration", {
         iteration: iterationCount,
         messageCount: messages.length,
         pastSoftLimit: iterationCount >= SOFT_ITERATION_LIMIT,
       });
 
       // ── Stream the model response token-by-token ──────────────────────
+      emit({ type: "llm_start", iteration: iterationCount });
+
       let accumulated: AIMessageChunk | undefined;
       let iterationText = "";
 
-      const stream = await this.model.stream(fullMessages);
-      for await (const chunk of stream) {
-        // Accumulate using AIMessageChunk.concat() so tool_call_chunks merge and tool_calls is populated
-        accumulated = accumulated ? accumulated.concat(chunk) : chunk;
+      try {
+        const stream = await this.model.stream(fullMessages, { signal });
+        for await (const chunk of stream) {
+          // Accumulate using AIMessageChunk.concat() so tool_call_chunks merge and tool_calls is populated
+          accumulated = accumulated ? accumulated.concat(chunk) : chunk;
 
-        // Emit text content tokens to the user immediately
-        const textPart = extractTextFromChunk(chunk);
-        if (textPart) {
-          emit({ type: "text_chunk", content: textPart });
-          iterationText += textPart;
-          fullResponseText += textPart;
+          // Emit text content tokens to the user immediately
+          const textPart = extractTextFromChunk(chunk);
+          if (textPart) {
+            emit({ type: "text_chunk", content: textPart });
+            iterationText += textPart;
+          }
         }
+      } catch (err) {
+        if (err instanceof Error && err.name === "AbortError") {
+          logger.verbose("LLM stream aborted by client", { iterationCount });
+          break; // breaks the outer while loop
+        }
+        throw err; // re-throw non-abort errors
       }
 
       if (!accumulated) {
@@ -549,8 +579,15 @@ export class ChatAgent {
       // ── Check for tool calls ──────────────────────────────────────────
       const toolCalls = accumulated.tool_calls || [];
 
+      emit({
+        type: "llm_end",
+        iteration: iterationCount,
+        hasToolCalls: toolCalls.length > 0,
+        toolNames: toolCalls.length > 0 ? toolCalls.map((tc) => tc.name) : undefined,
+      });
+
       if (toolCalls.length > 0) {
-        logger.info("Streaming: agent made tool calls", {
+        logger.verbose("Streaming: agent made tool calls", {
           iteration: iterationCount,
           tools: toolCalls.map((tc) => tc.name),
         });
@@ -563,6 +600,12 @@ export class ChatAgent {
           result: string;
         }> = [];
         for (const tc of toolCalls) {
+          if (signal?.aborted) {
+            logger.verbose("Stream aborted by client during tool execution");
+            break;
+          }
+          emit({ type: "tool_activity", phase: "start", name: tc.name });
+
           const tool = this.toolsByName.get(tc.name);
           if (!tool) {
             const errResult = JSON.stringify({
@@ -591,7 +634,7 @@ export class ChatAgent {
           }
 
           try {
-            logger.info("Streaming: executing tool", { name: tc.name });
+            logger.verbose("Streaming: executing tool", { name: tc.name });
             let result = await tool.invoke(tc.args);
             let resultStr =
               typeof result === "string" ? result : JSON.stringify(result);
@@ -604,7 +647,7 @@ export class ChatAgent {
               }
             }
 
-            logger.info("Streaming: tool completed", {
+            logger.verbose("Streaming: tool completed", {
               name: tc.name,
               resultLength: resultStr.length,
             });
@@ -612,16 +655,18 @@ export class ChatAgent {
             // Build brief summary for the activity event. Prefer tool-provided
             // summary. Tools use success(data) → { success: true, data: { ... } }, so read from data when present.
             let summary = "Done";
-            let debugSteps: Array<{ step: string; detail?: string }> | undefined;
+            type StepData = Record<string, unknown>;
+            type DebugStep = { step: string; detail?: string; data?: StepData };
+            let debugSteps: DebugStep[] | undefined;
             try {
               const parsed = JSON.parse(resultStr) as {
                 success?: boolean;
                 data?: {
                   summary?: string;
-                  debugSteps?: Array<{ step: string; detail?: string }>;
+                  debugSteps?: DebugStep[];
                 };
                 summary?: string;
-                debugSteps?: Array<{ step: string; detail?: string }>;
+                debugSteps?: DebugStep[];
               };
               const payload = parsed.success && parsed.data != null ? parsed.data : parsed;
               summary = payload.summary ?? parsed.summary ?? "Done";
@@ -634,6 +679,7 @@ export class ChatAgent {
                     s.detail != null
                       ? String(s.detail).slice(0, maxDetail)
                       : undefined,
+                  ...(s.data && typeof s.data === "object" ? { data: s.data } : {}),
                 }));
               }
             } catch {
@@ -653,6 +699,7 @@ export class ChatAgent {
               name: tc.name,
               success: true,
               summary,
+              steps: debugSteps,
             });
 
             toolResults.push({
@@ -691,6 +738,12 @@ export class ChatAgent {
           }
         }
 
+        // If aborted during tool execution, discard partial results
+        if (signal?.aborted) {
+          logger.verbose("Stream aborted after partial tool execution, discarding results");
+          break; // break outer while loop — don't append partial toolResults to messages
+        }
+
         // Build updated messages and loop
         messages = [
           ...messages,
@@ -708,8 +761,34 @@ export class ChatAgent {
         continue;
       }
 
-      // ── No tool calls → final response already streamed ───────────────
-      logger.info("Streaming: agent produced response", {
+      // ── No tool calls → check for hallucinated code blocks ──────────
+      // LLMs sometimes write ```intent_proposal or ```opportunity blocks
+      // directly instead of calling the corresponding tool. These blocks
+      // lack valid proposalIds / data and won't work in the frontend.
+      // Detect this and force a correction iteration.
+      const hallucinatedBlock = this.detectHallucinatedBlock(iterationText, toolsDebug);
+      if (hallucinatedBlock && iterationCount < HARD_ITERATION_LIMIT - 1) {
+        logger.warn("Streaming: detected hallucinated block without tool call", {
+          iteration: iterationCount,
+          blockType: hallucinatedBlock.type,
+          extractedDescription: hallucinatedBlock.description,
+        });
+        messages = [
+          ...messages,
+          accumulated,
+          new SystemMessage(
+            `CORRECTION: You wrote a \`\`\`${hallucinatedBlock.type} block in your response without calling the required tool. ` +
+            `That block is INVALID — it has no proposalId and will not work. ` +
+            `You MUST call ${hallucinatedBlock.tool}(description="${hallucinatedBlock.description}") now. ` +
+            `Only the tool generates valid blocks. Do NOT write the block yourself again.`
+          ),
+        ];
+        iterationCount++;
+        continue;
+      }
+
+      // ── Final response already streamed ─────────────────────────────
+      logger.verbose("Streaming: agent produced response", {
         iteration: iterationCount,
         responseLength: iterationText.length,
       });
@@ -717,7 +796,17 @@ export class ChatAgent {
       iterationCount++;
 
       return {
-        responseText: fullResponseText,
+        responseText: iterationText,
+        messages,
+        iterationCount,
+        debugMeta: { graph: "agent_loop", iterations: iterationCount, tools: toolsDebug },
+      };
+    }
+
+    // If aborted, return immediately without making another LLM call
+    if (signal?.aborted) {
+      return {
+        responseText: "",
         messages,
         iterationCount,
         debugMeta: { graph: "agent_loop", iterations: iterationCount, tools: toolsDebug },
@@ -735,6 +824,7 @@ export class ChatAgent {
     ];
 
     let forcedAccumulated: AIMessageChunk | undefined;
+    let forcedResponseText = "";
     const forceStream = await this.model.stream(forceMessages);
     for await (const chunk of forceStream) {
       forcedAccumulated = forcedAccumulated
@@ -743,12 +833,12 @@ export class ChatAgent {
       const textPart = extractTextFromChunk(chunk);
       if (textPart) {
         emit({ type: "text_chunk", content: textPart });
-        fullResponseText += textPart;
+        forcedResponseText += textPart;
       }
     }
 
     return {
-      responseText: fullResponseText,
+      responseText: forcedResponseText,
       messages: [
         ...messages,
         ...(forcedAccumulated ? [forcedAccumulated] : []),

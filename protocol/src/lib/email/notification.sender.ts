@@ -1,11 +1,16 @@
+import { eq } from 'drizzle-orm';
+
+import db from '../drizzle/drizzle';
+import { userNotificationSettings, users } from '../../schemas/database.schema';
+import { log } from '../log';
+
 import { sendEmail } from './transport.helper';
 import { connectionRequestTemplate } from './templates/connection-request.template';
 import { connectionAcceptedTemplate } from './templates/connection-accepted.template';
-import db from '../drizzle/drizzle';
-import { userNotificationSettings, users } from '../../schemas/database.schema';
-import { eq } from 'drizzle-orm';
 
-const API_URL = process.env.API_URL || 'https://index.network.api';
+const logger = log.lib.from('notification.sender');
+
+const BASE_URL = process.env.BASE_URL || 'https://protocol.index.network';
 
 async function getUnsubscribeUrl(userId: string, type: 'weeklyNewsletter' | 'connectionUpdates') {
   // Find or create settings (create should technically happen on user creation, but good to be safe)
@@ -24,7 +29,7 @@ async function getUnsubscribeUrl(userId: string, type: 'weeklyNewsletter' | 'con
   }
 
   const token = settings[0].unsubscribeToken;
-  return `${API_URL}/api/notifications/unsubscribe?token=${token}&type=${type}`;
+  return `${BASE_URL}/api/notifications/unsubscribe?token=${token}&type=${type}`;
 }
 
 export async function sendConnectionRequestEmail(
@@ -50,22 +55,22 @@ export async function sendConnectionRequestEmail(
 
   // 1. Check Onboarding
   if (!recipient.onboarding?.completedAt) {
-    console.log(`[Email] Skipping connection email to ${to} - Onboarding not completed`);
+    logger.info('Skipping connection email', { userId: recipient.id, reason: 'Onboarding not completed' });
     return;
   }
 
   // 2. Check Preferences
   // If settings exist and explicit false, skip. If no settings, default is true.
   if (recipient.settings?.preferences?.connectionUpdates === false) {
-    console.log(`[Email] Skipping connection email to ${to} - User opted out`);
+    logger.info('Skipping connection email', { userId: recipient.id, reason: 'User opted out' });
     return;
   }
 
   let unsubscribeUrl: string | undefined;
   // If settings exist, use token. If not (but onboarded), lazy create via getUnsubscribeUrl logic
   if (recipient.settings?.unsubscribeToken) {
-    const API_URL = process.env.API_URL || 'https://index.network.api';
-    unsubscribeUrl = `${API_URL}/api/notifications/unsubscribe?token=${recipient.settings.unsubscribeToken}&type=connectionUpdates`;
+    const BASE_URL = process.env.BASE_URL || 'https://protocol.index.network';
+    unsubscribeUrl = `${BASE_URL}/api/notifications/unsubscribe?token=${recipient.settings.unsubscribeToken}&type=connectionUpdates`;
   } else {
     // Legacy support: Onboarded but no settings row yet. content.
     unsubscribeUrl = await getUnsubscribeUrl(recipient.id, 'connectionUpdates');
@@ -110,20 +115,20 @@ export async function sendConnectionAcceptedEmail(
 
     // 1. Check Onboarding
     if (!recipient.onboarding?.completedAt) {
-      console.log(`[Email] Skipping connection accepted email to ${recipientEmail} - Onboarding not completed`);
+      logger.info('Skipping connection accepted email', { userId: recipient.id, reason: 'Onboarding not completed' });
       continue;
     }
 
     // 2. Check Preferences
     if (recipient.settings?.preferences?.connectionUpdates === false) {
-      console.log(`[Email] Skipping connection accepted email to ${recipientEmail} - User opted out`);
+      logger.info('Skipping connection accepted email', { userId: recipient.id, reason: 'User opted out' });
       continue;
     }
 
     let unsubscribeUrl: string | undefined;
     if (recipient.settings?.unsubscribeToken) {
-      const API_URL = process.env.API_URL || 'https://index.network.api';
-      unsubscribeUrl = `${API_URL}/api/notifications/unsubscribe?token=${recipient.settings.unsubscribeToken}&type=connectionUpdates`;
+      const BASE_URL = process.env.BASE_URL || 'https://protocol.index.network';
+      unsubscribeUrl = `${BASE_URL}/api/notifications/unsubscribe?token=${recipient.settings.unsubscribeToken}&type=connectionUpdates`;
     } else {
       unsubscribeUrl = await getUnsubscribeUrl(recipient.id, 'connectionUpdates');
     }

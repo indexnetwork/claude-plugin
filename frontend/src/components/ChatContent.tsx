@@ -1,12 +1,11 @@
-"use client";
-
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useGmailConnect } from "@/hooks/useGmailConnect";
+import { useNavigate } from "react-router";
 import {
   ArrowUp,
-  Loader2,
   Pencil,
   Paperclip,
+  Square,
   X,
   Globe,
   ChevronDown,
@@ -14,7 +13,8 @@ import {
   ChevronLeft,
   Share2,
   Check,
-  Bug,
+  Users,
+  Loader2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { MentionsTextInput } from "@/components/MentionsInput";
@@ -32,8 +32,10 @@ import IntentProposalCard, {
   type IntentProposalData,
   IntentProposalSkeleton,
 } from "@/components/chat/IntentProposalCard";
+import NetworksPanel from "@/components/chat/NetworksPanel";
 import { SuggestionChips } from "@/components/chat/SuggestionChips";
-import ThinkingDropdown from "@/components/chat/ThinkingDropdown";
+import { ToolCallsDisplay } from "@/components/chat/ToolCallsDisplay";
+import { DebugCopyButton } from "@/components/DebugCopyButton";
 import { ContentContainer } from "@/components/layout";
 import { cn } from "@/lib/utils";
 import ReactMarkdown from "react-markdown";
@@ -46,7 +48,6 @@ import { useSuggestions } from "@/hooks/useSuggestions";
 import { mentionsToMarkdownLinks } from "@/lib/mentions";
 import type { HomeViewSection } from "@/services/opportunities";
 import { DynamicIcon, type IconName } from "lucide-react/dynamic";
-import { useTypewriter } from "@/hooks/useTypewriter";
 
 /**
  * When true, use GET /opportunities/home for dynamic sections; when false, use static/mock data.
@@ -54,6 +55,7 @@ import { useTypewriter } from "@/hooks/useTypewriter";
 const USE_HOME_API = true;
 
 const CHAT_INPUT_PLACEHOLDER = "What's on your mind?";
+
 
 interface PendingFile {
   id: string;
@@ -65,8 +67,7 @@ interface ChatContentProps {
 }
 
 /**
- * Sub-component for assistant message content so React hooks (useTypewriter)
- * can be called per-message inside the .map() loop.
+ * Sub-component for assistant message content.
  */
 /**
  * Ensure blockquote lines are always followed by a blank line so that
@@ -91,11 +92,13 @@ type MessageSegment =
   | { type: "opportunity"; data: OpportunityCardData }
   | { type: "opportunity_loading" }
   | { type: "intent_proposal"; data: IntentProposalData }
-  | { type: "intent_proposal_loading" };
+  | { type: "intent_proposal_loading" }
+  | { type: "networks_panel" }
+  | { type: "networks_panel_loading" };
 
 function parseAllBlocks(content: string): MessageSegment[] {
   const segments: MessageSegment[] = [];
-  const regex = /```(opportunity|intent_proposal)\s*\n([\s\S]*?)\n```/g;
+  const regex = /```(opportunity|intent_proposal|networks_panel)\s*\n([\s\S]*?)\n```/g;
   let lastIndex = 0;
   let match;
 
@@ -108,23 +111,34 @@ function parseAllBlocks(content: string): MessageSegment[] {
     }
 
     const blockType = match[1];
-    try {
-      const jsonStr = match[2].trim();
-      const data = JSON.parse(jsonStr);
 
-      if (blockType === "opportunity" && data.opportunityId && data.userId) {
-        segments.push({ type: "opportunity", data: data as OpportunityCardData });
-      } else if (
-        blockType === "intent_proposal" &&
-        data.proposalId &&
-        (typeof data.description === "string" || !("description" in data))
-      ) {
-        segments.push({ type: "intent_proposal", data: data as IntentProposalData });
-      } else {
+    if (blockType === "networks_panel") {
+      segments.push({ type: "networks_panel" });
+    } else {
+      try {
+        const jsonStr = match[2].trim();
+        const data = JSON.parse(jsonStr);
+
+        if (blockType === "opportunity" && data.opportunityId && data.userId) {
+          segments.push({ type: "opportunity", data: data as OpportunityCardData });
+        } else if (
+          blockType === "intent_proposal" &&
+          data.proposalId &&
+          (typeof data.description === "string" || !("description" in data))
+        ) {
+          segments.push({ type: "intent_proposal", data: data as IntentProposalData });
+        } else if (blockType === "intent_proposal") {
+          // Broken block (e.g. model wrote intent_proposal without calling create_intent — no proposalId)
+          segments.push({
+            type: "text",
+            content: "This proposal couldn't be loaded as a card. Ask again to add this as a signal.",
+          });
+        } else {
+          segments.push({ type: "text", content: match[0] });
+        }
+      } catch {
         segments.push({ type: "text", content: match[0] });
       }
-    } catch {
-      segments.push({ type: "text", content: match[0] });
     }
 
     lastIndex = match.index + match[0].length;
@@ -133,13 +147,14 @@ function parseAllBlocks(content: string): MessageSegment[] {
   const remainingContent = content.slice(lastIndex);
   const partialOpp = remainingContent.match(/```opportunity/);
   const partialIntent = remainingContent.match(/```intent_proposal/);
+  const partialNetworks = remainingContent.match(/```networks_panel/);
 
-  let partialMatch: RegExpMatchArray | null = null;
-  if (partialOpp && partialIntent) {
-    partialMatch = partialOpp.index! <= partialIntent.index! ? partialOpp : partialIntent;
-  } else {
-    partialMatch = partialOpp ?? partialIntent;
-  }
+  const candidates = ([partialOpp, partialIntent, partialNetworks] as (RegExpMatchArray | null)[]).filter(
+    (c): c is RegExpMatchArray => c !== null,
+  );
+  const partialMatch = candidates.length > 0
+    ? candidates.reduce((earliest, c) => c.index! < earliest.index! ? c : earliest)
+    : null;
 
   if (partialMatch) {
     const partialIndex = partialMatch.index!;
@@ -147,11 +162,13 @@ function parseAllBlocks(content: string): MessageSegment[] {
     if (textBefore.trim()) {
       segments.push({ type: "text", content: textBefore });
     }
-    const isOpp = partialMatch === partialOpp;
-    segments.push(isOpp
-      ? { type: "opportunity_loading" as const }
-      : { type: "intent_proposal_loading" as const }
-    );
+    if (partialMatch === partialOpp) {
+      segments.push({ type: "opportunity_loading" });
+    } else if (partialMatch === partialIntent) {
+      segments.push({ type: "intent_proposal_loading" });
+    } else {
+      segments.push({ type: "networks_panel_loading" });
+    }
   } else if (lastIndex < content.length) {
     const remaining = content.slice(lastIndex);
     if (remaining.trim()) {
@@ -193,7 +210,11 @@ function AssistantMessageContent({
   currentStatusMap,
   onIntentProposalApprove,
   onIntentProposalReject,
+  onIntentProposalUndo,
   intentProposalStatusMap,
+  OAuthLink,
+  onNetworkJoin,
+  networkPanelPendingJoinIds,
 }: {
   content: string;
   isStreaming: boolean;
@@ -214,20 +235,19 @@ function AssistantMessageContent({
   currentStatusMap?: Record<string, string>;
   onIntentProposalApprove?: (proposalId: string, description: string, indexId?: string) => void;
   onIntentProposalReject?: (proposalId: string) => void;
+  onIntentProposalUndo?: (proposalId: string) => void;
   intentProposalStatusMap?: Record<string, "pending" | "created" | "rejected">;
+  OAuthLink?: React.ComponentType<React.ComponentPropsWithoutRef<"a">>;
+  onNetworkJoin?: (networkId: string, networkTitle: string) => void;
+  networkPanelPendingJoinIds?: Set<string>;
 }) {
-  const { text: displayedContent, isAnimating } = useTypewriter(
-    normalizeBlockquotes(mentionsToMarkdownLinks(content)),
-    isStreaming,
-    22, // ms per character during streaming
-    8, // ms per character catch-up after stream ends
-  );
+  const displayedContent = normalizeBlockquotes(mentionsToMarkdownLinks(content));
 
-  // Show cursor while streaming (even before first token) or during catch-up
-  const showCursor = isStreaming || isAnimating;
+  // Show cursor while streaming (before content arrives)
+  const showCursor = isStreaming;
 
   // No text yet — render a standalone blinking cursor
-  if (!displayedContent && showCursor) {
+  if (!displayedContent && isStreaming) {
     return <span className="inline-block w-2 h-4 bg-current animate-pulse" />;
   }
 
@@ -248,7 +268,10 @@ function AssistantMessageContent({
                 showCursor && isLast && "chat-markdown-typing",
               )}
             >
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                components={OAuthLink ? { a: OAuthLink } : undefined}
+              >
                 {segment.content}
               </ReactMarkdown>
             </div>
@@ -283,15 +306,31 @@ function AssistantMessageContent({
                 card={segment.data}
                 onApprove={onIntentProposalApprove}
                 onReject={onIntentProposalReject}
+                onUndo={onIntentProposalUndo}
                 currentStatus={intentProposalStatusMap?.[segment.data.proposalId]}
               />
             </div>
           );
-        } else {
-          // intent_proposal_loading
+        } else if (segment.type === "intent_proposal_loading") {
           return (
             <div key={`intent-loading-${idx}`} className="my-3">
               <IntentProposalSkeleton />
+            </div>
+          );
+        } else if (segment.type === "networks_panel") {
+          return (
+            <div key={`networks-panel-${idx}`} className="my-3">
+              <NetworksPanel
+                onJoin={onNetworkJoin ?? (() => {})}
+                pendingJoinIds={networkPanelPendingJoinIds}
+              />
+            </div>
+          );
+        } else {
+          // networks_panel_loading
+          return (
+            <div key={`networks-panel-loading-${idx}`} className="my-3 flex justify-center py-6">
+              <Loader2 className="h-5 w-5 animate-spin text-gray-300" />
             </div>
           );
         }
@@ -301,11 +340,12 @@ function AssistantMessageContent({
 }
 
 export default function ChatContent({ sessionIdParam }: ChatContentProps) {
-  const router = useRouter();
+  const navigate = useNavigate();
   const sessionIdFromUrl = sessionIdParam ?? null;
   const {
     messages,
     isLoading,
+    stopStream,
     sendMessage,
     clearChat,
     loadSession,
@@ -315,10 +355,9 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
     setScopeIndexId,
     sessionIndexId,
     updateSessionTitle,
-    debugMetaByTurn,
   } = useAIChat();
   const uploadServiceV2 = useUploadServiceV2();
-  const { error: showError, success: showSuccess } = useNotifications();
+  const { error: showError, success: showSuccess, addNotification } = useNotifications();
   const [input, setInput] = useState("");
   const [selectedFiles, setSelectedFiles] = useState<PendingFile[]>([]);
   const [isUploadingFiles, setIsUploadingFiles] = useState(false);
@@ -335,7 +374,9 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
   const [isInputMultiline, setIsInputMultiline] = useState(false);
   const [isTextareaMultiline, setIsTextareaMultiline] = useState(false);
   const [shareCopied, setShareCopied] = useState(false);
-  const [debugCopied, setDebugCopied] = useState(false);
+  const { OAuthLink } = useGmailConnect(useCallback(() => {
+    sendMessage("I've connected my account, please continue with the import.", undefined, undefined, { hidden: true });
+  }, [sendMessage]));
 
   const handleShare = useCallback(async () => {
     if (!sessionId) return;
@@ -349,40 +390,6 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
       showError("Failed to create share link");
     }
   }, [sessionId, showError]);
-
-  const handleCopyDebug = useCallback(async () => {
-    const exportedAt = new Date().toISOString();
-    const exportMessages = messages.map((m) => ({
-      role: m.role,
-      content: m.content,
-    }));
-    const assistantIndices = messages
-      .map((msg, i) => (msg.role === "assistant" ? i : -1))
-      .filter((i) => i >= 0);
-    const turns = assistantIndices.map((msgIdx, idx) => {
-      const meta = debugMetaByTurn[idx] ?? null;
-      return {
-        messageIndex: msgIdx,
-        graph: meta?.graph ?? null,
-        iterations: meta?.iterations ?? null,
-        tools: meta?.tools ?? null,
-      };
-    });
-    const payload = {
-      sessionId: sessionId ?? null,
-      exportedAt,
-      messages: exportMessages,
-      turns,
-    };
-    const json = JSON.stringify(payload, null, 2);
-    try {
-      await navigator.clipboard.writeText(json);
-      setDebugCopied(true);
-      setTimeout(() => setDebugCopied(false), 2000);
-    } catch {
-      showError("Failed to copy debug to clipboard");
-    }
-  }, [messages, debugMetaByTurn, sessionId, showError]);
 
   // Keep ref in sync with sessionId
   useEffect(() => {
@@ -452,6 +459,27 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
   const [intentProposalStatusMap, setIntentProposalStatusMap] = useState<
     Record<string, "pending" | "created" | "rejected">
   >({});
+  const [proposalIntentMap, setProposalIntentMap] = useState<Record<string, string>>({});
+
+  // Networks panel join tracking
+  const [networkPanelPendingJoinIds, setNetworkPanelPendingJoinIds] = useState<Set<string>>(new Set());
+
+  // Clear pending join IDs when stream completes (agent processed the join)
+  const prevIsLoadingRef = useRef(isLoading);
+  useEffect(() => {
+    if (prevIsLoadingRef.current && !isLoading && networkPanelPendingJoinIds.size > 0) {
+      setNetworkPanelPendingJoinIds(new Set());
+    }
+    prevIsLoadingRef.current = isLoading;
+  }, [isLoading, networkPanelPendingJoinIds.size]);
+
+  const handleNetworkJoin = useCallback(
+    (networkId: string, networkTitle: string) => {
+      setNetworkPanelPendingJoinIds((prev) => new Set([...prev, networkId]));
+      sendMessage(`I'd like to join ${networkTitle}`);
+    },
+    [sendMessage],
+  );
 
   // Stable list of proposal IDs from assistant messages
   const proposalIdsArray = useMemo(() => {
@@ -478,15 +506,25 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
 
     const fetchStatuses = async () => {
       try {
-        const res = await apiClient.post<{ statuses: Record<string, "created"> }>(
-          "/intents/proposals/status",
-          { proposalIds: ids },
-        );
-        if (res.statuses && Object.keys(res.statuses).length > 0) {
-          setIntentProposalStatusMap((prev) => ({ ...prev, ...res.statuses }));
+        const res = await apiClient.post<{
+          statuses: Record<string, { intentId: string; archivedAt: string | null }>;
+        }>("/intents/proposals/status", { proposalIds: ids });
+        const statusMap: Record<string, "pending" | "created" | "rejected"> = {};
+        const intentMap: Record<string, string> = {};
+        for (const id of ids) {
+          const info = res.statuses?.[id];
+          if (info) {
+            statusMap[id] = info.archivedAt ? "rejected" : "created";
+            intentMap[id] = info.intentId;
+          } else {
+            statusMap[id] = "pending";
+          }
         }
+        setIntentProposalStatusMap((prev) => ({ ...prev, ...statusMap }));
+        setProposalIntentMap((prev) => ({ ...prev, ...intentMap }));
       } catch {
-        // Non-critical — cards will default to pending
+        // Leave statuses unresolved — cards stay in loading state rather than
+        // incorrectly triggering auto-create for already-created intents
       }
     };
 
@@ -582,11 +620,20 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
     }
   }, [sessionIdFromUrl, loadSession, clearChat]);
 
+
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollIntoView({ behavior: "smooth" });
     }
   }, [messages]);
+
+  // Snap to bottom immediately when a session finishes loading (covers the case
+  // where an in-memory session is restored and messages don't change).
+  useEffect(() => {
+    if (sessionLoaded && scrollRef.current) {
+      scrollRef.current.scrollIntoView({ behavior: "instant" });
+    }
+  }, [sessionLoaded]);
 
   // Update URL when session changes: push so back from /d/id returns to /
   useEffect(() => {
@@ -595,9 +642,9 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
       return;
     }
     if (sessionId && !sessionIdFromUrl) {
-      router.push(`/d/${sessionId}`);
+      navigate(`/d/${sessionId}`);
     }
-  }, [sessionId, sessionIdFromUrl, router]);
+  }, [sessionId, sessionIdFromUrl, navigate]);
 
   const handleHomeOpportunityAction = useCallback(
     async (
@@ -631,7 +678,7 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
         const counterpartUserId =
           result.counterpartUserId ?? fallbackUserId;
         if (action === "accepted" && !isIntroducer && counterpartUserId) {
-          router.push(`/u/${counterpartUserId}/chat`);
+          navigate(`/u/${counterpartUserId}/chat`);
         } else if (action === "accepted" && isIntroducer) {
           showSuccess(
             "Introduction sent",
@@ -665,19 +712,35 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
         }));
       }
     },
-    [opportunitiesService, router, showError, showSuccess],
+    [opportunitiesService, navigate, showError, showSuccess],
+  );
+
+  const archiveProposalIntent = useCallback(
+    async (proposalId: string, intentId: string) => {
+      await apiClient.patch(`/intents/${intentId}/archive`);
+      setIntentProposalStatusMap((prev) => ({ ...prev, [proposalId]: "rejected" }));
+    },
+    [],
   );
 
   const handleIntentProposalApprove = useCallback(
     async (proposalId: string, description: string, indexId?: string) => {
       try {
-        await apiClient.post("/intents/confirm", { proposalId, description, indexId });
+        const res = await apiClient.post<{ intentId: string }>("/intents/confirm", { proposalId, description, indexId });
         setIntentProposalStatusMap((prev) => ({ ...prev, [proposalId]: "created" }));
+        setProposalIntentMap((prev) => ({ ...prev, [proposalId]: res.intentId }));
+        addNotification({
+          type: "intent_broadcast",
+          title: "Broadcasting Signal",
+          message: description,
+          duration: 10000,
+          onAction: () => archiveProposalIntent(proposalId, res.intentId),
+        });
       } catch (err) {
-        throw err; // Card's inline error UI handles display
+        throw err;
       }
     },
-    [],
+    [addNotification, archiveProposalIntent],
   );
 
   const handleIntentProposalReject = useCallback(
@@ -686,10 +749,19 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
         await apiClient.post("/intents/reject", { proposalId });
         setIntentProposalStatusMap((prev) => ({ ...prev, [proposalId]: "rejected" }));
       } catch (err) {
-        throw err; // Card's inline error UI handles display
+        throw err;
       }
     },
     [],
+  );
+
+  const handleIntentProposalUndo = useCallback(
+    async (proposalId: string) => {
+      const intentId = proposalIntentMap[proposalId];
+      if (!intentId) throw new Error("Intent ID not found for proposal");
+      await archiveProposalIntent(proposalId, intentId);
+    },
+    [proposalIntentMap, archiveProposalIntent],
   );
 
   const canSend = input.trim() || selectedFiles.length > 0;
@@ -838,83 +910,209 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
   const renderInputForm = () => (
     <>
       <div className="bg-[linear-gradient(to_bottom,transparent_50%,#ffffff_50%)]">
-        {selectedFiles.length > 0 && (
-          <div className="flex flex-wrap gap-2 mb-2">
-            {selectedFiles.map(({ id, file }) => (
-              <span
-                key={id}
-                className="inline-flex items-center gap-1.5 px-2 py-1 rounded bg-gray-100 text-gray-800 text-sm font-ibm-plex-mono max-w-50"
-              >
-                <span className="truncate" title={file.name}>
-                  {file.name}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => removeFile(id)}
-                  className="shrink-0 p-0.5 rounded hover:bg-gray-200 text-gray-500 hover:text-gray-800 focus:outline-none"
-                  aria-label={`Remove ${file.name}`}
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              </span>
-            ))}
-          </div>
-        )}
         <form
           onSubmit={handleSubmit}
-          className={cn("flex gap-3 bg-[#FCFCFC] border border-[#E9E9E9] rounded-4xl px-4 py-3", isTextareaMultiline ? "items-end" : "items-center")}
+          className={cn("flex flex-col bg-[#FCFCFC] border border-[#E9E9E9] rounded-4xl px-4 py-3", selectedFiles.length > 0 && "gap-2")}
         >
-          <input
-            ref={fileInputRef}
-            type="file"
-            multiple
-            accept=".csv,.doc,.docx,.epub,.html,.json,.md,.pdf,.ppt,.pptx,.rtf,.tsv,.txt,.xls,.xlsx,.xml"
-            onChange={handleFileSelect}
-            className="sr-only"
-            aria-label="Attach files"
-          />
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            disabled={isBusy}
-            onClick={() => fileInputRef.current?.click()}
-            className="shrink-0 h-8 w-8 rounded-full text-gray-500 hover:text-[#4091BB] hover:bg-gray-200 p-0"
-            title="Attach files"
-            aria-label="Attach files"
-          >
-            <Paperclip className="h-4 w-4" />
-          </Button>
-          <MentionsTextInput
-            value={input}
-            onChange={setInput}
-            placeholder={CHAT_INPUT_PLACEHOLDER}
-            disabled={isBusy}
-            autoFocus
-            inputRef={inputRef}
-            suggestionsAbove
-          />
-          <Button
-            type="submit"
-            size="icon"
-            disabled={isBusy || !canSend}
-            className="shrink-0 h-8 w-8 rounded-full bg-[#041729] text-white hover:bg-[#0a2d4a] disabled:opacity-50 disabled:cursor-not-allowed p-0"
-          >
+          {selectedFiles.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {selectedFiles.map(({ id, file }) => (
+                <span
+                  key={id}
+                  className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg bg-gray-100 text-gray-800 text-sm font-ibm-plex-mono max-w-50"
+                >
+                  <span className="truncate" title={file.name}>
+                    {file.name}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => removeFile(id)}
+                    className="shrink-0 p-0.5 rounded hover:bg-gray-200 text-gray-500 hover:text-gray-800 focus:outline-none"
+                    aria-label={`Remove ${file.name}`}
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+          <div className={cn("flex gap-3", isTextareaMultiline ? "items-end" : "items-center")}>
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              accept=".csv,.doc,.docx,.epub,.html,.json,.md,.pdf,.ppt,.pptx,.rtf,.tsv,.txt,.xls,.xlsx,.xml"
+              onChange={handleFileSelect}
+              className="sr-only"
+              aria-label="Attach files"
+            />
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              disabled={isBusy}
+              onClick={() => fileInputRef.current?.click()}
+              className="shrink-0 h-8 w-8 rounded-full text-gray-500 hover:text-[#4091BB] hover:bg-gray-200 p-0"
+              title="Attach files"
+              aria-label="Attach files"
+            >
+              <Paperclip className="h-4 w-4" />
+            </Button>
+            <MentionsTextInput
+              value={input}
+              onChange={setInput}
+              placeholder={CHAT_INPUT_PLACEHOLDER}
+              disabled={isBusy}
+              autoFocus
+              inputRef={inputRef}
+              suggestionsAbove
+            />
             {isLoading ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
+              <Button
+                type="button"
+                size="icon"
+                onClick={() => stopStream()}
+                className="shrink-0 h-8 w-8 rounded-full bg-[#041729] text-white hover:bg-[#0a2d4a] p-0"
+                title="Stop generating"
+                aria-label="Stop generating"
+              >
+                <Square className="h-4 w-4 fill-current" />
+              </Button>
             ) : (
-              <ArrowUp className="h-4 w-4" />
+              <Button
+                type="submit"
+                size="icon"
+                disabled={!canSend || isUploadingFiles}
+                className="shrink-0 h-8 w-8 rounded-full bg-[#041729] text-white hover:bg-[#0a2d4a] disabled:opacity-50 disabled:cursor-not-allowed p-0"
+              >
+                <ArrowUp className="h-4 w-4" />
+              </Button>
             )}
-          </Button>
+          </div>
         </form>
       </div>
-      <div className="py-2"></div>
+      <div className="py-2 bg-white"></div>
     </>
   );
 
   // HOME STATE - No messages yet
   if (messages.length === 0) {
+    const personalIndex = indexes.find((i) => i.isPersonal);
     const selectedIndex = indexes.find((i) => selectedIndexIds.includes(i.id));
+
+    const renderScopeDropdown = () => {
+      if (indexes.length === 0) return null;
+      return (
+        <div className="relative shrink-0">
+          <button
+            type="button"
+            onClick={() => setIsIndexDropdownOpen(!isIndexDropdownOpen)}
+            className={cn(
+              "inline-flex items-center gap-1.5 py-1.5 rounded-full text-sm font-medium text-black transition-all hover:bg-gray-100",
+              isInputMultiline ? "px-1.5" : "px-3",
+            )}
+          >
+            {selectedIndex?.isPersonal ? (
+              <Users className="w-4 h-4" />
+            ) : selectedIndex?.permissions?.joinPolicy ===
+              "invite_only" ? (
+              <Lock className="w-4 h-4" />
+            ) : (
+              <Globe className="w-4 h-4" />
+            )}
+            {!isInputMultiline && (
+              <span>
+                {selectedIndex?.title || "Everywhere"}
+              </span>
+            )}
+            <ChevronDown
+              className={cn(
+                "w-4 h-4 transition-transform",
+                isIndexDropdownOpen && "rotate-180",
+              )}
+            />
+          </button>
+          {isIndexDropdownOpen && (
+            <>
+              <div
+                className="fixed inset-0 z-10"
+                onClick={() => setIsIndexDropdownOpen(false)}
+              />
+              <div className="absolute right-0 top-full mt-2 z-20 bg-white border border-gray-200 rounded-lg shadow-lg py-1 min-w-40">
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleIndexSelect(null);
+                    setIsIndexDropdownOpen(false);
+                  }}
+                  className={cn(
+                    "w-full px-3 py-2 text-left text-sm text-[#3D3D3D] hover:bg-gray-50 flex items-center gap-2",
+                    selectedIndexIds.length === 0 &&
+                      "text-gray-900 font-medium",
+                  )}
+                >
+                  <Globe className="w-4 h-4" /> Everywhere
+                </button>
+                {personalIndex && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleIndexSelect(personalIndex.id);
+                      setIsIndexDropdownOpen(false);
+                    }}
+                    className={cn(
+                      "w-full px-3 py-2 text-left text-sm text-[#3D3D3D] hover:bg-gray-50 flex items-center gap-2",
+                      selectedIndexIds.includes(personalIndex.id) &&
+                        "text-gray-900 font-medium",
+                    )}
+                  >
+                    <Users className="w-4 h-4" /> {personalIndex.title}
+                  </button>
+                )}
+                <div className="my-1 border-t border-gray-200" />
+                {[...indexes]
+                  .filter((i) => !i.isPersonal)
+                  .sort(
+                    (a, b) =>
+                      (a.permissions?.joinPolicy === "invite_only"
+                        ? 1
+                        : 0) -
+                        (b.permissions?.joinPolicy === "invite_only"
+                          ? 1
+                          : 0) ||
+                      (a.title || "").localeCompare(b.title || ""),
+                  )
+                  .map((index) => (
+                    <button
+                      key={index.id}
+                      type="button"
+                      onClick={() => {
+                        handleIndexSelect(index.id);
+                        setIsIndexDropdownOpen(false);
+                      }}
+                      className={cn(
+                        "w-full px-3 py-2 text-left text-sm text-[#3D3D3D] hover:bg-gray-50 flex items-center gap-2",
+                        selectedIndexIds.includes(index.id) &&
+                          "text-gray-900 font-medium",
+                      )}
+                    >
+                      {index.permissions?.joinPolicy ===
+                      "invite_only" ? (
+                        <Lock className="w-4 h-4 shrink-0" />
+                      ) : (
+                        <Globe className="w-4 h-4 shrink-0" />
+                      )}
+                      <span className="truncate">
+                        {index.title}
+                      </span>
+                    </button>
+                  ))}
+              </div>
+            </>
+          )}
+        </div>
+      );
+    };
 
     // API-driven home view (dynamic sections with Lucide icons)
     if (USE_HOME_API) {
@@ -925,165 +1123,90 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
         return (
           <div className="px-6 lg:px-8 pb-12">
             <ContentContainer className="text-left">
-              <div className="mt-12 mb-6">
+              <div className="mt-12 mb-6 flex items-center justify-center gap-2">
                 <h1 className="text-[28px] font-bold text-black font-ibm-plex-mono text-center">
                   Find your others
                 </h1>
+                <DebugCopyButton fetchPath="/debug/home" title="Copy home debug JSON" iconSize="w-5 h-5" />
               </div>
               <div className="bg-[linear-gradient(to_bottom,transparent_50%,#ffffff_50%)]">
                 <form
                   onSubmit={handleSubmit}
-                  className={cn("flex gap-3 bg-[#FCFCFC] border border-[#E9E9E9] rounded-4xl px-4 py-3 mb-6", isTextareaMultiline ? "items-end" : "items-center")}
+                  className={cn("flex flex-col bg-[#FCFCFC] border border-[#E9E9E9] rounded-4xl px-4 py-3 mb-6", selectedFiles.length > 0 && "gap-2")}
                 >
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    multiple
-                    accept=".csv,.doc,.docx,.epub,.html,.json,.md,.pdf,.ppt,.pptx,.rtf,.tsv,.txt,.xls,.xlsx,.xml"
-                    onChange={handleFileSelect}
-                    className="sr-only"
-                  />
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    disabled={isBusy}
-                    onClick={() => fileInputRef.current?.click()}
-                    className="shrink-0 h-8 w-8 rounded-full text-gray-500 hover:text-[#4091BB] hover:bg-gray-200 p-0"
-                    title="Attach files"
-                  >
-                    <Paperclip className="h-4 w-4" />
-                  </Button>
-                  <MentionsTextInput
-                    value={input}
-                    onChange={setInput}
-                    placeholder={CHAT_INPUT_PLACEHOLDER}
-                    disabled={isBusy}
-                    autoFocus
-                    inputRef={inputRef}
-                  />
-                  {indexes.length > 0 && (
-                    <div className="relative shrink-0">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setIsIndexDropdownOpen(!isIndexDropdownOpen)
-                        }
-                        className={cn(
-                          "inline-flex items-center gap-1.5 py-1.5 rounded-full text-sm font-medium text-black transition-all hover:bg-gray-100",
-                          isInputMultiline ? "px-1.5" : "px-3",
-                        )}
-                      >
-                        {selectedIndexIds.includes("my-network") ||
-                        selectedIndex?.permissions?.joinPolicy ===
-                          "invite_only" ? (
-                          <Lock className="w-4 h-4" />
-                        ) : (
-                          <Globe className="w-4 h-4" />
-                        )}
-                        {!isInputMultiline && (
-                          <span>
-                            {selectedIndexIds.includes("my-network")
-                              ? "My network"
-                              : selectedIndex?.title || "Everywhere"}
+                  {selectedFiles.length > 0 && (
+                    <div className="flex flex-wrap gap-2">
+                      {selectedFiles.map(({ id, file }) => (
+                        <span
+                          key={id}
+                          className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg bg-gray-100 text-gray-800 text-sm font-ibm-plex-mono max-w-50"
+                        >
+                          <span className="truncate" title={file.name}>
+                            {file.name}
                           </span>
-                        )}
-                        <ChevronDown
-                          className={cn(
-                            "w-4 h-4 transition-transform",
-                            isIndexDropdownOpen && "rotate-180",
-                          )}
-                        />
-                      </button>
-                      {isIndexDropdownOpen && (
-                        <>
-                          <div
-                            className="fixed inset-0 z-10"
-                            onClick={() => setIsIndexDropdownOpen(false)}
-                          />
-                          <div className="absolute right-0 top-full mt-2 z-20 bg-white border border-gray-200 rounded-lg shadow-lg py-1 min-w-40">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                handleIndexSelect(null);
-                                setIsIndexDropdownOpen(false);
-                              }}
-                              className={cn(
-                                "w-full px-3 py-2 text-left text-sm text-[#3D3D3D] hover:bg-gray-50 flex items-center gap-2",
-                                selectedIndexIds.length === 0 &&
-                                  "text-gray-900 font-medium",
-                              )}
-                            >
-                              <Globe className="w-4 h-4" /> Everywhere
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                handleIndexSelect("my-network");
-                                setIsIndexDropdownOpen(false);
-                              }}
-                              className={cn(
-                                "w-full px-3 py-2 text-left text-sm text-[#3D3D3D] hover:bg-gray-50 flex items-center gap-2",
-                                selectedIndexIds.includes("my-network") &&
-                                  "text-gray-900 font-medium",
-                              )}
-                            >
-                              <Lock className="w-4 h-4" /> My network
-                            </button>
-                            <div className="my-1 border-t border-gray-200" />
-                            {[...indexes]
-                              .sort(
-                                (a, b) =>
-                                  (a.permissions?.joinPolicy === "invite_only"
-                                    ? 1
-                                    : 0) -
-                                    (b.permissions?.joinPolicy === "invite_only"
-                                      ? 1
-                                      : 0) ||
-                                  (a.title || "").localeCompare(b.title || ""),
-                              )
-                              .map((index) => (
-                                <button
-                                  key={index.id}
-                                  type="button"
-                                  onClick={() => {
-                                    handleIndexSelect(index.id);
-                                    setIsIndexDropdownOpen(false);
-                                  }}
-                                  className={cn(
-                                    "w-full px-3 py-2 text-left text-sm text-[#3D3D3D] hover:bg-gray-50 flex items-center gap-2",
-                                    selectedIndexIds.includes(index.id) &&
-                                      "text-gray-900 font-medium",
-                                  )}
-                                >
-                                  {index.permissions?.joinPolicy ===
-                                  "invite_only" ? (
-                                    <Lock className="w-4 h-4 shrink-0" />
-                                  ) : (
-                                    <Globe className="w-4 h-4 shrink-0" />
-                                  )}
-                                  <span className="truncate">
-                                    {index.title}
-                                  </span>
-                                </button>
-                              ))}
-                          </div>
-                        </>
-                      )}
+                          <button
+                            type="button"
+                            onClick={() => removeFile(id)}
+                            className="shrink-0 p-0.5 rounded hover:bg-gray-200 text-gray-500 hover:text-gray-800 focus:outline-none"
+                            aria-label={`Remove ${file.name}`}
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </span>
+                      ))}
                     </div>
                   )}
-                  <Button
-                    type="submit"
-                    size="icon"
-                    disabled={isBusy || !canSend}
-                    className="shrink-0 h-8 w-8 rounded-full bg-[#041729] text-white hover:bg-[#0a2d4a] disabled:opacity-50 disabled:cursor-not-allowed p-0"
-                  >
+                  <div className={cn("flex gap-3", isTextareaMultiline ? "items-end" : "items-center")}>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      multiple
+                      accept=".csv,.doc,.docx,.epub,.html,.json,.md,.pdf,.ppt,.pptx,.rtf,.tsv,.txt,.xls,.xlsx,.xml"
+                      onChange={handleFileSelect}
+                      className="sr-only"
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      disabled={isBusy}
+                      onClick={() => fileInputRef.current?.click()}
+                      className="shrink-0 h-8 w-8 rounded-full text-gray-500 hover:text-[#4091BB] hover:bg-gray-200 p-0"
+                      title="Attach files"
+                    >
+                      <Paperclip className="h-4 w-4" />
+                    </Button>
+                    <MentionsTextInput
+                      value={input}
+                      onChange={setInput}
+                      placeholder={CHAT_INPUT_PLACEHOLDER}
+                      disabled={isBusy}
+                      autoFocus
+                      inputRef={inputRef}
+                    />
+                    {renderScopeDropdown()}
                     {isLoading ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
+                      <Button
+                        type="button"
+                        size="icon"
+                        onClick={() => stopStream()}
+                        className="shrink-0 h-8 w-8 rounded-full bg-[#041729] text-white hover:bg-[#0a2d4a] p-0"
+                        title="Stop generating"
+                        aria-label="Stop generating"
+                      >
+                        <Square className="h-4 w-4 fill-current" />
+                      </Button>
                     ) : (
-                      <ArrowUp className="h-4 w-4" />
+                      <Button
+                        type="submit"
+                        size="icon"
+                        disabled={!canSend || isUploadingFiles}
+                        className="shrink-0 h-8 w-8 rounded-full bg-[#041729] text-white hover:bg-[#0a2d4a] disabled:opacity-50 disabled:cursor-not-allowed p-0"
+                      >
+                        <ArrowUp className="h-4 w-4" />
+                      </Button>
                     )}
-                  </Button>
+                  </div>
                 </form>
               </div>
               {homeViewLoading ? (
@@ -1170,184 +1293,93 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
     return (
       <div className="px-6 lg:px-8 bg-white pb-12">
         <ContentContainer className="text-left">
-          <div className="mt-12 mb-6">
+          <div className="mt-12 mb-6 flex items-center justify-center gap-2">
             <h1 className="text-[28px] font-bold text-black font-ibm-plex-mono text-center">
               Find your others
             </h1>
+            <DebugCopyButton fetchPath="/debug/home" title="Copy home debug JSON" iconSize="w-5 h-5" />
           </div>
           <div className="bg-[linear-gradient(to_bottom,transparent_50%,#ffffff_50%)]">
             <form
               onSubmit={handleSubmit}
-              className={cn("flex gap-3 bg-[#FCFCFC] border border-[#E9E9E9] rounded-4xl px-4 py-3", isTextareaMultiline ? "items-end" : "items-center")}
+              className={cn("flex flex-col bg-[#FCFCFC] border border-[#E9E9E9] rounded-4xl px-4 py-3", selectedFiles.length > 0 && "gap-2")}
             >
-              <input
-                ref={fileInputRef}
-                type="file"
-                multiple
-                accept=".csv,.doc,.docx,.epub,.html,.json,.md,.pdf,.ppt,.pptx,.rtf,.tsv,.txt,.xls,.xlsx,.xml"
-                onChange={handleFileSelect}
-                className="sr-only"
-              />
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                disabled={isBusy}
-                onClick={() => fileInputRef.current?.click()}
-                className="shrink-0 h-8 w-8 rounded-full text-gray-500 hover:text-[#4091BB] hover:bg-gray-200 p-0"
-                title="Attach files"
-              >
-                <Paperclip className="h-4 w-4" />
-              </Button>
-              <MentionsTextInput
-                value={input}
-                onChange={setInput}
-                placeholder={CHAT_INPUT_PLACEHOLDER}
-                disabled={isBusy}
-                autoFocus
-                inputRef={inputRef}
-              />
-              {indexes.length > 0 && (
-                <div className="relative shrink-0">
-                  <button
-                    type="button"
-                    onClick={() => setIsIndexDropdownOpen(!isIndexDropdownOpen)}
-                    className={cn(
-                      "inline-flex items-center gap-1.5 py-1.5 rounded-full text-sm font-medium text-black transition-all hover:bg-gray-100",
-                      isInputMultiline ? "px-1.5" : "px-3",
-                    )}
-                  >
-                    {selectedIndexIds.includes("my-network") ||
-                    selectedIndex?.permissions?.joinPolicy === "invite_only" ? (
-                      <Lock className="w-4 h-4" />
-                    ) : (
-                      <Globe className="w-4 h-4" />
-                    )}
-                    {!isInputMultiline && (
-                      <span>
-                        {selectedIndexIds.includes("my-network")
-                          ? "My network"
-                          : selectedIndex?.title || "Everywhere"}
+              {selectedFiles.length > 0 && (
+                <div className="flex flex-wrap gap-2">
+                  {selectedFiles.map(({ id, file }) => (
+                    <span
+                      key={id}
+                      className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg bg-gray-100 text-gray-800 text-sm font-ibm-plex-mono max-w-50"
+                    >
+                      <span className="truncate" title={file.name}>
+                        {file.name}
                       </span>
-                    )}
-                    <ChevronDown
-                      className={cn(
-                        "w-4 h-4 transition-transform",
-                        isIndexDropdownOpen && "rotate-180",
-                      )}
-                    />
-                  </button>
-                  {isIndexDropdownOpen && (
-                    <>
-                      <div
-                        className="fixed inset-0 z-10"
-                        onClick={() => setIsIndexDropdownOpen(false)}
-                      />
-                      <div className="absolute right-0 top-full mt-2 z-20 bg-white border border-gray-200 rounded-lg shadow-lg py-1 min-w-40">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            handleIndexSelect(null);
-                            setIsIndexDropdownOpen(false);
-                          }}
-                          className={cn(
-                            "w-full px-3 py-2 text-left text-sm text-[#3D3D3D] hover:bg-gray-50 flex items-center gap-2",
-                            selectedIndexIds.length === 0 &&
-                              "text-gray-900 font-medium",
-                          )}
-                        >
-                          <Globe className="w-4 h-4" /> Everywhere
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            handleIndexSelect("my-network");
-                            setIsIndexDropdownOpen(false);
-                          }}
-                          className={cn(
-                            "w-full px-3 py-2 text-left text-sm text-[#3D3D3D] hover:bg-gray-50 flex items-center gap-2",
-                            selectedIndexIds.includes("my-network") &&
-                              "text-gray-900 font-medium",
-                          )}
-                        >
-                          <Lock className="w-4 h-4" /> My network
-                        </button>
-                        <div className="my-1 border-t border-gray-200" />
-                        {[...indexes]
-                          .sort(
-                            (a, b) =>
-                              (a.permissions?.joinPolicy === "invite_only"
-                                ? 1
-                                : 0) -
-                                (b.permissions?.joinPolicy === "invite_only"
-                                  ? 1
-                                  : 0) ||
-                              (a.title || "").localeCompare(b.title || ""),
-                          )
-                          .map((index) => (
-                            <button
-                              key={index.id}
-                              type="button"
-                              onClick={() => {
-                                handleIndexSelect(index.id);
-                                setIsIndexDropdownOpen(false);
-                              }}
-                              className={cn(
-                                "w-full px-3 py-2 text-left text-sm text-[#3D3D3D] hover:bg-gray-50 flex items-center gap-2",
-                                selectedIndexIds.includes(index.id) &&
-                                  "text-gray-900 font-medium",
-                              )}
-                            >
-                              {index.permissions?.joinPolicy ===
-                              "invite_only" ? (
-                                <Lock className="w-4 h-4 shrink-0" />
-                              ) : (
-                                <Globe className="w-4 h-4 shrink-0" />
-                              )}
-                              <span className="truncate">{index.title}</span>
-                            </button>
-                          ))}
-                      </div>
-                    </>
-                  )}
+                      <button
+                        type="button"
+                        onClick={() => removeFile(id)}
+                        className="shrink-0 p-0.5 rounded hover:bg-gray-200 text-gray-500 hover:text-gray-800 focus:outline-none"
+                        aria-label={`Remove ${file.name}`}
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </span>
+                  ))}
                 </div>
               )}
-              <Button
-                type="submit"
-                size="icon"
-                disabled={isBusy || !canSend}
-                className="shrink-0 h-8 w-8 rounded-full bg-[#041729] text-white hover:bg-[#0a2d4a] disabled:opacity-50 disabled:cursor-not-allowed p-0"
-              >
+              <div className={cn("flex gap-3", isTextareaMultiline ? "items-end" : "items-center")}>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  multiple
+                  accept=".csv,.doc,.docx,.epub,.html,.json,.md,.pdf,.ppt,.pptx,.rtf,.tsv,.txt,.xls,.xlsx,.xml"
+                  onChange={handleFileSelect}
+                  className="sr-only"
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  disabled={isBusy}
+                  onClick={() => fileInputRef.current?.click()}
+                  className="shrink-0 h-8 w-8 rounded-full text-gray-500 hover:text-[#4091BB] hover:bg-gray-200 p-0"
+                  title="Attach files"
+                >
+                  <Paperclip className="h-4 w-4" />
+                </Button>
+                <MentionsTextInput
+                  value={input}
+                  onChange={setInput}
+                  placeholder={CHAT_INPUT_PLACEHOLDER}
+                  disabled={isBusy}
+                  autoFocus
+                  inputRef={inputRef}
+                />
+                {renderScopeDropdown()}
                 {isLoading ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <Button
+                    type="button"
+                    size="icon"
+                    onClick={() => stopStream()}
+                    className="shrink-0 h-8 w-8 rounded-full bg-[#041729] text-white hover:bg-[#0a2d4a] p-0"
+                    title="Stop generating"
+                    aria-label="Stop generating"
+                  >
+                    <Square className="h-4 w-4 fill-current" />
+                  </Button>
                 ) : (
-                  <ArrowUp className="h-4 w-4" />
+                  <Button
+                    type="submit"
+                    size="icon"
+                    disabled={!canSend || isUploadingFiles}
+                    className="shrink-0 h-8 w-8 rounded-full bg-[#041729] text-white hover:bg-[#0a2d4a] disabled:opacity-50 disabled:cursor-not-allowed p-0"
+                  >
+                    <ArrowUp className="h-4 w-4" />
+                  </Button>
                 )}
-              </Button>
+              </div>
             </form>
           </div>
           <div className="py-2"></div>
-              {selectedFiles.length > 0 && (
-            <div className="flex flex-wrap gap-2 mt-3">
-              {selectedFiles.map(({ id, file }) => (
-                <span
-                  key={id}
-                  className="inline-flex items-center gap-1.5 px-2 py-1 rounded bg-gray-100 text-gray-800 text-sm font-ibm-plex-mono max-w-50"
-                >
-                  <span className="truncate" title={file.name}>
-                    {file.name}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => removeFile(id)}
-                    className="shrink-0 p-0.5 rounded hover:bg-gray-200 text-gray-500 hover:text-gray-800"
-                  >
-                    <X className="w-3.5 h-3.5" />
-                  </button>
-                </span>
-              ))}
-            </div>
-          )}
           <div className="mt-0 flex flex-col items-center text-center pb-4">
             <video
               src="/loading.m4v"
@@ -1383,7 +1415,7 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
           type="button"
           onClick={() => {
             clearChat({ abortStream: false });
-            router.push("/");
+            navigate("/");
           }}
           className="p-1 -ml-1 rounded-md hover:bg-gray-100 text-gray-600 hover:text-black transition-colors shrink-0"
           aria-label="Back to home"
@@ -1443,19 +1475,9 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
                     <Share2 className="h-4 w-4" />
                   )}
                 </button>
-                <button
-                  type="button"
-                  onClick={handleCopyDebug}
-                  title={debugCopied ? "Copied!" : "Copy debug (conversation + meta)"}
-                  className="shrink-0 p-1 rounded text-gray-500 hover:text-[#4091BB] hover:bg-gray-100 focus:outline-none"
-                  aria-label="Copy debug"
-                >
-                  {debugCopied ? (
-                    <Check className="h-4 w-4 text-green-500" />
-                  ) : (
-                    <Bug className="h-4 w-4" />
-                  )}
-                </button>
+                {sessionId && (
+                  <DebugCopyButton fetchPath={`/debug/chat/${sessionId}`} title="Copy chat debug JSON" />
+                )}
               </>
             )}
             {boundIndex && (
@@ -1502,10 +1524,12 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
                     <article className="max-w-none">
                       {msg.role === "assistant" ? (
                         <>
-                          {msg.thinking && msg.thinking.length > 0 && (
-                            <ThinkingDropdown
-                              thinking={msg.thinking}
+                          {msg.traceEvents && msg.traceEvents.length > 0 && (
+                            <ToolCallsDisplay
+                              traceEvents={msg.traceEvents}
                               isStreaming={msg.isStreaming}
+                              wasStoppedByUser={msg.wasStoppedByUser}
+                              stoppedAt={msg.stoppedAt}
                             />
                           )}
                           <AssistantMessageContent
@@ -1543,7 +1567,11 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
                             currentStatusMap={opportunityStatusMap}
                             onIntentProposalApprove={handleIntentProposalApprove}
                             onIntentProposalReject={handleIntentProposalReject}
+                            onIntentProposalUndo={handleIntentProposalUndo}
                             intentProposalStatusMap={intentProposalStatusMap}
+                            OAuthLink={OAuthLink}
+                            onNetworkJoin={handleNetworkJoin}
+                            networkPanelPendingJoinIds={networkPanelPendingJoinIds}
                           />
                         </>
                       ) : (
@@ -1554,15 +1582,23 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
                         </div>
                       )}
                     </article>
-                    {msg.role === "user" &&
-                      msg.attachmentNames &&
-                      msg.attachmentNames.length > 0 && (
-                        <p className="text-xs opacity-90 mt-1.5">
-                          Attached: {msg.attachmentNames.join(", ")}
-                        </p>
-                      )}
                   </div>
                 </div>
+                {msg.role === "user" &&
+                  msg.attachmentNames &&
+                  msg.attachmentNames.length > 0 && (
+                    <div className="flex justify-end mt-1.5">
+                      <div className="bg-[#FAFAFA] border border-[#E8E8E8] rounded-2xl px-3 py-1.5 text-xs text-gray-600">
+                        {msg.attachmentNames.map((name, idx) => (
+                          <span key={idx} className="inline-flex items-center gap-1.5">
+                            <Paperclip className="w-3 h-3" />
+                            {name}
+                            {idx < msg.attachmentNames!.length - 1 && ", "}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 {/* Inline discovery cards (legacy format) */}
                 {msg.role === "assistant" &&
                   msg.discoveries &&

@@ -1,19 +1,16 @@
-import { ChatOpenAI } from "@langchain/openai";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { tool } from "@langchain/core/tools";
 import { z } from "zod/v4";
 import { protocolLogger } from "../support/protocol.logger";
 import { config } from "dotenv";
 import { Timed } from "../../performance";
+import { createModel } from "./model.config";
 
 config({ path: '.env.development', override: true });
 
 const logger = protocolLogger("ProfileGenerator");
 
-const model = new ChatOpenAI({
-  model: 'google/gemini-2.5-flash',
-  configuration: { baseURL: process.env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1', apiKey: process.env.OPENROUTER_API_KEY }
-});
+const model = createModel("profileGenerator");
 
 const systemPrompt = `
     You are an expert profiler. Your task is to synthesize a structured User Profile from raw data or user requests.
@@ -67,7 +64,7 @@ export class ProfileGenerator {
 
   @Timed()
   public async invoke(input: string) {
-    logger.info("Received input", { inputLength: input?.length });
+    logger.verbose("Received input", { inputLength: input?.length });
     const messages = [
       new SystemMessage(systemPrompt),
       new HumanMessage(`Here is the raw data:\n${input}`)
@@ -75,7 +72,7 @@ export class ProfileGenerator {
     const result = await this.model.invoke(messages);
     const output = responseFormat.parse(result);
     const textToEmbed = this.toString(output);
-    logger.info("Generated profile", {
+    logger.verbose("Generated profile", {
       skillsCount: output.attributes.skills.length,
       interestsCount: output.attributes.interests.length
     });

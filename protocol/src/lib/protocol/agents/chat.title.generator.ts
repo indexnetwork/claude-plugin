@@ -1,7 +1,10 @@
-import { ChatOpenAI } from "@langchain/openai";
+import type { ChatOpenAI } from "@langchain/openai";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
+
 import { log } from "../../log";
 import { Timed } from "../../performance";
+
+import { createModel } from "./model.config";
 
 const logger = log.lib.from("ChatTitleGenerator");
 
@@ -25,15 +28,7 @@ export class ChatTitleGenerator {
   private model: ChatOpenAI;
 
   constructor() {
-    this.model = new ChatOpenAI({
-      model: "google/gemini-2.5-flash",
-      configuration: {
-        baseURL: process.env.OPENROUTER_BASE_URL || "https://openrouter.ai/api/v1",
-        apiKey: process.env.OPENROUTER_API_KEY,
-      },
-      temperature: 0.3,
-      maxTokens: 32,
-    });
+    this.model = createModel("chatTitleGenerator");
   }
 
   /**
@@ -58,7 +53,7 @@ export class ChatTitleGenerator {
 
       const text = typeof response.content === "string" ? response.content : String(response.content ?? "").trim();
       const title = text.slice(0, 80).trim() || "New chat";
-      logger.info("[ChatTitleGenerator.invoke] Title generated", { titleLength: title.length });
+      logger.verbose("[ChatTitleGenerator.invoke] Title generated", { titleLength: title.length });
       return title;
     } catch (error) {
       logger.warn("[ChatTitleGenerator.invoke] Failed to generate title", {

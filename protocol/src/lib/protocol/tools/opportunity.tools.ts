@@ -3,12 +3,15 @@ import type { DefineTool, ToolDeps } from "./tool.helpers";
 import { success, error, UUID_REGEX } from "./tool.helpers";
 import { MINIMAL_MAIN_TEXT_MAX_CHARS } from "../support/opportunity.constants";
 import { viewerCentricCardSummary, narratorRemarkFromReasoning } from "../support/opportunity.card-text";
-import { runDiscoverFromQuery } from "../support/opportunity.discover";
+import { runDiscoverFromQuery, continueDiscovery } from "../support/opportunity.discover";
 import type { EvaluatorEntity } from "../agents/opportunity.evaluator";
 import { protocolLogger } from "../support/protocol.logger";
 import type { Opportunity } from "../interfaces/database.interface";
 
 const logger = protocolLogger("ChatTools:Opportunity");
+
+/** Maximum number of opportunity cards to show per chat response. */
+const CHAT_DISPLAY_LIMIT = 3;
 
 /** Markdown code fence (three backticks). Avoids embedding ``` in string literals so TS parser stays in sync. */
 const CODE_FENCE = String.fromCharCode(96, 96, 96);
@@ -25,8 +28,16 @@ function sanitizeJsonForCodeFence(json: string): string {
  * Build minimal opportunity card data for chat without calling the LLM presenter.
  * Uses only required fields from the opportunity record and counterpart name/avatar
  * so list_opportunities and discovery return quickly.
+ *
+ * Note: narratorChip.text is generated via regex heuristics (narratorRemarkFromReasoning)
+ * rather than the OpportunityPresenter LLM. If narrator quality becomes an issue again,
+ * consider making this function async and delegating to OpportunityPresenter.presentHomeCard()
+ * which already produces a high-quality narratorRemark via LLM (used by the home graph
+ * and discovery pipeline). The trade-off is 5-20s latency per card.
+ *
+ * Exported for use in tests (opportunity.tools.spec.ts).
  */
-function buildMinimalOpportunityCard(
+export function buildMinimalOpportunityCard(
   opp: Opportunity,
   viewerId: string,
   counterpartUserId: string,
@@ -35,6 +46,7 @@ function buildMinimalOpportunityCard(
   introducerName?: string | null,
   introducerAvatar?: string | null,
   viewerName?: string,
+  secondPartyName?: string,
 ): {
   opportunityId: string;
   userId: string;
@@ -65,6 +77,7 @@ function buildMinimalOpportunityCard(
     counterpartName,
     MINIMAL_MAIN_TEXT_MAX_CHARS,
     viewerName,
+    introducerName ?? undefined,
   );
   const score =
     typeof opp.interpretation?.confidence === "number"
@@ -75,7 +88,7 @@ function buildMinimalOpportunityCard(
     : introducerName ?? (introducerActor ? "Someone" : "Index");
   const primaryActionLabel =
     viewerRole === "introducer"
-      ? `Send to ${counterpartName || "them"}`
+      ? "Introduce Them"
       : "Start Chat";
   return {
     opportunityId: opp.id,
@@ -84,7 +97,9 @@ function buildMinimalOpportunityCard(
     avatar: counterpartAvatar,
     mainText,
     cta: "Start a conversation to connect.",
-    headline: `Connection with ${counterpartName}`,
+    headline: viewerIsIntroducer && secondPartyName
+      ? `${counterpartName} → ${secondPartyName}`
+      : `Connection with ${counterpartName}`,
     primaryActionLabel,
     secondaryActionLabel: "Skip",
     mutualIntentsLabel: "Suggested connection",
@@ -104,19 +119,28 @@ function buildMinimalOpportunityCard(
 }
 
 export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
-  const { database, userDb, systemDb, graphs, embedder } = deps;
+  const { database, userDb, systemDb, graphs, embedder, cache } = deps;
 
   const createOpportunities = defineTool({
     name: "create_opportunities",
     description:
       "Creates opportunities (connections). NOT for looking up a specific person by name — use read_user_profiles(query=name) for that.\n\n" +
-      "Two modes:\n" +
+      "Four modes:\n" +
       "1. **Discovery**: pass searchQuery and/or indexId. Finds matching people based on intent overlap.\n" +
       "2. **Introduction**: pass partyUserIds (2+ user IDs) + entities (pre-gathered profiles and intents). " +
       "You MUST gather profiles and intents from shared indexes BEFORE calling this. " +
-      "Optionally pass hint (the user's reason for the introduction).\n\n" +
+      "Optionally pass hint (the user's reason for the introduction).\n" +
+      "3. **Direct connection**: pass targetUserId (a single user ID) + searchQuery (reason for connecting). " +
+      "Creates an opportunity between the current user and the target user.\n" +
+      "4. **Introducer discovery**: pass introTargetUserId (user ID to find matches FOR). " +
+      "Discovers matches for that person; current user becomes the introducer. " +
+      "Use when user asks 'who should I introduce to @Person'.\n\n" +
       "Results are saved as drafts; use update_opportunity(status='pending') to send.",
     querySchema: z.object({
+      continueFrom: z
+        .string()
+        .optional()
+        .describe("Discovery pagination: pass the discoveryId from a previous result to evaluate more candidates."),
       searchQuery: z
         .string()
         .optional()
@@ -129,6 +153,18 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
         .string()
         .optional()
         .describe("Discovery mode: optional intent to use as source and for triggeredBy (e.g. from queue)."),
+      targetUserId: z
+        .string()
+        .optional()
+        .describe("Direct connection mode: create opportunity with this specific user ID. Used when the user wants to connect with a named person."),
+      introTargetUserId: z
+        .string()
+        .optional()
+        .describe(
+          "Introducer discovery mode: find matches FOR this user ID (the current user becomes the introducer). " +
+          "Use when the user asks 'who should I introduce to @Person'. " +
+          "Do NOT combine with partyUserIds (that's full introduction mode)."
+        ),
       partyUserIds: z
         .array(z.string())
         .optional()
@@ -186,6 +222,82 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
 
       const effectiveIndexId =
         (context.indexId || query.indexId?.trim()) ?? undefined;
+
+      // ── Continuation mode ── (must take strict precedence — it's a pagination token)
+      if (query.continueFrom) {
+        const result = await continueDiscovery({
+          opportunityGraph: graphs.opportunity,
+          database,
+          cache,
+          userId: context.userId,
+          discoveryId: query.continueFrom,
+          expectedIndexId: context.indexId,
+          limit: 20,
+          minimalForChat: true,
+          ...(context.sessionId ? { chatSessionId: context.sessionId } : {}),
+        });
+
+        const allDebugSteps = [...(result.debugSteps ?? [])];
+
+        if (!result.found) {
+          return success({
+            found: false,
+            count: 0,
+            message: result.message ?? "No more matching opportunities found in the remaining candidates.",
+            ...(result.pagination ? { pagination: result.pagination } : {}),
+            debugSteps: allDebugSteps,
+          });
+        }
+
+        // Format opportunity blocks — same pattern as the discovery path below
+        const opportunityBlocks = (result.opportunities ?? []).map((opp) => {
+          const cardData = {
+            opportunityId: opp.opportunityId,
+            userId: opp.userId,
+            name: opp.name,
+            avatar: opp.avatar,
+            mainText: opp.homeCardPresentation?.personalizedSummary ?? opp.matchReason ?? "",
+            cta: opp.homeCardPresentation?.suggestedAction,
+            headline: opp.homeCardPresentation?.headline,
+            primaryActionLabel: opp.homeCardPresentation?.primaryActionLabel,
+            secondaryActionLabel: opp.homeCardPresentation?.secondaryActionLabel,
+            mutualIntentsLabel: opp.homeCardPresentation?.mutualIntentsLabel,
+            narratorChip: opp.narratorChip,
+            viewerRole: opp.viewerRole,
+            score: opp.score,
+            status: opp.status,
+          };
+          return (
+            CODE_FENCE + "opportunity\n" +
+            sanitizeJsonForCodeFence(JSON.stringify(cardData)) +
+            "\n" + CODE_FENCE
+          );
+        });
+
+        // Cap displayed cards at CHAT_DISPLAY_LIMIT; remaining feed into pagination
+        const displayedBlocks = opportunityBlocks.slice(0, CHAT_DISPLAY_LIMIT);
+        const extraFromCap = opportunityBlocks.length - displayedBlocks.length;
+
+        const blocksText = displayedBlocks.join("\n\n");
+        let message =
+          "Found " + displayedBlocks.length + " more potential connection(s). IMPORTANT: Include the following opportunity code blocks EXACTLY as-is in your response (they render as interactive cards):\n\n" +
+          blocksText;
+
+        const totalRemaining = (result.pagination?.remaining ?? 0) + extraFromCap;
+        if (totalRemaining > 0 && result.pagination?.discoveryId) {
+          message += `\n\nThere are ${totalRemaining} more candidates. Ask if the user wants to see more — they can say "show me more" and you should call create_opportunities with continueFrom="${result.pagination.discoveryId}".`;
+        } else {
+          message += `\n\nThese are all the connections I found. If the user wants to attract more connections, suggest they create a signal — e.g. "Would you like to create a signal so others looking for someone like you can find you?" If they agree, call create_intent with a description based on what they were searching for.`;
+        }
+
+        return success({
+          found: true,
+          count: displayedBlocks.length,
+          message,
+          ...(result.pagination ? { pagination: result.pagination } : {}),
+          debugSteps: allDebugSteps,
+        });
+      }
 
       // Derive partyUserIds from entities when agent passes entities but omits partyUserIds (intro mode).
       // Only derive when all entities share the same indexId to prevent cross-index introductions.
@@ -274,11 +386,16 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
         const counterpartName =
           firstEntity?.profile?.name ?? firstPartyId ?? "Someone";
 
+        // Second party name — used in the headline for the introducer view ("A → B")
+        const secondPartyId = introducedPartyUserIds[1];
+        const secondEntity = query.entities?.find((e) => e.userId === secondPartyId);
+        const secondPartyName = (secondEntity?.profile as { name?: string } | undefined)?.name;
+
         const viewerIsParty = effectivePartyUserIds.includes(context.userId);
         const viewerRole = viewerIsParty ? "party" : "introducer";
         const primaryActionLabel = viewerIsParty
           ? "Start Chat"
-          : `Send to ${counterpartName || "them"}`;
+          : "Introduce Them";
         const narratorChip = viewerIsParty
           ? {
               name: "Index",
@@ -289,6 +406,11 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
               text: narratorRemarkFromReasoning(reasoning, counterpartName, introducerUser?.name ?? undefined),
               userId: context.userId,
             };
+
+        const headline =
+          !viewerIsParty && secondPartyName
+            ? `${counterpartName} → ${secondPartyName}`
+            : `Connection with ${counterpartName}`;
 
         const cardData = {
           opportunityId: created.id,
@@ -303,10 +425,11 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
             reasoning,
             counterpartName,
             MINIMAL_MAIN_TEXT_MAX_CHARS,
+            undefined, // viewerName not available in this context; introducer name passed separately
             introducerUser?.name ?? undefined,
           ),
           cta: "Start a conversation to connect.",
-          headline: `Connection with ${counterpartName}`,
+          headline,
           primaryActionLabel,
           secondaryActionLabel: "Skip",
           mutualIntentsLabel: "Suggested connection",
@@ -384,15 +507,22 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
         return error("Invalid intent ID format.");
       }
 
+      if (query.introTargetUserId?.trim() && query.introTargetUserId.trim() === context.userId) {
+        return error("You cannot discover introductions for yourself. Try regular discovery instead.");
+      }
+
       const result = await runDiscoverFromQuery({
-        opportunityGraph: graphs.opportunity as any, // eslint-disable-line @typescript-eslint/no-explicit-any
+        opportunityGraph: graphs.opportunity,
         database,
         userId: context.userId,
         query: searchQuery,
         indexScope,
-        limit: 5,
+        limit: 20,
         minimalForChat: true, // Skip LLM presenter; return only required fields for fast chat
         triggerIntentId,
+        targetUserId: query.targetUserId?.trim() || undefined,
+        onBehalfOfUserId: query.introTargetUserId?.trim() || undefined,
+        cache,
         ...(context.sessionId ? { chatSessionId: context.sessionId } : {}),
       });
 
@@ -409,6 +539,7 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
           suggestedIntentDescription: result.suggestedIntentDescription,
           message:
             "No matching opportunities found. Call create_intent with the suggested description, then create_opportunities again.",
+          ...(result.pagination ? { pagination: result.pagination } : {}),
           debugSteps: allDebugSteps,
         });
       }
@@ -418,6 +549,7 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
           found: false,
           count: 0,
           message: result.message ?? "No matching opportunities found.",
+          ...(result.pagination ? { pagination: result.pagination } : {}),
           debugSteps: allDebugSteps,
         });
       }
@@ -467,11 +599,15 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
         );
       });
 
+      // Cap displayed cards at CHAT_DISPLAY_LIMIT; remaining feed into pagination
+      const displayedBlocks = opportunityBlocks.slice(0, CHAT_DISPLAY_LIMIT);
+      const extraFromCap = opportunityBlocks.length - displayedBlocks.length;
+
       // Join all opportunity blocks into a single string for the LLM to include verbatim
-      const blocksText = opportunityBlocks.join("\n\n");
+      const blocksText = displayedBlocks.join("\n\n");
       let message =
         "Found " +
-        result.count +
+        displayedBlocks.length +
         " potential connection(s). IMPORTANT: Include the following " + CODE_FENCE + "opportunity code blocks EXACTLY as-is in your response (they render as interactive cards):\n\n" +
         blocksText;
       const existingForMention = result.existingConnectionsForMention ?? result.existingConnections ?? [];
@@ -482,12 +618,29 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
           ". View on your home page.";
       }
 
+      const totalRemaining = (result.pagination?.remaining ?? 0) + extraFromCap;
+      if (totalRemaining > 0 && result.pagination?.discoveryId) {
+        message += `\n\nThere are ${totalRemaining} more candidates. Ask if the user wants to see more — they can say "show me more" and you should call create_opportunities with continueFrom="${result.pagination.discoveryId}".`;
+      } else {
+        message += `\n\nThese are all the connections I found. If the user wants to attract more connections, suggest they create a signal — e.g. "Would you like to create a signal so others looking for someone like you can find you?" If they agree, call create_intent with a description based on what they were searching for.`;
+      }
+
       return success({
         found: true,
-        count: result.count,
+        count: displayedBlocks.length,
         message,
         ...(result.existingConnections?.length ? { existingConnections: result.existingConnections } : {}),
+        ...(result.pagination ? { pagination: result.pagination } : {}),
         debugSteps: allDebugSteps,
+        // Distinct from `createIntentSuggested` (no-results path) intentionally:
+        // `handleCreateIntentCallback` in chat.agent.ts auto-creates for that key.
+        // This flag is for the results-found path where the agent must ask the user first.
+        ...(searchQuery && !query.targetUserId
+          ? {
+              suggestIntentCreationForVisibility: true,
+              suggestedIntentDescription: searchQuery,
+            }
+          : {}),
       });
     },
   });
@@ -527,7 +680,7 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
         context.userId,
         {
           indexId: effectiveIndexId,
-          limit: 10,
+          limit: CHAT_DISPLAY_LIMIT,
         },
       );
 
@@ -584,6 +737,23 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
           const counterpartUserId = counterpartActor?.userId;
           if (!counterpartUserId) continue;
 
+          const viewerIsIntroducerHere = opp.actors.some(
+            (a) => a.role === "introducer" && a.userId === context.userId,
+          );
+          const secondPartyActorForHeadline = viewerIsIntroducerHere
+            ? opp.actors.find(
+                (a) =>
+                  a.userId !== context.userId &&
+                  a.userId !== counterpartUserId &&
+                  a.role !== "introducer",
+              )
+            : undefined;
+          const secondPartyNameForHeadline = secondPartyActorForHeadline
+            ? (profileMap.get(secondPartyActorForHeadline.userId)?.identity?.name ??
+              userMap.get(secondPartyActorForHeadline.userId)?.name ??
+              undefined)
+            : undefined;
+
           const introducerActor = opp.actors.find(
             (a) => a.role === "introducer" && a.userId !== context.userId,
           );
@@ -616,6 +786,7 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
             introducerName,
             introducerUser?.avatar ?? null,
             viewerName,
+            secondPartyNameForHeadline,
           );
 
           opportunityBlocks.push(

@@ -1,3 +1,5 @@
+import { z } from 'zod';
+
 import { opportunityService } from '../services/opportunity.service';
 import { Controller, Get, Post, Patch, UseGuards } from '../lib/router/router.decorators';
 import { AuthGuard } from '../guards/auth.guard';
@@ -6,6 +8,11 @@ import { queueOpportunityNotification } from '../queues/notification.queue';
 import { log } from '../lib/log';
 
 const logger = log.controller.from('opportunity');
+
+const discoverBodySchema = z.object({
+  query: z.string().min(1),
+  limit: z.number().int().positive().optional(),
+});
 
 /** Route params when path has :id or :indexId */
 type RouteParams = Record<string, string>;
@@ -34,7 +41,7 @@ export class OpportunityController {
       offset: offset ? parseInt(offset, 10) : undefined,
     };
     const list = await opportunityService.getOpportunitiesForUser(user.id, options);
-    logger.info('Opportunities listed', { userId: user.id, count: list.length });
+    logger.verbose('Opportunities listed', { userId: user.id, count: list.length });
     return Response.json({ opportunities: list });
   }
 
@@ -105,7 +112,7 @@ export class OpportunityController {
     const result = await opportunityService.getOpportunityWithPresentation(id, user.id);
     
     if (!result) {
-      logger.info('Opportunity not found', { userId: user.id, opportunityId: id });
+      logger.verbose('Opportunity not found', { userId: user.id, opportunityId: id });
       return new Response(JSON.stringify({ error: 'Opportunity not found' }), {
         status: 404,
         headers: { 'Content-Type': 'application/json' },
@@ -174,15 +181,23 @@ export class OpportunityController {
   @Post('/discover')
   @UseGuards(AuthGuard)
   async discover(req: Request, user: AuthenticatedUser) {
-    const body = (await req.json()) as { query?: string; limit?: number };
-    const { query, limit = 5 } = body ?? {};
-
-    if (!query || typeof query !== 'string') {
-      return new Response(
-        JSON.stringify({ error: 'Missing or invalid "query" field in request body' }),
-        { status: 400, headers: { 'Content-Type': 'application/json' } }
-      );
+    let body: unknown;
+    try {
+      body = await req.json();
+    } catch {
+      return new Response(JSON.stringify({ error: 'Invalid JSON body' }), {
+        status: 400, headers: { 'Content-Type': 'application/json' },
+      });
     }
+
+    const parsed = discoverBodySchema.safeParse(body);
+    if (!parsed.success) {
+      return new Response(JSON.stringify({ error: 'Missing or invalid "query" field in request body' }), {
+        status: 400, headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    const { query, limit = 5 } = parsed.data;
 
     const result = await opportunityService.discoverOpportunities(user.id, query, limit);
     

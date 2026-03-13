@@ -1,33 +1,29 @@
-"use client";
-
-import { useState, useEffect, use } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useEffect } from "react";
+import { useNavigate, useParams } from "react-router";
 import { Loader2, MessageCircle } from "lucide-react";
 import { useAuthContext } from "@/contexts/AuthContext";
-import { useUsers } from "@/contexts/APIContext";
+import { useUsers, useIndexes } from "@/contexts/APIContext";
 import UserAvatar from "@/components/UserAvatar";
 import { User } from "@/lib/types";
-import Link from "next/link";
+import { Link } from "react-router";
 import ClientLayout from "@/components/ClientLayout";
 import { ContentContainer } from "@/components/layout";
 
-interface UserProfilePageProps {
-  params: Promise<{ id: string }>;
-}
-
-export default function UserProfilePage({ params }: UserProfilePageProps) {
-  const resolvedParams = use(params);
-  const router = useRouter();
+export default function UserProfilePage() {
+  const { id } = useParams();
+  const navigate = useNavigate();
   const { user, isAuthenticated, isLoading: authLoading } = useAuthContext();
   const usersService = useUsers();
+  const indexesService = useIndexes();
 
   const [profileData, setProfileData] = useState<User | null>(null);
+  const [sharedNetworks, setSharedNetworks] = useState<Array<{ id: string; title: string; _count: { members: number } }>>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!authLoading && !isAuthenticated) router.push('/');
-  }, [authLoading, isAuthenticated, router]);
+    if (!authLoading && !isAuthenticated) navigate('/');
+  }, [authLoading, isAuthenticated, navigate]);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -35,8 +31,21 @@ export default function UserProfilePage({ params }: UserProfilePageProps) {
       try {
         setIsLoading(true);
         setError(null);
-        const profile = await usersService.getUserProfile(resolvedParams.id);
+        const profile = await usersService.getUserProfile(id);
         setProfileData(profile);
+
+        // Fetch shared networks separately so a failure doesn't break the profile
+        if (user?.id && user.id !== id) {
+          try {
+            const networks = await indexesService.getSharedIndexes(id!);
+            setSharedNetworks(networks);
+          } catch (err) {
+            console.error('Failed to fetch shared networks:', err);
+            setSharedNetworks([]);
+          }
+        } else {
+          setSharedNetworks([]);
+        }
       } catch (err) {
         console.error('Failed to fetch profile:', err);
         setError('User not found');
@@ -45,7 +54,7 @@ export default function UserProfilePage({ params }: UserProfilePageProps) {
       }
     };
     fetchData();
-  }, [resolvedParams.id, isAuthenticated, authLoading, usersService]);
+  }, [id, user?.id, isAuthenticated, authLoading, usersService, indexesService]);
 
   if (authLoading || isLoading) {
     return (
@@ -63,7 +72,7 @@ export default function UserProfilePage({ params }: UserProfilePageProps) {
         <div className="text-center py-12">
           <h2 className="text-xl font-bold text-red-600 mb-2 font-ibm-plex-mono">Error</h2>
           <p className="text-gray-600 mb-4 font-ibm-plex-mono">{error}</p>
-          <button onClick={() => router.back()} className="px-4 py-2 bg-[#041729] text-white rounded hover:bg-[#0a2d4a] font-ibm-plex-mono">
+          <button onClick={() => navigate(-1)} className="px-4 py-2 bg-[#041729] text-white rounded hover:bg-[#0a2d4a] font-ibm-plex-mono">
             Go Back
           </button>
         </div>
@@ -78,7 +87,7 @@ export default function UserProfilePage({ params }: UserProfilePageProps) {
       <div className="px-6 lg:px-8 py-6 pb-20">
         <ContentContainer className="space-y-8">
 
-          <button onClick={() => router.back()} className="text-gray-600 hover:text-black transition-colors text-xl">
+          <button onClick={() => navigate(-1)} className="text-gray-600 hover:text-black transition-colors text-xl">
             ←
           </button>
 
@@ -115,7 +124,7 @@ export default function UserProfilePage({ params }: UserProfilePageProps) {
             </div>
 
             <button
-              onClick={() => router.push(`/u/${resolvedParams.id}/chat`)}
+              onClick={() => navigate(`/u/${id}/chat`)}
               className="flex items-center gap-2 bg-[#041729] text-white px-4 py-2 rounded-sm text-sm font-medium hover:bg-[#0a2d4a] transition-colors flex-shrink-0"
             >
               <MessageCircle className="w-4 h-4" />
@@ -134,23 +143,22 @@ export default function UserProfilePage({ params }: UserProfilePageProps) {
           )}
 
           {/* Shared Networks */}
-          {<div>
-            <h3 className="text-base font-bold text-gray-900 font-ibm-plex-mono mb-2">Shared Networks</h3>
-            <div className="flex flex-wrap gap-2">
-              {[
-                { id: 'mock-ai-founders', name: 'AI Founders & Builders', members: 142 },
-                { id: 'mock-web3-designers', name: 'Web3 Product Designers', members: 89 },
-              ].map((network) => (
-                <Link key={network.id} href={`/index/${network.id}`} className="flex items-center gap-1.5 px-3 py-1.5 border border-gray-200 rounded-full text-sm text-gray-700 hover:border-gray-400 transition-colors">
-                  {network.name}
-                  <span className="text-xs text-gray-400">{network.members}</span>
-                </Link>
-              ))}
+          {sharedNetworks.length > 0 && (
+            <div>
+              <h3 className="text-base font-bold text-gray-900 font-ibm-plex-mono mb-2">Shared Networks</h3>
+              <div className="flex flex-wrap gap-2">
+                {sharedNetworks.map((network) => (
+                  <Link key={network.id} to={`/index/${network.id}`} className="flex items-center gap-1.5 px-3 py-1.5 border border-gray-200 rounded-full text-sm text-gray-700 hover:border-gray-400 transition-colors">
+                    {network.title}
+                    <span className="text-xs text-gray-400">{network._count.members}</span>
+                  </Link>
+                ))}
+              </div>
             </div>
-          </div>}
+          )}
 
           {/* You're the connector — only shown when viewing someone else's profile */}
-          {user?.id !== resolvedParams.id && (
+          {false && user?.id !== id && (
             <div>
               <h3 className="text-base font-bold text-gray-900 font-ibm-plex-mono mb-0.5">You&apos;re the connector</h3>
               <p className="text-xs text-gray-400 mb-3">Intros you could make with {profileData?.name.split(' ')[0]}</p>
@@ -206,7 +214,7 @@ export default function UserProfilePage({ params }: UserProfilePageProps) {
 
 
           {/* Affiliations */}
-          {<div>
+          {false && <div>
             <h3 className="text-base font-bold text-gray-900 font-ibm-plex-mono mb-3">Affiliations</h3>
             <div className="space-y-3">
               {[
@@ -233,3 +241,5 @@ export default function UserProfilePage({ params }: UserProfilePageProps) {
     </ClientLayout>
   );
 }
+
+export const Component = UserProfilePage;

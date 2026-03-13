@@ -1,6 +1,5 @@
-"use client";
-
-import { useState, useEffect, use } from "react";
+import { useState, useEffect } from "react";
+import { useNavigate, useParams } from "react-router";
 import { Button } from "@/components/ui/button";
 import { Index, User, APIResponse } from "@/lib/types";
 import ClientLayout from "@/components/ClientLayout";
@@ -8,17 +7,10 @@ import { ContentContainer } from "@/components/layout";
 import { useIndexes } from '@/contexts/APIContext';
 import { indexesService as publicIndexesService } from '@/services/indexes';
 import { useAuthenticatedAPI } from '@/lib/api';
-import { useRouter } from 'next/navigation';
 import { Lock, Users, Loader2 } from 'lucide-react';
 import { useNotifications } from '@/contexts/NotificationContext';
 import { useIndexesState } from '@/contexts/IndexesContext';
 import { useAuthContext } from '@/contexts/AuthContext';
-
-interface InvitationPageProps {
-  params: Promise<{
-    code: string;
-  }>;
-}
 
 type PageStep = 'loading' | 'auth-required' | 'onboarding-required' | 'ready-to-join' | 'joining' | 'error' | 'already-member';
 
@@ -29,8 +21,8 @@ type PageState = {
   error: string | null;
 };
 
-export default function InvitationPage({ params }: InvitationPageProps) {
-  const resolvedParams = use(params);
+export default function InvitationPage() {
+  const { code } = useParams();
   const [state, setState] = useState<PageState>({
     step: 'loading',
     index: null,
@@ -41,7 +33,7 @@ export default function InvitationPage({ params }: InvitationPageProps) {
   const { isAuthenticated, isReady, openLoginModal } = useAuthContext();
   const api = useAuthenticatedAPI();
   const indexesService = useIndexes();
-  const router = useRouter();
+  const navigate = useNavigate();
   const { success, error: notifyError } = useNotifications();
   const { refreshIndexes } = useIndexesState();
   const { refetchUser } = useAuthContext();
@@ -51,7 +43,7 @@ export default function InvitationPage({ params }: InvitationPageProps) {
     const loadIndexAndCheckAuth = async () => {
       try {
         // Load index by share code (works for both invitation codes and index IDs)
-        const index = await publicIndexesService.getIndexByShareCode(resolvedParams.code);
+        const index = await publicIndexesService.getIndexByShareCode(code!);
         setState(prev => ({ ...prev, index }));
 
         // Reject public indexes - they should use /index/[indexId] instead
@@ -70,41 +62,25 @@ export default function InvitationPage({ params }: InvitationPageProps) {
         }
 
         if (!isAuthenticated) {
+          // Persist the code so onboarding can pick it up after sign-up
+          localStorage.setItem('pendingInviteCode', code!);
           setState(prev => ({ ...prev, step: 'auth-required' }));
           return;
         }
 
-        // User is authenticated, fetch user data
+        // User is authenticated - check whether they've completed onboarding
         try {
           const response = await api.get<APIResponse<User>>('/auth/me');
           if (response.user) {
-            setState(prev => ({ ...prev, user: response.user || null }));
-
-            // Accept private invitation
-            try {
-              const joinResult = await indexesService.acceptInvitation(resolvedParams.code);
-              
-              // Check if user is already a member
-              if (joinResult?.alreadyMember) {
-                setState(prev => ({ ...prev, step: 'already-member' }));
-                return;
-              }
-              
-              await refreshIndexes();
-            } catch (err) {
-              console.error('Failed to accept invitation:', err);
-              setState(prev => ({ 
-                ...prev, 
-                step: 'error', 
-                error: 'Failed to accept invitation' 
-              }));
+            if (!response.user.onboarding?.completedAt) {
+              // Deferred join: code is in localStorage, redirect to onboarding
+              localStorage.setItem('pendingInviteCode', code!);
+              navigate('/onboarding');
               return;
             }
-
-
-            
-            // User is authenticated and member - go to root
-            router.push('/');
+            // Clean up deferred invite code since user will join explicitly via button
+            localStorage.removeItem('pendingInviteCode');
+            setState(prev => ({ ...prev, user: response.user || null, step: 'ready-to-join' }));
           }
         } catch (err) {
           console.error('Failed to fetch user:', err);
@@ -125,7 +101,7 @@ export default function InvitationPage({ params }: InvitationPageProps) {
     };
 
     loadIndexAndCheckAuth();
-  }, [resolvedParams.code, isAuthenticated, isReady, api, router, indexesService, refreshIndexes, refetchUser]);
+  }, [code, isAuthenticated, isReady, api, navigate]);
 
   // Trigger reload when user authenticates
   useEffect(() => {
@@ -142,7 +118,7 @@ export default function InvitationPage({ params }: InvitationPageProps) {
       setState(prev => ({ ...prev, step: 'joining' }));
       
       // Accept private invitation
-      const result = await indexesService.acceptInvitation(resolvedParams.code);
+      const result = await indexesService.acceptInvitation(code!);
       
       if (result?.alreadyMember) {
         success('You are already a member of this index');
@@ -152,7 +128,7 @@ export default function InvitationPage({ params }: InvitationPageProps) {
         // Refresh indexes context
         await refreshIndexes();
         // Redirect to the index page
-        router.push(`/`);
+        navigate(`/`);
       }
     } catch (err) {
       console.error('Failed to accept invitation:', err);
@@ -196,7 +172,7 @@ export default function InvitationPage({ params }: InvitationPageProps) {
               </p>
             </div>
             <Button
-              onClick={() => router.push('/')}
+              onClick={() => navigate('/')}
               className="bg-[#041729] text-white hover:bg-[#0a2d4a] font-ibm-plex-mono"
             >
               Go to Homepage
@@ -323,7 +299,7 @@ export default function InvitationPage({ params }: InvitationPageProps) {
               </p>
             </div>
             <Button
-              onClick={() => router.push(`/`)}
+              onClick={() => navigate(`/`)}
               className="bg-[#041729] text-white hover:bg-[#0a2d4a] font-ibm-plex-mono"
             >
               Go to your Inbox
@@ -347,3 +323,5 @@ export default function InvitationPage({ params }: InvitationPageProps) {
   );
 }
 
+
+export const Component = InvitationPage;

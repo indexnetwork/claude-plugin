@@ -2,15 +2,19 @@
  * Home Graph: Build the opportunity home view with dynamic sections.
  *
  * Independent of ChatGraph. Flow:
- * loadOpportunities → generateCardText → categorizeDynamically → normalizeAndSort → finalizeResponse
+ * loadOpportunities → checkPresenterCache → [generateCardText if misses] → cachePresenterResults
+ * → checkCategorizerCache → [categorizeDynamically if miss] → cacheCategorizerResults → normalizeAndSort
  *
  * Uses OpportunityPresenter for card text and an LLM to categorize cards into dynamic sections
- * with titles and Lucide icon names.
+ * with titles and Lucide icon names. Caches presenter and categorizer results via OpportunityCache.
  */
+
+import { createHash } from 'crypto';
 
 import { StateGraph, START, END } from '@langchain/langgraph';
 
 import type { HomeGraphDatabase } from '../interfaces/database.interface';
+import type { OpportunityCache } from '../interfaces/cache.interface';
 import {
   HomeGraphState,
   type HomeCardItem,
@@ -45,6 +49,7 @@ export type HomeGraphInvokeResult = {
 const MAX_ITEMS_PER_SECTION = 20;
 const PRESENTATION_CONCURRENCY = 50;
 const MAX_REASONING_SNIPPET_LENGTH = 240;
+const HOME_CACHE_TTL = 24 * 60 * 60; // 24 hours in seconds
 
 /**
  * Strip leading narrator name from remark when the UI already prepends "Name: " to the chip.
@@ -182,7 +187,7 @@ const pickDisplayCounterpartActor = (
 };
 
 export class HomeGraphFactory {
-  constructor(private database: HomeGraphDb) {}
+  constructor(private database: HomeGraphDb, private cache: OpportunityCache) {}
 
   createGraph() {
     const presenter = new OpportunityPresenter();
@@ -236,17 +241,67 @@ export class HomeGraphFactory {
       });
     };
 
+    const checkPresenterCacheNode = async (state: typeof HomeGraphState.State) => {
+      return timed("HomeGraph.checkPresenterCache", async () => {
+        const { opportunities, userId } = state;
+        if (opportunities.length === 0) {
+          return { cachedCards: new Map(), uncachedOpportunities: [] };
+        }
+
+        try {
+          const keys = opportunities.map(
+            (opp) => `home:card:${opp.id}:${userId}`
+          );
+          const results = await this.cache.mget<HomeCardItem>(keys);
+
+          const cachedCards = new Map<string, HomeCardItem>();
+          const uncachedOpportunities: typeof opportunities = [];
+
+          for (let i = 0; i < opportunities.length; i++) {
+            const cached = results[i];
+            if (cached) {
+              cachedCards.set(opportunities[i].id, { ...cached, _cardIndex: i });
+            } else {
+              uncachedOpportunities.push(opportunities[i]);
+            }
+          }
+
+          logger.verbose('[HomeGraph:checkPresenterCache]', {
+            total: opportunities.length,
+            cacheHits: cachedCards.size,
+            cacheMisses: uncachedOpportunities.length,
+          });
+
+          return { cachedCards, uncachedOpportunities };
+        } catch (e) {
+          logger.warn('[HomeGraph:checkPresenterCache] cache unavailable, skipping', { error: e });
+          return { cachedCards: new Map(), uncachedOpportunities: opportunities };
+        }
+      });
+    };
+
+    const shouldGenerateCards = (state: typeof HomeGraphState.State): string => {
+      if (state.uncachedOpportunities.length > 0) {
+        return 'generate';
+      }
+      logger.verbose('[HomeGraph] All presenter results cached, skipping generation');
+      return 'skip';
+    };
+
     const generateCardTextNode = async (state: typeof HomeGraphState.State) => {
       return timed("HomeGraph.generateCardText", async () => {
-      logger.info('[HomeGraph:generateCardText] entry', { opportunitiesLength: state.opportunities.length, userId: state.userId });
-      if (state.opportunities.length === 0) {
-        logger.info('[HomeGraph:generateCardText] exit', { totalOpportunities: 0, totalSections: 0 });
+      const opportunities = state.uncachedOpportunities.length > 0
+        ? state.uncachedOpportunities
+        : state.opportunities;
+      logger.verbose('[HomeGraph:generateCardText] entry', { opportunitiesLength: opportunities.length, userId: state.userId });
+      if (opportunities.length === 0) {
+        logger.verbose('[HomeGraph:generateCardText] exit', { totalOpportunities: 0, totalSections: 0 });
         return { cards: [], meta: { totalOpportunities: 0, totalSections: 0 } };
       }
       const db = this.database as PresenterDatabase;
       const cards: HomeCardItem[] = [];
       const relevantActorIds = new Set<string>();
-      for (const opp of state.opportunities) {
+      for (const opp of opportunities) {
         for (const a of opp.actors) {
           if (a.userId) relevantActorIds.add(a.userId);
         }
@@ -264,12 +319,15 @@ export class HomeGraphFactory {
       );
       const userMap = new Map(userEntries);
 
-      const opportunities = state.opportunities;
+      const oppIndexMap = new Map(
+        state.opportunities.map((opp, idx) => [opp.id, idx])
+      );
+
       for (let i = 0; i < opportunities.length; i += PRESENTATION_CONCURRENCY) {
         const chunk = opportunities.slice(i, i + PRESENTATION_CONCURRENCY);
         const chunkCards = await Promise.all(
           chunk.map(async (opportunity, offset) => {
-            const cardIndex = i + offset;
+            const cardIndex = oppIndexMap.get(opportunity.id) ?? (i + offset);
             const viewerActor = opportunity.actors.find((a) => a.userId === state.userId);
             const viewerRole = viewerActor?.role ?? 'party';
             const isIntroducer = viewerRole === 'introducer';
@@ -383,7 +441,7 @@ export class HomeGraphFactory {
         );
         cards.push(...chunkCards);
       }
-      logger.info('[HomeGraph:generateCardText] exit', { totalOpportunities: state.opportunities.length, totalSections: 0 });
+      logger.verbose('[HomeGraph:generateCardText] exit', { totalOpportunities: state.opportunities.length, totalSections: 0 });
       return {
         cards,
         meta: { totalOpportunities: state.opportunities.length, totalSections: 0 },
@@ -391,11 +449,90 @@ export class HomeGraphFactory {
       });
     };
 
+    const cachePresenterResultsNode = async (state: typeof HomeGraphState.State) => {
+      return timed("HomeGraph.cachePresenterResults", async () => {
+        const { cards, cachedCards, userId } = state;
+
+        // Only cache cards that weren't already from cache
+        const newCards = cards.filter((card) => !cachedCards.has(card.opportunityId));
+
+        try {
+          await Promise.all(
+            newCards.map((card) =>
+              this.cache.set(
+                `home:card:${card.opportunityId}:${userId}`,
+                card,
+                { ttl: HOME_CACHE_TTL }
+              )
+            )
+          );
+        } catch (e) {
+          logger.warn('[HomeGraph:cachePresenterResults] cache write failed, continuing', { error: e });
+        }
+
+        // Merge cached cards into full card list
+        const allCards: HomeCardItem[] = [...cards];
+        for (const [oppId, cachedCard] of cachedCards) {
+          if (!cards.some((c) => c.opportunityId === oppId)) {
+            allCards.push(cachedCard);
+          }
+        }
+
+        // Re-sort by _cardIndex to maintain original ordering
+        allCards.sort((a, b) => a._cardIndex - b._cardIndex);
+
+        logger.verbose('[HomeGraph:cachePresenterResults]', {
+          newlyCached: newCards.length,
+          totalCards: allCards.length,
+        });
+
+        return {
+          cards: allCards,
+          meta: { totalOpportunities: state.opportunities.length, totalSections: 0 },
+        };
+      });
+    };
+
+    const checkCategorizerCacheNode = async (state: typeof HomeGraphState.State) => {
+      return timed("HomeGraph.checkCategorizerCache", async () => {
+        if (state.cards.length === 0) {
+          return { categoryCacheHit: false };
+        }
+
+        try {
+          const oppIds = state.cards
+            .map((c) => c.opportunityId)
+            .join(',');
+          const hash = createHash('sha256').update(oppIds).digest('hex').slice(0, 16);
+          const key = `home:categories:${state.userId}:${hash}`;
+
+          const cached = await this.cache.get<HomeSectionProposal[]>(key);
+          if (cached) {
+            logger.verbose('[HomeGraph:checkCategorizerCache] cache hit');
+            return { sectionProposals: cached, categoryCacheHit: true };
+          }
+
+          logger.verbose('[HomeGraph:checkCategorizerCache] cache miss');
+        } catch (e) {
+          logger.warn('[HomeGraph:checkCategorizerCache] cache unavailable, skipping', { error: e });
+        }
+        return { categoryCacheHit: false };
+      });
+    };
+
+    const shouldCategorize = (state: typeof HomeGraphState.State): string => {
+      if (state.categoryCacheHit) {
+        logger.verbose('[HomeGraph] Categorizer results cached, skipping');
+        return 'skip';
+      }
+      return 'categorize';
+    };
+
     const categorizeDynamicallyNode = async (state: typeof HomeGraphState.State) => {
       return timed("HomeGraph.categorizeDynamically", async () => {
-        logger.info('[HomeGraph:categorizeDynamically] entry', { cardsLength: state.cards.length });
+        logger.verbose('[HomeGraph:categorizeDynamically] entry', { cardsLength: state.cards.length });
         if (state.cards.length === 0) {
-          logger.info('[HomeGraph:categorizeDynamically] exit', { sectionProposalsCount: 0 });
+          logger.verbose('[HomeGraph:categorizeDynamically] exit', { sectionProposalsCount: 0 });
           return { sectionProposals: [] };
         }
         const categorizerInput = state.cards.map((c) => ({
@@ -417,8 +554,34 @@ export class HomeGraphFactory {
           ...s,
           itemIndices: s.itemIndices.filter((i) => i >= 0 && i < state.cards.length),
         }));
-        logger.info('[HomeGraph:categorizeDynamically] exit', { sectionProposalsCount: proposals.length });
+        logger.verbose('[HomeGraph:categorizeDynamically] exit', { sectionProposalsCount: proposals.length });
         return { sectionProposals: proposals };
+      });
+    };
+
+    const cacheCategorizerResultsNode = async (state: typeof HomeGraphState.State) => {
+      return timed("HomeGraph.cacheCategorizerResults", async () => {
+        if (state.categoryCacheHit || state.sectionProposals.length === 0) {
+          return {};
+        }
+
+        try {
+          const oppIds = state.cards
+            .map((c) => c.opportunityId)
+            .join(',');
+          const hash = createHash('sha256').update(oppIds).digest('hex').slice(0, 16);
+          const key = `home:categories:${state.userId}:${hash}`;
+
+          await this.cache.set(key, state.sectionProposals, { ttl: HOME_CACHE_TTL });
+
+          logger.verbose('[HomeGraph:cacheCategorizerResults] cached', {
+            sectionCount: state.sectionProposals.length,
+          });
+        } catch (e) {
+          logger.warn('[HomeGraph:cacheCategorizerResults] cache write failed, continuing', { error: e });
+        }
+
+        return {};
       });
     };
 
@@ -426,9 +589,9 @@ export class HomeGraphFactory {
       return timed("HomeGraph.normalizeAndSort", async () => {
         const cards = state.cards;
         const proposals = state.sectionProposals;
-        logger.info('[HomeGraph:normalizeAndSort] entry', { cardsLength: cards.length, proposalsLength: proposals.length });
+        logger.verbose('[HomeGraph:normalizeAndSort] entry', { cardsLength: cards.length, proposalsLength: proposals.length });
         if (cards.length === 0) {
-          logger.info('[HomeGraph:normalizeAndSort] exit', { totalOpportunities: 0, totalSections: 0 });
+          logger.verbose('[HomeGraph:normalizeAndSort] exit', { totalOpportunities: 0, totalSections: 0 });
           return { sections: [], meta: { totalOpportunities: 0, totalSections: 0 } };
         }
         const usedIndices = new Set<number>();
@@ -455,20 +618,34 @@ export class HomeGraphFactory {
           totalOpportunities: state.opportunities.length,
           totalSections: sections.length,
         };
-        logger.info('[HomeGraph:normalizeAndSort] exit', { totalOpportunities: meta.totalOpportunities, totalSections: meta.totalSections });
+        logger.verbose('[HomeGraph:normalizeAndSort] exit', { totalOpportunities: meta.totalOpportunities, totalSections: meta.totalSections });
         return { sections, meta };
       });
     };
 
     const graph = new StateGraph(HomeGraphState)
       .addNode('loadOpportunities', loadOpportunitiesNode)
+      .addNode('checkPresenterCache', checkPresenterCacheNode)
       .addNode('generateCardText', generateCardTextNode)
+      .addNode('cachePresenterResults', cachePresenterResultsNode)
+      .addNode('checkCategorizerCache', checkCategorizerCacheNode)
       .addNode('categorizeDynamically', categorizeDynamicallyNode)
+      .addNode('cacheCategorizerResults', cacheCategorizerResultsNode)
       .addNode('normalizeAndSort', normalizeAndSortNode)
       .addEdge(START, 'loadOpportunities')
-      .addEdge('loadOpportunities', 'generateCardText')
-      .addEdge('generateCardText', 'categorizeDynamically')
-      .addEdge('categorizeDynamically', 'normalizeAndSort')
+      .addEdge('loadOpportunities', 'checkPresenterCache')
+      .addConditionalEdges('checkPresenterCache', shouldGenerateCards, {
+        generate: 'generateCardText',
+        skip: 'cachePresenterResults',
+      })
+      .addEdge('generateCardText', 'cachePresenterResults')
+      .addEdge('cachePresenterResults', 'checkCategorizerCache')
+      .addConditionalEdges('checkCategorizerCache', shouldCategorize, {
+        categorize: 'categorizeDynamically',
+        skip: 'normalizeAndSort',
+      })
+      .addEdge('categorizeDynamically', 'cacheCategorizerResults')
+      .addEdge('cacheCategorizerResults', 'normalizeAndSort')
       .addEdge('normalizeAndSort', END);
 
     return graph.compile();

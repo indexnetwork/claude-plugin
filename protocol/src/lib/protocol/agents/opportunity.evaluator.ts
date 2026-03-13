@@ -1,13 +1,13 @@
-import { ChatOpenAI } from "@langchain/openai";
 import type { Runnable } from "@langchain/core/runnables";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { tool } from "@langchain/core/tools";
 import { z } from "zod";
 import { protocolLogger } from "../support/protocol.logger";
-import type { HydeStrategy } from "./hyde.strategies";
+import type { Lens } from "./lens.inferrer";
 import type { OpportunityStatus } from "../interfaces/database.interface";
 import { Timed } from "../../performance";
 import { stripUuids } from "../support/opportunity.sanitize";
+import { createModel } from "./model.config";
 
 const logger = protocolLogger("OpportunityEvaluator");
 
@@ -17,10 +17,7 @@ const logger = protocolLogger("OpportunityEvaluator");
 import { config } from "dotenv";
 config({ path: '.env.development' });
 
-const model = new ChatOpenAI({
-  model: 'google/gemini-2.5-flash',
-  configuration: { baseURL: process.env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1', apiKey: process.env.OPENROUTER_API_KEY }
-});
+const model = createModel("opportunityEvaluator");
 
 // ──────────────────────────────────────────────────────────────
 // 1. SYSTEM PROMPT
@@ -78,6 +75,10 @@ const systemPrompt = `
 `;
 
 // Entity-bundle system prompt (C2): entities + four match patterns + actors output
+// NOTE: entityBundleSystemPrompt uses a >= 30 threshold (permissive) while
+// systemPrompt uses >= 70 (strict). This is intentional: batch mode casts a wide
+// net so the calling pipeline can apply its own filters; pairwise mode is strict
+// because it returns a single yes/no decision per candidate pair.
 const entityBundleSystemPrompt = `
 You are an expert "Opportunity Matcher" and super-connector.
 Your Goal: Analyze a set of entities (people), each with a profile and optional intents, and identify HIGH-VALUE opportunities among them.
@@ -100,7 +101,8 @@ Match patterns to consider:
 Output:
 - A list of 0..N opportunities. Each opportunity has:
   - reasoning: Third-party analytical explanation (for other LLM agents). Mention entities by role. Do NOT use "you". Never leak private intents.
-  - score: 0-100. 90-100 = Must Meet, 70-89 = Should Meet, <70 = do not include.
+  - score: 0-100. 90-100 = Must Meet, 70-89 = Should Meet, 50-69 = Worth Considering, <50 = weak match.
+  - IMPORTANT: Include ALL reasonable matches with scores >= 30. Let the system filter by threshold.
   - actors: At least 2 actors per opportunity. Each actor has:
     - userId
     - role: "agent" (can do something for others), "patient" (needs something from others), "peer" (symmetric collaboration)
@@ -112,8 +114,8 @@ VISIBILITY (role controls who sees the opportunity when):
 - peer: Both see immediately; either can initiate.
 
 Rules:
-1. SYNTHESIS: If multiple match angles exist among the same set of people, synthesize into one opportunity.
-2. You may propose 2 or more actors per opportunity (e.g. three people who should collaborate).
+1. ONE OPPORTUNITY PER CANDIDATE: Create a SEPARATE opportunity for EACH candidate who matches. Do NOT combine multiple candidates into one opportunity. Each opportunity should have exactly 2 actors: the DISCOVERER and ONE candidate.
+2. INDIVIDUAL REASONING: Write specific reasoning for EACH candidate individually. Do NOT mention other candidates in the reasoning. Focus on why THIS specific candidate matches THIS specific discoverer.
 3. DEDUPLICATION: Do not suggest opportunities that duplicate Existing Opportunities.
 4. Write reasoning from an objective observer's perspective; be specific about the "Why" for each side.
 5. When in introduction mode, each opportunity must have exactly two actors — the two people being introduced. The discoverer (introducer) is added by the system and must not be included in your actors list.
@@ -215,8 +217,8 @@ interface OpportunityEvaluatorOptions {
   minScore?: number;
   limit?: number;
   hydeDescription?: string;
-  /** When set (e.g. from chat discovery), HyDE runs only these strategies instead of inferring from intent. */
-  strategies?: HydeStrategy[];
+  /** Pre-inferred lenses (if not provided, lens inference runs automatically in HyDE graph). */
+  lenses?: Lens[];
   existingOpportunities?: string;
   candidates?: CandidateProfile[]; // For direct evaluation
   filter?: Record<string, unknown>;
@@ -261,10 +263,10 @@ export class OpportunityEvaluator {
   ): Promise<Opportunity[]> {
     const minScore = options.minScore || 70;
 
-    logger.info(`[OpportunityEvaluator.invoke] Analyzing ${candidates.length} candidates...`);
+    logger.verbose(`[OpportunityEvaluator.invoke] Analyzing ${candidates.length} candidates...`);
 
     if (candidates.length === 0) {
-      logger.info('[OpportunityEvaluator] No candidates provided.');
+      logger.verbose('[OpportunityEvaluator] No candidates provided.');
       return [];
     }
 
@@ -286,7 +288,7 @@ export class OpportunityEvaluator {
 
     // Sort by score and take top 1
     const out = opportunities.sort((a, b) => b.score - a.score).slice(0, 1);
-    logger.info('[OpportunityEvaluator.invoke] Done', { accepted: out.length });
+    logger.verbose('[OpportunityEvaluator.invoke] Done', { accepted: out.length });
     return out;
   }
 
@@ -336,7 +338,7 @@ export class OpportunityEvaluator {
       return mappedOpportunities;
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : String(e);
-      logger.info(`[OpportunityEvaluator] Analysis failed for candidate ${candidateUserId}`, { message });
+      logger.warn(`[OpportunityEvaluator] Analysis failed for candidate ${candidateUserId}`, { message });
       return [];
     }
   }
@@ -347,12 +349,13 @@ export class OpportunityEvaluator {
   @Timed()
   public async invokeEntityBundle(
     input: EvaluatorInput,
-    options: { minScore?: number } = {}
+    options: { minScore?: number; returnAll?: boolean } = {}
   ): Promise<EvaluatedOpportunityWithActors[]> {
     const minScore = options.minScore ?? 70;
+    const returnAll = options.returnAll ?? false;
     const totalEntities = input.entities?.length ?? 0;
     if (!input.entities?.length) {
-      logger.info('[OpportunityEvaluator.invokeEntityBundle] No entities.');
+      logger.verbose('[OpportunityEvaluator.invokeEntityBundle] No entities.');
       return [];
     }
     const existingPart = input.existingOpportunities
@@ -374,17 +377,32 @@ CRITICAL REASONING INSTRUCTIONS FOR INTRODUCTIONS:
     const discoveryQueryPart = input.discoveryQuery?.trim()
       ? `\nDISCOVERY REQUEST: The user asked: "${input.discoveryQuery.trim()}"
 
-Only suggest opportunities where the candidates clearly match this request. Down-rank or exclude candidates who do not fit (e.g. if the user asked for visual artists, do not suggest people who are only engineers or product designers unless they are also visual artists). Score relevance to the request as well as general match quality.
+CRITICAL SCORING RULES FOR DISCOVERY REQUESTS:
+1. MATCH THE REQUEST TYPE FIRST: If the user asks for "investors", prioritize candidates who are ACTUALLY investors (VCs, angels, fund partners). Engineers and collaborators should score LOWER unless they are also investors.
+2. ROLE KEYWORDS MATTER: Look for keywords in bios like "investor", "VC", "venture", "fund", "partner at [fund]", "angel", "mentor", etc. that match what the user asked for.
+3. SCORING HIERARCHY:
+   - 90-100: Candidate's PRIMARY role matches the request (e.g., "investor" request → actual investor/VC partner)
+   - 70-89: Candidate has SOME relevance to the request (e.g., "investor" request → someone who occasionally invests but is primarily a builder)
+   - 50-69: Weak match - candidate is tangentially related but doesn't fit the primary request
+   - <50: Does not match the request - exclude or heavily down-rank
+4. DO NOT score collaborators/builders highly when the user explicitly asks for investors, and vice versa.
 `
       : '';
     const entitiesBlock = input.entities.map((e) => {
       const intentsPart = e.intents?.length
         ? `\n  INTENTS:\n${e.intents.map((i) => `    - ${i.intentId}: ${i.payload}`).join('\n')}`
         : '';
+      // Mask the discoverer's name so the LLM cannot leak it into reasoning.
+      // The system prompt already says "use third-party references", but the LLM
+      // ignores this when the actual name is visible. Masking it forces role-based
+      // language ("the source user is looking…" instead of "Alice is looking…").
+      const displayName = e.userId === input.discovererId
+        ? '(source user)'
+        : (e.profile.name ?? '');
       return `
   USER: ${e.userId}
   INDEX: ${e.indexId}
-  PROFILE: Name: ${e.profile.name ?? ''} | Bio: ${e.profile.bio ?? ''} | Location: ${e.profile.location ?? ''} | Interests: ${e.profile.interests?.join(', ') ?? ''} | Skills: ${e.profile.skills?.join(', ') ?? ''} | Context: ${e.profile.context ?? ''}${intentsPart}
+  PROFILE: Name: ${displayName} | Bio: ${e.profile.bio ?? ''} | Location: ${e.profile.location ?? ''} | Interests: ${e.profile.interests?.join(', ') ?? ''} | Skills: ${e.profile.skills?.join(', ') ?? ''} | Context: ${e.profile.context ?? ''}${intentsPart}
   RAG SCORE: ${e.ragScore ?? '—'}
   MATCHED VIA: ${e.matchedVia ?? '—'}`;
     }).join('\n');
@@ -406,12 +424,13 @@ Only suggest opportunities where the candidates clearly match this request. Down
           ? parsed.opportunities.filter((op) => op.actors.length === 2)
           : parsed.opportunities;
       const filtered = introGuard.filter((op) => op.score >= minScore);
-      logger.info('[OpportunityEvaluator.invokeEntityBundle] Done', {
+      logger.verbose('[OpportunityEvaluator.invokeEntityBundle] Done', {
         total: parsed.opportunities.length,
         afterIntroGuard: introGuard.length,
         accepted: filtered.length,
+        returnAll,
       });
-      return filtered;
+      return returnAll ? introGuard : filtered;
     } catch (llmError) {
       logger.error('[OpportunityEvaluator.invokeEntityBundle] Failed; returning empty opportunities.', {
         discovererId: input.discovererId,

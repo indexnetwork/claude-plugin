@@ -57,14 +57,18 @@ function cosineSimilarity(a: number[], b: number[]): number {
 
 /**
  * Resolve enriched opportunity status from related opportunities' statuses and the incoming status.
- * Priority: accepted > pending > rejected > latent (expired and latent both resolve to latent).
+ * Priority: accepted > pending > rejected > draft (preserve chat drafts) > latent.
  * The incoming status is included so we do not wrongly downgrade when the new opportunity has a higher-priority status.
+ * When incoming is 'draft' (e.g. from in-chat discovery), we preserve draft so the opportunity stays chat-only and
+ * does not appear on the home view (home excludes draft). This holds even when merging with expired (or latent)
+ * opportunities: the result stays draft so it remains chat-only.
  */
 function resolveEnrichedStatus(relatedStatuses: string[], incomingStatus?: string): OpportunityStatus {
   const statuses = incomingStatus ? [...relatedStatuses, incomingStatus] : relatedStatuses;
   if (statuses.includes('accepted')) return 'accepted';
   if (statuses.includes('pending')) return 'pending';
   if (statuses.includes('rejected')) return 'rejected';
+  if (incomingStatus === 'draft' || statuses.includes('draft')) return 'draft';
   return 'latent';
 }
 
@@ -285,7 +289,7 @@ export async function enrichOrCreate(
 
   const resolvedStatus = resolveEnrichedStatus(related.map((o) => o.status), newData.status);
 
-  logger.info('[Enricher] Enriched opportunity', {
+  logger.verbose('[Enricher] Enriched opportunity', {
     enrichedFrom,
     actorCount: mergedActors.length,
   });

@@ -1,10 +1,8 @@
-'use client';
-
 import { useState, useEffect } from 'react';
 import { authClient } from '@/lib/auth-client';
 import { X, ArrowLeft } from 'lucide-react';
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api';
+const API_BASE = '/api';
 
 interface AuthModalProps {
   isOpen: boolean;

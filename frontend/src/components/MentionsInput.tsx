@@ -1,5 +1,3 @@
-'use client';
-
 import { MentionsInput as ReactMentionsInput, Mention, SuggestionDataItem } from 'react-mentions';
 import { useMentionableUsers, MentionableUser } from '@/hooks/useMentionableUsers';
 import UserAvatar from '@/components/UserAvatar';

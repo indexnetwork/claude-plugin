@@ -1,9 +1,15 @@
-import { useCallback, useMemo } from 'react';
+import { useCallback, useMemo, useRef } from 'react';
 
 import { authClient, getJwtToken } from './auth-client';
 
-// API Configuration
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL!;
+// In production, VITE_PROTOCOL_URL points to the protocol service; in dev, Vite proxies /api
+const PROTOCOL_BASE = import.meta.env.VITE_PROTOCOL_URL || '';
+const API_BASE_URL = `${PROTOCOL_BASE}/api`;
+
+/** Prefix an /api/... path with the protocol origin when running in production. */
+export function apiUrl(path: string): string {
+  return `${PROTOCOL_BASE}${path}`;
+}
 
 // Error types
 export class APIError extends Error {
@@ -218,10 +224,19 @@ export const apiClient = new APIClient();
 // Hook for authenticated API calls (Better Auth cookie-based sessions)
 export function useAuthenticatedAPI() {
   const session = authClient.useSession();
+  
+  // Use a ref to hold the current session, so the callback doesn't depend on session object reference.
+  // This prevents unnecessary recreations when session refreshes but auth state doesn't change.
+  const sessionRef = useRef(session.data?.session);
+  sessionRef.current = session.data?.session;
+  
+  // Only depend on whether we're authenticated (boolean), not the session object itself.
+  // This keeps the callback stable across session refreshes.
+  const isAuthenticated = !!session.data?.session;
 
   const makeAuthenticatedRequest = useCallback(async <T>(requestFn: () => Promise<T>): Promise<T> => {
     try {
-      if (!session.data?.session) {
+      if (!sessionRef.current) {
         throw new APIError('Authentication system not ready', 401);
       }
       return await requestFn();
@@ -234,7 +249,7 @@ export function useAuthenticatedAPI() {
         401
       );
     }
-  }, [session.data?.session]);
+  }, [isAuthenticated]);
 
   return useMemo(
     () => ({

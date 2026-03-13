@@ -1,5 +1,3 @@
-"use client";
-
 import React, {
   createContext,
   useContext,
@@ -7,16 +5,10 @@ import React, {
   useCallback,
   useRef,
 } from "react";
-import { usePathname } from "next/navigation";
+import { useLocation } from "react-router";
 import { useAIChatSessions } from "@/contexts/AIChatSessionsContext";
 import { apiClient } from "@/lib/api";
 import type { Suggestion } from "@/hooks/useSuggestions";
-
-interface ThinkingStep {
-  content: string;
-  step?: string;
-  timestamp: Date;
-}
 
 export interface DiscoveryOpportunity {
   candidateId: string;
@@ -31,18 +23,30 @@ export interface DiscoveryOpportunity {
  */
 export type { OpportunityCardData } from "@/components/chat/OpportunityCardInChat";
 
-/** Per-turn debug meta (graph + tool calls) for copy debug. */
-export interface DebugTurnMeta {
-  graph: string;
-  iterations: number;
-  tools: Array<{
-    name: string;
-    args: Record<string, unknown>;
-    resultSummary: string;
-    success: boolean;
-    /** Internal steps (subgraphs, subtasks) when tool reports debugSteps. */
-    steps?: Array<{ step: string; detail?: string }>;
-  }>;
+export interface ToolCallStep {
+  step: string;
+  detail?: string;
+  /** Structured data for rich display (e.g., Felicity scores, classification, candidate info). */
+  data?: Record<string, unknown>;
+}
+
+export type TraceEventType =
+  | "iteration_start"
+  | "llm_start"
+  | "llm_end"
+  | "tool_start"
+  | "tool_end";
+
+export interface TraceEvent {
+  type: TraceEventType;
+  timestamp: number;
+  iteration?: number;
+  name?: string;
+  status?: "running" | "success" | "error";
+  summary?: string;
+  steps?: ToolCallStep[];
+  hasToolCalls?: boolean;
+  toolNames?: string[];
 }
 
 interface ChatMessage {
@@ -51,9 +55,13 @@ interface ChatMessage {
   content: string;
   timestamp: Date;
   isStreaming?: boolean;
-  thinking?: ThinkingStep[];
+  /** Set when user stopped the stream; trace should show "Stopped" instead of "Thinking...". */
+  wasStoppedByUser?: boolean;
+  /** Timestamp when user stopped; used to freeze trace duration display. */
+  stoppedAt?: number;
   attachmentNames?: string[];
   discoveries?: DiscoveryOpportunity[];
+  traceEvents?: TraceEvent[];
 }
 
 interface AIChatContextType {
@@ -71,13 +79,14 @@ interface AIChatContextType {
   setScopeIndexId: (indexId: string | null) => void;
   /** Context-aware suggestions from the last done event; empty when no messages or after clear/load. */
   suggestions: Suggestion[];
-  /** Per-turn debug meta (one entry per assistant message, null for loaded history). */
-  debugMetaByTurn: (DebugTurnMeta | null)[];
   isLoading: boolean;
+  /** Abort the in-progress agent response stream. */
+  stopStream: () => void;
   sendMessage: (
     message: string,
     fileIds?: string[],
     attachmentNames?: string[],
+    options?: { hidden?: boolean; prefillMessages?: Array<{ role: "assistant" | "user"; content: string }> },
   ) => Promise<void>;
   /** Clear messages and session state. Use { abortStream: false } when navigating away so the in-flight stream can finish and the new session appears in the sidebar. */
   clearChat: (options?: { abortStream?: boolean }) => void;
@@ -95,7 +104,7 @@ function getScopeIndexIdFromPathname(pathname: string | null): string | null {
 }
 
 export function AIChatProvider({ children }: { children: React.ReactNode }) {
-  const pathname = usePathname();
+  const { pathname } = useLocation();
   const [scopeIndexIdOverride, setScopeIndexIdOverride] = useState<
     string | null
   >(null);
@@ -110,7 +119,6 @@ export function AIChatProvider({ children }: { children: React.ReactNode }) {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [sessionTitle, setSessionTitle] = useState<string | null>(null);
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
-  const [debugMetaByTurn, setDebugMetaByTurn] = useState<(DebugTurnMeta | null)[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const { refetchSessions } = useAIChatSessions();
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -118,10 +126,12 @@ export function AIChatProvider({ children }: { children: React.ReactNode }) {
   const skipSessionUpdateForRequestRef = useRef(false);
 
   const sendMessage = useCallback(
-    async (message: string, fileIds?: string[], attachmentNames?: string[]) => {
+    async (message: string, fileIds?: string[], attachmentNames?: string[], options?: { hidden?: boolean; prefillMessages?: Array<{ role: "assistant" | "user"; content: string }> }) => {
       const displayContent =
         message.trim() || (fileIds?.length ? "Attached file(s)." : "");
       if (!displayContent) return;
+
+      const isHidden = options?.hidden ?? false;
 
       // A new sendMessage call is always intentional — reset the skip flag
       // so the session ID from the response header is captured correctly.
@@ -129,15 +139,17 @@ export function AIChatProvider({ children }: { children: React.ReactNode }) {
       // that should finish silently, but it must not carry over to new calls.)
       skipSessionUpdateForRequestRef.current = false;
 
-      // Add user message (include attachment names for display)
-      const userMessage: ChatMessage = {
-        id: crypto.randomUUID(),
-        role: "user",
-        content: displayContent,
-        timestamp: new Date(),
-        ...(attachmentNames?.length ? { attachmentNames } : {}),
-      };
-      setMessages((prev) => [...prev, userMessage]);
+      // Add user message (include attachment names for display) — skip if hidden
+      if (!isHidden) {
+        const userMessage: ChatMessage = {
+          id: crypto.randomUUID(),
+          role: "user",
+          content: displayContent,
+          timestamp: new Date(),
+          ...(attachmentNames?.length ? { attachmentNames } : {}),
+        };
+        setMessages((prev) => [...prev, userMessage]);
+      }
 
       // Add placeholder for assistant response
       const assistantMessageId = crypto.randomUUID();
@@ -162,6 +174,7 @@ export function AIChatProvider({ children }: { children: React.ReactNode }) {
           sessionId,
           ...(fileIds?.length ? { fileIds } : {}),
           ...(scopeIndexId ? { indexId: scopeIndexId } : {}),
+          ...(options?.prefillMessages?.length ? { prefillMessages: options.prefillMessages } : {}),
         };
 
         const response = await apiClient.stream("/chat/stream", bodyPayload, {
@@ -205,25 +218,31 @@ export function AIChatProvider({ children }: { children: React.ReactNode }) {
                 const event = JSON.parse(line.slice(6));
 
                 switch (event.type) {
-                  case "thinking":
-                    // Legacy: kept for backward compat with old sessions
+                  case "iteration_start":
                     setMessages((prev) =>
                       prev.map((msg) => {
-                        if (msg.id === assistantMessageId) {
-                          const newThinkingStep: ThinkingStep = {
-                            content: event.content,
-                            step: event.step,
-                            timestamp: new Date(event.timestamp),
-                          };
-                          return {
-                            ...msg,
-                            thinking: [
-                              ...(msg.thinking || []),
-                              newThinkingStep,
-                            ],
-                          };
-                        }
-                        return msg;
+                        if (msg.id !== assistantMessageId) return msg;
+                        const traceEvents = [...(msg.traceEvents || [])];
+                        traceEvents.push({
+                          type: "iteration_start",
+                          timestamp: Date.now(),
+                          iteration: event.iteration,
+                        });
+                        return { ...msg, traceEvents };
+                      }),
+                    );
+                    break;
+                  case "llm_start":
+                    setMessages((prev) =>
+                      prev.map((msg) => {
+                        if (msg.id !== assistantMessageId) return msg;
+                        const traceEvents = [...(msg.traceEvents || [])];
+                        traceEvents.push({
+                          type: "llm_start",
+                          timestamp: Date.now(),
+                          iteration: event.iteration,
+                        });
+                        return { ...msg, traceEvents };
                       }),
                     );
                     break;
@@ -236,8 +255,50 @@ export function AIChatProvider({ children }: { children: React.ReactNode }) {
                       ),
                     );
                     break;
-                  // tool_activity events are intentionally not rendered;
-                  // the LLM's own streamed text provides the narration.
+                  case "llm_end":
+                    setMessages((prev) =>
+                      prev.map((msg) => {
+                        if (msg.id !== assistantMessageId) return msg;
+                        const traceEvents = [...(msg.traceEvents || [])];
+                        traceEvents.push({
+                          type: "llm_end",
+                          timestamp: Date.now(),
+                          iteration: event.iteration,
+                          hasToolCalls: event.hasToolCalls,
+                          toolNames: event.toolNames,
+                        });
+                        return { ...msg, traceEvents };
+                      }),
+                    );
+                    break;
+                  case "tool_activity": {
+                    const now = Date.now();
+                    setMessages((prev) =>
+                      prev.map((msg) => {
+                        if (msg.id !== assistantMessageId) return msg;
+                        const traceEvents = [...(msg.traceEvents || [])];
+                        if (event.phase === "start") {
+                          traceEvents.push({
+                            type: "tool_start",
+                            timestamp: now,
+                            name: event.toolName,
+                            status: "running",
+                          });
+                        } else {
+                          traceEvents.push({
+                            type: "tool_end",
+                            timestamp: now,
+                            name: event.toolName,
+                            status: event.success === true ? "success" : event.success === false ? "error" : undefined,
+                            summary: event.summary,
+                            steps: event.steps,
+                          });
+                        }
+                        return { ...msg, traceEvents };
+                      }),
+                    );
+                    break;
+                  }
                   case "done":
                     setMessages((prev) =>
                       prev.map((msg) => {
@@ -281,16 +342,6 @@ export function AIChatProvider({ children }: { children: React.ReactNode }) {
                       ),
                     );
                     break;
-                  case "debug_meta":
-                    setDebugMetaByTurn((prev) => [
-                      ...prev,
-                      {
-                        graph: event.graph ?? "",
-                        iterations: event.iterations ?? 0,
-                        tools: event.tools ?? [],
-                      },
-                    ]);
-                    break;
                 }
               } catch (e) {
                 console.error("Failed to parse SSE event:", e);
@@ -301,6 +352,19 @@ export function AIChatProvider({ children }: { children: React.ReactNode }) {
       } catch (error) {
         if (error instanceof Error && error.name === "AbortError") {
           console.log("Chat stream aborted");
+          const stoppedAt = Date.now();
+          setMessages((prev) =>
+            prev.map((msg) =>
+              msg.id === assistantMessageId
+                ? {
+                    ...msg,
+                    isStreaming: false,
+                    wasStoppedByUser: true,
+                    stoppedAt,
+                  }
+                : msg,
+            ),
+          );
         } else {
           console.error("Chat error:", error);
           setMessages((prev) =>
@@ -318,10 +382,24 @@ export function AIChatProvider({ children }: { children: React.ReactNode }) {
       } finally {
         skipSessionUpdateForRequestRef.current = false;
         setIsLoading(false);
+        // Ensure isStreaming is always cleared when the stream ends
+        setMessages((prev) =>
+          prev.map((msg) =>
+            msg.id === assistantMessageId
+              ? { ...msg, isStreaming: false }
+              : msg,
+          ),
+        );
       }
     },
     [sessionId, scopeIndexId, refetchSessions],
   );
+
+  const stopStream = useCallback(() => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+  }, []);
 
   const clearChat = useCallback((options?: { abortStream?: boolean }) => {
     const abortStream = options?.abortStream !== false;
@@ -331,7 +409,6 @@ export function AIChatProvider({ children }: { children: React.ReactNode }) {
     }
     setMessages([]);
     setSuggestions([]);
-    setDebugMetaByTurn([]);
     setSessionId(null);
     setSessionTitle(null);
     setSessionIndexId(null); // Clear session-bound index so new chat can use UI selection
@@ -369,8 +446,6 @@ export function AIChatProvider({ children }: { children: React.ReactNode }) {
           isStreaming: false,
         })),
       );
-      const assistantCount = data.messages.filter((m) => m.role === "assistant").length;
-      setDebugMetaByTurn(Array(assistantCount).fill(null));
     } catch (err) {
       console.error("Load session error:", err);
     }
@@ -409,8 +484,8 @@ export function AIChatProvider({ children }: { children: React.ReactNode }) {
         scopeIndexId,
         setScopeIndexId: setScopeIndexIdOverride,
         suggestions,
-        debugMetaByTurn,
         isLoading,
+        stopStream,
         sendMessage,
         clearChat,
         loadSession,

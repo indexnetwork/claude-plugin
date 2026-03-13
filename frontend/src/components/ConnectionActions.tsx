@@ -1,7 +1,5 @@
-"use client";
-
 import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useNavigate } from "react-router";
 import { X, Check, RotateCcw } from "lucide-react";
 import { useNotifications } from "@/contexts/NotificationContext";
 
@@ -36,12 +34,12 @@ export default function ConnectionActions({
   onAction,
   disabled = false,
 }: ConnectionActionsProps) {
-  const router = useRouter();
+  const navigate = useNavigate();
   const [isLoading, setIsLoading] = useState(false);
   const { success, error } = useNotifications();
 
   const handleMessage = () => {
-    router.push(`/u/${userId}/chat`);
+    navigate(`/u/${userId}/chat`);
   };
 
   const handleAction = async (action: ConnectionAction) => {

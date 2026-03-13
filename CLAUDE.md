@@ -9,7 +9,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Index Network is a private, intent-driven discovery protocol built on autonomous agents. Users define "intents" and competing Broker Agents work to fulfill them through relevant connections. The system leverages LangChain/LangGraph for agent orchestration, PostgreSQL with pgvector for semantic search, and a monorepo structure with protocol (backend) and frontend (Next.js) workspaces.
+Index Network is a private, intent-driven discovery protocol built on autonomous agents. Users define "intents" and competing Broker Agents work to fulfill them through relevant connections. The system leverages LangChain/LangGraph for agent orchestration, PostgreSQL with pgvector for semantic search, and a monorepo structure with protocol (backend) and frontend (Vite + React Router) workspaces.
 
 ## Development Commands
 
@@ -61,9 +61,10 @@ bun run audit-freshness                     # Audit intent freshness
 cd frontend
 
 # Development
-bun run dev                                 # Start Next.js dev server (Turbopack)
-bun run build                               # Build for production
-bun run start                               # Start production server
+bun run dev                                 # Start Vite dev server (with API proxy to protocol)
+bun run build                               # Build blog assets then run Vite production build
+bun run build:blog                          # Pre-build blog assets only
+bun run start                               # Start Vite preview server
 bun run lint                                # Run ESLint
 ```
 
@@ -90,7 +91,7 @@ bun run worktree:build [name]               # Build at root, or in worktree <nam
 ```
 index/
 ├── protocol/          # Backend API & Agent Engine (Bun, Express, TypeScript)
-└── frontend/          # Next.js 15 App with React 19
+└── frontend/          # Vite + React Router v7 SPA with React 19
 ```
 
 ### Protocol Architecture
@@ -98,20 +99,17 @@ index/
 **Tech Stack**: Bun runtime, Express.js, Drizzle ORM, PostgreSQL with pgvector, BullMQ (Redis-backed queues), LangChain/LangGraph
 
 **Key Directories**:
-- `src/agents/` - LangGraph-based AI agents for intent processing
-- `src/controllers/` - API controllers (chat, intent, opportunity, profile, upload); used with decorator-based routing in `main.ts`
-- `src/adapters/` - Implementations of protocol interfaces (database, embedder, cache, queue, scraper); implement interfaces from `src/lib/protocol/interfaces/`
+- `src/controllers/` - API controllers (chat, intent, opportunity, profile, upload, messaging); used with decorator-based routing in `main.ts`
+- `src/adapters/` - Implementations of protocol interfaces (database, embedder, cache, queue, scraper, storage, messaging); implement interfaces from `src/lib/protocol/interfaces/`
 - `src/services/` - Business logic layer
 - `src/schemas/` - Drizzle table definitions; primary schema is `schemas/database.schema.ts`
 - `src/guards/` - Auth/validation guards for the decorator router (e.g. `auth.guard.ts`)
 - `src/types/` - Shared TypeScript types
-- `src/cli/` - CLI and maintenance scripts (db-seed, db-flush, integration-worker, social-worker, trigger-integration, audit-intent-freshness, etc.)
-- `src/lib/` - Utilities, infrastructure; includes `lib/protocol/` (graphs, agents, interfaces, docs), `lib/drizzle/`, `lib/router/`
-- `src/lib/protocol/` - Protocol layer: `graphs/` (LangGraph state machines: chat, hyde, index, intent, opportunity, profile), `agents/` (intent indexer, inferrer, reconciler, verifier, opportunity evaluator, profile/hyde generators), `interfaces/` (database, embedder, cache, queue, scraper), `docs/`
-- `src/middleware/` - Express middleware (auth, validation)
+- `src/cli/` - CLI and maintenance scripts (db-seed, db-flush, db-apply-schema, db-reset-remote, backfill-profile-hyde, generate-profiles, opportunity-three-user-test, test-data). Note: some package.json maintenance scripts (trigger-integration, export-slack, import-slack-export, reset-brokers, update-embeddings, audit-intent-freshness) reference CLI files that no longer exist
+- `src/lib/` - Utilities, infrastructure; includes `lib/protocol/` (graphs, agents, interfaces, docs), `lib/drizzle/`, `lib/router/`, `lib/smartest/` (LLM-based test verification framework), `lib/performance/` (performance monitoring decorators/wrappers), `lib/parallel/` (parallel execution utilities), `lib/request-context.ts` (AsyncLocalStorage for request-scoped data like originUrl)
+- `src/lib/protocol/` - Protocol layer: `graphs/` (LangGraph state machines: chat, home, hyde, index, index_membership, intent, intent_index, opportunity, profile), `agents/` (chat agent, intent inferrer/indexer/reconciler/verifier/clarifier, opportunity evaluator/presenter, profile/hyde generators, home categorizer, lens inferrer, suggestion generator, chat title generator), `states/` (graph state definitions: chat, home, hyde, index, index_membership, intent, intent_index, opportunity, profile), `streamers/` (response streaming: chat.streamer, response.streamer), `support/` (protocol utilities: chat checkpointer/utils, opportunity card-text/constants/discover/enricher/persist/presentation/sanitize/utils, debug-meta sanitizer, lucide icon-catalog, protocol logger), `tools/` (agent tool definitions: contact, index, integration, intent, opportunity, profile, utility tools), `interfaces/` (database, embedder, cache, queue, scraper, storage), `docs/`
 - `src/queues/` - BullMQ job queue definitions
-- `src/jobs/` - Scheduled cron jobs
-- `src/events/` - Event emitters for agent system
+- `src/events/` - Event emitters for agent system (intent events, index membership events)
 
 ### Server Entry Point
 
@@ -119,44 +117,46 @@ The protocol server is `protocol/src/main.ts`: Bun native server on port 3001, c
 
 ### Agent System (LangGraph-Based)
 
-All agents extend `BaseLangChainAgent` which wraps LangChain's ChatOpenAI model (configured for OpenRouter). Agents use Zod schemas for structured output validation.
+Agents use `createModel()` from `model.config.ts` for LLM configuration (model, temperature, max tokens) and Zod schemas for structured output validation.
 
 **LangGraph Patterns**:
 
-- **When to use graphs**: Complex, multi-step workflows with conditional logic; read/write separation with fast paths; state accumulation across agents; complex decision trees; parallel map-reduce. **Do not** use graphs for: simple CRUD (use services), linear agent calls, single LLM call, single-agent workflows.
-- **File organization**: Every graph has two files: `{domain}.graph.ts` (factory and nodes) and `{domain}.graph.state.ts` (state annotation and types). Example: `chat.graph.ts`, `chat.graph.state.ts`.
-- **Factory pattern**: Graph built by a factory class that accepts dependencies in the constructor (database, embedder, agents), exposes `createGraph()` or `compile()`, and does not instantiate adapters inside the graph. No hardcoded dependencies.
-- **State**: Use LangGraph `Annotation.Root` with reducers. Separate input fields, intermediate (merge) fields, control fields (operation mode), and output fields.
-- **Conditional routing**: Every graph must have at least one conditional edge (routing decision). Use for read/write separation (fast path vs full pipeline), skip expensive ops by operation mode, or state-based branching. Map all branch results to valid node names or END.
-- **Nodes**: Async functions that accept state and return partial state. Log entry with context and exit with results. Catch errors and return error state (do not throw). Return only the state fields being updated. Use `{action}Node` naming (e.g. `inferenceNode`).
-- **Assembly**: Use `START` and `END` from `@langchain/langgraph`. Start with `addEdge(START, "first_node")`, end with `addEdge("last_node", END)`. Every conditional branch must map to a valid node.
-- **Anti-patterns**: Avoid linear graphs with no conditionals (use service calls instead); avoid throwing in nodes (return error state); avoid hardcoded dependencies (inject via factory).
-- **Checklist**: At least one conditional edge; state in separate `.graph.state.ts`; factory with DI; node logging and error handling; fast paths if applicable; tests cover routing logic.
+- **When to use**: Multi-step workflows with conditional logic, read/write separation, state accumulation, parallel map-reduce. Do **not** use for simple CRUD, single LLM calls, or linear agent calls.
+- **File organization**: Each graph in `{domain}.graph.ts` with factory, nodes, and inline state annotation (`Annotation.Root` with reducers).
+- **Factory pattern**: Factory class accepts dependencies (database, embedder, agents) via constructor; no hardcoded dependencies.
+- **Nodes**: Async functions accepting state, returning partial state. Catch errors (do not throw). Use `{action}Node` naming.
+- **Conditional routing**: Every graph must have at least one conditional edge. Map all branches to valid node names or END.
+- **Checklist**: Conditional edge; `Annotation.Root` state; factory with DI; node error handling; fast paths; routing tests.
 
-**Agent Categories**:
+**Protocol Agents** (`src/lib/protocol/agents/`):
 
-1. **Intent Agents** (`agents/intent/`):
-   - `ExplicitIntentInferrer` - Extracts intents from uploaded content (files, links)
-   - `ImplicitInferrer` - Infers intents from implicit signals
-   - `IntentManager` - Orchestrates intent lifecycle (create/update/expire actions)
-   - `IntentRefiner` - Refines intent descriptions
-   - `SyntacticEvaluator` / `SemanticEvaluator` - Validates intent quality using felicity conditions (Searle's Speech Acts)
+All agents live under `src/lib/protocol/agents/`. There is no separate `src/agents/` directory.
 
-2. **Core Agents** (`agents/core/`):
-   - `IntentIndexer` - Assigns intents to relevant indexes (communities)
-   - `IntentSummarizer` - Generates concise summaries
-   - `IntentTagSuggester` - Recommends categorization tags
-   - `IntentFreshnessAuditor` - Monitors intent staleness
+1. **Chat Agents**:
+   - `chat.agent.ts` - Main chat agent with prompt in `chat.prompt.ts`
+   - `chat.title.generator.ts` - Generates chat session titles
 
-3. **Profile Agents** (`agents/profile/`):
-   - `ProfileGenerator` - Generates user profiles from identity signals
-   - `HydeGenerator` - Creates Hypothetical Document Embeddings for semantic search
+2. **Intent Agents**:
+   - `intent.inferrer.ts` - Extracts intents from uploaded content
+   - `intent.indexer.ts` - Assigns intents to relevant indexes (communities)
+   - `intent.reconciler.ts` - Reconciles intent changes
+   - `intent.verifier.ts` - Verifies intent quality
+   - `intent.clarifier.ts` - Clarifies ambiguous intents
 
-4. **Context Brokers** (`agents/context_brokers/`):
-   - Event-driven agents that react to intent lifecycle (onIntentCreated, onIntentUpdated, onIntentArchived)
-   - Example: `SemanticRelevancyBroker` finds semantically related intents and creates stakes linking them
+3. **Opportunity Agents**:
+   - `opportunity.evaluator.ts` - Evaluates opportunity matches
+   - `opportunity.presenter.ts` - Formats opportunity presentation
 
-A parallel protocol-oriented layer lives under `src/lib/protocol/`: **Graphs** (`lib/protocol/graphs/`) — chat, hyde, index, intent, opportunity, profile (LangGraph state machines); **Agents** (`lib/protocol/agents/`) — intent (inferrer, reconciler, verifier), index (intent indexer), opportunity (evaluator, notification agent), profile/hyde generators. See `PROFILE-GRAPH-IMPLEMENTATION-SUMMARY.md` and docs under `lib/protocol/docs/` for design details.
+4. **Profile/Discovery Agents**:
+   - `profile.generator.ts` - Generates user profiles from identity signals
+   - `profile.hyde.generator.ts` - Creates profile-specific HyDE documents
+   - `hyde.generator.ts` - Creates Hypothetical Document Embeddings for semantic search
+   - `hyde.strategies.ts` - HyDE generation strategies
+   - `lens.inferrer.ts` - Infers discovery lenses
+   - `suggestion.generator.ts` - Generates suggestions
+   - `home.categorizer.ts` - Categorizes home feed content
+
+**Protocol Graphs** (`src/lib/protocol/graphs/`): chat, home, hyde, index, index_membership, intent, intent_index, opportunity, profile. See docs under `lib/protocol/docs/` for design details.
 
 **Agent Execution Pattern**:
 ```typescript
@@ -178,18 +178,19 @@ IntentEvents.onCreated({ intentId, userId, payload?, previousStatus? });
 - `users` - User accounts (Better Auth)
 - `user_profiles` - User identity with vector embeddings (2000-dim, text-embedding-3-large)
 - `intents` - User intents with vector embeddings and confidence scores
-- `indexes` - Communities/collections of related intents
+- `indexes` - Communities/collections of related intents; personal indexes have `isPersonal=true` (one per user, created on registration)
+- `personal_indexes` - Mapping table enforcing one personal index per user (PK on `userId`, unique on `indexId`)
 - `index_members` - Membership with custom prompts and auto-assignment settings
-- `intent_indexes` - Many-to-many junction (intents ↔ indexes)
-- `intent_stakes` - Relationships between intents with confidence tracking
-- `intent_stake_items` - Per-stake item details (linked to intent_stakes)
+- `intent_indexes` - Many-to-many junction (intents ↔ indexes) with composite PK and optional `relevancyScore` (0.0–1.0)
 - `files` / `user_integrations` - Source tracking for intents
-- `user_connection_events` - Connection requests/approvals
-- `chat_sessions` / `chat_messages` - Chat session and message storage (chat graph, chat-session.service)
+- `chat_sessions` / `chat_messages` - Chat session and message storage (chat graph, chat.service)
 - `user_notification_settings` - User notification preferences
-- `agents` - Context broker agent registry (context_brokers/connector)
-- `opportunities` - Opportunity records (detection, actors, interpretation, context, status); see migration 0018
+- `opportunities` - Opportunity records (detection, actors, interpretation, context, status)
 - `hyde_documents` - Stored HyDE documents for retrieval
+- `sessions` / `accounts` / `verifications` / `jwks` - Better Auth tables
+- `links` - Shareable link records
+- `hidden_conversations` - Hidden conversation tracking
+- `user_contacts` - My Network contacts (owner/user pairs with source: gmail|google_calendar|manual)
 
 **Key Features**:
 - pgvector extension for 2000-dimensional embeddings
@@ -205,10 +206,11 @@ IntentEvents.onCreated({ intentId, userId, payload?, previousStatus? });
 
 **Queue Types**:
 - `intent.queue.ts` - Intent indexing and generation jobs
-- `newsletter.queue.ts` - Weekly digest generation
 - `opportunity.queue.ts` - Matching intents with opportunities
 - `profile.queue.ts` - User profile generation
-- `notification.queue.ts` - Notification delivery (see `notification.job.ts`; registered in index.ts)
+- `hyde.queue.ts` - HyDE document generation jobs
+- `email.queue.ts` - Email delivery jobs
+- `notification.queue.ts` - Notification delivery
 
 **Job Pattern**:
 - Default: 3 retries with exponential backoff (1s delay)
@@ -226,40 +228,57 @@ IntentEvents.onCreated({ intentId, userId, payload?, previousStatus? });
 **Key Controllers and Routes**:
 - `AuthController` - Authentication (Better Auth integration)
 - `IntentController` - Intent CRUD, generation, suggestions
-- `IndexController` - Community management and index opportunities
+- `IndexController` - Community management
 - `FileController` - File uploads and processing
 - `ChatController` - Chat interface
 - `ProfileController` - User profiles
-- `OpportunityController` - Opportunity management
+- `OpportunityController` / `IndexOpportunityController` - Opportunity management
 - `UploadController` - Upload handling
 - `UserController` - User management
 - `LinkController` - Link management
+- `MessagingController` - Messaging operations
+- `DebugController` - Debug endpoints for pipeline tracing (dev/admin only, gated by `DebugGuard`)
+- `QueuesController` - Bull Board queue monitoring UI
 
 ### Frontend Architecture
 
-**Framework**: Next.js 15 (App Router), React 19, Tailwind CSS
+**Framework**: Vite, React Router v7, React 19, Tailwind CSS 4
 
 **Directory Structure**:
-- `src/app/` - Next.js App Router pages (file-based routing)
-  - `/index/[indexId]` - Index detail pages
-  - `/u/[id]` - User profile pages
-  - `/u/[id]/chat` - User chat
-  - `/d/[id]` - Discovery/detail (e.g. by id)
-  - `/l/[code]` - Link redirect (e.g. by code)
+- `src/main.tsx` - App entry point with provider tree
+- `src/routes.tsx` - Route definitions (React Router `createBrowserRouter`)
+- `src/app/` - Page components (client-side, lazy loaded)
+  - `/` - Home page
+  - `/about` - About page
+  - `/chat` - Main chat interface
+  - `/profile` - User profile management
   - `/library` - Library
-  - `/networks` - Networks
-  - `/blog` - Blog listing; `/blog/[slug]` - Markdown-based blog posts
+  - `/networks` - Networks listing; `/networks/:id` - Network detail
+  - `/index/:indexId` - Index detail pages
+  - `/u/:id` - User profile pages; `/u/:id/chat` - User chat
+  - `/d/:id` - Discovery/detail (e.g. by id)
+  - `/l/:code` - Link redirect (e.g. by code)
+  - `/s/:token` - Shared session view (e.g. by share token)
+  - `/blog` - Blog listing; `/blog/:slug` - Markdown-based blog posts
+  - `/onboarding` - First-user onboarding chat flow (identity, profile, communities, intent)
+  - `/oauth/callback` - OAuth popup callback (posts result to opener via postMessage)
   - `/pages/privacy-policy`, `/pages/terms-of-use` - Legal pages
-  - `/api/blog`, `/api/subscribe` - API routes for blog and subscription
-  - Intents may be viewed in discover/chat or other contexts (no dedicated `/i/[id]` route)
+  - `/dev/intent-proposal` - Dev tool for intent proposal testing
 - `src/components/` - Reusable React components
-- `src/contexts/` - React Context providers (Auth, API, Notifications, XMTP)
+- `src/contexts/` - React Context providers (Auth, AIChatContext, AIChatSessionsContext, API, DiscoveryFilter, Indexes, IndexFilter, Notifications, SaveBar, XMTP)
 - `src/services/` - Frontend API clients (typed fetch wrappers)
 - `src/lib/` - Utilities and shared logic
+- `build-blog.ts` - Blog pre-build script (generates blog assets at build time)
+
+**Routing**: React Router v7 with `createBrowserRouter`. Page components are lazy-loaded for code splitting. Route params use `:param` syntax (e.g. `/u/:id`).
 
 **Authentication**: Better Auth (session-based; email, social, etc.)
 
-**UI Libraries**: Tailwind CSS, Radix UI, Lucide React, Ant Design, react-markdown
+**Blog**: Blog posts are pre-built at build time via `build-blog.ts` and rendered client-side with react-markdown.
+
+**API Proxy**: In development, the Vite dev server proxies `/api/*` requests to the protocol backend (port 3001). In production, a reverse proxy handles this.
+
+**UI Libraries**: Tailwind CSS 4, Radix UI, Lucide React, Ant Design, react-markdown
 
 ## Important Patterns & Conventions
 
@@ -283,7 +302,9 @@ Each layer has a `*.template.md` with coding guidelines. Consult before adding o
 
 ### Adapter Pattern
 
-Protocol interfaces live in `src/lib/protocol/interfaces/` (e.g. `database.interface.ts`). Implementations live in `src/adapters/` (database, embedder, cache, queue, scraper). Controllers (e.g. opportunity, chat) receive database/queue abstractions via constructor injection so they can be tested with mocks.
+Protocol interfaces live in `src/lib/protocol/interfaces/` (e.g. `database.interface.ts`, `storage.interface.ts`). Implementations live in `src/adapters/` (auth, database, embedder, cache, integration, queue, scraper, storage, messaging). Controllers (e.g. opportunity, chat) receive database/queue abstractions via constructor injection so they can be tested with mocks.
+
+**Adapter file naming**: Use **conceptual** names (role/capability), not implementation technology. Pattern: `{concept}.adapter.ts`. Examples: `database.adapter.ts` (not `drizzle.adapter.ts`), `cache.adapter.ts` and `queue.adapter.ts` (not `redis.adapter.ts`), `storage.adapter.ts` (not `s3.adapter.ts`). Tests: `{concept}.adapter.spec.ts`.
 
 ### Controller and Decorator Routing
 
@@ -305,10 +326,13 @@ This enables filtering intents by source and bulk re-processing.
 // Intents have confidence scores
 confidence: number // 0-1
 inferenceType: 'explicit' | 'implicit'
-
-// Intent stakes track relationships with reasoning
-intentStakes: { confidence, reasoning, ... }
 ```
+
+### Personal Indexes
+
+Each user has a personal index (`isPersonal=true`) created on registration, tracked via the `personal_indexes` mapping table (one row per user). Ownership is determined through `index_members` with `permissions: ['owner']`, not a denormalized column. Personal indexes contain the user's imported contacts and are used for network-scoped discovery. Contacts synced into a personal index automatically become members with `'contact'` permissions. When a user accepts an opportunity, the counterpart is auto-added as a contact.
+
+Personal indexes cannot be deleted, renamed, or listed publicly. They are filtered from public index listings by guards.
 
 ### Index Prompts & Auto-Assignment
 
@@ -322,6 +346,10 @@ indexMembers.autoAssign: boolean // Auto-tag new intents?
 ```
 
 LLM agents evaluate whether intents belong in indexes based on these prompts rather than hardcoded rules.
+
+### Relevancy Scoring (Intent-Index Attribution)
+
+When intents are assigned to indexes, an `IntentIndexer` agent scores the fit as `relevancyScore` (0.0–1.0). This score is used during opportunity discovery to break ties when a candidate appears across multiple shared indexes — the index with the highest relevancy to the trigger intent wins. Indexes without prompts default to score 1.0.
 
 ### Queue-Based Processing
 
@@ -341,7 +369,7 @@ await intentQueue.add('generate_intents', { sourceId });
 
 ### Event-Driven Broker System
 
-Intent events live in `protocol/src/events/intent.event.ts` (the service imports from there; `src/lib/events.ts` contains a parallel/legacy implementation). API: `IntentEvents.onCreated(event)`, `IntentEvents.onUpdated(event)`, `IntentEvents.onArchived(event)` where `event` has `intentId`, `userId`, and optional `payload`, `previousStatus`. Brokers implement `onIntentCreated(intentId)` (and similar); the connector calls these from the event handlers.
+Intent events live in `protocol/src/events/intent.event.ts`. API: `IntentEvents.onCreated(event)`, `IntentEvents.onUpdated(event)`, `IntentEvents.onArchived(event)` where `event` has `intentId`, `userId`, and optional `payload`, `previousStatus`. Index membership events live in `protocol/src/events/index_membership.event.ts`.
 
 Decoupled event handling for extensibility:
 
@@ -349,35 +377,18 @@ Decoupled event handling for extensibility:
 // Service emits events after DB transaction
 IntentEvents.onCreated({ intentId, userId, payload?, previousStatus? });
 
-// Brokers listen and react independently
-SemanticRelevancyBroker.onIntentCreated(intentId);
-// - Finds related intents via vector search
-// - Creates intentStakes linking them
-// - Enables discovery
+// Other services/graphs react to events independently
 ```
-
-Add new brokers without modifying intent logic.
 
 ### OpenRouter Configuration
 
-The protocol uses OpenRouter as the LLM provider with **presets** for different agent types. Each preset is configured at https://openrouter.ai/settings/presets with specific model, temperature, and max_tokens settings.
-
-**Required Presets** (configure in OpenRouter dashboard):
-- `intent-inferrer` - Complex structured output generation from content
-- `intent-summarizer` - Text summarization with length constraints
-- `intent-tag-suggester` - Tag/cluster generation from intent analysis
-- `intent-indexer` - Intent appropriateness evaluation scoring
-- `vibe-checker` - Collaboration synthesis generation
-- `intro-maker` - Email introduction generation
-- `semantic-relevancy` - Semantic intent relationship analysis
-- `intent-freshness-auditor` - Intent expiration detection based on temporal markers
+The protocol uses OpenRouter as the LLM provider. Model settings per agent are centralized in `protocol/src/lib/protocol/agents/model.config.ts` — the single source of truth for model names, temperatures, and token limits.
 
 **Environment Variables**:
-```bash
-OPENROUTER_API_KEY=your-openrouter-api-key
-```
-
-Agents reference presets by name in their configuration. This allows centralized control of model selection and parameters for each agent type.
+- `OPENROUTER_API_KEY` - Required
+- `OPENROUTER_BASE_URL` - Optional (defaults to `https://openrouter.ai/api/v1`)
+- `CHAT_MODEL` - Override chat agent model (defaults to `google/gemini-3-pro-preview`)
+- `CHAT_REASONING_EFFORT` - Chat reasoning budget (`minimal|low|medium|high|xhigh`, defaults to `low`)
 
 ## Environment Setup
 
@@ -390,8 +401,6 @@ DATABASE_URL=postgresql://username:password@localhost:5432/protocol_db
 
 # LLM (OpenRouter)
 OPENROUTER_API_KEY=your-openrouter-api-key
-# Note: Create presets at https://openrouter.ai/settings/presets
-# See "OpenRouter Configuration" section above for required preset names
 
 # Authentication
 
@@ -426,23 +435,9 @@ Before committing any change:
 
 If you cannot run tests yourself (e.g. agent cannot execute `bun test`), provide the exact commands for the user to run and ask them to confirm results before committing.
 
-### Do not run bun test yourself
+### Running tests
 
-When tests need to be run (e.g. after changes, to verify fixes, or when the user asks to run tests):
-
-1. **Do not** execute `bun test` (or `bun test <path>`) in the terminal yourself.
-2. **Provide** the exact command for the user to run (e.g. `bun test` or `bun test protocol/tests/e2e.test.ts`).
-3. **Ask** the user to run it and share the output so you can interpret the result and continue from there.
-
-Example response:
-
-> Run the tests locally and paste the output:
->
-> ```bash
-> cd protocol && bun test
-> ```
->
-> Share the result and I'll help with any failures.
+Run tests directly when needed. Always target specific test files affected by your changes rather than running the full suite.
 
 ### Test layout and commands
 
@@ -465,15 +460,7 @@ bun test                    # Run ALL tests (slow — avoid unless necessary)
 - E2E tests: Test full API workflows
 - Smoke tests: Test external integrations (crawl4ai, etc.)
 
-**Bun Test Standards**:
-
-- **Environment**: Load env at the top of test files before other imports (`import { config } from "dotenv"; config({ path: '.env.development', override: true });`). Import test utilities from `bun:test` destructured (`describe`, `expect`, `it`, `beforeAll`, `afterAll`, `mock`, etc.), not default import.
-- **Structure**: Group related tests with descriptive `describe` blocks. Write clear, specific test descriptions that explain behavior and expected outcome (not vague names like "should work").
-- **Lifecycle**: Use `beforeAll`/`afterAll` (and `beforeEach`/`afterEach` when needed). Always clean up DB records and resources in `afterAll` for integration tests.
-- **Timeouts**: Set explicit timeouts for async operations: fast operations use default (5s); agent inference 30000ms; graph operations 60000ms; LLM operations 120000ms.
-- **Assertions**: Use specific matchers (e.g. `expect(result.target).toBe("intent_query")`); avoid loose assertions like `.toBeTruthy()` or `.toBeDefined()` only. Test multiple aspects of the result where relevant.
-- **Mocking**: Mock external dependencies (DB, APIs) for isolation. Use `mock()` from `bun:test` for function mocking. Use realistic, representative test data (not minimal stubs).
-- **Coverage**: Test both success and error paths. Add comments to explain complex scenarios. Use modifiers when appropriate: `it.skip()`, `it.todo()`, `it.only()`, `it.failing()`.
+**Bun Test Standards**: Load env at top before imports. Import from `bun:test` (destructured). Use `describe` grouping with clear test names. Set timeouts (agent: 30s, graph: 60s, LLM: 120s). Clean up in `afterAll`. Use specific matchers. Mock externals with `mock()`. Test success and error paths.
 
 Checklist: env at top; imports from `bun:test`; `describe` grouping; clear test names; timeouts set; lifecycle cleanup in `afterAll`; specific assertions; mocks for externals; success and error paths; realistic data.
 
@@ -517,13 +504,7 @@ Drizzle generates random names like `0002_flashy_millenium_guard.sql`. **Always 
 
 ### Why migrations get out of sync
 
-Drizzle stays in sync when (1) **`drizzle/meta/_journal.json`** lists every migration in order and (2) the **`__drizzle_migrations`** table in the DB matches what’s been applied. Things break when:
-
-- **Journal and files diverge** — A new `.sql` file is added (e.g. `0001_foo.sql`) but `_journal.json` is not updated. Then `drizzle-kit migrate` only knows about migrations in the journal, so the new file is never applied. **Rule:** Every file in `drizzle/*.sql` must have a matching entry in `drizzle/meta/_journal.json` (same order; `tag` = filename without `.sql`).
-- **Applying SQL outside Drizzle** — Running SQL by hand or via `db:apply-schema` applies changes but does not insert into `__drizzle_migrations`. Next run of `drizzle-kit migrate` can skip or re-apply migrations. **Rule:** Prefer `bun run db:migrate` so Drizzle tracks applied migrations; if you must run SQL manually, insert the corresponding row(s) into `__drizzle_migrations` (see Drizzle docs).
-- **pgvector** — Drizzle does not emit `CREATE EXTENSION vector`. The first migration must include it (e.g. add it manually to the first `.sql` or use a custom migration). The `maintenance:fix-migrations` script injects it when regenerating from scratch.
-
-Using Drizzle is correct; the pain usually comes from the journal or migration history getting out of sync with the actual files/DB.
+Migrations break when: (1) `_journal.json` and `.sql` files diverge (every `.sql` needs a matching journal entry), (2) SQL is applied outside Drizzle (manually or via `db:apply-schema`) without updating `__drizzle_migrations`, or (3) pgvector `CREATE EXTENSION vector` is missing from the first migration. Always use `bun run db:migrate` to keep tracking consistent.
 
 ### Making db:migrate the single source of truth
 
@@ -613,6 +594,8 @@ All files in the protocol directory should follow the pattern: `{domain}.{purpos
 | `.queue` | Job queue definitions | `intent.queue.ts` |
 | `.spec` | Test files | `router.agent.spec.ts` |
 
+**Adapters** (`protocol/src/adapters/`): Name by **concept**, not by tech. Use `{concept}.adapter.ts` (e.g. `database.adapter.ts`, `cache.adapter.ts`, `queue.adapter.ts`). Do not name after the implementation (e.g. no `drizzle.adapter.ts`, `redis.adapter.ts`, `bullmq.adapter.ts`). See Adapter Pattern above.
+
 **Exceptions** (exempt from convention):
 - `index.ts` - Barrel export files
 - `schema.ts` - Database schema files
@@ -670,33 +653,21 @@ export class IntentService {
 
 ### Agents
 
-- Extend `BaseLangChainAgent` for consistency
-- Define input/output as Zod schemas
-- Set appropriate temperature per agent type
-- Use Langfuse middleware for tracing
+- Use `createModel()` from `model.config.ts` for LLM configuration
+- Define input/output as Zod schemas; configure temperature/maxTokens in `model.config.ts`
 - Keep agents pure (no direct DB access) - let services handle persistence
 
 ### Services
 
-- Services encapsulate business logic
-- Handle database transactions
-- Emit events after successful operations
-- Return typed results
+- Encapsulate business logic, handle DB transactions, emit events, return typed results
 - Use Drizzle for type-safe queries
 - **Must not import other services** — use events, queues, or shared lib for cross-service orchestration
 
 ### Controllers
 
-- Controllers handle HTTP (request/response) and delegate business logic to services or protocol graphs
-- They may accept adapters (database, queue) via constructor injection for testability
+- Handle HTTP and delegate to services/graphs; use guards for auth (e.g. `AuthGuard`)
+- Validate input with Zod; return consistent JSON responses
 - **Must not import adapters directly** — only services may import adapters
-
-### API Routes
-
-- Controllers use guard functions for authentication (e.g. `AuthGuard`)
-- Validate input with Zod schemas where needed
-- Handle errors with try/catch and proper HTTP status codes
-- Return consistent JSON responses or Response objects
 
 ### Database
 
@@ -715,24 +686,22 @@ Follow these conventions for version control operations.
 
 **Use a worktree** for any new feature or bugfix work. Do not do feature or fix work on the main working tree (e.g. on `dev` at repo root). Create a worktree, do the work there, then open PRs from that branch. This keeps `dev` stable and isolates changes.
 
-- **New feature** → create worktree (e.g. `feat/my-feature`), implement and test there.
-- **Bug fix** → create worktree (e.g. `fix/issue-name`), fix and test there.
+- **New feature** → create worktree folder `feat-my-feature` (branch: `feat/my-feature`), implement and test there.
+- **Bug fix** → create worktree folder `fix-issue-name` (branch: `fix/issue-name`), fix and test there.
 
 Only use the main working tree for small docs/config edits, dependency bumps, or when explicitly told otherwise.
 
 ### Worktrees
 
-Worktrees live in `.worktrees/` (gitignored). They share the same git history but have an isolated working tree. Since `.gitignore`d files (`node_modules/`, `.env*`) are not copied into worktrees, you must run `bun run worktree:setup <name>` after creating one. This symlinks `.env*` files from the main repo into the worktree for all workspaces (`protocol`, `frontend`, `evaluator`). It also runs `bun install` in each workspace (`node_modules` can't be symlinked because Turbopack rejects symlinks pointing outside the worktree root).
+Worktrees live in `.worktrees/` (gitignored), sharing git history with an isolated working tree. **Folder names must use dashes** (e.g. `feat-my-feature`, not `feat/my-feature`); branches inside can use slashes. Run `bun run worktree:setup <name>` after creation to symlink `.env*` files and install dependencies.
 
 ```bash
-# After creating a worktree (e.g., via `git worktree add .worktrees/feat-foo dev`)
-bun run worktree:setup feat-foo
-
-# Run all dev servers (protocol + frontend + evaluator) from a worktree
-bun run worktree:dev feat-foo
+git worktree add .worktrees/feat-foo dev
+bun run worktree:setup feat-foo    # symlink .env files + bun install
+bun run worktree:dev feat-foo      # start all dev servers (auto-setups if needed)
 ```
 
-Root `bun run dev` shows an interactive list to select either the active branch (root) or one of the worktrees; choosing root runs a full build then starts dev servers, choosing a worktree runs `worktree:dev` for that worktree. `worktree:dev` auto-runs setup if the worktree hasn't been set up yet. Use `bun run worktree:list` to see available worktrees and whether they've been set up. Use `bun run worktree:build` (at root) or `bun run worktree:build <name>` to build a specific worktree.
+Use `bun run worktree:list` to see worktrees and status. Root `bun run dev` lets you pick root or a worktree interactively.
 
 ### Conventional Commits
 
@@ -760,7 +729,7 @@ Commit messages should follow the Conventional Commits format:
 
 ### Conventional Branches
 
-Branch names follow `<type>/<short-description>`:
+Branch names **always** follow `<type>/<short-description>`, even when created from Linear issues. Do not use Linear issue IDs as branch names (e.g. no `IND-123`). Instead, derive a conventional branch name from the issue context.
 
 ```bash
 feat/user-authentication
@@ -779,6 +748,15 @@ test/chat-controller
    - **Documentation**
    - **Tests**
 
+### Finishing a Development Branch
+
+When a feature or fix branch is complete and ready to integrate:
+
+1. **Update CLAUDE.md**: If the branch introduced new files, directories, tables, routes, agents, graphs, or other structural changes, update CLAUDE.md to reflect them before merging.
+2. **Merge into dev**: `git checkout dev && git merge <branch-name>`
+3. **Push both remotes**: `git push upstream dev && git push origin dev`
+4. **Clean up**: Delete the branch (`git branch -d <branch-name>`) and remove the worktree (`git worktree remove .worktrees/<worktree-name>`)
+
 ## Key Dependencies
 
 **Protocol**:
@@ -793,7 +771,8 @@ test/chat-controller
 - `resend` - Email delivery
 
 **Frontend**:
-- `next` - React framework
+- `vite` - Build tool and dev server
+- `react-router` - Client-side routing
 - `react` / `react-dom` - UI library
 - `tailwindcss` - CSS framework
 - `@radix-ui/*` - Accessible UI primitives

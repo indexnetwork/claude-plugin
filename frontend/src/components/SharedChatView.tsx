@@ -1,5 +1,3 @@
-"use client";
-
 import { useEffect, useState } from "react";
 import { Loader2, Share2 } from "lucide-react";
 import { ContentContainer } from "@/components/layout";
@@ -10,6 +8,7 @@ import OpportunityCard, {
   type OpportunityCardData,
   OpportunitySkeleton,
 } from "@/components/chat/OpportunityCardInChat";
+import { apiUrl } from "@/lib/api";
 
 interface SharedMessage {
   id: string;
@@ -98,8 +97,7 @@ export default function SharedChatView({ token }: SharedChatViewProps) {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const base = process.env.NEXT_PUBLIC_API_URL || "";
-    fetch(`${base}/chat/shared/${token}`)
+    fetch(apiUrl(`/api/chat/shared/${token}`))
       .then(async (res) => {
         if (!res.ok) throw new Error("Conversation not found");
         const data = await res.json();

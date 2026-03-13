@@ -11,6 +11,7 @@ import type { HydeCache } from '../lib/protocol/interfaces/cache.interface';
 import { OpportunityGraphFactory } from '../lib/protocol/graphs/opportunity.graph';
 import { HydeGraphFactory } from '../lib/protocol/graphs/hyde.graph';
 import { HydeGenerator } from '../lib/protocol/agents/hyde.generator';
+import { LensInferrer } from '../lib/protocol/agents/lens.inferrer';
 
 /** BullMQ queue name for opportunity discovery jobs. */
 export const QUEUE_NAME = 'opportunity-discovery-queue';
@@ -104,7 +105,6 @@ export class OpportunityQueue {
    * @param data - Job payload
    */
   async processJob(name: string, data: OpportunityJobData): Promise<void> {
-    this.queueLogger.info(`[OpportunityProcessor] Processing job (${name})`);
     switch (name) {
       case 'discover_opportunities':
         await this.handleDiscoverOpportunities(data);
@@ -126,6 +126,14 @@ export class OpportunityQueue {
     this.worker = QueueFactory.createWorker<OpportunityJobData>(QUEUE_NAME, processor);
   }
 
+  async close(): Promise<void> {
+    if (this.worker) {
+      await this.worker.close();
+      this.worker = null;
+    }
+    await this.queue.close();
+  }
+
   private async handleDiscoverOpportunities(data: OpportunityJobData): Promise<void> {
     const { intentId, userId, indexIds } = data;
     const db = this.deps?.database ?? this.database;
@@ -134,6 +142,8 @@ export class OpportunityQueue {
       this.logger.warn('[OpportunityDiscovery] Intent not found, skipping', { intentId });
       return;
     }
+    this.logger.info('[OpportunityDiscovery] Starting discovery', { intentId, userId, indexIds });
+    this.logger.debug('[OpportunityDiscovery] Search query preview', { intentId, searchQuery: intent.payload?.slice(0, 80) });
     const invokeOpts: OpportunityGraphInvokeOptions = {
       userId: userId as Id<'users'>,
       searchQuery: intent.payload,
@@ -147,11 +157,13 @@ export class OpportunityQueue {
     } else {
       const embedder: Embedder = new EmbedderAdapter();
       const cache: HydeCache = new RedisCacheAdapter();
+      const inferrer = new LensInferrer();
       const generator = new HydeGenerator();
       const hydeGraph = new HydeGraphFactory(
         this.graphDb as HydeGraphDatabase,
         embedder,
         cache,
+        inferrer,
         generator
       ).createGraph();
       const opportunityGraph = new OpportunityGraphFactory(
@@ -159,9 +171,34 @@ export class OpportunityQueue {
         embedder,
         hydeGraph
       ).createGraph();
-      await opportunityGraph.invoke(invokeOpts);
+      const result = await opportunityGraph.invoke(invokeOpts);
+
+      // Log the graph trace for background job visibility
+      const trace = Array.isArray(result.trace) ? result.trace : [];
+      const candidates = Array.isArray(result.candidates) ? result.candidates : [];
+      const opportunities = Array.isArray(result.opportunities) ? result.opportunities : [];
+      // Throw on graph error so BullMQ retries the job
+      if (result.error) {
+        this.logger.error('[OpportunityDiscovery] Graph failed', { intentId, userId, error: result.error });
+        throw new Error(typeof result.error === 'string' ? result.error : 'Opportunity discovery graph failed');
+      }
+
+      this.logger.info('[OpportunityDiscovery] Graph complete', {
+        intentId,
+        userId,
+        candidatesFound: candidates.length,
+        opportunitiesCreated: opportunities.length,
+      });
+      this.logger.verbose('[OpportunityDiscovery] Graph trace', {
+        intentId,
+        trace: trace.map((t: { node: string; detail?: string; data?: Record<string, unknown> }) => ({
+          node: t.node,
+          detail: t.detail,
+          ...(t.data ? { data: t.data } : {}),
+        })),
+      });
     }
-    this.logger.info('[OpportunityDiscovery] Discovery complete for intent', { intentId, userId });
+    this.logger.verbose('[OpportunityDiscovery] Discovery complete for intent', { intentId, userId });
   }
 }
 

@@ -6,6 +6,7 @@ import { RedisCacheAdapter } from '../adapters/cache.adapter';
 import type { HydeGraphDatabase } from '../lib/protocol/interfaces/database.interface';
 import { HydeGraphFactory } from '../lib/protocol/graphs/hyde.graph';
 import { HydeGenerator } from '../lib/protocol/agents/hyde.generator';
+import { LensInferrer } from '../lib/protocol/agents/lens.inferrer';
 
 /** Age in ms after which HyDE documents are considered stale (30 days). Used for weekly refresh. */
 const STALE_HYDE_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
@@ -56,7 +57,7 @@ export class HydeQueue {
    */
   async cleanupExpiredHyde(): Promise<number> {
     const db = this.deps?.database ?? this.database;
-    this.logger.info('[HydeJob:Cleanup] Starting expired HyDE cleanup');
+    this.logger.verbose('[HydeJob:Cleanup] Starting expired HyDE cleanup');
     const deletedCount = await db.deleteExpiredHydeDocuments();
     this.logger.info(`[HydeJob:Cleanup] Deleted ${deletedCount} expired HyDE documents`);
     return deletedCount;
@@ -68,16 +69,17 @@ export class HydeQueue {
    */
   async refreshStaleHyde(): Promise<number> {
     const db = this.deps?.database ?? this.database;
-    this.logger.info('[HydeJob:Refresh] Starting stale HyDE refresh');
+    this.logger.verbose('[HydeJob:Refresh] Starting stale HyDE refresh');
     const staleThreshold = new Date(Date.now() - STALE_HYDE_DAYS_MS);
     const staleDocuments = await db.getStaleHydeDocuments(staleThreshold);
-    this.logger.info(`[HydeJob:Refresh] Found ${staleDocuments.length} stale HyDE documents`);
+    this.logger.verbose(`[HydeJob:Refresh] Found ${staleDocuments.length} stale HyDE documents`);
 
     const embedder = new EmbedderAdapter();
     const cache = new RedisCacheAdapter();
+    const inferrer = new LensInferrer();
     const generator = new HydeGenerator();
     const graphDb = (this.deps?.database ?? this.database) as unknown as HydeGraphDatabase;
-    const hydeGraph = new HydeGraphFactory(graphDb, embedder, cache, generator).createGraph();
+    const hydeGraph = new HydeGraphFactory(graphDb, embedder, cache, inferrer, generator).createGraph();
 
     let refreshedCount = 0;
     for (const doc of staleDocuments) {
@@ -95,7 +97,6 @@ export class HydeQueue {
           sourceText: intent.payload,
           sourceType: 'intent',
           sourceId: doc.sourceId,
-          strategies: [doc.strategy as 'mirror' | 'reciprocal'],
           forceRegenerate: true,
         });
         refreshedCount++;

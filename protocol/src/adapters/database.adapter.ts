@@ -14,6 +14,70 @@ import { generateWallet, decryptKey } from '../lib/xmtp';
 import { log } from '../lib/log';
 import { IndexMembershipEvents } from '../events/index_membership.event';
 
+const logger = log.lib.from('database.adapter');
+
+/**
+ * Creates a personal index for the user if one doesn't exist.
+ * Adds the user as the owner member.
+ * @param userId - The user to create a personal index for
+ * @returns The personal index ID
+ */
+export async function ensurePersonalIndex(userId: string): Promise<string> {
+  // Fast path: check mapping table
+  const existing = await db
+    .select({ indexId: schema.personalIndexes.indexId })
+    .from(schema.personalIndexes)
+    .where(eq(schema.personalIndexes.userId, userId))
+    .limit(1);
+
+  if (existing.length > 0) return existing[0].indexId;
+
+  const indexId = crypto.randomUUID();
+
+  await db.insert(schema.indexes).values({
+    id: indexId,
+    title: 'My Network',
+    prompt: 'Personal index containing the owner\'s imported contacts for network-scoped discovery.',
+    isPersonal: true,
+  }).onConflictDoNothing();
+
+  await db.insert(schema.personalIndexes).values({
+    userId,
+    indexId,
+  }).onConflictDoNothing();
+
+  await db.insert(schema.indexMembers).values({
+    indexId,
+    userId,
+    permissions: ['owner'],
+    autoAssign: true,
+  }).onConflictDoNothing();
+
+  // Re-query to return the actual persisted ID (handles race with concurrent calls)
+  const persisted = await db
+    .select({ indexId: schema.personalIndexes.indexId })
+    .from(schema.personalIndexes)
+    .where(eq(schema.personalIndexes.userId, userId))
+    .limit(1);
+
+  return persisted[0]?.indexId ?? indexId;
+}
+
+/**
+ * Returns the personal index ID for a user.
+ * @param userId - The user to look up
+ * @returns The personal index ID, or null if not found
+ */
+export async function getPersonalIndexId(userId: string): Promise<string | null> {
+  const result = await db
+    .select({ indexId: schema.personalIndexes.indexId })
+    .from(schema.personalIndexes)
+    .where(eq(schema.personalIndexes.userId, userId))
+    .limit(1);
+
+  return result[0]?.indexId ?? null;
+}
+
 // Local types used by adapters (shapes only; protocol layer defines the contracts)
 interface ActiveIntentRow {
   id: string;
@@ -166,7 +230,7 @@ export class IntentDatabaseAdapter {
         .orderBy(desc(schema.intents.createdAt));
       return result;
     } catch (error: unknown) {
-      console.error('IntentDatabaseAdapter.getActiveIntents error:', error);
+      logger.error('IntentDatabaseAdapter.getActiveIntents error', { error: error instanceof Error ? error.message : String(error) });
       return [];
     }
   }
@@ -201,7 +265,7 @@ export class IntentDatabaseAdapter {
       if (!created) throw new Error('Insert did not return a row');
       return created;
     } catch (error: unknown) {
-      console.error('IntentDatabaseAdapter.createIntent error:', error);
+      logger.error('IntentDatabaseAdapter.createIntent error', { error: error instanceof Error ? error.message : String(error) });
       throw error;
     }
   }
@@ -234,7 +298,7 @@ export class IntentDatabaseAdapter {
         });
       return updated ?? null;
     } catch (error: unknown) {
-      console.error('IntentDatabaseAdapter.updateIntent error:', error);
+      logger.error('IntentDatabaseAdapter.updateIntent error', { error: error instanceof Error ? error.message : String(error) });
       return null;
     }
   }
@@ -248,9 +312,30 @@ export class IntentDatabaseAdapter {
       if (!archived) return { success: false, error: 'Intent not found' };
       return { success: true };
     } catch (error: unknown) {
-      console.error('IntentDatabaseAdapter.archiveIntent error:', error);
+      logger.error('IntentDatabaseAdapter.archiveIntent error', { error: error instanceof Error ? error.message : String(error) });
       return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
     }
+  }
+
+  async deleteIntentIndexAssociations(intentId: string): Promise<void> {
+    await db.delete(schema.intentIndexes)
+      .where(eq(schema.intentIndexes.intentId, intentId));
+  }
+
+  /**
+   * Expires all non-expired opportunities where the given intent appears in the actors JSONB array.
+   * @param intentId - The intent ID to match inside actors[].intent
+   * @returns The number of opportunities expired
+   */
+  async expireOpportunitiesByIntentActor(intentId: string): Promise<number> {
+    const result = await db.update(schema.opportunities)
+      .set({ status: 'expired', updatedAt: new Date() })
+      .where(and(
+        sql`${schema.opportunities.actors} @> ${JSON.stringify([{ intent: intentId }])}::jsonb`,
+        ne(schema.opportunities.status, 'expired'),
+      ))
+      .returning({ id: schema.opportunities.id });
+    return result.length;
   }
 
   async getIntentsInIndexForMember(userId: string, indexNameOrId: string): Promise<ActiveIntentRow[]> {
@@ -315,7 +400,7 @@ export class IntentDatabaseAdapter {
         );
       return result;
     } catch (error: unknown) {
-      console.error('IntentDatabaseAdapter.getIntentsInIndexForMember error:', error);
+      logger.error('IntentDatabaseAdapter.getIntentsInIndexForMember error', { error: error instanceof Error ? error.message : String(error) });
       return [];
     }
   }
@@ -396,8 +481,8 @@ export class IntentDatabaseAdapter {
    * @returns The intent id if found, otherwise null.
    * @throws May throw database/query errors.
    */
-  async getIntentBySourceId(sourceId: string, userId: string): Promise<{ id: string } | null> {
-    const rows = await db.select({ id: schema.intents.id })
+  async getIntentBySourceId(sourceId: string, userId: string): Promise<{ id: string; archivedAt: Date | null } | null> {
+    const rows = await db.select({ id: schema.intents.id, archivedAt: schema.intents.archivedAt })
       .from(schema.intents)
       .where(and(
         eq(schema.intents.sourceId, sourceId),
@@ -414,8 +499,32 @@ export class IntentDatabaseAdapter {
    * @returns Promise that resolves when the row is inserted.
    * @throws May throw on database insertion errors (db.insert/schema.intentIndexes).
    */
-  async assignIntentToIndex(intentId: string, indexId: string): Promise<void> {
-    await db.insert(schema.intentIndexes).values({ intentId, indexId });
+  async assignIntentToIndex(intentId: string, indexId: string, relevancyScore?: number): Promise<void> {
+    await db.insert(schema.intentIndexes)
+      .values({ intentId, indexId, relevancyScore: relevancyScore != null ? String(relevancyScore) : null })
+      .onConflictDoUpdate({
+        target: [schema.intentIndexes.intentId, schema.intentIndexes.indexId],
+        set: { relevancyScore: relevancyScore != null ? String(relevancyScore) : null },
+      });
+  }
+
+  /**
+   * Returns personal index IDs where the given user is a contact member.
+   * @param userId - The user whose contact memberships to look up
+   * @returns Array of personal index IDs
+   */
+  async getPersonalIndexesForContact(userId: string): Promise<{ indexId: string }[]> {
+    return db
+      .select({ indexId: schema.indexMembers.indexId })
+      .from(schema.indexMembers)
+      .innerJoin(schema.indexes, eq(schema.indexes.id, schema.indexMembers.indexId))
+      .where(
+        and(
+          eq(schema.indexMembers.userId, userId),
+          eq(schema.indexes.isPersonal, true),
+          sql`'contact' = ANY(${schema.indexMembers.permissions})`,
+        )
+      );
   }
 
   /**
@@ -746,7 +855,7 @@ export class ChatDatabaseAdapter {
         .orderBy(desc(schema.intents.createdAt));
       return result;
     } catch (error: unknown) {
-      console.error('ChatDatabaseAdapter.getActiveIntents error:', error);
+      logger.error('ChatDatabaseAdapter.getActiveIntents error', { error: error instanceof Error ? error.message : String(error) });
       return [];
     }
   }
@@ -813,7 +922,7 @@ export class ChatDatabaseAdapter {
         );
       return result;
     } catch (error: unknown) {
-      console.error('ChatDatabaseAdapter.getIntentsInIndexForMember error:', error);
+      logger.error('ChatDatabaseAdapter.getIntentsInIndexForMember error', { error: error instanceof Error ? error.message : String(error) });
       return [];
     }
   }
@@ -886,7 +995,7 @@ export class ChatDatabaseAdapter {
       if (!created) throw new Error('Insert did not return a row');
       return created;
     } catch (error: unknown) {
-      console.error('ChatDatabaseAdapter.createIntent error:', error);
+      logger.error('ChatDatabaseAdapter.createIntent error', { error: error instanceof Error ? error.message : String(error) });
       throw error;
     }
   }
@@ -919,7 +1028,7 @@ export class ChatDatabaseAdapter {
         });
       return updated ?? null;
     } catch (error: unknown) {
-      console.error('ChatDatabaseAdapter.updateIntent error:', error);
+      logger.error('ChatDatabaseAdapter.updateIntent error', { error: error instanceof Error ? error.message : String(error) });
       return null;
     }
   }
@@ -933,7 +1042,7 @@ export class ChatDatabaseAdapter {
       if (!archived) return { success: false, error: 'Intent not found' };
       return { success: true };
     } catch (error: unknown) {
-      console.error('ChatDatabaseAdapter.archiveIntent error:', error);
+      logger.error('ChatDatabaseAdapter.archiveIntent error', { error: error instanceof Error ? error.message : String(error) });
       return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
     }
   }
@@ -952,15 +1061,23 @@ export class ChatDatabaseAdapter {
         })
         .from(schema.indexMembers)
         .innerJoin(schema.indexes, eq(schema.indexMembers.indexId, schema.indexes.id))
+        .leftJoin(schema.personalIndexes, eq(schema.indexes.id, schema.personalIndexes.indexId))
         .where(
           and(
             eq(schema.indexMembers.userId, userId),
-            isNull(schema.indexes.deletedAt)
+            isNull(schema.indexes.deletedAt),
+            or(
+              eq(schema.indexes.isPersonal, false),
+              and(
+                eq(schema.indexes.isPersonal, true),
+                eq(schema.personalIndexes.userId, userId),
+              )
+            ),
           )
         );
       return result;
     } catch (error: unknown) {
-      console.error('ChatDatabaseAdapter.getIndexMemberships error:', error);
+      logger.error('ChatDatabaseAdapter.getIndexMemberships error', { error: error instanceof Error ? error.message : String(error) });
       return [];
     }
   }
@@ -989,7 +1106,7 @@ export class ChatDatabaseAdapter {
         .limit(1);
       return result[0] ?? null;
     } catch (error: unknown) {
-      console.error('ChatDatabaseAdapter.getIndexMembership error:', error);
+      logger.error('ChatDatabaseAdapter.getIndexMembership error', { error: error instanceof Error ? error.message : String(error) });
       return null;
     }
   }
@@ -1002,6 +1119,20 @@ export class ChatDatabaseAdapter {
       .limit(1);
     const row = rows[0];
     return row ? { id: row.id, title: row.title } : null;
+  }
+
+  /**
+   * Check whether an index is a personal index.
+   * @param indexId - The index to check
+   * @returns true if the index has isPersonal = true
+   */
+  async isPersonalIndex(indexId: string): Promise<boolean> {
+    const rows = await db
+      .select({ isPersonal: schema.indexes.isPersonal })
+      .from(schema.indexes)
+      .where(and(eq(schema.indexes.id, indexId), isNull(schema.indexes.deletedAt)))
+      .limit(1);
+    return rows[0]?.isPersonal === true;
   }
 
   async getIndexWithPermissions(indexId: string): Promise<{ id: string; title: string; permissions: { joinPolicy: 'anyone' | 'invite_only' } } | null> {
@@ -1040,28 +1171,32 @@ export class ChatDatabaseAdapter {
       };
     }
 
+    const ownerMembers = db
+      .select({
+        indexId: schema.indexMembers.indexId,
+        userId: schema.indexMembers.userId,
+      })
+      .from(schema.indexMembers)
+      .where(sql`'owner' = ANY(${schema.indexMembers.permissions})`)
+      .as('owner_members');
+
     const rows = await db
       .select({
         id: schema.indexes.id,
         title: schema.indexes.title,
         prompt: schema.indexes.prompt,
+        imageUrl: schema.indexes.imageUrl,
         permissions: schema.indexes.permissions,
         isPersonal: schema.indexes.isPersonal,
+        ownerId: ownerMembers.userId,
         createdAt: schema.indexes.createdAt,
         updatedAt: schema.indexes.updatedAt,
-        ownerId: schema.indexMembers.userId,
-        userName: schema.users.name,
-        userAvatar: schema.users.avatar,
+        ownerName: schema.users.name,
+        ownerAvatar: schema.users.avatar,
       })
       .from(schema.indexes)
-      .innerJoin(
-        schema.indexMembers,
-        and(
-          eq(schema.indexes.id, schema.indexMembers.indexId),
-          sql`'owner' = ANY(${schema.indexMembers.permissions})`
-        )
-      )
-      .innerJoin(schema.users, eq(schema.indexMembers.userId, schema.users.id))
+      .leftJoin(ownerMembers, eq(schema.indexes.id, ownerMembers.indexId))
+      .leftJoin(schema.users, eq(ownerMembers.userId, schema.users.id))
       .where(
         and(
           isNull(schema.indexes.deletedAt),
@@ -1080,14 +1215,15 @@ export class ChatDatabaseAdapter {
           id: row.id,
           title: row.title,
           prompt: row.prompt,
+          imageUrl: row.imageUrl,
           permissions: row.permissions,
           isPersonal: row.isPersonal,
           createdAt: row.createdAt,
           updatedAt: row.updatedAt,
           user: {
-            id: row.ownerId,
-            name: row.userName,
-            avatar: row.userAvatar,
+            id: row.ownerId ?? '',
+            name: row.ownerName ?? 'System',
+            avatar: row.ownerAvatar ?? null,
           },
           _count: {
             members: Number(memberCount?.count ?? 0),
@@ -1109,6 +1245,46 @@ export class ChatDatabaseAdapter {
   }
 
   /**
+   * Get non-personal indexes that both users share membership in.
+   * Returns id, title, and member count for each shared index.
+   */
+  async getSharedIndexes(currentUserId: string, targetUserId: string): Promise<{ id: string; title: string; _count: { members: number } }[]> {
+    const currentUserIndexIds = db
+      .select({ indexId: schema.indexMembers.indexId })
+      .from(schema.indexMembers)
+      .where(eq(schema.indexMembers.userId, currentUserId));
+
+    const targetUserIndexIds = db
+      .select({ indexId: schema.indexMembers.indexId })
+      .from(schema.indexMembers)
+      .where(eq(schema.indexMembers.userId, targetUserId));
+
+    const rows = await db
+      .select({
+        id: schema.indexes.id,
+        title: schema.indexes.title,
+        memberCount: count(schema.indexMembers.indexId),
+      })
+      .from(schema.indexes)
+      .innerJoin(schema.indexMembers, eq(schema.indexes.id, schema.indexMembers.indexId))
+      .where(
+        and(
+          isNull(schema.indexes.deletedAt),
+          eq(schema.indexes.isPersonal, false),
+          inArray(schema.indexes.id, currentUserIndexIds),
+          inArray(schema.indexes.id, targetUserIndexIds),
+        )
+      )
+      .groupBy(schema.indexes.id, schema.indexes.title);
+
+    return rows.map((row) => ({
+      id: row.id,
+      title: row.title,
+      _count: { members: Number(row.memberCount) },
+    }));
+  }
+
+  /**
    * Get public indexes that the user has not joined (for discovery).
    */
   async getPublicIndexesNotJoined(userId: string) {
@@ -1121,9 +1297,9 @@ export class ChatDatabaseAdapter {
     
     const whereConditions = [
       isNull(schema.indexes.deletedAt),
-      eq(schema.indexes.isPersonal, false)
+      eq(schema.indexes.isPersonal, false),
     ];
-    
+
     if (excludeIds.length > 0) {
       whereConditions.push(notInArray(schema.indexes.id, excludeIds));
     }
@@ -1133,6 +1309,7 @@ export class ChatDatabaseAdapter {
         id: schema.indexes.id,
         title: schema.indexes.title,
         prompt: schema.indexes.prompt,
+        imageUrl: schema.indexes.imageUrl,
         createdAt: schema.indexes.createdAt,
         permissions: schema.indexes.permissions,
       })
@@ -1170,6 +1347,7 @@ export class ChatDatabaseAdapter {
         id: row.id,
         title: row.title,
         prompt: row.prompt,
+        imageUrl: row.imageUrl,
         createdAt: row.createdAt,
         permissions: row.permissions,
         memberCount: Number(countResult?.count ?? 0),
@@ -1207,7 +1385,7 @@ export class ChatDatabaseAdapter {
         );
       return result.map((r) => r.indexId);
     } catch (error: unknown) {
-      console.error('ChatDatabaseAdapter.getUserIndexIds error:', error);
+      logger.error('ChatDatabaseAdapter.getUserIndexIds error', { error: error instanceof Error ? error.message : String(error) });
       return [];
     }
   }
@@ -1306,8 +1484,27 @@ export class ChatDatabaseAdapter {
     return rows.length > 0;
   }
 
-  async assignIntentToIndex(intentId: string, indexId: string): Promise<void> {
-    await db.insert(intentIndexes).values({ intentId, indexId });
+  async assignIntentToIndex(intentId: string, indexId: string, relevancyScore?: number): Promise<void> {
+    await db.insert(intentIndexes)
+      .values({ intentId, indexId, relevancyScore: relevancyScore != null ? String(relevancyScore) : null })
+      .onConflictDoUpdate({
+        target: [intentIndexes.intentId, intentIndexes.indexId],
+        set: { relevancyScore: relevancyScore != null ? String(relevancyScore) : null },
+      });
+  }
+
+  async getIntentIndexScores(intentId: string): Promise<Array<{ indexId: string; relevancyScore: number | null }>> {
+    const rows = await db
+      .select({
+        indexId: intentIndexes.indexId,
+        relevancyScore: intentIndexes.relevancyScore,
+      })
+      .from(intentIndexes)
+      .where(eq(intentIndexes.intentId, intentId));
+    return rows.map(r => ({
+      indexId: r.indexId,
+      relevancyScore: r.relevancyScore != null ? Number(r.relevancyScore) : null,
+    }));
   }
 
   async unassignIntentFromIndex(intentId: string, indexId: string): Promise<void> {
@@ -1671,7 +1868,7 @@ export class ChatDatabaseAdapter {
   async updateIndexSettings(
     indexId: string,
     requestingUserId: string,
-    data: { title?: string; prompt?: string | null; joinPolicy?: 'anyone' | 'invite_only'; allowGuestVibeCheck?: boolean }
+    data: { title?: string; prompt?: string | null; imageUrl?: string | null; joinPolicy?: 'anyone' | 'invite_only'; allowGuestVibeCheck?: boolean }
   ) {
     const isOwner = await this.isIndexOwner(indexId, requestingUserId);
     if (!isOwner) {
@@ -1686,6 +1883,7 @@ export class ChatDatabaseAdapter {
     const updateData: Record<string, unknown> = { updatedAt: new Date() };
     if (data.title !== undefined) updateData.title = data.title;
     if (data.prompt !== undefined) updateData.prompt = data.prompt;
+    if (data.imageUrl !== undefined) updateData.imageUrl = data.imageUrl;
     if (data.joinPolicy !== undefined || data.allowGuestVibeCheck !== undefined) {
       const currentPerms = (existing.permissions as { joinPolicy: string; invitationLink: { code: string } | null; allowGuestVibeCheck: boolean }) ?? {};
       updateData.permissions = {
@@ -1702,6 +1900,7 @@ export class ChatDatabaseAdapter {
         id: indexes.id,
         title: indexes.title,
         prompt: indexes.prompt,
+        imageUrl: indexes.imageUrl,
         permissions: indexes.permissions,
         createdAt: indexes.createdAt,
         updatedAt: indexes.updatedAt,
@@ -1733,6 +1932,7 @@ export class ChatDatabaseAdapter {
       id: updatedRow.id,
       title: updatedRow.title,
       prompt: updatedRow.prompt,
+      imageUrl: updatedRow.imageUrl,
       permissions: {
         joinPolicy: (perms.joinPolicy ?? 'invite_only') as 'anyone' | 'invite_only',
         allowGuestVibeCheck: perms.allowGuestVibeCheck ?? false,
@@ -1765,11 +1965,13 @@ export class ChatDatabaseAdapter {
   async createIndex(data: {
     title: string;
     prompt?: string | null;
+    imageUrl?: string | null;
     joinPolicy?: 'anyone' | 'invite_only';
   }): Promise<{
     id: string;
     title: string;
     prompt: string | null;
+    imageUrl: string | null;
     permissions: { joinPolicy: 'anyone' | 'invite_only'; invitationLink: { code: string } | null; allowGuestVibeCheck: boolean };
   }> {
     const finalJoinPolicy = data.joinPolicy ?? 'invite_only';
@@ -1783,12 +1985,14 @@ export class ChatDatabaseAdapter {
       .values({
         title: data.title,
         prompt: data.prompt ?? null,
+        imageUrl: data.imageUrl ?? null,
         permissions,
       })
       .returning({
         id: indexes.id,
         title: indexes.title,
         prompt: indexes.prompt,
+        imageUrl: indexes.imageUrl,
         permissions: indexes.permissions,
       });
     if (!row) throw new Error('Failed to create index');
@@ -1797,6 +2001,7 @@ export class ChatDatabaseAdapter {
       id: row.id,
       title: row.title,
       prompt: row.prompt,
+      imageUrl: row.imageUrl,
       permissions: {
         joinPolicy: (perms.joinPolicy ?? 'invite_only') as 'anyone' | 'invite_only',
         invitationLink: perms.invitationLink ?? null,
@@ -1832,7 +2037,7 @@ export class ChatDatabaseAdapter {
       try {
         IndexMembershipEvents.onMemberAdded(userId, indexId);
       } catch (err) {
-        console.error('[addMemberToIndex] Event hook failed (non-fatal)', { indexId, userId, error: err });
+        logger.warn('addMemberToIndex event hook failed (non-fatal)', { indexId, userId, error: err instanceof Error ? err.message : String(err) });
       }
     }
     return { success: true, alreadyMember: result.length === 0 };
@@ -1885,8 +2090,8 @@ export class ChatDatabaseAdapter {
         id: indexes.id,
         title: indexes.title,
         prompt: indexes.prompt,
+        imageUrl: indexes.imageUrl,
         permissions: indexes.permissions,
-        isPersonal: indexes.isPersonal,
         createdAt: indexes.createdAt,
         updatedAt: indexes.updatedAt,
         ownerId: indexMembers.userId,
@@ -1917,12 +2122,114 @@ export class ChatDatabaseAdapter {
       id: row.id,
       title: row.title,
       prompt: row.prompt,
+      imageUrl: row.imageUrl,
       permissions: row.permissions,
-      isPersonal: row.isPersonal,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
       user: { id: row.ownerId, name: row.userName, avatar: row.userAvatar },
       _count: { members: memberCount },
+    };
+  }
+
+  /**
+   * Get an index by its invitation link code (public access, no auth required).
+   * @param code - The invitation link code from the URL
+   * @returns The index with owner info, member count, and joinPolicy, or null if not found
+   */
+  async getIndexByShareCode(code: string) {
+    const rows = await db
+      .select({
+        id: indexes.id,
+        title: indexes.title,
+        prompt: indexes.prompt,
+        imageUrl: indexes.imageUrl,
+        permissions: indexes.permissions,
+        createdAt: indexes.createdAt,
+        updatedAt: indexes.updatedAt,
+        ownerId: indexMembers.userId,
+        userName: users.name,
+        userAvatar: users.avatar,
+      })
+      .from(indexes)
+      .innerJoin(
+        indexMembers,
+        and(
+          eq(indexes.id, indexMembers.indexId),
+          sql`'owner' = ANY(${indexMembers.permissions})`
+        )
+      )
+      .innerJoin(users, eq(indexMembers.userId, users.id))
+      .where(
+        and(
+          sql`${indexes.permissions}->'invitationLink'->>'code' = ${code}`,
+          isNull(indexes.deletedAt),
+          eq(indexes.isPersonal, false)
+        )
+      )
+      .limit(1);
+
+    const row = rows[0];
+    if (!row) return null;
+
+    const memberCount = await this.getIndexMemberCount(row.id);
+
+    const perms = row.permissions as { joinPolicy?: string } | null;
+
+    return {
+      id: row.id,
+      title: row.title,
+      prompt: row.prompt,
+      imageUrl: row.imageUrl,
+      joinPolicy: (perms?.joinPolicy ?? 'invite_only') as 'anyone' | 'invite_only',
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+      user: { id: row.ownerId, name: row.userName, avatar: row.userAvatar },
+      _count: { members: memberCount },
+    };
+  }
+
+  /**
+   * Accept an invitation to join an index using the invitation code.
+   * @param code - The invitation link code
+   * @param userId - The authenticated user accepting the invitation
+   * @returns The index, membership details, and alreadyMember flag
+   * @throws Error if the code is invalid or the index is not found
+   */
+  async acceptIndexInvitation(code: string, userId: string) {
+    const index = await this.getIndexByShareCode(code);
+    if (!index) {
+      throw new Error('Invalid or expired invitation link');
+    }
+
+    const result = await this.addMemberToIndex(index.id, userId, 'member');
+
+    const [memberRow] = await db
+      .select({
+        userId: indexMembers.userId,
+        name: users.name,
+        email: users.email,
+        avatar: users.avatar,
+        permissions: indexMembers.permissions,
+        createdAt: indexMembers.createdAt,
+      })
+      .from(indexMembers)
+      .innerJoin(users, eq(indexMembers.userId, users.id))
+      .where(and(eq(indexMembers.indexId, index.id), eq(indexMembers.userId, userId)))
+      .limit(1);
+
+    return {
+      index,
+      membership: memberRow
+        ? {
+            id: memberRow.userId,
+            name: memberRow.name,
+            email: memberRow.email,
+            avatar: memberRow.avatar,
+            permissions: memberRow.permissions,
+            createdAt: memberRow.createdAt,
+          }
+        : null,
+      alreadyMember: result.alreadyMember,
     };
   }
 
@@ -1932,8 +2239,8 @@ export class ChatDatabaseAdapter {
         id: indexes.id,
         title: indexes.title,
         prompt: indexes.prompt,
+        imageUrl: indexes.imageUrl,
         permissions: indexes.permissions,
-        isPersonal: indexes.isPersonal,
         createdAt: indexes.createdAt,
         updatedAt: indexes.updatedAt,
         ownerId: indexMembers.userId,
@@ -1966,8 +2273,8 @@ export class ChatDatabaseAdapter {
       id: row.id,
       title: row.title,
       prompt: row.prompt,
+      imageUrl: row.imageUrl,
       permissions: row.permissions,
-      isPersonal: row.isPersonal,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
       user: { id: row.ownerId, name: row.userName, avatar: row.userAvatar },
@@ -1982,32 +2289,21 @@ export class ChatDatabaseAdapter {
   async searchPersonalIndexMembers(userId: string, query: string, excludeIndexId?: string) {
     if (!query || query.trim().length === 0) return [];
 
-    // Find the user's personal index
-    const [personalIndex] = await db
-      .select({ indexId: indexMembers.indexId })
-      .from(indexMembers)
-      .innerJoin(indexes, eq(indexMembers.indexId, indexes.id))
+    // Find user's contacts from user_contacts table
+    const contactUserIds = db
+      .select({ userId: schema.userContacts.userId })
+      .from(schema.userContacts)
       .where(
         and(
-          eq(indexMembers.userId, userId),
-          eq(indexes.isPersonal, true),
-          isNull(indexes.deletedAt)
+          eq(schema.userContacts.ownerId, userId),
+          isNull(schema.userContacts.deletedAt)
         )
-      )
-      .limit(1);
-
-    if (!personalIndex) return [];
-
-    // Members of the personal index
-    const personalMemberIds = db
-      .select({ userId: indexMembers.userId })
-      .from(indexMembers)
-      .where(eq(indexMembers.indexId, personalIndex.indexId));
+      );
 
     const pattern = `%${query.trim()}%`;
     const conditions = [
       isNull(users.deletedAt),
-      inArray(users.id, personalMemberIds),
+      inArray(users.id, contactUserIds),
       or(ilike(users.name, pattern), ilike(users.email, pattern)),
     ];
 
@@ -2209,6 +2505,467 @@ export class ChatDatabaseAdapter {
       excludeOpportunityId
     );
   }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Contact / My Network Operations
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Get user IDs of all contacts owned by the given user.
+   * @param ownerId - The owner's user ID
+   * @returns Array of contact user IDs
+   */
+  async getContactUserIds(ownerId: string): Promise<string[]> {
+    const rows = await db
+      .select({ userId: schema.userContacts.userId })
+      .from(schema.userContacts)
+      .where(
+        and(
+          eq(schema.userContacts.ownerId, ownerId),
+          isNull(schema.userContacts.deletedAt)
+        )
+      );
+    return rows.map((r) => r.userId);
+  }
+
+  /**
+   * Create a ghost user (unregistered contact) with empty profile.
+   * @param data - Name and email for the ghost user
+   * @returns The created ghost user's ID
+   */
+  async createGhostUser(data: { name: string; email: string }): Promise<{ id: string }> {
+    const id = crypto.randomUUID();
+    await db.insert(schema.users).values({
+      id,
+      name: data.name,
+      email: data.email,
+      isGhost: true,
+    });
+
+    // Create empty profile
+    await db.insert(schema.userProfiles).values({
+      userId: id,
+    });
+
+    return { id };
+  }
+
+  /**
+   * Upsert a contact record (idempotent via unique constraint).
+   * @param data - Contact data with ownerId, userId, and source
+   */
+  async upsertContact(data: { ownerId: string; userId: string; source: 'gmail' | 'google_calendar' | 'manual' }): Promise<void> {
+    await db
+      .insert(schema.userContacts)
+      .values({
+        ownerId: data.ownerId,
+        userId: data.userId,
+        source: data.source,
+      })
+      .onConflictDoUpdate({
+        target: [schema.userContacts.ownerId, schema.userContacts.userId],
+        set: {
+          source: data.source,
+          importedAt: new Date(),
+          updatedAt: new Date(),
+          deletedAt: null, // reactivate if previously soft-deleted
+        },
+      });
+  }
+
+  /**
+   * Get all contacts for a user with their user details.
+   * @param ownerId - The owner's user ID
+   * @returns Array of contacts with user details
+   */
+  async getContacts(ownerId: string): Promise<Array<{
+    id: string;
+    userId: string;
+    source: string;
+    importedAt: Date;
+    user: { id: string; name: string; email: string; avatar: string | null; isGhost: boolean };
+  }>> {
+    const rows = await db
+      .select({
+        id: schema.userContacts.id,
+        userId: schema.userContacts.userId,
+        source: schema.userContacts.source,
+        importedAt: schema.userContacts.importedAt,
+        userName: schema.users.name,
+        userEmail: schema.users.email,
+        userAvatar: schema.users.avatar,
+        userIsGhost: schema.users.isGhost,
+      })
+      .from(schema.userContacts)
+      .innerJoin(schema.users, eq(schema.userContacts.userId, schema.users.id))
+      .where(
+        and(
+          eq(schema.userContacts.ownerId, ownerId),
+          isNull(schema.userContacts.deletedAt)
+        )
+      )
+      .orderBy(desc(schema.userContacts.importedAt));
+
+    return rows.map((row) => ({
+      id: row.id,
+      userId: row.userId,
+      source: row.source,
+      importedAt: row.importedAt,
+      user: {
+        id: row.userId,
+        name: row.userName,
+        email: row.userEmail,
+        avatar: row.userAvatar,
+        isGhost: row.userIsGhost,
+      },
+    }));
+  }
+
+  /**
+   * Soft-delete a contact.
+   * @param ownerId - The owner's user ID
+   * @param contactId - The contact record ID
+   */
+  async removeContact(ownerId: string, contactId: string): Promise<void> {
+    await db.transaction(async (tx) => {
+      // Look up the contact's userId before soft-deleting
+      const [contact] = await tx
+        .select({ userId: schema.userContacts.userId })
+        .from(schema.userContacts)
+        .where(
+          and(
+            eq(schema.userContacts.id, contactId),
+            eq(schema.userContacts.ownerId, ownerId),
+          )
+        );
+
+      // Soft-delete the contact
+      await tx
+        .update(schema.userContacts)
+        .set({ deletedAt: new Date() })
+        .where(
+          and(
+            eq(schema.userContacts.id, contactId),
+            eq(schema.userContacts.ownerId, ownerId)
+          )
+        );
+
+      // Clean up personal index membership and intent assignments
+      if (contact) {
+        const personalIndexId = await getPersonalIndexId(ownerId);
+        if (personalIndexId) {
+          await tx.delete(schema.indexMembers)
+            .where(
+              and(
+                eq(schema.indexMembers.indexId, personalIndexId),
+                eq(schema.indexMembers.userId, contact.userId),
+                sql`${schema.indexMembers.permissions} = ARRAY['contact']`,
+              )
+            );
+
+          // Remove contact's intents from the personal index
+          const contactIntentIds = await tx
+            .select({ id: schema.intents.id })
+            .from(schema.intents)
+            .where(eq(schema.intents.userId, contact.userId));
+
+          if (contactIntentIds.length > 0) {
+            await tx.delete(schema.intentIndexes)
+              .where(
+                and(
+                  eq(schema.intentIndexes.indexId, personalIndexId),
+                  inArray(schema.intentIndexes.intentId, contactIntentIds.map(i => i.id)),
+                )
+              );
+          }
+        }
+      }
+    });
+  }
+
+  /**
+   * Returns personal index IDs where the given user is a contact member.
+   * @param userId - The user whose contact memberships to look up
+   * @returns Array of personal index IDs
+   */
+  async getPersonalIndexesForContact(userId: string): Promise<{ indexId: string }[]> {
+    return db
+      .select({ indexId: schema.indexMembers.indexId })
+      .from(schema.indexMembers)
+      .innerJoin(schema.indexes, eq(schema.indexes.id, schema.indexMembers.indexId))
+      .where(
+        and(
+          eq(schema.indexMembers.userId, userId),
+          eq(schema.indexes.isPersonal, true),
+          sql`'contact' = ANY(${schema.indexMembers.permissions})`,
+        )
+      );
+  }
+
+  /**
+   * Find a user by email.
+   * @param email - The email to search for
+   * @returns User record or null
+   */
+  async getUserByEmail(email: string): Promise<{ id: string; name: string; email: string; isGhost: boolean } | null> {
+    const [row] = await db
+      .select({
+        id: schema.users.id,
+        name: schema.users.name,
+        email: schema.users.email,
+        isGhost: schema.users.isGhost,
+      })
+      .from(schema.users)
+      .where(eq(schema.users.email, email))
+      .limit(1);
+    return row ?? null;
+  }
+
+  /**
+   * Bulk lookup users by email.
+   * @param emails - Array of emails to search for
+   * @returns Array of user records (only those that exist)
+   */
+  async getUsersByEmails(emails: string[]): Promise<Array<{ id: string; name: string; email: string; isGhost: boolean }>> {
+    if (emails.length === 0) return [];
+    const rows = await db
+      .select({
+        id: schema.users.id,
+        name: schema.users.name,
+        email: schema.users.email,
+        isGhost: schema.users.isGhost,
+      })
+      .from(schema.users)
+      .where(and(inArray(schema.users.email, emails), isNull(schema.users.deletedAt)));
+    return rows;
+  }
+
+  /**
+   * Returns the subset of user IDs that have no enriched profile (identity IS NULL).
+   * @param userIds - User IDs to check
+   * @returns Set of user IDs lacking a profile
+   */
+  async getUserIdsWithoutProfile(userIds: string[]): Promise<Set<string>> {
+    if (userIds.length === 0) return new Set();
+    const rows = await db
+      .select({ userId: schema.userProfiles.userId })
+      .from(schema.userProfiles)
+      .where(and(
+        inArray(schema.userProfiles.userId, userIds),
+        isNull(schema.userProfiles.identity),
+      ));
+    return new Set(rows.map(r => r.userId));
+  }
+
+  /**
+   * Bulk create ghost users with empty profiles.
+   * @param data - Array of {name, email} for ghost users
+   * @returns Array of created ghost users with their IDs
+   */
+  async createGhostUsersBulk(data: Array<{ name: string; email: string }>): Promise<Array<{ id: string; name: string; email: string }>> {
+    if (data.length === 0) return [];
+
+    const results: Array<{ id: string; name: string; email: string }> = [];
+
+    // Create users
+    const usersToInsert = data.map(d => ({
+      id: crypto.randomUUID(),
+      name: d.name,
+      email: d.email,
+      isGhost: true,
+    }));
+
+    await db.insert(schema.users).values(usersToInsert).onConflictDoNothing();
+
+    // Re-query to find which users actually exist (created now vs already existed)
+    const insertedEmails = new Set(usersToInsert.map(u => u.email));
+    const existingAfterInsert = await db
+      .select({ id: schema.users.id, email: schema.users.email })
+      .from(schema.users)
+      .where(inArray(schema.users.email, [...insertedEmails]));
+
+    // Map back to our generated IDs vs actual IDs
+    const emailToId = new Map(existingAfterInsert.map(u => [u.email, u.id]));
+    const actuallyCreatedIds = new Set(
+      usersToInsert
+        .filter(u => emailToId.get(u.email) === u.id)
+        .map(u => u.id)
+    );
+
+    // Create empty profiles only for newly created users
+    if (actuallyCreatedIds.size > 0) {
+      const profilesToInsert = usersToInsert
+        .filter(u => actuallyCreatedIds.has(u.id))
+        .map(u => ({ userId: u.id }));
+      await db.insert(schema.userProfiles).values(profilesToInsert);
+    }
+
+    // Return results with correct IDs (actual DB IDs, not our generated ones)
+    for (const u of usersToInsert) {
+      const actualId = emailToId.get(u.email);
+      if (actualId) {
+        results.push({ id: actualId, name: u.name, email: u.email });
+      }
+    }
+
+    return results;
+  }
+
+  /**
+   * Bulk upsert contact records.
+   * @param data - Array of contact records
+   */
+  async upsertContactsBulk(data: Array<{ ownerId: string; userId: string; source: 'gmail' | 'google_calendar' | 'manual' }>): Promise<void> {
+    if (data.length === 0) return;
+
+    const values = data.map(d => ({
+      ownerId: d.ownerId,
+      userId: d.userId,
+      source: d.source,
+    }));
+
+    await db
+      .insert(schema.userContacts)
+      .values(values)
+      .onConflictDoUpdate({
+        target: [schema.userContacts.ownerId, schema.userContacts.userId],
+        set: {
+          source: sql`excluded.source`,
+          importedAt: new Date(),
+          updatedAt: new Date(),
+          deletedAt: null,
+        },
+      });
+  }
+
+  /**
+   * Atomically create ghost users and upsert all contacts in a single transaction.
+   * Ghost users are created first, then all contacts (both existing-user and ghost-user)
+   * are upserted together, ensuring the write path is atomic.
+   *
+   * @param ownerId - The user importing contacts
+   * @param ghosts - Array of ghost user data to create
+   * @param validContacts - All validated contacts with resolved emails
+   * @param existingByEmail - Map of already-existing users by email
+   * @param source - Contact source type
+   * @returns Object containing the newly created ghost users
+   */
+  async importContactsBulk(
+    ownerId: string,
+    ghosts: Array<{ name: string; email: string }>,
+    validContacts: Array<{ name: string; email: string }>,
+    existingByEmail: Map<string, { id: string; email: string; name: string; isGhost: boolean }>,
+    source: 'gmail' | 'google_calendar' | 'manual'
+  ): Promise<{ newGhosts: Array<{ id: string; name: string; email: string }>; newContacts: number }> {
+    return await db.transaction(async (tx) => {
+      // Create ghost users
+      const newGhosts: Array<{ id: string; name: string; email: string }> = [];
+      if (ghosts.length > 0) {
+        const usersToInsert = ghosts.map(d => ({
+          id: crypto.randomUUID(),
+          name: d.name,
+          email: d.email,
+          isGhost: true,
+        }));
+
+        await tx.insert(schema.users).values(usersToInsert).onConflictDoNothing();
+
+        const insertedEmails = new Set(usersToInsert.map(u => u.email));
+        const existingAfterInsert = await tx
+          .select({ id: schema.users.id, email: schema.users.email })
+          .from(schema.users)
+          .where(inArray(schema.users.email, [...insertedEmails]));
+
+        const emailToId = new Map(existingAfterInsert.map(u => [u.email, u.id]));
+        const actuallyCreatedIds = new Set(
+          usersToInsert
+            .filter(u => emailToId.get(u.email) === u.id)
+            .map(u => u.id)
+        );
+
+        if (actuallyCreatedIds.size > 0) {
+          const profilesToInsert = usersToInsert
+            .filter(u => actuallyCreatedIds.has(u.id))
+            .map(u => ({ userId: u.id }));
+          await tx.insert(schema.userProfiles).values(profilesToInsert);
+        }
+
+        for (const u of usersToInsert) {
+          const actualId = emailToId.get(u.email);
+          if (actualId) {
+            newGhosts.push({ id: actualId, name: u.name, email: u.email });
+            // Add ghosts to the lookup map so contacts can be resolved below
+            existingByEmail.set(u.email.toLowerCase(), { id: actualId, email: u.email, name: u.name, isGhost: true });
+          }
+        }
+      }
+
+      // Upsert all contacts (existing users + newly created ghosts)
+      const contactsToUpsert: Array<{ ownerId: string; userId: string; source: typeof source }> = [];
+      for (const contact of validContacts) {
+        const user = existingByEmail.get(contact.email.toLowerCase());
+        if (user) {
+          contactsToUpsert.push({ ownerId, userId: user.id, source });
+        }
+      }
+
+      let newContacts = 0;
+      if (contactsToUpsert.length > 0) {
+        // Check which contacts already exist in the network
+        const userIds = contactsToUpsert.map(c => c.userId);
+        const existingContacts = await tx
+          .select({ userId: schema.userContacts.userId })
+          .from(schema.userContacts)
+          .where(
+            and(
+              eq(schema.userContacts.ownerId, ownerId),
+              isNull(schema.userContacts.deletedAt),
+              inArray(schema.userContacts.userId, userIds)
+            )
+          );
+        const existingUserIds = new Set(existingContacts.map(c => c.userId));
+        newContacts = contactsToUpsert.filter(c => !existingUserIds.has(c.userId)).length;
+
+        await tx
+          .insert(schema.userContacts)
+          .values(contactsToUpsert)
+          .onConflictDoUpdate({
+            target: [schema.userContacts.ownerId, schema.userContacts.userId],
+            set: {
+              source: sql`excluded.source`,
+              importedAt: new Date(),
+              updatedAt: new Date(),
+              deletedAt: null,
+            },
+          });
+
+        // Sync new contacts to the owner's personal index
+        const newContactUserIds = contactsToUpsert
+          .filter(c => !existingUserIds.has(c.userId))
+          .map(c => c.userId);
+
+        if (newContactUserIds.length > 0) {
+          const personalIndexId = await getPersonalIndexId(ownerId);
+          if (personalIndexId) {
+            // Add new contacts as members of the personal index
+            const contactMemberValues = newContactUserIds.map(userId => ({
+              indexId: personalIndexId,
+              userId,
+              permissions: ['contact'] as string[],
+              autoAssign: false,
+            }));
+            await tx.insert(schema.indexMembers)
+              .values(contactMemberValues)
+              .onConflictDoNothing();
+
+          }
+        }
+      }
+
+      return { newGhosts, newContacts };
+    });
+  }
+
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -2524,7 +3281,15 @@ export class OpportunityDatabaseAdapter {
       );
     }
     if (options?.status) conditions.push(eq(opportunities.status, options.status as typeof opportunities.$inferSelect.status));
-    if (options?.indexId) conditions.push(sql`${opportunities.context}->>'indexId' = ${options.indexId}`);
+    if (options?.indexId) {
+      conditions.push(sql`(
+        ${opportunities.context}->>'indexId' = ${options.indexId}
+        OR EXISTS (
+          SELECT 1 FROM jsonb_array_elements(${opportunities.actors}) AS actor
+          WHERE actor->>'indexId' = ${options.indexId}
+        )
+      )`);
+    }
     let q = db
       .select()
       .from(opportunities)
@@ -2833,8 +3598,13 @@ export class IndexGraphDatabaseAdapter {
     return rows.length > 0;
   }
 
-  async assignIntentToIndex(intentId: string, indexId: string): Promise<void> {
-    await db.insert(intentIndexes).values({ intentId, indexId });
+  async assignIntentToIndex(intentId: string, indexId: string, relevancyScore?: number): Promise<void> {
+    await db.insert(intentIndexes)
+      .values({ intentId, indexId, relevancyScore: relevancyScore != null ? String(relevancyScore) : null })
+      .onConflictDoUpdate({
+        target: [intentIndexes.intentId, intentIndexes.indexId],
+        set: { relevancyScore: relevancyScore != null ? String(relevancyScore) : null },
+      });
   }
 
   async unassignIntentFromIndex(intentId: string, indexId: string): Promise<void> {
@@ -3720,11 +4490,11 @@ export function createUserDatabase(db: ChatDatabaseAdapter, authUserId: string):
         await db.assignIntentToIndex(intentId, indexId);
       }
     },
-    assignIntentToIndex: async (intentId, indexId) => {
+    assignIntentToIndex: async (intentId, indexId, relevancyScore?) => {
       const intent = await db.getIntent(intentId);
       if (!intent) throw new Error('Intent not found');
       if (intent.userId !== authUserId) throw new Error('Access denied: intent not owned by user');
-      return db.assignIntentToIndex(intentId, indexId);
+      return db.assignIntentToIndex(intentId, indexId, relevancyScore);
     },
     unassignIntentFromIndex: async (intentId, indexId) => {
       const intent = await db.getIntent(intentId);
@@ -3811,7 +4581,21 @@ export function createSystemDatabase(
   const verifySharedIndex = async (userId: string): Promise<boolean> => {
     if (userId === authUserId) return true;
     const theirMemberships = await db.getIndexMemberships(userId);
-    return theirMemberships.some((m) => indexScope.includes(m.indexId));
+    if (theirMemberships.some((m) => indexScope.includes(m.indexId))) return true;
+
+    // Check if either user's personal index contains the other as a contact
+    const myPersonalId = await getPersonalIndexId(authUserId);
+    const theirPersonalId = await getPersonalIndexId(userId);
+
+    if (myPersonalId) {
+      const theirMembership = await db.getIndexMembership(myPersonalId, userId);
+      if (theirMembership) return true;
+    }
+    if (theirPersonalId) {
+      const myMembership = await db.getIndexMembership(theirPersonalId, authUserId);
+      if (myMembership) return true;
+    }
+    return false;
   };
 
   return {

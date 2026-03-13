@@ -3,19 +3,23 @@ import { log } from '../lib/log';
 import type { Id } from '../types/common.types';
 import type { OpportunityControllerDatabase, OpportunityGraphDatabase, HydeGraphDatabase, HomeGraphDatabase, CreateOpportunityData, Opportunity, OpportunityActor, OpportunityStatus } from '../lib/protocol/interfaces/database.interface';
 import type { Embedder } from '../lib/protocol/interfaces/embedder.interface';
-import type { HydeCache } from '../lib/protocol/interfaces/cache.interface';
+import type { HydeCache, OpportunityCache } from '../lib/protocol/interfaces/cache.interface';
 import { OpportunityGraphFactory } from '../lib/protocol/graphs/opportunity.graph';
 import { HydeGraphFactory } from '../lib/protocol/graphs/hyde.graph';
 import { HomeGraphFactory } from '../lib/protocol/graphs/home.graph';
 import { HydeGenerator } from '../lib/protocol/agents/hyde.generator';
+import { LensInferrer } from '../lib/protocol/agents/lens.inferrer';
 import { ChatDatabaseAdapter } from '../adapters/database.adapter';
 import { EmbedderAdapter } from '../adapters/embedder.adapter';
 import { RedisCacheAdapter } from '../adapters/cache.adapter';
 import { presentOpportunity, type UserInfo } from '../lib/protocol/support/opportunity.presentation';
 import { canUserSeeOpportunity, validateOpportunityActors } from '../lib/protocol/support/opportunity.utils';
 import { persistOpportunities } from '../lib/protocol/support/opportunity.persist';
+import { OpportunityPresenter, gatherPresenterContext, type PresenterDatabase } from '../lib/protocol/agents/opportunity.presenter';
+import { stripUuids, stripIntroducerMentions } from '../lib/protocol/support/opportunity.sanitize';
 
 const logger = log.service.from("OpportunityService");
+const presenter = new OpportunityPresenter();
 
 interface OpportunityStatusUpdateResult {
   opportunity: Awaited<ReturnType<OpportunityControllerDatabase['updateOpportunityStatus']>>;
@@ -50,8 +54,22 @@ export class OpportunityServiceEvents extends EventEmitter {
  * - Create manual opportunities
  * - Update opportunity status
  */
+const CHAT_CACHE_TTL = 24 * 60 * 60; // 24 hours in seconds
+
+interface ChatCardCached {
+  opportunityId: string;
+  headline: string;
+  personalizedSummary: string;
+  narratorRemark: string;
+  introducerName: string | null;
+  peerName: string;
+  peerAvatar: string | null;
+  acceptedAt: string | null;
+}
+
 export class OpportunityService {
   private db: OpportunityControllerDatabase;
+  private cache: OpportunityCache;
   private graph: ReturnType<OpportunityGraphFactory['createGraph']> | null = null;
   private homeGraph: ReturnType<HomeGraphFactory['createGraph']> | null = null;
   /** Event emitter for opportunity lifecycle; subscribe via onOpportunityEvent. */
@@ -61,16 +79,19 @@ export class OpportunityService {
     database?: OpportunityControllerDatabase,
   ) {
     this.db = database ?? (new ChatDatabaseAdapter() as OpportunityControllerDatabase);
+    this.cache = new RedisCacheAdapter();
 
     // Lazy-build graph for discover when adapter supports it
     if (this.db && 'getHydeDocument' in this.db) {
       const embedder: Embedder = new EmbedderAdapter();
       const cache: HydeCache = new RedisCacheAdapter();
+      const inferrer = new LensInferrer();
       const generator = new HydeGenerator();
       const compiledHydeGraph = new HydeGraphFactory(
         this.db as unknown as HydeGraphDatabase,
         embedder,
         cache,
+        inferrer,
         generator
       ).createGraph();
       const factory = new OpportunityGraphFactory(
@@ -80,7 +101,7 @@ export class OpportunityService {
       );
       this.graph = factory.createGraph();
     }
-    this.homeGraph = new HomeGraphFactory(this.db as unknown as HomeGraphDatabase).createGraph();
+    this.homeGraph = new HomeGraphFactory(this.db as unknown as HomeGraphDatabase, this.cache).createGraph();
   }
 
   /**
@@ -101,7 +122,7 @@ export class OpportunityService {
     userId: string,
     options?: { indexId?: string; limit?: number }
   ): Promise<{ sections: Array<{ id: string; title: string; subtitle?: string; iconName: string; items: unknown[] }>; meta: { totalOpportunities: number; totalSections: number } } | { error: string }> {
-    logger.info('[OpportunityService] Getting home view', { userId, options });
+    logger.verbose('[OpportunityService] Getting home view', { userId, options });
     if (!this.homeGraph) {
       return { error: 'Home view not available' };
     }
@@ -140,7 +161,7 @@ export class OpportunityService {
       offset?: number;
     }
   ) {
-    logger.info('[OpportunityService] Getting opportunities for user', { userId, options });
+    logger.verbose('[OpportunityService] Getting opportunities for user', { userId, options });
     
     return this.db.getOpportunitiesForUser(userId, options);
   }
@@ -153,7 +174,7 @@ export class OpportunityService {
    * @returns Opportunity with presentation data or null
    */
   async getOpportunityWithPresentation(opportunityId: string, viewerId: string) {
-    logger.info('[OpportunityService] Getting opportunity', { opportunityId, viewerId });
+    logger.verbose('[OpportunityService] Getting opportunity', { opportunityId, viewerId });
 
     const opp = await this.db.getOpportunity(opportunityId);
     if (!opp) {
@@ -233,7 +254,7 @@ export class OpportunityService {
     status: OpportunityStatus,
     userId: string
   ): Promise<OpportunityStatusUpdateResult | { error: string; status: number }> {
-    logger.info('[OpportunityService] Updating opportunity status', { opportunityId, status, userId });
+    logger.verbose('[OpportunityService] Updating opportunity status', { opportunityId, status, userId });
 
     const opp = await this.db.getOpportunity(opportunityId);
     if (!opp) {
@@ -263,6 +284,8 @@ export class OpportunityService {
 
     await this.db.acceptSiblingOpportunities(userId, counterpart.userId, opportunityId);
 
+    await this.db.upsertContact({ ownerId: userId, userId: counterpart.userId, source: 'manual' });
+
     return {
       opportunity: updated,
       counterpartUserId: counterpart.userId,
@@ -278,7 +301,7 @@ export class OpportunityService {
    * @returns Discovery results
    */
   async discoverOpportunities(userId: string, query: string, limit: number = 5) {
-    logger.info('[OpportunityService] Discovering opportunities', { userId, query, limit });
+    logger.verbose('[OpportunityService] Discovering opportunities', { userId, query, limit });
 
     if (!this.graph) {
       return { error: 'Discovery not available; graph dependencies not configured', status: 503 };
@@ -286,7 +309,7 @@ export class OpportunityService {
 
     const memberships = await this.db.getIndexMemberships(userId);
     const indexScope = memberships.map((m) => m.indexId);
-    
+
     if (indexScope.length === 0) {
       return {
         userId: userId as Id<'users'>,
@@ -322,7 +345,7 @@ export class OpportunityService {
       offset?: number;
     }
   ) {
-    logger.info('[OpportunityService] Getting opportunities for index', { indexId, userId, options });
+    logger.verbose('[OpportunityService] Getting opportunities for index', { indexId, userId, options });
 
     const isOwner = await this.db.isIndexOwner(indexId, userId);
     const isMember = await this.db.isIndexMember(indexId, userId);
@@ -352,7 +375,7 @@ export class OpportunityService {
       confidence?: number;
     }
   ) {
-    logger.info('[OpportunityService] Creating manual opportunity', { indexId, creatorId });
+    logger.verbose('[OpportunityService] Creating manual opportunity', { indexId, creatorId });
 
     // Check permission
     const permission = await this.checkCreatePermission(creatorId, data.parties, indexId);
@@ -438,21 +461,86 @@ export class OpportunityService {
    * @returns Opportunity cards and peer info for chat context
    */
   async getChatContext(userId: string, peerUserId: string) {
-    logger.info('[OpportunityService] Getting chat context', { userId, peerUserId });
+    logger.verbose('[OpportunityService] Getting chat context', { userId, peerUserId });
 
-    const [rows, peerUser] = await Promise.all([
+    const [allRows, peerUser] = await Promise.all([
       this.db.getAcceptedOpportunitiesBetweenActors(userId, peerUserId),
       this.db.getUser(peerUserId),
     ]);
 
-    const opportunityCards = rows.map((opp) => ({
-      opportunityId: opp.id,
-      headline: opp.interpretation?.reasoning?.substring(0, 80) ?? 'Connection opportunity',
-      summary: opp.interpretation?.reasoning ?? '',
-      peerName: peerUser?.name ?? 'Someone',
-      peerAvatar: peerUser?.avatar ?? null,
-      acceptedAt: opp.updatedAt instanceof Date ? opp.updatedAt.toISOString() : (opp.updatedAt ?? null),
-    }));
+    // Filter out opportunities where either chat participant is the introducer.
+    // Chat context should only show direct connections, not introductions they facilitated.
+    const rows = allRows.filter((opp) =>
+      !opp.actors.some((a) =>
+        (a.userId === userId || a.userId === peerUserId) && a.role === 'introducer'
+      )
+    );
+
+    // Check cache for all opportunities (graceful fallback if Redis unavailable)
+    let cachedResults: (ChatCardCached | null)[] = [];
+    try {
+      const cacheKeys = rows.map((opp) => `chat:card:${opp.id}:${userId}`);
+      cachedResults = await this.cache.mget<ChatCardCached>(cacheKeys);
+    } catch (e) {
+      logger.warn('[OpportunityService] getChatContext cache read failed, skipping', { error: e });
+      cachedResults = rows.map(() => null);
+    }
+
+    const opportunityCards = await Promise.all(
+      rows.map(async (opp, idx) => {
+        // Return cached result if available
+        const cached = cachedResults[idx];
+        if (cached) {
+          return cached;
+        }
+
+        try {
+          const presenterInput = await gatherPresenterContext(
+            this.db as unknown as PresenterDatabase,
+            opp,
+            userId,
+          );
+          presenterInput.opportunityStatus = 'accepted';
+          presenterInput.matchReasoning += '\n\nCONTEXT: This is shown inside an active chat between the two parties. Both already accepted. Write a warm, concise 1-sentence headline and 1-sentence summary — not a pitch or analysis.';
+          const presented = await presenter.present(presenterInput);
+          const card: ChatCardCached = {
+            opportunityId: opp.id,
+            headline: presented.headline,
+            personalizedSummary: presented.personalizedSummary,
+            narratorRemark: '',
+            introducerName: presenterInput.introducerName ?? null,
+            peerName: peerUser?.name ?? 'Someone',
+            peerAvatar: peerUser?.avatar ?? null,
+            acceptedAt: opp.updatedAt instanceof Date ? opp.updatedAt.toISOString() : (opp.updatedAt ?? null),
+          };
+          try {
+            await this.cache.set(`chat:card:${opp.id}:${userId}`, card, { ttl: CHAT_CACHE_TTL });
+          } catch {
+            // Cache write failure is non-critical
+          }
+          return card;
+        } catch (err) {
+          logger.warn('[OpportunityService] getChatContext presenter failed, using fallback', { error: err, opportunityId: opp.id });
+          const introducerActor = opp.actors.find((a) => a.role === 'introducer');
+          const introducerName = introducerActor ? opp.detection?.createdByName ?? null : null;
+          let rawReasoning = opp.interpretation?.reasoning ?? '';
+          rawReasoning = stripUuids(rawReasoning);
+          if (introducerName) {
+            rawReasoning = stripIntroducerMentions(rawReasoning, introducerName);
+          }
+          return {
+            opportunityId: opp.id,
+            headline: rawReasoning.substring(0, 80) || 'Connection opportunity',
+            personalizedSummary: rawReasoning,
+            narratorRemark: '',
+            introducerName,
+            peerName: peerUser?.name ?? 'Someone',
+            peerAvatar: peerUser?.avatar ?? null,
+            acceptedAt: opp.updatedAt instanceof Date ? opp.updatedAt.toISOString() : (opp.updatedAt ?? null),
+          };
+        }
+      }),
+    );
 
     return { opportunities: opportunityCards };
   }

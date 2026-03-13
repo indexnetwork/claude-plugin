@@ -270,6 +270,8 @@ export interface UpdateIndexSettingsData {
   title?: string;
   /** New prompt (optional) */
   prompt?: string | null;
+  /** New image URL (optional) */
+  imageUrl?: string | null;
   /** New join policy (optional) */
   joinPolicy?: 'anyone' | 'invite_only';
   /** Allow guest vibe check (optional) */
@@ -675,7 +677,12 @@ export interface Database {
   /**
    * Assigns an intent to an index (inserts intent_indexes row).
    */
-  assignIntentToIndex(intentId: string, indexId: string): Promise<void>;
+  assignIntentToIndex(intentId: string, indexId: string, relevancyScore?: number): Promise<void>;
+
+  /**
+   * Returns per-index relevancy scores for an intent's index assignments.
+   */
+  getIntentIndexScores(intentId: string): Promise<Array<{ indexId: string; relevancyScore: number | null }>>;
 
   /**
    * Removes an intent from an index (deletes intent_indexes row).
@@ -848,17 +855,19 @@ export interface Database {
   /**
    * Create a new index and return its record.
    *
-   * @param data - Title, optional prompt, optional joinPolicy
-   * @returns The created index with id, title, prompt, permissions
+   * @param data - Title, optional prompt, optional imageUrl, optional joinPolicy
+   * @returns The created index with id, title, prompt, imageUrl, permissions
    */
   createIndex(data: {
     title: string;
     prompt?: string | null;
+    imageUrl?: string | null;
     joinPolicy?: 'anyone' | 'invite_only';
   }): Promise<{
     id: string;
     title: string;
     prompt: string | null;
+    imageUrl: string | null;
     permissions: { joinPolicy: 'anyone' | 'invite_only'; invitationLink: { code: string } | null; allowGuestVibeCheck: boolean };
   }>;
 
@@ -902,12 +911,12 @@ export interface Database {
   // ─────────────────────────────────────────────────────────────────────────────
 
   /**
-   * Get a HyDE document by source and strategy.
+   * Get a HyDE document by source and strategy/lens hash.
    * Returns the first matching document when multiple target corpuses exist.
    *
    * @param sourceType - 'intent' | 'profile' | 'query'
    * @param sourceId - Source entity ID (e.g. intent ID, user ID)
-   * @param strategy - Strategy name (e.g. 'mirror', 'reciprocal', 'mentor')
+   * @param strategy - Lens hash (SHA-256 of lens label) or legacy strategy name
    * @returns The HyDE document or null if not found
    */
   getHydeDocument(
@@ -929,7 +938,7 @@ export interface Database {
   ): Promise<HydeDocument[]>;
 
   /**
-   * Save a HyDE document (upsert by sourceType + sourceId + strategy + targetCorpus).
+   * Save a HyDE document (upsert by sourceType + sourceId + strategy/lensHash + targetCorpus).
    *
    * @param data - HyDE document data
    * @returns The saved HyDE document
@@ -1129,6 +1138,43 @@ export interface Database {
     counterpartUserId: string,
     excludeOpportunityId: string
   ): Promise<string[]>;
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Contact / My Network Operations
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  /** Get user IDs of all contacts owned by the given user. */
+  getContactUserIds(ownerId: string): Promise<string[]>;
+
+  /** Create a ghost user (unregistered contact) with empty profile. */
+  createGhostUser(data: { name: string; email: string }): Promise<{ id: string }>;
+
+  /** Upsert a contact (idempotent; unique constraint on ownerId+userId). */
+  upsertContact(data: { ownerId: string; userId: string; source: 'gmail' | 'google_calendar' | 'manual' }): Promise<void>;
+
+  /** Get all contacts for a user with their user details. */
+  getContacts(ownerId: string): Promise<Array<{
+    id: string;
+    userId: string;
+    source: string;
+    importedAt: Date;
+    user: { id: string; name: string; email: string; avatar: string | null; isGhost: boolean };
+  }>>;
+
+  /** Soft-delete a contact. */
+  removeContact(ownerId: string, contactId: string): Promise<void>;
+
+  /**
+   * Returns the IDs of personal indexes where the given user is a contact member.
+   * Used for auto-assigning new intents to personal indexes of contacts who imported this user.
+   *
+   * @param userId - The user whose contact memberships to look up
+   * @returns Array of personal index IDs
+   */
+  getPersonalIndexesForContact(userId: string): Promise<{ indexId: string }[]>;
+
+  /** Find a user by email. */
+  getUserByEmail(email: string): Promise<{ id: string; name: string; email: string; isGhost: boolean } | null>;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1205,7 +1251,7 @@ export interface UserDatabase {
   associateIntentWithIndexes(intentId: string, indexIds: string[]): Promise<void>;
 
   /** Assign an intent to an index. */
-  assignIntentToIndex(intentId: string, indexId: string): Promise<void>;
+  assignIntentToIndex(intentId: string, indexId: string, relevancyScore?: number): Promise<void>;
 
   /** Unassign an intent from an index. */
   unassignIntentFromIndex(intentId: string, indexId: string): Promise<void>;
@@ -1247,11 +1293,13 @@ export interface UserDatabase {
   createIndex(data: {
     title: string;
     prompt?: string | null;
+    imageUrl?: string | null;
     joinPolicy?: 'anyone' | 'invite_only';
   }): Promise<{
     id: string;
     title: string;
     prompt: string | null;
+    imageUrl: string | null;
     permissions: { joinPolicy: 'anyone' | 'invite_only'; invitationLink: { code: string } | null; allowGuestVibeCheck: boolean };
   }>;
 
@@ -1535,6 +1583,11 @@ export type ChatGraphCompositeDatabase = Pick<
   | 'assignIntentToIndex'
   | 'unassignIntentFromIndex'
   | 'getIndexIdsForIntent'
+  | 'getIntentIndexScores'
+  // Contact Operations (for contacts-only discovery)
+  | 'getContactUserIds'
+  // Personal index auto-assignment (used by intent graph executor)
+  | 'getPersonalIndexesForContact'
   // Index Ownership Operations (owner-only)
   | 'getOwnedIndexes'
   | 'isIndexOwner'
@@ -1569,10 +1622,13 @@ export type OpportunityGraphDatabase = Pick<
   | 'getOpportunityBetweenActors'
   | 'findOverlappingOpportunities'
   | 'getUserIndexIds'
+  | 'getIndexMemberships'
   | 'getActiveIntents'
   | 'getIndexIdsForIntent'
   | 'getIndex'
   | 'getIndexMemberCount'
+  | 'getIntentIndexScores'
+  | 'getIndexMemberContext'
   // Read/update/send modes
   | 'getOpportunity'
   | 'getOpportunitiesForUser'
@@ -1581,6 +1637,8 @@ export type OpportunityGraphDatabase = Pick<
   | 'getUser'
   // Load candidate intent payload/summary for evaluator
   | 'getIntent'
+  // Contacts-only discovery
+  | 'getContactUserIds'
 >;
 
 /**
@@ -1607,6 +1665,7 @@ export type OpportunityControllerDatabase = Pick<
   | 'getIndexMemberships'
   | 'getProfile'
   | 'getActiveIntents'
+  | 'upsertContact'
 >;
 
 /**
@@ -1629,6 +1688,9 @@ export type IntentGraphDatabase = Pick<
   | 'getUser'
   // Profile check (prepNode gate for write operations)
   | 'getProfile'
+  // Personal index auto-assignment
+  | 'getPersonalIndexesForContact'
+  | 'assignIntentToIndex'
 >;
 
 /**

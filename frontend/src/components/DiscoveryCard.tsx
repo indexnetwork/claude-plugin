@@ -1,5 +1,3 @@
-'use client';
-
 import UserAvatar from '@/components/UserAvatar';
 import ConnectionActions, { ConnectionAction } from '@/components/ConnectionActions';
 import SynthesisMarkdown from '@/components/SynthesisMarkdown';

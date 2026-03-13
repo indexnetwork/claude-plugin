@@ -43,7 +43,7 @@ export class IntentIndexGraphFactory {
       return timed("IntentIndexGraph.assign", async () => {
         const intentId = state.intentId;
         const indexId = state.indexId;
-        logger.info("Assign intent to index", { userId: state.userId, intentId, indexId, skipEvaluation: state.skipEvaluation });
+        logger.verbose("Assign intent to index", { userId: state.userId, intentId, indexId, skipEvaluation: state.skipEvaluation });
 
         if (!intentId || !indexId) {
           return { mutationResult: { success: false, error: "Both intentId and indexId are required." } };
@@ -71,7 +71,7 @@ export class IntentIndexGraphFactory {
 
           // Direct assignment (skip evaluation)
           if (state.skipEvaluation) {
-            await this.database.assignIntentToIndex(intentId, indexId);
+            await this.database.assignIntentToIndex(intentId, indexId, 1.0);
             return {
               assignmentResult: { indexId, assigned: true, success: true } as AssignmentResult,
               mutationResult: { success: true, message: "Intent saved to the index." },
@@ -87,7 +87,7 @@ export class IntentIndexGraphFactory {
           const indexContext = await this.database.getIndexMemberContext(indexId, intentForIndexing.userId);
           if (!indexContext) {
             // No prompts or not eligible - auto-assign
-            await this.database.assignIntentToIndex(intentId, indexId);
+            await this.database.assignIntentToIndex(intentId, indexId, 1.0);
             return {
               assignmentResult: { indexId, assigned: true, success: true } as AssignmentResult,
               mutationResult: { success: true, message: "Intent assigned to index (auto-assign, no prompts)." },
@@ -96,7 +96,7 @@ export class IntentIndexGraphFactory {
 
           const hasNoPrompts = !indexContext.indexPrompt?.trim() && !indexContext.memberPrompt?.trim();
           if (hasNoPrompts) {
-            await this.database.assignIntentToIndex(intentId, indexId);
+            await this.database.assignIntentToIndex(intentId, indexId, 1.0);
             return {
               assignmentResult: { indexId, assigned: true, success: true } as AssignmentResult,
               mutationResult: { success: true, message: "Intent assigned to index (no prompts, auto-assign)." },
@@ -152,7 +152,7 @@ export class IntentIndexGraphFactory {
           }
 
           if (shouldAssign) {
-            await this.database.assignIntentToIndex(intentId, indexId);
+            await this.database.assignIntentToIndex(intentId, indexId, finalScore);
             return {
               evaluation: result,
               shouldAssign: true,
@@ -186,7 +186,7 @@ export class IntentIndexGraphFactory {
       return timed("IntentIndexGraph.read", async () => {
         const intentId = state.intentId;
         const indexId = state.indexId;
-        logger.info("Read intent-index links", { userId: state.userId, intentId, indexId, queryUserId: state.queryUserId });
+        logger.verbose("Read intent-index links", { userId: state.userId, intentId, indexId, queryUserId: state.queryUserId });
 
         try {
           // By both: check if specific intent-index link exists
@@ -294,7 +294,7 @@ export class IntentIndexGraphFactory {
       return timed("IntentIndexGraph.unassign", async () => {
         const intentId = state.intentId;
         const indexId = state.indexId;
-        logger.info("Unassign intent from index", { userId: state.userId, intentId, indexId });
+        logger.verbose("Unassign intent from index", { userId: state.userId, intentId, indexId });
 
         if (!intentId || !indexId) {
           return { mutationResult: { success: false, error: "Both intentId and indexId are required." } };

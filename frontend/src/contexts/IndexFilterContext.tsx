@@ -1,6 +1,4 @@
-'use client';
-
-import { createContext, useContext, useState, useCallback, ReactNode } from 'react';
+import { createContext, useContext, useState, useCallback, type ReactNode } from 'react';
 
 interface IndexFilterContextType {
   selectedIndexIds: string[];
@@ -19,7 +17,7 @@ export function IndexFilterProvider({ children }: { children: ReactNode }) {
   return (
     <IndexFilterContext.Provider value={{
       selectedIndexIds,
-      setSelectedIndexIds: handleSetSelectedIndexIds
+      setSelectedIndexIds: handleSetSelectedIndexIds,
     }}>
       {children}
     </IndexFilterContext.Provider>

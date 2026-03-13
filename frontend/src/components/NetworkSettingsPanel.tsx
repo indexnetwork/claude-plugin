@@ -1,8 +1,6 @@
-'use client';
-
 import { useState, useEffect, useCallback, useRef } from 'react';
 import * as AlertDialog from '@radix-ui/react-alert-dialog';
-import { Copy, Globe, Lock, Trash2, Plus, Check, ChevronRight, ChevronDown } from 'lucide-react';
+import { Copy, Globe, Lock, Trash2, Plus, Check, ChevronRight, ChevronDown, Camera } from 'lucide-react';
 import { Index } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -17,6 +15,8 @@ import { Member } from '@/services/indexes';
 import { INTEGRATIONS, getIndexIntegrations } from '@/config/integrations';
 import DirectoryConfigModal from '@/components/modals/DirectoryConfigModal';
 import SlackChannelModal from '@/components/modals/SlackChannelModal';
+import { validateFiles } from '@/lib/file-validation';
+import IndexAvatar, { resolveIndexImageSrc } from '@/components/IndexAvatar';
 
 interface IntegrationItem {
   id: string | null;
@@ -43,8 +43,14 @@ export default function NetworkSettingsPanel({ index, onDeleted, activeTab }: Ne
 
   const [title, setTitle] = useState(currentIndex.title || '');
   const [prompt, setPrompt] = useState(currentIndex.prompt || '');
+  const [imageUrl, setImageUrl] = useState<string | null>(currentIndex.imageUrl ?? null);
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [removeImageRequested, setRemoveImageRequested] = useState(false);
   const [originalTitle, setOriginalTitle] = useState(currentIndex.title || '');
   const [originalPrompt, setOriginalPrompt] = useState(currentIndex.prompt || '');
+  const [originalImageUrl, setOriginalImageUrl] = useState<string | null>(currentIndex.imageUrl ?? null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
   const [isSavingSettings, setIsSavingSettings] = useState(false);
   const [isDeletingIndex, setIsDeletingIndex] = useState(false);
   const [showDeleteConfirmation, setShowDeleteConfirmation] = useState(false);
@@ -74,8 +80,13 @@ export default function NetworkSettingsPanel({ index, onDeleted, activeTab }: Ne
   useEffect(() => {
     setTitle(currentIndex.title);
     setPrompt(currentIndex.prompt || '');
+    setImageUrl(currentIndex.imageUrl ?? null);
     setOriginalTitle(currentIndex.title);
     setOriginalPrompt(currentIndex.prompt || '');
+    setOriginalImageUrl(currentIndex.imageUrl ?? null);
+    setImageFile(null);
+    setImagePreview(null);
+    setRemoveImageRequested(false);
     setAnyoneCanJoin(currentIndex.permissions?.joinPolicy === 'anyone');
     setDeleteConfirmationText('');
     setIsDangerZoneExpanded(false);
@@ -84,7 +95,31 @@ export default function NetworkSettingsPanel({ index, onDeleted, activeTab }: Ne
     } else {
       setInvitationLink(null);
     }
-  }, [currentIndex.id, currentIndex.title, currentIndex.prompt, currentIndex.permissions]);
+  }, [currentIndex.id, currentIndex.title, currentIndex.prompt, currentIndex.imageUrl, currentIndex.permissions]);
+
+  const handleImageChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const validation = validateFiles([file], 'avatar');
+      if (!validation.isValid) {
+        error(validation.message || 'Invalid image file');
+        e.target.value = '';
+        return;
+      }
+      setImageFile(file);
+      setRemoveImageRequested(false);
+      const reader = new FileReader();
+      reader.onload = (ev) => setImagePreview(ev.target?.result as string);
+      reader.readAsDataURL(file);
+    }
+  }, []);
+
+  const handleRemoveImage = useCallback(() => {
+    setImageFile(null);
+    setImagePreview(null);
+    setRemoveImageRequested(true);
+    if (imageInputRef.current) imageInputRef.current.value = '';
+  }, []);
 
   const loadMembers = useCallback(async () => {
     try {
@@ -171,12 +206,24 @@ export default function NetworkSettingsPanel({ index, onDeleted, activeTab }: Ne
     }
     try {
       setIsSavingSettings(true);
+      let finalImageUrl: string | null = imageUrl;
+      if (imageFile) {
+        finalImageUrl = await indexesService.uploadIndexImage(imageFile);
+      } else if (removeImageRequested) {
+        finalImageUrl = null;
+      }
       const updatedIndex = await indexesService.updateIndex(index.id, {
         title: title.trim(),
-        prompt: prompt.trim() || null
+        prompt: prompt.trim() || null,
+        imageUrl: finalImageUrl
       });
       setOriginalTitle(title);
       setOriginalPrompt(prompt);
+      setOriginalImageUrl(finalImageUrl);
+      setImageFile(null);
+      setImagePreview(null);
+      setRemoveImageRequested(false);
+      setImageUrl(finalImageUrl);
       updateIndex(updatedIndex);
       success('Settings updated');
     } catch (err) {
@@ -308,7 +355,9 @@ export default function NetworkSettingsPanel({ index, onDeleted, activeTab }: Ne
     }
   };
 
-  const hasSettingsChanged = title !== originalTitle || prompt !== originalPrompt;
+  const displayImageUrl = imagePreview ? imagePreview : (removeImageRequested ? null : imageUrl);
+  const hasImageChanged = (imageFile !== null) || removeImageRequested || (imageUrl !== originalImageUrl && !imageFile && !removeImageRequested);
+  const hasSettingsChanged = title !== originalTitle || prompt !== originalPrompt || hasImageChanged;
   const isDeleteConfirmationValid = deleteConfirmationText === currentIndex.title;
   const filteredSuggestions = suggestedUsers.filter(u => !members.find(m => m.id === u.id));
 
@@ -316,9 +365,55 @@ export default function NetworkSettingsPanel({ index, onDeleted, activeTab }: Ne
     <>
       {activeTab === 'settings' && (
         <div className="space-y-6">
+          {/* Identity header: circle image left, title/placeholder right */}
+          <div className="flex items-center gap-5">
+            <button
+              type="button"
+              onClick={() => imageInputRef.current?.click()}
+              disabled={isSavingSettings}
+              className="relative flex-shrink-0 group cursor-pointer disabled:cursor-not-allowed"
+            >
+              <div className="w-[72px] h-[72px] rounded-full overflow-hidden">
+                {displayImageUrl ? (
+                  <img src={resolveIndexImageSrc(displayImageUrl)} alt="Network" width={72} height={72} loading="lazy" className="w-full h-full object-cover" />
+                ) : (
+                  <IndexAvatar id={index.id} title={title || index.title} size={72} rounded="full" />
+                )}
+              </div>
+              <div className="absolute inset-0 rounded-full bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity duration-150 flex items-center justify-center">
+                <Camera className="w-4 h-4 text-white" />
+              </div>
+            </button>
+            <input
+              ref={imageInputRef}
+              type="file"
+              accept="image/*"
+              onChange={handleImageChange}
+              className="hidden"
+            />
+            <div className="min-w-0 flex-1">
+              <div className="font-semibold text-gray-900 font-ibm-plex-mono truncate leading-tight">
+                {title.trim() || "Network title"}
+              </div>
+              {displayImageUrl && (
+                <button
+                  type="button"
+                  onClick={handleRemoveImage}
+                  disabled={isSavingSettings}
+                  className="text-sm text-red-600 hover:text-red-700 font-medium disabled:opacity-50 mt-1"
+                >
+                  Remove image
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Title field at bottom */}
           <div>
-            <label className="block text-sm font-medium font-ibm-plex-mono text-gray-700 mb-1.5">Title</label>
-            <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Network title" />
+            <label htmlFor="title" className="text-sm font-medium font-ibm-plex-mono text-gray-700 block mb-1.5">
+              Title
+            </label>
+            <Input id="title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Network title" />
           </div>
           <div>
             <label className="block text-sm font-medium font-ibm-plex-mono text-gray-700 mb-1.5">Prompt</label>
@@ -326,7 +421,7 @@ export default function NetworkSettingsPanel({ index, onDeleted, activeTab }: Ne
             <p className="text-xs text-gray-400 mt-1.5">Guides what kind of intents people can share.</p>
           </div>
           <div className="flex justify-end gap-2">
-            <Button variant="outline" size="sm" onClick={() => { setTitle(originalTitle); setPrompt(originalPrompt); }} disabled={isSavingSettings || !hasSettingsChanged}>
+            <Button variant="outline" size="sm" onClick={() => { setTitle(originalTitle); setPrompt(originalPrompt); setImageUrl(originalImageUrl); setImageFile(null); setImagePreview(null); setRemoveImageRequested(false); if (imageInputRef.current) imageInputRef.current.value = ''; }} disabled={isSavingSettings || !hasSettingsChanged}>
               Cancel
             </Button>
             <Button size="sm" onClick={handleSaveSettings} disabled={isSavingSettings || !hasSettingsChanged || !title.trim()}>
@@ -471,7 +566,7 @@ export default function NetworkSettingsPanel({ index, onDeleted, activeTab }: Ne
               const directoryConfig = it.id ? directoryConfigs[it.id] : null;
               return (
                 <div key={it.type} className="flex items-center gap-3 p-3 border border-gray-200 rounded-sm hover:border-gray-300 transition-colors">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
+
                   <img src={`/integrations/${it.type}.png`} width={24} height={24} alt={it.name} className="flex-shrink-0" />
                   <div className="flex-1 min-w-0">
                     <div className="text-sm font-medium text-black">{it.name}</div>

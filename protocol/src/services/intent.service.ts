@@ -4,6 +4,7 @@ import { IntentGraphFactory } from '../lib/protocol/graphs/intent.graph';
 import { IntentDatabaseAdapter, intentDatabaseAdapter } from '../adapters/database.adapter';
 import { EmbedderAdapter } from '../adapters/embedder.adapter';
 import { intentQueue } from '../queues/intent.queue';
+import { IntentEvents } from '../events/intent.event';
 
 const logger = log.service.from("IntentService");
 
@@ -46,7 +47,7 @@ export class IntentService {
     userProfile: string,
     content?: string
   ): Promise<Record<string, unknown>> {
-    logger.info('[IntentService] Processing intent', { userId });
+    logger.verbose('[IntentService] Processing intent', { userId });
 
     const graph = this.factory.createGraph();
     const result = await graph.invoke(
@@ -78,7 +79,7 @@ export class IntentService {
     const limit = Math.min(100, Math.max(1, options.limit || 20));
     const archived = options.archived ?? false;
 
-    logger.info('[IntentService] Listing intents', { userId, page, limit, archived });
+    logger.verbose('[IntentService] Listing intents', { userId, page, limit, archived });
 
     const { rows, total } = await this.adapter.listIntents(userId, {
       page,
@@ -106,7 +107,7 @@ export class IntentService {
    * @returns Intent record or null if not found or unauthorized
    */
   async getById(intentId: string, userId: string) {
-    logger.info('[IntentService] Getting intent by ID', { intentId, userId });
+    logger.verbose('[IntentService] Getting intent by ID', { intentId, userId });
     
     return this.adapter.getIntentById(intentId, userId);
   }
@@ -125,7 +126,7 @@ export class IntentService {
    * @returns The created or existing intent record (at least { id }).
    */
   async createFromProposal(userId: string, description: string, proposalId: string, indexId?: string) {
-    logger.info('[IntentService] Creating intent from proposal', { userId, proposalId });
+    logger.verbose('[IntentService] Creating intent from proposal', { userId, proposalId });
 
     const existing = await this.adapter.getIntentBySourceId(proposalId, userId);
     if (existing) {
@@ -184,7 +185,7 @@ export class IntentService {
    * @returns The created intent record
    */
   async createIntentForSeed(userId: string, description: string): Promise<{ id: string }> {
-    logger.info('[IntentService] Creating intent for seed', { userId });
+    logger.verbose('[IntentService] Creating intent for seed', { userId });
 
     const EMBEDDING_DIMS = 2000;
     let embedding: number[];
@@ -224,21 +225,24 @@ export class IntentService {
   }
 
   /**
-   * Check which proposal IDs have been confirmed (have a matching intent).
+   * Look up intents by proposal IDs. Returns the intent id and archivedAt for each
+   * proposalId that has a matching intent record.
    *
    * @param userId - The user ID
    * @param proposalIds - Array of proposal IDs to check
-   * @returns Map of proposalId -> "created"
+   * @returns Map of proposalId -> { intentId, archivedAt }
    */
-  async getProposalStatuses(userId: string, proposalIds: string[]): Promise<Record<string, 'created'>> {
+  async getProposalStatuses(userId: string, proposalIds: string[]): Promise<Record<string, { intentId: string; archivedAt: string | null }>> {
     if (proposalIds.length === 0) return {};
 
-    const result: Record<string, 'created'> = {};
-    // Query intents where sourceId matches any proposalId and user owns them
+    const result: Record<string, { intentId: string; archivedAt: string | null }> = {};
     for (const pid of proposalIds) {
       const intent = await this.adapter.getIntentBySourceId(pid, userId);
       if (intent) {
-        result[pid] = 'created';
+        result[pid] = {
+          intentId: intent.id,
+          archivedAt: intent.archivedAt?.toISOString() ?? null,
+        };
       }
     }
     return result;
@@ -252,7 +256,7 @@ export class IntentService {
    * @returns Result with success flag and optional error
    */
   async archive(intentId: string, userId: string) {
-    logger.info('[IntentService] Archiving intent', { intentId, userId });
+    logger.verbose('[IntentService] Archiving intent', { intentId, userId });
 
     // Verify ownership
     const owned = await this.adapter.isOwnedByUser(intentId, userId);
@@ -260,7 +264,33 @@ export class IntentService {
       return { success: false, error: 'Intent not found or unauthorized' };
     }
 
-    return this.adapter.archiveIntent(intentId);
+    const result = await this.adapter.archiveIntent(intentId);
+    if (!result.success) return result;
+
+    try {
+      await this.adapter.deleteIntentIndexAssociations(intentId);
+    } catch (err) {
+      logger.error('[IntentService] Failed to delete intent-index associations', { intentId, error: err });
+    }
+
+    try {
+      const expiredCount = await this.adapter.expireOpportunitiesByIntentActor(intentId);
+      if (expiredCount > 0) {
+        logger.verbose('[IntentService] Expired opportunities referencing intent', { intentId, expiredCount });
+      }
+    } catch (err) {
+      logger.error('[IntentService] Failed to expire opportunities', { intentId, error: err });
+    }
+
+    try {
+      await intentQueue.addDeleteHydeJob({ intentId });
+    } catch (err) {
+      logger.error('[IntentService] Failed to enqueue HyDE deletion', { intentId, error: err });
+    }
+
+    IntentEvents.onArchived(intentId, userId);
+
+    return result;
   }
 }
 

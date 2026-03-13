@@ -74,7 +74,6 @@ export class EmailQueue {
    * @param data - Email payload
    */
   async processJob(name: string, data: EmailJobData): Promise<void> {
-    this.queueLogger.info(`[EmailProcessor] Processing job (${name})`);
     switch (name) {
       case 'send_email':
         await this.handleSendEmail(data);
@@ -107,6 +106,14 @@ export class EmailQueue {
     this.worker.on('error', (err) => {
       this.logger.error('Worker error', { error: err });
     });
+  }
+
+  async close(): Promise<void> {
+    if (this.worker) {
+      await this.worker.close();
+      this.worker = null;
+    }
+    await this.queue.close();
   }
 
   private async handleSendEmail(data: EmailJobData): Promise<void> {

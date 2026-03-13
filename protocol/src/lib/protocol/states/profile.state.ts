@@ -36,6 +36,28 @@ export const ProfileGraphState = Annotation.Root({
   // --- Intermediate State ---
 
   /**
+   * Pre-fetched enrichment content (e.g. from Parallels search in the queue handler).
+   * When provided, autoGenerateNode skips its own search and uses this directly.
+   */
+  enrichmentInput: Annotation<string | undefined>({
+    reducer: (curr, next) => next,
+    default: () => undefined,
+  }),
+
+  /**
+   * Pre-populated profile from external enrichment (e.g. Parallel Chat API).
+   * When provided, the graph skips profile generation and only runs embedding + HyDE.
+   */
+  prePopulatedProfile: Annotation<{
+    identity: { name: string; bio: string; location: string };
+    narrative: { context: string };
+    attributes: { skills: string[]; interests: string[] };
+  } | undefined>({
+    reducer: (curr, next) => next,
+    default: () => undefined,
+  }),
+
+  /**
    * Internal objective constructed from user data.
    */
   objective: Annotation<string | undefined>({

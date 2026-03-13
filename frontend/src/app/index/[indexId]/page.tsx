@@ -1,6 +1,5 @@
-"use client";
-
-import { useState, useEffect, use } from "react";
+import { useState, useEffect } from "react";
+import { useNavigate, useParams } from "react-router";
 import { Button } from "@/components/ui/button";
 import { Index, User, APIResponse } from "@/lib/types";
 import ClientLayout from "@/components/ClientLayout";
@@ -8,17 +7,10 @@ import { ContentContainer } from "@/components/layout";
 import { useIndexes } from '@/contexts/APIContext';
 import { indexesService as publicIndexesService } from '@/services/indexes';
 import { useAuthenticatedAPI } from '@/lib/api';
-import { useRouter } from 'next/navigation';
 import { Users, Loader2, Globe } from 'lucide-react';
 import { useNotifications } from '@/contexts/NotificationContext';
 import { useIndexesState } from '@/contexts/IndexesContext';
 import { useAuthContext } from '@/contexts/AuthContext';
-
-interface PublicJoinPageProps {
-  params: Promise<{
-    indexId: string;
-  }>;
-}
 
 type PageStep = 'loading' | 'auth-required' | 'ready-to-join' | 'joining' | 'error' | 'already-member';
 
@@ -29,8 +21,8 @@ type PageState = {
   error: string | null;
 };
 
-export default function PublicJoinPage({ params }: PublicJoinPageProps) {
-  const resolvedParams = use(params);
+export default function PublicJoinPage() {
+  const { indexId } = useParams();
   const [state, setState] = useState<PageState>({
     step: 'loading',
     index: null,
@@ -41,7 +33,7 @@ export default function PublicJoinPage({ params }: PublicJoinPageProps) {
   const { isAuthenticated, isReady, openLoginModal } = useAuthContext();
   const api = useAuthenticatedAPI();
   const indexesService = useIndexes();
-  const router = useRouter();
+  const navigate = useNavigate();
   const { success, error: notifyError } = useNotifications();
   const { refreshIndexes } = useIndexesState();
 
@@ -50,7 +42,7 @@ export default function PublicJoinPage({ params }: PublicJoinPageProps) {
     const loadIndexAndCheckAuth = async () => {
       try {
         // Load public index by ID
-        const index = await publicIndexesService.getPublicIndexById(resolvedParams.indexId);
+        const index = await publicIndexesService.getPublicIndexById(indexId!);
         setState(prev => ({ ...prev, index }));
 
         // Double-check that this is a public index
@@ -101,7 +93,7 @@ export default function PublicJoinPage({ params }: PublicJoinPageProps) {
             }
 
             // User is authenticated and member - go to root
-            router.push('/');
+            navigate('/');
           }
         } catch (err) {
           console.error('Failed to fetch user:', err);
@@ -122,7 +114,7 @@ export default function PublicJoinPage({ params }: PublicJoinPageProps) {
     };
 
     loadIndexAndCheckAuth();
-  }, [resolvedParams.indexId, isAuthenticated, isReady, api, router, indexesService, refreshIndexes]);
+  }, [indexId, isAuthenticated, isReady, api, navigate, indexesService, refreshIndexes]);
 
   // Trigger reload when user authenticates
   useEffect(() => {
@@ -148,7 +140,7 @@ export default function PublicJoinPage({ params }: PublicJoinPageProps) {
         // Refresh indexes context
         await refreshIndexes();
         // Redirect to root
-        router.push(`/`);
+        navigate(`/`);
       }
     } catch (err) {
       console.error('Failed to join index:', err);
@@ -196,7 +188,7 @@ export default function PublicJoinPage({ params }: PublicJoinPageProps) {
               </p>
             </div>
             <Button
-              onClick={() => router.push('/')}
+              onClick={() => navigate('/')}
               className="bg-[#041729] text-white hover:bg-[#0a2d4a] font-ibm-plex-mono"
             >
               Go to Homepage
@@ -323,7 +315,7 @@ export default function PublicJoinPage({ params }: PublicJoinPageProps) {
               </p>
             </div>
             <Button
-              onClick={() => router.push(`/`)}
+              onClick={() => navigate(`/`)}
               className="bg-[#041729] text-white hover:bg-[#0a2d4a] font-ibm-plex-mono"
             >
               Go to your Inbox
@@ -347,3 +339,5 @@ export default function PublicJoinPage({ params }: PublicJoinPageProps) {
   );
 }
 
+
+export const Component = PublicJoinPage;

@@ -1,8 +1,6 @@
-'use client';
-
 import { createContext, useContext, useEffect, useState, useCallback, useRef, ReactNode } from 'react';
 import { useAuthContext } from './AuthContext';
-import { useAuthenticatedAPI } from '@/lib/api';
+import { useAuthenticatedAPI, apiUrl } from '@/lib/api';
 import { getJwtToken } from '@/lib/auth-client';
 import { createXmtpService, type XmtpConversation, type XmtpMessage, type XmtpChatContext } from '@/services/xmtp';
 
@@ -22,8 +20,6 @@ interface XMTPContextType {
 
 const XMTPContext = createContext<XMTPContextType | undefined>(undefined);
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || '';
-
 export function XMTPProvider({ children }: { children: ReactNode }) {
   const { isAuthenticated, user } = useAuthContext();
   const api = useAuthenticatedAPI();
@@ -34,6 +30,7 @@ export function XMTPProvider({ children }: { children: ReactNode }) {
   const [totalUnreadCount] = useState(0);
   const [deletedConversationIds, setDeletedConversationIds] = useState<Set<string>>(new Set());
   const eventSourceRef = useRef<EventSource | null>(null);
+  const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const serviceRef = useRef(createXmtpService(api));
 
   useEffect(() => {
@@ -105,8 +102,11 @@ export function XMTPProvider({ children }: { children: ReactNode }) {
       });
     }
 
+    // Refresh conversation list so sidebar shows updated lastMessage
+    void refreshConversations();
+
     return result.groupId;
-  }, []);
+  }, [refreshConversations]);
 
   const deleteConversation = useCallback(async (conversationId: string) => {
     await serviceRef.current.deleteConversation(conversationId);
@@ -131,12 +131,12 @@ export function XMTPProvider({ children }: { children: ReactNode }) {
     }
 
     const connectSSE = async () => {
-      let url = `${API_BASE}/xmtp/stream`;
+      let url = apiUrl('/api/xmtp/stream');
       try {
         const token = await getJwtToken();
         url += `?token=${encodeURIComponent(token)}`;
       } catch {
-        setTimeout(connectSSE, 5000);
+        reconnectTimeoutRef.current = setTimeout(connectSSE, 5000);
         return;
       }
       const es = new EventSource(url);
@@ -184,7 +184,7 @@ export function XMTPProvider({ children }: { children: ReactNode }) {
       es.onerror = () => {
         setIsConnected(false);
         es.close();
-        setTimeout(() => void connectSSE(), 5000);
+        reconnectTimeoutRef.current = setTimeout(() => void connectSSE(), 5000);
       };
     };
 
@@ -192,6 +192,10 @@ export function XMTPProvider({ children }: { children: ReactNode }) {
     void refreshConversations();
 
     return () => {
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
+      }
       if (eventSourceRef.current) {
         eventSourceRef.current.close();
         eventSourceRef.current = null;

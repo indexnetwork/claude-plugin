@@ -1,11 +1,9 @@
-"use client";
-
 import { useEffect, useRef, useState } from "react";
-import Image from "next/image";
 import ClientLayout from "@/components/ClientLayout";
 import { useAuthContext } from "@/contexts/AuthContext";
 import ChatContent from "@/components/ChatContent";
 import Footer from "@/components/Footer";
+import { apiUrl } from "@/lib/api";
 
 function LandingPage() {
   const discoveryVisualRef = useRef<HTMLDivElement>(null);
@@ -54,7 +52,7 @@ function LandingPage() {
     
     setWaitlistStatus("loading");
     try {
-      const res = await fetch("/api/subscribe", {
+      const res = await fetch(apiUrl("/api/subscribe"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -791,11 +789,12 @@ function LandingPage() {
 
             {/* Illustration */}
             <div className="hero-illustration relative z-10 flex items-center justify-center w-full h-full min-h-[300px] lg:min-h-[700px] order-2">
-                <Image
+                <img
                   src="/collab.png"
                   alt="Collaboration illustration"
                   width={600}
                   height={600}
+                  loading="lazy"
                   className="w-full max-w-[360px] lg:max-w-full h-auto object-contain lg:scale-115"
                 />
             </div>
@@ -831,7 +830,7 @@ function LandingPage() {
                   <div className="text-[11px] uppercase tracking-widest text-[#999] font-mono mb-2">3 days ago</div>
                   <div className="bg-white border border-[#E5E5E5] rounded-md p-4">
                     <div className="flex items-center gap-3 mb-3">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
+
                       <img
                         src="/you.png"
                         alt="You"
@@ -897,7 +896,7 @@ function LandingPage() {
                   <div className="bg-white border border-[#E5E5E5] rounded-md px-4 py-4 shadow-sm">
                     <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-4 gap-3">
                       <div className="flex items-center gap-3">
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
+
                         <img
                           src="https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=100&h=100&fit=crop&crop=face"
                           alt="Nicole"
@@ -1030,7 +1029,7 @@ function LandingPage() {
 
               {/* Right: Testimonial */}
               <div className="flex gap-5 items-start lg:border-l lg:border-[#E5E5E5] lg:pl-12">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
+
                 <img
                   src="/vivek.png"
                   alt="Vivek Singh"
@@ -1128,10 +1127,24 @@ function LandingPage() {
 
 export default function RootPage() {
   const { isAuthenticated, isLoading } = useAuthContext();
+  const [isRedirecting] = useState(false);
 
-  // Show loading state while checking auth
-  if (isLoading) {
-    return null; // AuthContext handles loading UI
+  // Handle OAuth callback redirect (e.g., after Composio Gmail auth)
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const params = new URLSearchParams(window.location.search);
+    const status = params.get("status");
+    const connectedAccountId = params.get("connected_account_id");
+
+    if (status === "success" && connectedAccountId) {
+      window.close();
+    }
+  }, []);
+
+  // Show loading state while checking auth or redirecting after OAuth
+  if (isLoading || isRedirecting) {
+    return null;
   }
 
   // Show AI chat for authenticated users, landing page for unauthenticated
@@ -1145,3 +1158,5 @@ export default function RootPage() {
 
   return <LandingPage />;
 }
+
+export const Component = RootPage;

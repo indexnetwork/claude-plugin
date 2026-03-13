@@ -28,6 +28,8 @@ export interface Index {
   id: UUID;
   title: string;
   prompt?: string | null;
+  imageUrl?: string | null;
+  isPersonal?: boolean;
   permissions?: IndexPermissions | null;
   createdAt: ISODateString;
   updatedAt: ISODateString;
@@ -46,12 +48,14 @@ export interface Index {
 export interface CreateIndexRequest {
   title: string;
   prompt?: string;
+  imageUrl?: string | null;
   joinPolicy?: IndexJoinPolicy;
 }
 
 export interface UpdateIndexRequest {
   title?: string;
   prompt?: string | null;
+  imageUrl?: string | null;
   permissions?: {
     joinPolicy?: IndexJoinPolicy;
     allowGuestVibeCheck?: boolean;

@@ -1,4 +1,7 @@
+import { z } from "zod";
+
 import { AuthGuard, type AuthenticatedUser } from "../guards/auth.guard";
+import { requestContext } from "../lib/request-context";
 import { log } from "../lib/log";
 import {
   Controller,
@@ -17,6 +20,18 @@ import {
 } from "../types/chat-streaming.types";
 
 const logger = log.controller.from("chat");
+
+const streamBodySchema = z.object({
+  message: z.string().nullish(),
+  sessionId: z.string().nullish(),
+  useCheckpointer: z.boolean().optional(),
+  fileIds: z.array(z.string()).optional(),
+  indexId: z.string().nullish(),
+  prefillMessages: z.array(z.object({
+    role: z.enum(["assistant", "user"]),
+    content: z.string().max(10000),
+  })).max(10).optional(),
+});
 
 let suggestionGeneratorInstance: SuggestionGenerator | null = null;
 function getSuggestionGenerator(): SuggestionGenerator {
@@ -86,27 +101,25 @@ export class ChatController {
     req: Request,
     user: AuthenticatedUser,
   ): Promise<Response> {
-    // 1. Parse request body
-    let body: {
-      message?: string;
-      sessionId?: string;
-      useCheckpointer?: boolean;
-      fileIds?: string[];
-      indexId?: string;
-    };
+    // 1. Parse and validate request body
+    let body: z.infer<typeof streamBodySchema>;
     try {
-      body = (await req.json()) as {
-        message?: string;
-        sessionId?: string;
-        useCheckpointer?: boolean;
-        fileIds?: string[];
-        indexId?: string;
-      };
+      const raw = await req.json();
+      const parsed = streamBodySchema.safeParse(raw);
+      if (!parsed.success) {
+        return Response.json(
+          {
+            error:
+              "Invalid request body. Expected { message?: string | null, sessionId?: string | null, useCheckpointer?: boolean, fileIds?: string[], indexId?: string | null }",
+          },
+          { status: 400 },
+        );
+      }
+      body = parsed.data;
     } catch {
       return Response.json(
         {
-          error:
-            "Invalid request body. Expected { message: string, sessionId?: string, useCheckpointer?: boolean, fileIds?: string[] }",
+          error: "Invalid JSON in request body",
         },
         { status: 400 },
       );
@@ -203,14 +216,18 @@ export class ChatController {
       ? await chatSessionService.getCheckpointer()
       : undefined;
     if (useCheckpointer && checkpointer) {
-      logger.info("PostgresSaver checkpointer initialized", { sessionId });
+      logger.verbose("PostgresSaver checkpointer initialized", { sessionId });
     }
 
     // 4. Create SSE stream
     const encoder = new TextEncoder();
+    const rawOrigin = req.headers.get("origin");
+    const trustedOrigins = (process.env.TRUSTED_ORIGINS ?? "").split(",").map(o => o.trim()).filter(Boolean);
+    const originUrl = rawOrigin && trustedOrigins.includes(rawOrigin) ? rawOrigin : undefined;
 
     const stream = new ReadableStream({
-      async start(controller) {
+      start(controller) {
+        return requestContext.run({ originUrl }, async () => {
         try {
           // Send initial status
           controller.enqueue(
@@ -234,8 +251,10 @@ export class ChatController {
               sessionId,
               maxContextMessages: 20,
               indexId: indexIdForStream,
+              prefillMessages: body.prefillMessages,
             },
             checkpointer,
+            req.signal,
           )) {
             if (event) {
               // response_complete is an internal event carrying the agent's
@@ -260,46 +279,62 @@ export class ChatController {
             }
           }
 
-          // Persist user message and assistant response so loadSessionContext on the next turn sees them
+          // Persist prefill messages (e.g. onboarding greeting) only for newly created sessions
+          if (body.prefillMessages?.length && !body.sessionId) {
+            for (const pm of body.prefillMessages) {
+              await chatSessionService.addMessage({
+                sessionId,
+                role: pm.role,
+                content: pm.content,
+              });
+            }
+          }
+
+          // Persist user message and assistant response
           await chatSessionService.addMessage({
             sessionId,
             role: "user",
             content: messageContent,
           });
-          await chatSessionService.addMessage({
-            sessionId,
-            role: "assistant",
-            content: fullResponse,
-            routingDecision,
-            subgraphResults,
-          });
+          if (fullResponse) {
+            await chatSessionService.addMessage({
+              sessionId,
+              role: "assistant",
+              content: fullResponse,
+              routingDecision,
+              subgraphResults,
+            });
+          }
 
-          // Generate session title and suggestions in parallel (graceful fallback if suggestions fail)
-          const [sessionTitle, suggestions] = await Promise.all([
-            chatSessionService.generateSessionTitle(sessionId, user.id),
-            getSuggestionGenerator()
-              .generate({
-                messages: [
-                  { role: "user", content: messageContent },
-                  { role: "assistant", content: fullResponse },
-                ],
-              })
-              .catch(() => []),
-          ]);
+          // Skip title/suggestions generation if client disconnected
+          if (!req.signal.aborted) {
+            // Generate session title and suggestions in parallel
+            const [sessionTitle, suggestions] = await Promise.all([
+              chatSessionService.generateSessionTitle(sessionId, user.id),
+              getSuggestionGenerator()
+                .generate({
+                  messages: [
+                    { role: "user", content: messageContent },
+                    { role: "assistant", content: fullResponse },
+                  ],
+                })
+                .catch(() => []),
+            ]);
 
-          // Send done event with title and suggestions
-          controller.enqueue(
-            encoder.encode(
-              formatSSEEvent(
-                createDoneEvent(sessionId, fullResponse, {
-                  routingDecision,
-                  subgraphResults,
-                  title: sessionTitle,
-                  suggestions,
-                }),
+            // Send done event with title and suggestions
+            controller.enqueue(
+              encoder.encode(
+                formatSSEEvent(
+                  createDoneEvent(sessionId, fullResponse, {
+                    routingDecision,
+                    subgraphResults,
+                    title: sessionTitle,
+                    suggestions,
+                  }),
+                ),
               ),
-            ),
-          );
+            );
+          }
         } catch (error) {
           controller.enqueue(
             encoder.encode(
@@ -315,13 +350,14 @@ export class ChatController {
         } finally {
           controller.close();
         }
+        }); // requestContext.run
       },
     });
 
     return new Response(stream, {
       headers: {
         "Content-Type": "text/event-stream",
-        "Cache-Control": "no-cache",
+        "Cache-Control": "no-cache, no-transform",
         Connection: "keep-alive",
         "X-Session-Id": sessionId,
       },

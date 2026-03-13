@@ -32,7 +32,7 @@ export interface NotificationQueueDeps {
   database?: NotificationQueueDatabase;
 }
 
-const API_URL = process.env.API_URL || 'https://index.network';
+const BASE_URL = process.env.BASE_URL || 'https://protocol.index.network';
 const FRONTEND_URL = process.env.FRONTEND_URL || 'https://index.network';
 const DIGEST_LIST_PREFIX = 'digest:opportunities:';
 const DIGEST_DEDUPE_PREFIX = 'digest:dedupe:';
@@ -102,7 +102,6 @@ export class NotificationQueue {
    * @param data - Job payload
    */
   async processJob(name: string, data: NotificationJobData): Promise<void> {
-    this.queueLogger.info(`[NotificationProcessor] Processing job (${name})`);
     switch (name) {
       case 'process_opportunity_notification':
         await this.processOpportunityNotification(data);
@@ -124,11 +123,19 @@ export class NotificationQueue {
     this.worker = QueueFactory.createWorker<NotificationJobData>(QUEUE_NAME, processor);
   }
 
+  async close(): Promise<void> {
+    if (this.worker) {
+      await this.worker.close();
+      this.worker = null;
+    }
+    await this.queue.close();
+  }
+
   private async processOpportunityNotification(data: NotificationJobData): Promise<void> {
     const { opportunityId, recipientId, priority } = data;
     const db = this.deps?.database ?? this.database;
 
-    this.logger.info('[NotificationJob] Processing opportunity notification', {
+    this.logger.verbose('[NotificationJob] Processing opportunity notification', {
       opportunityId,
       recipientId,
       priority,
@@ -181,13 +188,13 @@ export class NotificationQueue {
       return;
     }
     if (!recipient.onboarding?.completedAt) {
-      this.logger.info('[NotificationJob] Recipient has not completed onboarding, skipping email', {
+      this.logger.verbose('[NotificationJob] Recipient has not completed onboarding, skipping email', {
         recipientId,
       });
       return;
     }
     if (recipient.prefs?.connectionUpdates === false) {
-      this.logger.info('[NotificationJob] Recipient has connection/opportunity updates disabled', {
+      this.logger.verbose('[NotificationJob] Recipient has connection/opportunity updates disabled', {
         recipientId,
       });
       return;
@@ -196,14 +203,14 @@ export class NotificationQueue {
     const opportunityUrl = `${FRONTEND_URL}/opportunities/${opportunityId}`;
     let unsubscribeUrl: string | undefined;
     if (recipient.unsubscribeToken) {
-      unsubscribeUrl = `${API_URL}/api/notifications/unsubscribe?token=${recipient.unsubscribeToken}&type=connectionUpdates`;
+      unsubscribeUrl = `${BASE_URL}/api/notifications/unsubscribe?token=${recipient.unsubscribeToken}&type=connectionUpdates`;
     }
 
     const redis = getRedisClient();
     const emailDedupeKey = `${EMAIL_OPPORTUNITY_DEDUPE_PREFIX}${recipientId}:${opportunityId}`;
     const setResult = await redis.set(emailDedupeKey, '1', 'EX', DIGEST_TTL_SEC, 'NX');
     if (setResult !== 'OK') {
-      this.logger.info('[NotificationJob] Skipped duplicate opportunity email (dedupe key already set)', {
+      this.logger.verbose('[NotificationJob] Skipped duplicate opportunity email (dedupe key already set)', {
         recipientId,
         opportunityId,
       });
@@ -244,7 +251,7 @@ export class NotificationQueue {
       const dedupeKey = `${DIGEST_DEDUPE_PREFIX}${recipientId}:${opportunityId}`;
       const setResult = await redis.set(dedupeKey, '1', 'EX', DIGEST_TTL_SEC, 'NX');
       if (setResult !== 'OK') {
-        this.logger.info('[NotificationJob] Skipped duplicate digest entry (dedupe key already set)', {
+        this.logger.verbose('[NotificationJob] Skipped duplicate digest entry (dedupe key already set)', {
           recipientId,
           opportunityId,
         });
@@ -253,7 +260,7 @@ export class NotificationQueue {
       const listKey = `${DIGEST_LIST_PREFIX}${recipientId}`;
       await redis.rpush(listKey, opportunityId);
       await redis.expire(listKey, DIGEST_TTL_SEC);
-      this.logger.info('[NotificationJob] Added opportunity to weekly digest list', {
+      this.logger.verbose('[NotificationJob] Added opportunity to weekly digest list', {
         recipientId,
         opportunityId,
       });
