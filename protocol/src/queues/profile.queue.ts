@@ -128,7 +128,9 @@ export class ProfileQueue {
       });
       await this.processJob(job.name, job.data);
     };
-    this.worker = QueueFactory.createWorker<ProfileJobPayload>(QUEUE_NAME, processor, { concurrency: 300 });
+    // Parallel Chat API allows 300 req/min. Keep concurrency well under that to
+    // leave headroom for other callers and avoid cascading 429s.
+    this.worker = QueueFactory.createWorker<ProfileJobPayload>(QUEUE_NAME, processor, { concurrency: 50 });
   }
 
   /**

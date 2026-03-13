@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import Parallel from 'parallel-web';
 import OpenAI from 'openai';
+import { z } from 'zod';
 
 import { log } from '../log';
 const logger = log.lib.from("lib/parallel/parallel.ts");
@@ -189,9 +190,10 @@ export async function extractUrlContent(url: string, options?: ExtractUrlContent
         logger.verbose('Parallel extract response received', { url, resultsCount: extract.results?.length || 0 });
 
         if (extract.results && extract.results.length > 0) {
-          const result = extract.results[0];
+          const result = extract.results[0] as Record<string, unknown>;
           // Access content from result - check common property names
-          const content = (result as any).content || (result as any).excerpts?.[0] || (result as any).excerpt || (result as any).markdown || null;
+          const excerpts = result.excerpts as string[] | undefined;
+          const content = (result.content as string) || excerpts?.[0] || (result.excerpt as string) || (result.markdown as string) || null;
           logger.verbose('Extracted content', { url, contentLength: content?.length || 0, resultKeys: Object.keys(result) });
           return content;
         }
@@ -311,27 +313,30 @@ export { parallelClient };
 
 const PARALLEL_CHAT_URL = 'https://api.parallel.ai';
 
+/** Zod schema for validating Parallel Chat API enrichment responses. */
+const enrichmentResultSchema = z.object({
+  identity: z.object({
+    name: z.string(),
+    bio: z.string(),
+    location: z.string(),
+  }),
+  narrative: z.object({
+    context: z.string(),
+  }),
+  attributes: z.object({
+    skills: z.array(z.string()),
+    interests: z.array(z.string()),
+  }),
+  socials: z.object({
+    linkedin: z.string().optional(),
+    twitter: z.string().optional(),
+    github: z.string().optional(),
+    websites: z.array(z.string()).optional(),
+  }),
+});
+
 /** Structured profile enrichment result from Parallel Chat API. */
-export interface ParallelEnrichmentResult {
-  identity: {
-    name: string;
-    bio: string;
-    location: string;
-  };
-  narrative: {
-    context: string;
-  };
-  attributes: {
-    skills: string[];
-    interests: string[];
-  };
-  socials: {
-    linkedin?: string;
-    twitter?: string;
-    github?: string;
-    websites?: string[];
-  };
-}
+export type ParallelEnrichmentResult = z.infer<typeof enrichmentResultSchema>;
 
 /** JSON schema for profile enrichment response format. */
 const profileEnrichmentSchema = {
@@ -384,7 +389,7 @@ const profileEnrichmentSchema = {
  * Extracts a username/handle from a value that may be a URL or already a handle.
  * Falls back to returning the cleaned value if URL parsing fails.
  */
-function extractHandle(value: string, platform: 'x' | 'linkedin' | 'github'): string | undefined {
+export function extractHandle(value: string, platform: 'x' | 'linkedin' | 'github'): string | undefined {
   if (!value) return undefined;
 
   // Already a handle (no URL characters)
@@ -449,7 +454,7 @@ export async function enrichUserProfile(request: ParallelSearchRequestStruct): P
         messages: [
           {
             role: 'system',
-            content: 'You are an expert profiler. Your task is to research and synthesize a structured User Profile from public information about a person. Extract their professional background, skills, interests, and social links. Be thorough but concise.',
+            content: 'You are an expert profiler. Your task is to research and synthesize a structured User Profile from public information about a person. Extract their professional background, skills, interests, and social links. Be thorough but concise.\n\nIMPORTANT: Only use data the person explicitly published on their profile (headline, about, experience, education, skills). Do NOT infer roles, programs, affiliations, or biographical facts from LinkedIn reactions, likes, comments, reposts, or engagement signals. Activity signals indicate interest, not participation.',
           },
           { role: 'user', content: userMessage },
         ],
@@ -462,7 +467,15 @@ export async function enrichUserProfile(request: ParallelSearchRequestStruct): P
         return null;
       }
 
-      const result = JSON.parse(content) as ParallelEnrichmentResult;
+      const parsed = JSON.parse(content);
+      const validation = enrichmentResultSchema.safeParse(parsed);
+      if (!validation.success) {
+        logger.warn('Parallel Chat API returned invalid profile structure', {
+          name, email, errors: validation.error.issues,
+        });
+        return null;
+      }
+      const result = validation.data;
 
       // Normalize socials to handles (in case LLM returned URLs)
       if (result.socials.twitter) {

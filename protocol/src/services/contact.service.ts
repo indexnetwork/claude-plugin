@@ -43,7 +43,7 @@ const NON_HUMAN_NAME_PATTERNS = [
  * @param name - The contact's name (may be empty)
  * @returns true if the contact appears to be human
  */
-function isHumanContact(email: string, name: string): boolean {
+export function isHumanContact(email: string, name: string): boolean {
   const [prefix, domain] = email.toLowerCase().split('@');
 
   if (NON_HUMAN_PREFIXES.has(prefix)) return false;
