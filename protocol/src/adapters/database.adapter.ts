@@ -23,18 +23,14 @@ const logger = log.lib.from('database.adapter');
  * @returns The personal index ID
  */
 export async function ensurePersonalIndex(userId: string): Promise<string> {
+  // Fast path: check mapping table
   const existing = await db
-    .select({ id: schema.indexes.id })
-    .from(schema.indexes)
-    .where(
-      and(
-        eq(schema.indexes.isPersonal, true),
-        eq(schema.indexes.ownerId, userId),
-      )
-    )
+    .select({ indexId: schema.personalIndexes.indexId })
+    .from(schema.personalIndexes)
+    .where(eq(schema.personalIndexes.userId, userId))
     .limit(1);
 
-  if (existing.length > 0) return existing[0].id;
+  if (existing.length > 0) return existing[0].indexId;
 
   const indexId = crypto.randomUUID();
 
@@ -43,7 +39,11 @@ export async function ensurePersonalIndex(userId: string): Promise<string> {
     title: 'My Network',
     prompt: 'Personal index containing the owner\'s imported contacts for network-scoped discovery.',
     isPersonal: true,
-    ownerId: userId,
+  }).onConflictDoNothing();
+
+  await db.insert(schema.personalIndexes).values({
+    userId,
+    indexId,
   }).onConflictDoNothing();
 
   await db.insert(schema.indexMembers).values({
@@ -55,17 +55,12 @@ export async function ensurePersonalIndex(userId: string): Promise<string> {
 
   // Re-query to return the actual persisted ID (handles race with concurrent calls)
   const persisted = await db
-    .select({ id: schema.indexes.id })
-    .from(schema.indexes)
-    .where(
-      and(
-        eq(schema.indexes.isPersonal, true),
-        eq(schema.indexes.ownerId, userId),
-      )
-    )
+    .select({ indexId: schema.personalIndexes.indexId })
+    .from(schema.personalIndexes)
+    .where(eq(schema.personalIndexes.userId, userId))
     .limit(1);
 
-  return persisted[0]?.id ?? indexId;
+  return persisted[0]?.indexId ?? indexId;
 }
 
 /**
@@ -75,17 +70,12 @@ export async function ensurePersonalIndex(userId: string): Promise<string> {
  */
 export async function getPersonalIndexId(userId: string): Promise<string | null> {
   const result = await db
-    .select({ id: schema.indexes.id })
-    .from(schema.indexes)
-    .where(
-      and(
-        eq(schema.indexes.isPersonal, true),
-        eq(schema.indexes.ownerId, userId),
-      )
-    )
+    .select({ indexId: schema.personalIndexes.indexId })
+    .from(schema.personalIndexes)
+    .where(eq(schema.personalIndexes.userId, userId))
     .limit(1);
 
-  return result[0]?.id ?? null;
+  return result[0]?.indexId ?? null;
 }
 
 // Local types used by adapters (shapes only; protocol layer defines the contracts)
@@ -1071,6 +1061,7 @@ export class ChatDatabaseAdapter {
         })
         .from(schema.indexMembers)
         .innerJoin(schema.indexes, eq(schema.indexMembers.indexId, schema.indexes.id))
+        .leftJoin(schema.personalIndexes, eq(schema.indexes.id, schema.personalIndexes.indexId))
         .where(
           and(
             eq(schema.indexMembers.userId, userId),
@@ -1079,7 +1070,7 @@ export class ChatDatabaseAdapter {
               eq(schema.indexes.isPersonal, false),
               and(
                 eq(schema.indexes.isPersonal, true),
-                eq(schema.indexes.ownerId, userId),
+                eq(schema.personalIndexes.userId, userId),
               )
             ),
           )
@@ -1180,6 +1171,15 @@ export class ChatDatabaseAdapter {
       };
     }
 
+    const ownerMembers = db
+      .select({
+        indexId: schema.indexMembers.indexId,
+        userId: schema.indexMembers.userId,
+      })
+      .from(schema.indexMembers)
+      .where(sql`'owner' = ANY(${schema.indexMembers.permissions})`)
+      .as('owner_members');
+
     const rows = await db
       .select({
         id: schema.indexes.id,
@@ -1188,14 +1188,15 @@ export class ChatDatabaseAdapter {
         imageUrl: schema.indexes.imageUrl,
         permissions: schema.indexes.permissions,
         isPersonal: schema.indexes.isPersonal,
-        ownerId: schema.indexes.ownerId,
+        ownerId: ownerMembers.userId,
         createdAt: schema.indexes.createdAt,
         updatedAt: schema.indexes.updatedAt,
         ownerName: schema.users.name,
         ownerAvatar: schema.users.avatar,
       })
       .from(schema.indexes)
-      .leftJoin(schema.users, eq(schema.indexes.ownerId, schema.users.id))
+      .leftJoin(ownerMembers, eq(schema.indexes.id, ownerMembers.indexId))
+      .leftJoin(schema.users, eq(ownerMembers.userId, schema.users.id))
       .where(
         and(
           isNull(schema.indexes.deletedAt),
