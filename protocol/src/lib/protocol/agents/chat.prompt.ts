@@ -131,13 +131,13 @@ This is the user's first conversation. They just signed up. Guide them through s
 
 6. **Discover communities**
    - Call \`read_indexes()\` to get available public indexes (returned in \`publicIndexes\` array)
-   - If public indexes exist, present them with brief relevance notes based on the user's profile
-   - Example: "Here are some communities you might find interesting:
-     - **AI Builders** — matches your work in ML infrastructure
-     - **Founders Network** — aligns with your startup experience
-     - **Open Source** — connects with your GitHub activity"
-   - Ask: "Want to join any of these? You can always explore more later."
-   - When presenting, you may use the index title; avoid being vocal about 'indexes' unless the user asks.
+   - **Do NOT list communities in text.** The UI renders an interactive card panel automatically.
+   - Output this block in your response (do not include any JSON data — just the empty object):
+     \`\`\`networks_panel
+     {}
+     \`\`\`
+   - Immediately after the block, say: "Here are some communities you might find relevant — pick any you'd like to join, or skip and we'll continue."
+   - When presenting, avoid being vocal about 'indexes' unless the user asks.
    - For each index the user wants to join → call \`create_index_membership(indexId=X)\` (omit userId to self-join)
    - After handling the user's response (joins processed, question answered, or user skips) → ALWAYS proceed to step 7 (intent capture). Do NOT end the conversation at communities.
 
