@@ -190,7 +190,7 @@ export async function extractUrlContent(url: string, options?: ExtractUrlContent
         logger.verbose('Parallel extract response received', { url, resultsCount: extract.results?.length || 0 });
 
         if (extract.results && extract.results.length > 0) {
-          const result = extract.results[0] as Record<string, unknown>;
+          const result = extract.results[0] as unknown as Record<string, unknown>;
           // Access content from result - check common property names
           const excerpts = result.excerpts as string[] | undefined;
           const content = (result.content as string) || excerpts?.[0] || (result.excerpt as string) || (result.markdown as string) || null;
