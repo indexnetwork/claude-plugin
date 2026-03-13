@@ -464,6 +464,15 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
   // Networks panel join tracking
   const [networkPanelPendingJoinIds, setNetworkPanelPendingJoinIds] = useState<Set<string>>(new Set());
 
+  // Clear pending join IDs when stream completes (agent processed the join)
+  const prevIsLoadingRef = useRef(isLoading);
+  useEffect(() => {
+    if (prevIsLoadingRef.current && !isLoading && networkPanelPendingJoinIds.size > 0) {
+      setNetworkPanelPendingJoinIds(new Set());
+    }
+    prevIsLoadingRef.current = isLoading;
+  }, [isLoading, networkPanelPendingJoinIds.size]);
+
   const handleNetworkJoin = useCallback(
     (networkId: string, networkTitle: string) => {
       setNetworkPanelPendingJoinIds((prev) => new Set([...prev, networkId]));

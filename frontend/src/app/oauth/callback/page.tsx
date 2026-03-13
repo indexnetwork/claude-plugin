@@ -7,19 +7,25 @@ import { useEffect } from "react";
  * then attempts to close the popup.
  */
 function OAuthCallbackPage() {
+  const params = new URLSearchParams(window.location.search);
+  const hasError = params.has("error");
+  const status = hasError ? "error" : "success";
+
   useEffect(() => {
     if (window.opener) {
       window.opener.postMessage(
-        { type: "oauth_callback", status: "success" },
+        { type: "oauth_callback", status },
         window.location.origin,
       );
     }
     window.close();
-  }, []);
+  }, [status]);
 
   return (
     <div className="flex items-center justify-center min-h-screen bg-white">
-      <p className="text-sm text-neutral-400">Connected — you can close this window.</p>
+      <p className="text-sm text-neutral-400">
+        {hasError ? "Authorization failed — you can close this window." : "Connected — you can close this window."}
+      </p>
     </div>
   );
 }

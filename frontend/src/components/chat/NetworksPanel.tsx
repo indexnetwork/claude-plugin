@@ -24,12 +24,13 @@ export default function NetworksPanel({ onJoin, pendingJoinIds = new Set() }: Ne
 
   const [publicNetworks, setPublicNetworks] = useState<(Index & { isMember?: boolean })[]>([]);
   const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState(false);
 
   useEffect(() => {
     indexesService
       .discoverPublicIndexes(1, 50)
       .then((res) => setPublicNetworks(res.data))
-      .catch(console.error)
+      .catch(() => setFetchError(true))
       .finally(() => setLoading(false));
   }, [indexesService]);
 
@@ -42,6 +43,12 @@ export default function NetworksPanel({ onJoin, pendingJoinIds = new Set() }: Ne
       <div className="flex justify-center py-6">
         <Loader2 className="h-5 w-5 animate-spin text-gray-300" />
       </div>
+    );
+  }
+
+  if (fetchError) {
+    return (
+      <p className="text-sm text-gray-400 py-4">Failed to load networks. Please try again later.</p>
     );
   }
 

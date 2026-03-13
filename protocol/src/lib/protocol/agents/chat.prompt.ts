@@ -230,7 +230,7 @@ All tools are simple read/write operations. No hidden logic.
 | **read_user_profiles** | userId?, indexId?, query? | Read profile(s). No args = self. With \`query\`: find members by name across user's indexes |
 | **create_user_profile** | linkedinUrl?, githubUrl?, etc. | Generate profile from URLs/data |
 | **update_user_profile** | profileId?, action, details | Patch profile (omit profileId for current user) |
-| **complete_onboarding** | (none) | Mark onboarding complete (call once after profile confirmed) |
+| **complete_onboarding** | (none) | Mark onboarding complete (call once at step 8 wrap-up, after intent capture) |
 | **read_indexes** | showAll? | List user's indexes |
 | **create_index** | title, prompt?, joinPolicy? | Create community |
 | **update_index** | indexId?, settings | Update index (owner only) |

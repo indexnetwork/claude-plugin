@@ -9,6 +9,7 @@ import { useNotifications } from "@/contexts/NotificationContext";
 import { useOpportunities } from "@/contexts/APIContext";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { apiClient } from "@/lib/api";
 import NetworksPanel from "@/components/chat/NetworksPanel";
 import OpportunityCard, {
   type OpportunityCardData,
@@ -432,9 +433,14 @@ export default function OnboardingPage() {
 
   const handleIntentProposalReject = useCallback(
     async (proposalId: string) => {
-      setIntentProposalStatusMap((prev) => ({ ...prev, [proposalId]: "rejected" }));
+      try {
+        await apiClient.post("/intents/reject", { proposalId });
+        setIntentProposalStatusMap((prev) => ({ ...prev, [proposalId]: "rejected" }));
+      } catch {
+        showError("Failed to reject proposal");
+      }
     },
-    [],
+    [showError],
   );
 
   const archiveProposalIntent = useCallback(

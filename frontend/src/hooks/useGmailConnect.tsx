@@ -2,10 +2,13 @@ import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import type { ComponentPropsWithoutRef } from "react";
 
 function isGmailOAuthHref(href: string | undefined): href is string {
-  return !!href && (
-    href.includes("composio.dev") ||
-    href.includes("accounts.google.com/o/oauth")
-  );
+  if (!href) return false;
+  try {
+    const hostname = new URL(href).hostname;
+    return hostname.endsWith("composio.dev") || hostname === "accounts.google.com";
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -37,10 +40,17 @@ export function useGmailConnect(onConnected: () => void) {
     );
     if (!popup) return;
 
-    const complete = () => {
+    let succeeded = false;
+
+    const cleanup = () => {
       clearInterval(poll);
       clearTimeout(timeout);
       window.removeEventListener("message", handleMessage);
+    };
+
+    const complete = () => {
+      succeeded = true;
+      cleanup();
       setGmailConnected(true);
       onConnectedRef.current();
     };
@@ -48,20 +58,17 @@ export function useGmailConnect(onConnected: () => void) {
     // Primary: postMessage from /oauth/callback page (fires even if window.close() is blocked).
     const handleMessage = (event: MessageEvent) => {
       if (event.origin !== window.location.origin) return;
-      if (event.data?.type === "oauth_callback") complete();
+      if (event.data?.type === "oauth_callback" && event.data?.status === "success") complete();
     };
     window.addEventListener("message", handleMessage);
 
-    // Fallback: detect manual popup close.
+    // Fallback: detect popup close without success callback — just clean up, don't mark connected.
     const poll = setInterval(() => {
-      if (popup.closed) complete();
+      if (popup.closed && !succeeded) cleanup();
     }, 1500);
 
     // Safety timeout: stop listening after 5 minutes.
-    const timeout = setTimeout(() => {
-      clearInterval(poll);
-      window.removeEventListener("message", handleMessage);
-    }, 300_000);
+    const timeout = setTimeout(cleanup, 300_000);
   }, []);
 
   /**

@@ -29,8 +29,8 @@ const streamBodySchema = z.object({
   indexId: z.string().nullish(),
   prefillMessages: z.array(z.object({
     role: z.enum(["assistant", "user"]),
-    content: z.string(),
-  })).optional(),
+    content: z.string().max(10000),
+  })).max(10).optional(),
 });
 
 let suggestionGeneratorInstance: SuggestionGenerator | null = null;
@@ -221,7 +221,9 @@ export class ChatController {
 
     // 4. Create SSE stream
     const encoder = new TextEncoder();
-    const originUrl = req.headers.get("origin") ?? undefined;
+    const rawOrigin = req.headers.get("origin");
+    const trustedOrigins = (process.env.TRUSTED_ORIGINS ?? "").split(",").map(o => o.trim()).filter(Boolean);
+    const originUrl = rawOrigin && trustedOrigins.includes(rawOrigin) ? rawOrigin : undefined;
 
     const stream = new ReadableStream({
       start(controller) {
