@@ -66,37 +66,11 @@ export default function InvitationPage() {
           return;
         }
 
-        // User is authenticated, fetch user data
+        // User is authenticated - show the landing page with a join button
         try {
           const response = await api.get<APIResponse<User>>('/auth/me');
           if (response.user) {
-            setState(prev => ({ ...prev, user: response.user || null }));
-
-            // Accept private invitation
-            try {
-              const joinResult = await indexesService.acceptInvitation(code!);
-              
-              // Check if user is already a member
-              if (joinResult?.alreadyMember) {
-                setState(prev => ({ ...prev, step: 'already-member' }));
-                return;
-              }
-              
-              await refreshIndexes();
-            } catch (err) {
-              console.error('Failed to accept invitation:', err);
-              setState(prev => ({ 
-                ...prev, 
-                step: 'error', 
-                error: 'Failed to accept invitation' 
-              }));
-              return;
-            }
-
-
-            
-            // User is authenticated and member - go to root
-            navigate('/');
+            setState(prev => ({ ...prev, user: response.user || null, step: 'ready-to-join' }));
           }
         } catch (err) {
           console.error('Failed to fetch user:', err);
@@ -117,7 +91,7 @@ export default function InvitationPage() {
     };
 
     loadIndexAndCheckAuth();
-  }, [code, isAuthenticated, isReady, api, navigate, indexesService, refreshIndexes, refetchUser]);
+  }, [code, isAuthenticated, isReady, api]);
 
   // Trigger reload when user authenticates
   useEffect(() => {

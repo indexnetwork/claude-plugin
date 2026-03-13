@@ -2091,6 +2091,101 @@ export class ChatDatabaseAdapter {
     };
   }
 
+  /**
+   * Get an index by its invitation link code (public access, no auth required).
+   * Returns the index with owner info and member count if the code matches.
+   */
+  async getIndexByShareCode(code: string) {
+    const rows = await db
+      .select({
+        id: indexes.id,
+        title: indexes.title,
+        prompt: indexes.prompt,
+        imageUrl: indexes.imageUrl,
+        permissions: indexes.permissions,
+        createdAt: indexes.createdAt,
+        updatedAt: indexes.updatedAt,
+        ownerId: indexMembers.userId,
+        userName: users.name,
+        userAvatar: users.avatar,
+      })
+      .from(indexes)
+      .innerJoin(
+        indexMembers,
+        and(
+          eq(indexes.id, indexMembers.indexId),
+          sql`'owner' = ANY(${indexMembers.permissions})`
+        )
+      )
+      .innerJoin(users, eq(indexMembers.userId, users.id))
+      .where(
+        and(
+          sql`${indexes.permissions}->'invitationLink'->>'code' = ${code}`,
+          isNull(indexes.deletedAt)
+        )
+      )
+      .limit(1);
+
+    const row = rows[0];
+    if (!row) return null;
+
+    const memberCount = await this.getIndexMemberCount(row.id);
+
+    return {
+      id: row.id,
+      title: row.title,
+      prompt: row.prompt,
+      imageUrl: row.imageUrl,
+      permissions: row.permissions,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+      user: { id: row.ownerId, name: row.userName, avatar: row.userAvatar },
+      _count: { members: memberCount },
+    };
+  }
+
+  /**
+   * Accept an invitation to join an index using the invitation code.
+   * Throws if the code is invalid or the index is not found.
+   */
+  async acceptIndexInvitation(code: string, userId: string) {
+    const index = await this.getIndexByShareCode(code);
+    if (!index) {
+      throw new Error('Invalid or expired invitation link');
+    }
+
+    const result = await this.addMemberToIndex(index.id, userId, 'member');
+
+    const [memberRow] = await db
+      .select({
+        userId: indexMembers.userId,
+        name: users.name,
+        email: users.email,
+        avatar: users.avatar,
+        permissions: indexMembers.permissions,
+        createdAt: indexMembers.createdAt,
+      })
+      .from(indexMembers)
+      .innerJoin(users, eq(indexMembers.userId, users.id))
+      .where(and(eq(indexMembers.indexId, index.id), eq(indexMembers.userId, userId)))
+      .limit(1);
+
+    return {
+      index,
+      membership: memberRow
+        ? {
+            id: memberRow.userId,
+            name: memberRow.name,
+            email: memberRow.email,
+            avatar: memberRow.avatar,
+            permissions: memberRow.permissions,
+            createdAt: memberRow.createdAt,
+          }
+        : null,
+      alreadyMember: result.alreadyMember,
+    };
+  }
+
   async getIndexDetail(indexId: string, requestingUserId: string) {
     const rows = await db
       .select({
