@@ -62,14 +62,22 @@ export default function InvitationPage() {
         }
 
         if (!isAuthenticated) {
+          // Persist the code so onboarding can pick it up after sign-up
+          localStorage.setItem('pendingInviteCode', code!);
           setState(prev => ({ ...prev, step: 'auth-required' }));
           return;
         }
 
-        // User is authenticated - show the landing page with a join button
+        // User is authenticated - check whether they've completed onboarding
         try {
           const response = await api.get<APIResponse<User>>('/auth/me');
           if (response.user) {
+            if (!response.user.onboarding?.completedAt) {
+              // Deferred join: code is in localStorage, redirect to onboarding
+              localStorage.setItem('pendingInviteCode', code!);
+              navigate('/onboarding');
+              return;
+            }
             setState(prev => ({ ...prev, user: response.user || null, step: 'ready-to-join' }));
           }
         } catch (err) {

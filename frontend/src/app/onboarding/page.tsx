@@ -6,7 +6,8 @@ import { Button } from "@/components/ui/button";
 import { useAIChat } from "@/contexts/AIChatContext";
 import { useAuthContext } from "@/contexts/AuthContext";
 import { useNotifications } from "@/contexts/NotificationContext";
-import { useOpportunities } from "@/contexts/APIContext";
+import { useOpportunities, useIndexes } from "@/contexts/APIContext";
+import { useIndexesState } from "@/contexts/IndexesContext";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { apiClient } from "@/lib/api";
@@ -289,7 +290,7 @@ interface LocalMessage {
 
 export default function OnboardingPage() {
   const navigate = useNavigate();
-  const { user, refetchUser } = useAuthContext();
+  const { user, refetchUser, isReady, isAuthenticated } = useAuthContext();
   const {
     messages: chatMessages,
     sendMessage,
@@ -300,6 +301,8 @@ export default function OnboardingPage() {
   } = useAIChat();
 
   const opportunitiesService = useOpportunities();
+  const indexesService = useIndexes();
+  const { refreshIndexes } = useIndexesState();
   const { error: showError } = useNotifications();
 
   const [input, setInput] = useState("");
@@ -317,6 +320,18 @@ export default function OnboardingPage() {
 
   // Networks panel join tracking
   const [networkPanelPendingJoinIds, setNetworkPanelPendingJoinIds] = useState<Set<string>>(new Set());
+
+  // Accept a pending invitation in the background (deferred from /l/:code)
+  useEffect(() => {
+    if (!isReady || !isAuthenticated) return;
+    const pendingCode = localStorage.getItem('pendingInviteCode');
+    if (!pendingCode) return;
+    localStorage.removeItem('pendingInviteCode');
+    indexesService
+      .acceptInvitation(pendingCode)
+      .then(() => refreshIndexes())
+      .catch(() => {});
+  }, [isReady, isAuthenticated, indexesService, refreshIndexes]);
 
   // Build the greeting from the user's name
   const fullGreeting = GREETING_TEMPLATE.replace("{{userName}}", `**${user?.name ?? "there"}**`);
