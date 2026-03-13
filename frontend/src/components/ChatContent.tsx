@@ -618,6 +618,14 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
     }
   }, [messages]);
 
+  // Snap to bottom immediately when a session finishes loading (covers the case
+  // where an in-memory session is restored and messages don't change).
+  useEffect(() => {
+    if (sessionLoaded && scrollRef.current) {
+      scrollRef.current.scrollIntoView({ behavior: "instant" });
+    }
+  }, [sessionLoaded]);
+
   // Update URL when session changes: push so back from /d/id returns to /
   useEffect(() => {
     if (navigatingToHomeRef.current) {
