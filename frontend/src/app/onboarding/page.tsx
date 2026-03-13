@@ -33,7 +33,6 @@ const ONBOARDING_STEP_SUGGESTIONS: Record<string, Suggestion[]> = {
     { label: "No, here's my Twitter", type: "prompt", prefill: "No, here's my Twitter: " },
   ],
   profile: [
-    { label: "Sounds great!", type: "direct", followupText: "Sounds great!" },
     { label: "That's right", type: "direct", followupText: "That's right" },
     { label: "No, let me fix that", type: "prompt", prefill: "No, let me fix that: " },
     { label: "Add more about my work", type: "direct", followupText: "Can you add more details about my work?" },
