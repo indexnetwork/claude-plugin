@@ -43,6 +43,8 @@ export default function UserProfilePage() {
             console.error('Failed to fetch shared networks:', err);
             setSharedNetworks([]);
           }
+        } else {
+          setSharedNetworks([]);
         }
       } catch (err) {
         console.error('Failed to fetch profile:', err);
