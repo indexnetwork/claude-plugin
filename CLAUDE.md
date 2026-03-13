@@ -106,7 +106,7 @@ index/
 - `src/guards/` - Auth/validation guards for the decorator router (e.g. `auth.guard.ts`)
 - `src/types/` - Shared TypeScript types
 - `src/cli/` - CLI and maintenance scripts (db-seed, db-flush, db-apply-schema, db-reset-remote, backfill-profile-hyde, generate-profiles, opportunity-three-user-test, test-data). Note: some package.json maintenance scripts (trigger-integration, export-slack, import-slack-export, reset-brokers, update-embeddings, audit-intent-freshness) reference CLI files that no longer exist
-- `src/lib/` - Utilities, infrastructure; includes `lib/protocol/` (graphs, agents, interfaces, docs), `lib/drizzle/`, `lib/router/`, `lib/smartest/` (LLM-based test verification framework), `lib/performance/` (performance monitoring decorators/wrappers), `lib/parallel/` (parallel execution utilities)
+- `src/lib/` - Utilities, infrastructure; includes `lib/protocol/` (graphs, agents, interfaces, docs), `lib/drizzle/`, `lib/router/`, `lib/smartest/` (LLM-based test verification framework), `lib/performance/` (performance monitoring decorators/wrappers), `lib/parallel/` (parallel execution utilities), `lib/request-context.ts` (AsyncLocalStorage for request-scoped data like originUrl)
 - `src/lib/protocol/` - Protocol layer: `graphs/` (LangGraph state machines: chat, home, hyde, index, index_membership, intent, intent_index, opportunity, profile), `agents/` (chat agent, intent inferrer/indexer/reconciler/verifier/clarifier, opportunity evaluator/presenter, profile/hyde generators, home categorizer, lens inferrer, suggestion generator, chat title generator), `states/` (graph state definitions: chat, home, hyde, index, index_membership, intent, intent_index, opportunity, profile), `streamers/` (response streaming: chat.streamer, response.streamer), `support/` (protocol utilities: chat checkpointer/utils, opportunity card-text/constants/discover/enricher/persist/presentation/sanitize/utils, debug-meta sanitizer, lucide icon-catalog, protocol logger), `tools/` (agent tool definitions: contact, index, integration, intent, opportunity, profile, utility tools), `interfaces/` (database, embedder, cache, queue, scraper, storage), `docs/`
 - `src/queues/` - BullMQ job queue definitions
 - `src/events/` - Event emitters for agent system (intent events, index membership events)
@@ -260,6 +260,8 @@ IntentEvents.onCreated({ intentId, userId, payload?, previousStatus? });
   - `/l/:code` - Link redirect (e.g. by code)
   - `/s/:token` - Shared session view (e.g. by share token)
   - `/blog` - Blog listing; `/blog/:slug` - Markdown-based blog posts
+  - `/onboarding` - First-user onboarding chat flow (identity, profile, communities, intent)
+  - `/oauth/callback` - OAuth popup callback (posts result to opener via postMessage)
   - `/pages/privacy-policy`, `/pages/terms-of-use` - Legal pages
   - `/dev/intent-proposal` - Dev tool for intent proposal testing
 - `src/components/` - Reusable React components
