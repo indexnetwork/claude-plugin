@@ -1262,8 +1262,10 @@ export class ChatDatabaseAdapter {
       .select({
         id: schema.indexes.id,
         title: schema.indexes.title,
+        memberCount: count(schema.indexMembers.indexId),
       })
       .from(schema.indexes)
+      .innerJoin(schema.indexMembers, eq(schema.indexes.id, schema.indexMembers.indexId))
       .where(
         and(
           isNull(schema.indexes.deletedAt),
@@ -1271,21 +1273,14 @@ export class ChatDatabaseAdapter {
           inArray(schema.indexes.id, currentUserIndexIds),
           inArray(schema.indexes.id, targetUserIndexIds),
         )
-      );
+      )
+      .groupBy(schema.indexes.id, schema.indexes.title);
 
-    return Promise.all(
-      rows.map(async (row) => {
-        const [memberCount] = await db
-          .select({ count: count() })
-          .from(schema.indexMembers)
-          .where(eq(schema.indexMembers.indexId, row.id));
-        return {
-          id: row.id,
-          title: row.title,
-          _count: { members: Number(memberCount?.count ?? 0) },
-        };
-      })
-    );
+    return rows.map((row) => ({
+      id: row.id,
+      title: row.title,
+      _count: { members: Number(row.memberCount) },
+    }));
   }
 
   /**

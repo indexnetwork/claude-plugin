@@ -31,12 +31,19 @@ export default function UserProfilePage() {
       try {
         setIsLoading(true);
         setError(null);
-        const [profile, networks] = await Promise.all([
-          usersService.getUserProfile(id),
-          id ? indexesService.getSharedIndexes(id) : Promise.resolve([]),
-        ]);
+        const profile = await usersService.getUserProfile(id);
         setProfileData(profile);
-        setSharedNetworks(networks);
+
+        // Fetch shared networks separately so a failure doesn't break the profile
+        if (user?.id && user.id !== id) {
+          try {
+            const networks = await indexesService.getSharedIndexes(id!);
+            setSharedNetworks(networks);
+          } catch (err) {
+            console.error('Failed to fetch shared networks:', err);
+            setSharedNetworks([]);
+          }
+        }
       } catch (err) {
         console.error('Failed to fetch profile:', err);
         setError('User not found');
@@ -45,7 +52,7 @@ export default function UserProfilePage() {
       }
     };
     fetchData();
-  }, [id, isAuthenticated, authLoading, usersService, indexesService]);
+  }, [id, user?.id, isAuthenticated, authLoading, usersService, indexesService]);
 
   if (authLoading || isLoading) {
     return (
