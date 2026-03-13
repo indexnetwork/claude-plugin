@@ -1244,6 +1244,51 @@ export class ChatDatabaseAdapter {
   }
 
   /**
+   * Get non-personal indexes that both users share membership in.
+   * Returns id, title, and member count for each shared index.
+   */
+  async getSharedIndexes(currentUserId: string, targetUserId: string): Promise<{ id: string; title: string; _count: { members: number } }[]> {
+    const currentUserIndexIds = db
+      .select({ indexId: schema.indexMembers.indexId })
+      .from(schema.indexMembers)
+      .where(eq(schema.indexMembers.userId, currentUserId));
+
+    const targetUserIndexIds = db
+      .select({ indexId: schema.indexMembers.indexId })
+      .from(schema.indexMembers)
+      .where(eq(schema.indexMembers.userId, targetUserId));
+
+    const rows = await db
+      .select({
+        id: schema.indexes.id,
+        title: schema.indexes.title,
+      })
+      .from(schema.indexes)
+      .where(
+        and(
+          isNull(schema.indexes.deletedAt),
+          eq(schema.indexes.isPersonal, false),
+          inArray(schema.indexes.id, currentUserIndexIds),
+          inArray(schema.indexes.id, targetUserIndexIds),
+        )
+      );
+
+    return Promise.all(
+      rows.map(async (row) => {
+        const [memberCount] = await db
+          .select({ count: count() })
+          .from(schema.indexMembers)
+          .where(eq(schema.indexMembers.indexId, row.id));
+        return {
+          id: row.id,
+          title: row.title,
+          _count: { members: Number(memberCount?.count ?? 0) },
+        };
+      })
+    );
+  }
+
+  /**
    * Get public indexes that the user has not joined (for discovery).
    */
   async getPublicIndexesNotJoined(userId: string) {
