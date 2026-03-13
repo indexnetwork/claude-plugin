@@ -15,7 +15,7 @@ The `indexes` table has an `ownerId` column that duplicates ownership already tr
 ```sql
 CREATE TABLE personal_indexes (
   user_id TEXT NOT NULL REFERENCES users(id),
-  index_id UUID NOT NULL REFERENCES indexes(id),
+  index_id TEXT NOT NULL REFERENCES indexes(id),
   PRIMARY KEY (user_id),   -- one personal index per user
   UNIQUE (index_id)        -- an index can only be personal for one user
 );

@@ -23,6 +23,7 @@ import {
   intents,
   intentIndexes,
   userContacts,
+  personalIndexes,
 } from '../../schemas/database.schema';
 import {
   ensurePersonalIndex,
@@ -125,6 +126,9 @@ afterAll(async () => {
   await db.delete(intents).where(
     inArray(intents.userId, allUserIds),
   );
+  await db.delete(personalIndexes).where(
+    inArray(personalIndexes.userId, allUserIds),
+  );
   await db.delete(indexes).where(
     inArray(indexes.id, allIndexIds),
   );
@@ -139,7 +143,7 @@ afterAll(async () => {
 // ─── ensurePersonalIndex ────────────────────────────────────────────────────────
 
 describe('ensurePersonalIndex', () => {
-  it('creates a personal index with correct title and ownerId', async () => {
+  it('creates a personal index with correct title and personal_indexes entry', async () => {
     const [row] = await db
       .select()
       .from(indexes)
@@ -148,7 +152,15 @@ describe('ensurePersonalIndex', () => {
     expect(row).toBeDefined();
     expect(row.title).toBe('My Network');
     expect(row.isPersonal).toBe(true);
-    expect(row.ownerId).toBe(fixture.ownerUserId);
+
+    // Verify personal_indexes mapping
+    const [mapping] = await db
+      .select()
+      .from(personalIndexes)
+      .where(eq(personalIndexes.userId, fixture.ownerUserId));
+
+    expect(mapping).toBeDefined();
+    expect(mapping.indexId).toBe(fixture.personalIndexId);
   });
 
   it('creates an owner membership with ["owner"] permissions', async () => {
@@ -187,14 +199,9 @@ describe('ensurePersonalIndex', () => {
 
     // Verify only one personal index exists for this user
     const rows = await db
-      .select({ id: indexes.id })
-      .from(indexes)
-      .where(
-        and(
-          eq(indexes.isPersonal, true),
-          eq(indexes.ownerId, fixture.ownerUserId),
-        ),
-      );
+      .select({ indexId: personalIndexes.indexId })
+      .from(personalIndexes)
+      .where(eq(personalIndexes.userId, fixture.ownerUserId));
     expect(rows).toHaveLength(1);
   });
 });
