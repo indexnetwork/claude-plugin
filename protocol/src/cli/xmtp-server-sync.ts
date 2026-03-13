@@ -2,29 +2,32 @@
 /**
  * CLI: Server-to-server XMTP sync.
  *
- * This enables syncing XMTP history between server installations (e.g., Railway and Local).
- * Unlike sendSyncRequest() which requires the source to be actively listening,
- * this uses sendSyncArchive() to push archives that can be pulled later.
+ * IMPORTANT: The Node SDK only has sendSyncRequest(), not sendSyncArchive/processSyncArchive.
+ * For sync to work, BOTH servers must be running simultaneously:
+ * 1. Start "listen" on the SOURCE server (creates client and waits)
+ * 2. Run "request" on the DESTINATION server (sends sync request)
+ * 3. The SOURCE receives the request and creates/uploads archive
+ * 4. The DESTINATION pulls the archive
  *
  * Usage:
- *   bun run maintenance:xmtp-server-sync push [--user=ID] [--pin=NAME]
- *   bun run maintenance:xmtp-server-sync pull [--user=ID] [--pin=NAME]
- *   bun run maintenance:xmtp-server-sync list [--user=ID]
+ *   bun run maintenance:xmtp-server-sync listen [--user=ID] [--timeout=S]
+ *   bun run maintenance:xmtp-server-sync request [--user=ID] [--wait=S]
+ *   bun run maintenance:xmtp-server-sync status [--user=ID]
  *
  * Commands:
- *   push    Create and upload an archive for other installations to pull
- *   pull    Download and process the latest archive (or specific pin)
- *   list    List available archives
+ *   listen   Keep client alive to respond to sync requests (run on SOURCE)
+ *   request  Send sync request and wait for archive (run on DESTINATION)
+ *   status   Show current sync state
  *
  * Options:
- *   --user=ID    Target specific user by ID
- *   --pin=NAME   Archive pin/identifier (default: "server-sync")
- *   --limit=N    Process only N users (default: all)
- *   --days=N     List archives from last N days (default: 30)
+ *   --user=ID     Target specific user by ID
+ *   --timeout=S   How long to listen for sync requests (default: 300s = 5min)
+ *   --wait=S      How long to wait for sync response (default: 60s)
+ *   --limit=N     Process only N users (default: all)
  *
  * Workflow:
- *   1. On Railway (source):     bun run maintenance:xmtp-server-sync push
- *   2. On Local (destination):  bun run maintenance:xmtp-server-sync pull
+ *   Terminal 1 (Railway):  bun run maintenance:xmtp-server-sync listen --timeout=120
+ *   Terminal 2 (Local):    bun run maintenance:xmtp-server-sync request --wait=30
  */
 import dotenv from 'dotenv';
 import path from 'path';
@@ -53,8 +56,12 @@ function parseArg(name: string): string | null {
 
 function parseCommand(): string {
   const cmd = process.argv[2];
-  if (!cmd || cmd.startsWith('--')) return 'list';
+  if (!cmd || cmd.startsWith('--')) return 'status';
   return cmd;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function getUsers(userId: string | null, limit: number | null): Promise<UserRow[]> {
@@ -78,20 +85,38 @@ async function getUsers(userId: string | null, limit: number | null): Promise<Us
   return query;
 }
 
-async function pushArchive(
+async function getMessageCounts(
+  adapter: MessagingAdapter,
+  userId: string,
+): Promise<{ convos: number; msgs: number }> {
+  const client = await adapter.getUserClient(userId);
+  if (!client) return { convos: 0, msgs: 0 };
+
+  await client.conversations.syncAll();
+  const convos = await client.conversations.list();
+  let msgs = 0;
+  for (const c of convos) {
+    msgs += (await c.messages()).length;
+  }
+  return { convos: convos.length, msgs };
+}
+
+/**
+ * Listen mode: Keep clients alive so they can respond to sync requests.
+ * The XMTP SDK's sync worker runs in the background when a client is active.
+ */
+async function listenForSync(
   adapter: MessagingAdapter,
   userList: UserRow[],
-  pin: string,
+  timeoutSeconds: number,
 ): Promise<void> {
-  console.log('\n=== XMTP Server Sync: PUSH ===\n');
-  console.log(`Creating archives with pin: "${pin}"\n`);
+  console.log('\n=== XMTP Server Sync: LISTEN ===\n');
+  console.log(`Keeping clients alive for ${timeoutSeconds}s to respond to sync requests.`);
+  console.log('Run "request" on the other server while this is running.\n');
 
-  let success = 0;
-  let failed = 0;
-
+  // Create all clients upfront
   for (const user of userList) {
-    console.log(`\n--- ${user.name} (${user.id}) ---`);
-
+    console.log(`--- ${user.name} (${user.id}) ---`);
     try {
       const client = await adapter.getUserClient(user.id);
       if (!client) {
@@ -99,47 +124,45 @@ async function pushArchive(
         continue;
       }
 
-      // Sync local state first
-      console.log('  Syncing local state...');
+      // Sync local state
       await client.conversations.syncAll();
-
-      // Get message count before
-      const convos = await client.conversations.list();
-      let msgCount = 0;
-      for (const c of convos) {
-        msgCount += (await c.messages()).length;
-      }
-
-      console.log(`  Local state: ${convos.length} conversations, ${msgCount} messages`);
-
-      // Create and upload archive
-      console.log(`  Creating archive with pin "${pin}"...`);
-      
-      // sendSyncArchive pushes an archive to the sync group
-      // Other installations can then pull it using processSyncArchive
-      await client.sendSyncArchive(pin);
-
-      console.log('  [OK] Archive uploaded');
-      success++;
+      const counts = await getMessageCounts(adapter, user.id);
+      console.log(`  Installation: ${client.installationId.slice(0, 16)}...`);
+      console.log(`  State: ${counts.convos} conversations, ${counts.msgs} messages`);
+      console.log('  [LISTENING] Ready to respond to sync requests');
     } catch (err) {
-      failed++;
       const msg = err instanceof Error ? err.message : String(err);
       console.log(`  [ERROR] ${msg}`);
     }
   }
 
-  console.log(`\n=== Push Complete ===`);
-  console.log(`Success: ${success}, Failed: ${failed}`);
-  console.log(`\nOther installations can now pull with: bun run maintenance:xmtp-server-sync pull --pin=${pin}`);
+  console.log(`\nListening for ${timeoutSeconds} seconds...`);
+  console.log('Press Ctrl+C to stop early.\n');
+
+  // Keep process alive
+  const startTime = Date.now();
+  const checkInterval = 10000; // 10 seconds
+
+  while (Date.now() - startTime < timeoutSeconds * 1000) {
+    const remaining = Math.ceil((timeoutSeconds * 1000 - (Date.now() - startTime)) / 1000);
+    process.stdout.write(`\r  Remaining: ${remaining}s    `);
+    await sleep(checkInterval);
+  }
+
+  console.log('\n\nTimeout reached. Stopping listen mode.');
 }
 
-async function pullArchive(
+/**
+ * Request mode: Send sync requests and wait for archives to arrive.
+ */
+async function requestSync(
   adapter: MessagingAdapter,
   userList: UserRow[],
-  pin: string | null,
+  waitSeconds: number,
 ): Promise<void> {
-  console.log('\n=== XMTP Server Sync: PULL ===\n');
-  console.log(`Pulling archive${pin ? ` with pin: "${pin}"` : ' (latest)'}\n`);
+  console.log('\n=== XMTP Server Sync: REQUEST ===\n');
+  console.log(`Will send sync requests and wait ${waitSeconds}s for responses.`);
+  console.log('Make sure "listen" is running on the source server!\n');
 
   let success = 0;
   let failed = 0;
@@ -155,63 +178,53 @@ async function pullArchive(
       }
 
       // Get before counts
+      const before = await getMessageCounts(adapter, user.id);
+      console.log(`  Before: ${before.convos} conversations, ${before.msgs} messages`);
+      console.log(`  Installation: ${client.installationId.slice(0, 16)}...`);
+
+      // Send sync request
+      console.log('  Sending sync request...');
+      await client.sendSyncRequest();
+
+      // Wait for response
+      console.log(`  Waiting ${waitSeconds}s for sync response...`);
+
+      // Poll periodically to check for new data
+      const pollInterval = 5000; // 5 seconds
+      const maxPolls = Math.ceil((waitSeconds * 1000) / pollInterval);
+
+      for (let i = 0; i < maxPolls; i++) {
+        await sleep(pollInterval);
+
+        // Sync to pull any new data
+        await client.conversations.syncAll();
+
+        const current = await getMessageCounts(adapter, user.id);
+        if (current.convos > before.convos || current.msgs > before.msgs) {
+          console.log(`  [PROGRESS] Now: ${current.convos} convos, ${current.msgs} msgs`);
+        }
+      }
+
+      // Final sync and count
       await client.conversations.syncAll();
-      const beforeConvos = await client.conversations.list();
-      let beforeMsgs = 0;
-      for (const c of beforeConvos) {
-        beforeMsgs += (await c.messages()).length;
-      }
-      console.log(`  Before: ${beforeConvos.length} conversations, ${beforeMsgs} messages`);
-
-      // Sync device sync groups to get latest archive info
-      console.log('  Syncing device sync groups...');
-      try {
-        await client.syncAllDeviceSyncGroups();
-      } catch {
-        // May not be available
-      }
-
-      // List available archives
-      console.log('  Checking available archives...');
-      const archives = await client.listAvailableArchives(BigInt(30));
-      
-      if (!archives || archives.length === 0) {
-        console.log('  [INFO] No archives available. Run "push" on source server first.');
-        continue;
-      }
-
-      console.log(`  Found ${archives.length} archive(s)`);
-
-      // Process the archive
-      console.log(`  Processing archive${pin ? ` "${pin}"` : ' (latest)'}...`);
-      
-      if (pin) {
-        await client.processSyncArchive(pin);
-      } else {
-        // Process latest archive
-        await client.processSyncArchive();
-      }
-
-      // Sync all after processing
-      await client.conversations.syncAll();
-      
-      // Sync each conversation
-      const afterConvos = await client.conversations.list();
-      for (const convo of afterConvos) {
+      const convos = await client.conversations.list();
+      for (const convo of convos) {
         await convo.sync();
       }
 
-      let afterMsgs = 0;
-      for (const c of afterConvos) {
-        afterMsgs += (await c.messages()).length;
-      }
-
-      console.log(`  After: ${afterConvos.length} conversations, ${afterMsgs} messages`);
+      const after = await getMessageCounts(adapter, user.id);
+      console.log(`  After: ${after.convos} conversations, ${after.msgs} messages`);
       console.log(
-        `  Delta: +${afterConvos.length - beforeConvos.length} convos, +${afterMsgs - beforeMsgs} msgs`,
+        `  Delta: +${after.convos - before.convos} convos, +${after.msgs - before.msgs} msgs`,
       );
 
-      success++;
+      if (after.convos > before.convos || after.msgs > before.msgs) {
+        console.log('  [OK] Sync received data');
+        success++;
+      } else {
+        console.log('  [INFO] No new data (source may be offline or already synced)');
+        success++;
+      }
     } catch (err) {
       failed++;
       const msg = err instanceof Error ? err.message : String(err);
@@ -219,20 +232,21 @@ async function pullArchive(
     }
   }
 
-  console.log(`\n=== Pull Complete ===`);
+  console.log(`\n=== Request Complete ===`);
   console.log(`Success: ${success}, Failed: ${failed}`);
 }
 
-async function listArchives(
+/**
+ * Status mode: Show current sync state for each user.
+ */
+async function showStatus(
   adapter: MessagingAdapter,
   userList: UserRow[],
-  days: number,
 ): Promise<void> {
-  console.log('\n=== XMTP Server Sync: LIST ===\n');
-  console.log(`Listing archives from last ${days} days\n`);
+  console.log('\n=== XMTP Server Sync: STATUS ===\n');
 
   for (const user of userList) {
-    console.log(`\n--- ${user.name} (${user.id}) ---`);
+    console.log(`--- ${user.name} (${user.id}) ---`);
 
     try {
       const client = await adapter.getUserClient(user.id);
@@ -241,34 +255,13 @@ async function listArchives(
         continue;
       }
 
-      // Sync device sync groups first
-      console.log('  Syncing device sync groups...');
-      try {
-        await client.syncAllDeviceSyncGroups();
-      } catch {
-        // May not be available
-      }
+      await client.conversations.syncAll();
 
-      // List archives
-      const archives = await client.listAvailableArchives(BigInt(days));
-
-      if (!archives || archives.length === 0) {
-        console.log('  No archives available');
-        continue;
-      }
-
-      console.log(`  Available archives: ${archives.length}`);
-      
-      // Try to display archive info
-      for (let i = 0; i < archives.length; i++) {
-        const archive = archives[i];
-        // Archive structure may vary - display what we can
-        if (typeof archive === 'object' && archive !== null) {
-          console.log(`    ${i + 1}. ${JSON.stringify(archive)}`);
-        } else {
-          console.log(`    ${i + 1}. ${archive}`);
-        }
-      }
+      const counts = await getMessageCounts(adapter, user.id);
+      console.log(`  Inbox ID: ${client.inboxId}`);
+      console.log(`  Installation: ${client.installationId}`);
+      console.log(`  Conversations: ${counts.convos}`);
+      console.log(`  Messages: ${counts.msgs}`);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.log(`  [ERROR] ${msg}`);
@@ -279,11 +272,12 @@ async function listArchives(
 async function main(): Promise<void> {
   const command = parseCommand();
   const userId = parseArg('user');
-  const pin = parseArg('pin') || 'server-sync';
   const limitStr = parseArg('limit');
   const limit = limitStr ? parseInt(limitStr, 10) : null;
-  const daysStr = parseArg('days');
-  const days = daysStr ? parseInt(daysStr, 10) : 30;
+  const timeoutStr = parseArg('timeout');
+  const timeoutSeconds = timeoutStr ? parseInt(timeoutStr, 10) : 300;
+  const waitStr = parseArg('wait');
+  const waitSeconds = waitStr ? parseInt(waitStr, 10) : 60;
 
   const walletMasterKey = process.env.WALLET_ENCRYPTION_KEY;
   if (!walletMasterKey) {
@@ -297,6 +291,7 @@ async function main(): Promise<void> {
 
   console.log(`XMTP Environment: ${xmtpEnv}`);
   console.log(`Installation ID: ${process.env.XMTP_INSTALLATION_ID || '(not set)'}`);
+  console.log(`DB Directory: ${xmtpDbDir}`);
 
   const config: MessagingAdapterConfig = {
     xmtpEnv,
@@ -315,21 +310,24 @@ async function main(): Promise<void> {
   }
 
   switch (command) {
-    case 'push':
-      await pushArchive(adapter, userList, pin);
+    case 'listen':
+      await listenForSync(adapter, userList, timeoutSeconds);
       break;
-    case 'pull':
-      await pullArchive(adapter, userList, parseArg('pin'));
+    case 'request':
+      await requestSync(adapter, userList, waitSeconds);
       break;
-    case 'list':
-      await listArchives(adapter, userList, days);
+    case 'status':
+      await showStatus(adapter, userList);
       break;
     default:
       console.error(`Unknown command: ${command}`);
       console.log('\nUsage:');
-      console.log('  bun run maintenance:xmtp-server-sync push [--user=ID] [--pin=NAME]');
-      console.log('  bun run maintenance:xmtp-server-sync pull [--user=ID] [--pin=NAME]');
-      console.log('  bun run maintenance:xmtp-server-sync list [--user=ID]');
+      console.log('  bun run maintenance:xmtp-server-sync listen [--user=ID] [--timeout=S]');
+      console.log('  bun run maintenance:xmtp-server-sync request [--user=ID] [--wait=S]');
+      console.log('  bun run maintenance:xmtp-server-sync status [--user=ID]');
+      console.log('\nWorkflow:');
+      console.log('  1. On Railway (source):     bun run maintenance:xmtp-server-sync listen');
+      console.log('  2. On Local (destination):  bun run maintenance:xmtp-server-sync request');
       process.exit(1);
   }
 }
