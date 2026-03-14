@@ -123,6 +123,15 @@ describe('IntentDatabaseAdapter', () => {
     expect(list.some((i) => i.id === fixture.intent1Id && i.payload.includes('Intent 1'))).toBe(true);
   });
 
+  it('should reject non-UUID userId in createIntent', async () => {
+    await expect(
+      adapter.createIntent({
+        userId: 'Someone',
+        payload: 'bad intent',
+      }),
+    ).rejects.toThrow('Invalid userId: must be a valid UUID');
+  });
+
   it('should create intent and return row', async () => {
     const created = await adapter.createIntent({
       userId: fixture.userBId,
@@ -184,6 +193,15 @@ describe('ChatDatabaseAdapter', () => {
     const list = await adapter.getActiveIntents(fixture.userAId);
     expect(list.length).toBeGreaterThanOrEqual(1);
     expect(list.some((i) => i.id === fixture.intent1Id)).toBe(true);
+  });
+
+  it('should reject non-UUID userId in createIntent', async () => {
+    await expect(
+      adapter.createIntent({
+        userId: 'Someone',
+        payload: 'bad intent',
+      }),
+    ).rejects.toThrow('Invalid userId: must be a valid UUID');
   });
 
   it('should create intent via Chat adapter', async () => {
