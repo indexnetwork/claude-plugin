@@ -54,6 +54,8 @@ export interface HomeViewCardItem {
   narratorChip?: { name: string; text: string; avatar?: string | null; userId?: string };
   /** Viewer's role in this opportunity (e.g. 'introducer', 'party', 'agent', 'patient', 'peer'). */
   viewerRole?: string;
+  /** Whether the counterpart is a ghost (not yet onboarded) user. */
+  isGhost?: boolean;
 }
 
 /** Home view section (dynamic title, icon, items). */
