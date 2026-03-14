@@ -459,7 +459,29 @@ export class ChatController {
     const messages = await chatSessionService.getSessionMessages(
       body.sessionId,
     );
-    return Response.json({ session, messages });
+
+    // Fetch metadata for assistant messages (traceEvents, debugMeta)
+    const assistantIds = messages
+      .filter((m: { role: string }) => m.role === 'assistant')
+      .map((m: { id: string }) => m.id);
+
+    let metaMap = new Map<string, { traceEvents?: unknown; debugMeta?: unknown }>();
+    if (assistantIds.length > 0) {
+      const metadataRows = await chatSessionService.getMessageMetadataByMessageIds(assistantIds);
+      metaMap = new Map(metadataRows.map((m) => [m.messageId, m]));
+    }
+
+    const enrichedMessages = messages.map((m) => {
+      if (m.role !== 'assistant') return m;
+      const meta = metaMap.get(m.id);
+      return {
+        ...m,
+        traceEvents: meta?.traceEvents ?? null,
+        debugMeta: meta?.debugMeta ?? null,
+      };
+    });
+
+    return Response.json({ session, messages: enrichedMessages });
   }
 
   /**
