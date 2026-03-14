@@ -639,12 +639,18 @@ export class ChatController {
   @UseGuards(AuthGuard)
   async updateMessageMetadata(
     req: Request,
-    _user: AuthenticatedUser,
+    user: AuthenticatedUser,
     params?: RouteParams,
   ) {
     const messageId = params?.id;
     if (!messageId) {
       return Response.json({ error: "Message ID required" }, { status: 400 });
+    }
+
+    // Verify the authenticated user owns the message
+    const isOwner = await chatSessionService.verifyMessageOwnership(messageId, user.id);
+    if (!isOwner) {
+      return Response.json({ error: "Message not found" }, { status: 404 });
     }
 
     let body: { traceEvents?: unknown };

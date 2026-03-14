@@ -325,6 +325,17 @@ export class ChatSessionService {
   }
 
   /**
+   * Verify that a message belongs to a session owned by the given user.
+   *
+   * @param messageId - The message ID to check
+   * @param userId - The user ID to verify ownership against
+   * @returns True if the message exists and its session is owned by the user
+   */
+  async verifyMessageOwnership(messageId: string, userId: string): Promise<boolean> {
+    return this.db.verifyMessageOwnership(messageId, userId);
+  }
+
+  /**
    * Save trace events and debug metadata for a chat message.
    *
    * @param params - Message metadata to persist

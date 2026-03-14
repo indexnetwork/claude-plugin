@@ -821,12 +821,37 @@ export class ChatDatabaseAdapter {
   // Chat Metadata Methods
   // ─────────────────────────────────────────────────────────────────────────────
 
+  /**
+   * Verify that a message belongs to a session owned by the given user.
+   * @param messageId - The message ID to check
+   * @param userId - The user ID to verify ownership against
+   * @returns True if the message exists and its session is owned by the user
+   */
+  async verifyMessageOwnership(messageId: string, userId: string): Promise<boolean> {
+    const [row] = await db
+      .select({ sessionId: schema.chatMessages.sessionId })
+      .from(schema.chatMessages)
+      .where(eq(schema.chatMessages.id, messageId))
+      .limit(1);
+
+    if (!row) return false;
+
+    const [session] = await db
+      .select({ userId: schema.chatSessions.userId })
+      .from(schema.chatSessions)
+      .where(eq(schema.chatSessions.id, row.sessionId))
+      .limit(1);
+
+    return session?.userId === userId;
+  }
+
   async upsertMessageMetadata(params: {
     id: string;
     messageId: string;
     traceEvents?: unknown;
     debugMeta?: unknown;
   }): Promise<void> {
+    if (params.traceEvents === undefined && params.debugMeta === undefined) return;
     await db
       .insert(schema.chatMessageMetadata)
       .values({

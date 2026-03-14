@@ -656,7 +656,6 @@ export class OpportunityGraphFactory {
                 candidateCount: candidates.length,
                 byLens: lensStats,
                 durationMs: Date.now() - startTime,
-                model: getModelName("hydeGenerator"),
               },
             });
 

@@ -561,7 +561,10 @@ export class DebugController {
 
     const messageMetadataRows = assistantMessageIds.length > 0
       ? await db
-          .select()
+          .select({
+            messageId: chatMessageMetadata.messageId,
+            debugMeta: chatMessageMetadata.debugMeta,
+          })
           .from(chatMessageMetadata)
           .where(inArray(chatMessageMetadata.messageId, assistantMessageIds))
       : [];
@@ -572,7 +575,7 @@ export class DebugController {
 
     // Fetch session metadata
     const [sessionMeta] = await db
-      .select()
+      .select({ metadata: chatSessionMetadata.metadata })
       .from(chatSessionMetadata)
       .where(eq(chatSessionMetadata.sessionId, sessionId))
       .limit(1);

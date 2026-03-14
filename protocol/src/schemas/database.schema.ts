@@ -531,11 +531,33 @@ export const chatSessionsRelations = relations(chatSessions, ({ one, many }) => 
     references: [users.id],
   }),
   messages: many(chatMessages),
+  metadata: one(chatSessionMetadata, {
+    fields: [chatSessions.id],
+    references: [chatSessionMetadata.sessionId],
+  }),
 }));
 
 export const chatMessagesRelations = relations(chatMessages, ({ one }) => ({
   session: one(chatSessions, {
     fields: [chatMessages.sessionId],
+    references: [chatSessions.id],
+  }),
+  metadata: one(chatMessageMetadata, {
+    fields: [chatMessages.id],
+    references: [chatMessageMetadata.messageId],
+  }),
+}));
+
+export const chatMessageMetadataRelations = relations(chatMessageMetadata, ({ one }) => ({
+  message: one(chatMessages, {
+    fields: [chatMessageMetadata.messageId],
+    references: [chatMessages.id],
+  }),
+}));
+
+export const chatSessionMetadataRelations = relations(chatSessionMetadata, ({ one }) => ({
+  session: one(chatSessions, {
+    fields: [chatSessionMetadata.sessionId],
     references: [chatSessions.id],
   }),
 }));

@@ -638,7 +638,7 @@ export function ToolCallsDisplay({
                                     <span className="text-gray-400 break-all">
                                       {typeof value === 'string'
                                         ? value.length > 200 ? value.slice(0, 200) + '...' : value
-                                        : JSON.stringify(value)}
+                                        : (() => { const s = JSON.stringify(value); return s.length > 200 ? s.slice(0, 200) + '...' : s; })()}
                                     </span>
                                   </div>
                                 ))}

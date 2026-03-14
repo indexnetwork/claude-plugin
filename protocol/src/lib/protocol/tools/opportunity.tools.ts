@@ -695,6 +695,7 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
         return success({
           found: false,
           count: 0,
+          summary: "No opportunities yet",
           message:
             "You have no opportunities yet. Use create_opportunities to find connections.",
         });
