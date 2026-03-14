@@ -146,6 +146,7 @@ All agents live under `src/lib/protocol/agents/`. There is no separate `src/agen
 3. **Opportunity Agents**:
    - `opportunity.evaluator.ts` - Evaluates opportunity matches
    - `opportunity.presenter.ts` - Formats opportunity presentation
+   - `invite.generator.ts` - Generates contextual invite messages for ghost user outreach
 
 4. **Profile/Discovery Agents**:
    - `profile.generator.ts` - Generates user profiles from identity signals
@@ -241,6 +242,7 @@ IntentEvents.onCreated({ intentId, userId, payload?, previousStatus? });
 - `MessagingController` - Messaging operations
 - `DebugController` - Debug endpoints for pipeline tracing (dev/admin only, gated by `DebugGuard`)
 - `QueuesController` - Bull Board queue monitoring UI
+- `UnsubscribeController` - Ghost user email opt-out (public, no auth)
 
 ### Frontend Architecture
 
@@ -419,6 +421,7 @@ NODE_ENV=development
 - `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` - LLM observability
 - `SENTRY_DSN` - Error tracking
 - `PARALLELS_API_KEY` - Web crawling and profile extraction
+- `APP_URL` - Base URL for email links (defaults to `https://index.network`)
 
 ### Frontend Environment Variables
 
