@@ -1,7 +1,7 @@
-import { Controller, Post } from '../lib/router/router.decorators';
+import { Controller, Get } from '../lib/router/router.decorators';
 import { log } from '../lib/log';
 
-import { ChatDatabaseAdapter } from '../adapters/database.adapter';
+import { UnsubscribeService } from '../services/unsubscribe.service';
 
 const logger = log.controller.from('unsubscribe');
 
@@ -11,17 +11,17 @@ const logger = log.controller.from('unsubscribe');
  */
 @Controller('/unsubscribe')
 export class UnsubscribeController {
-  private db = new ChatDatabaseAdapter();
+  private service = new UnsubscribeService();
 
   /**
-   * POST /unsubscribe/:token — soft-delete a ghost user to opt out of emails.
+   * GET /unsubscribe/:token — soft-delete a ghost user to opt out of emails.
    * The token is the ghost user's ID, included in invite email unsubscribe links.
    * @param _req - Unused request object
    * @param _user - Unused (no auth guard)
    * @param params - Route params containing the unsubscribe token (ghost user ID)
    * @returns HTML response confirming unsubscribe or indicating not found
    */
-  @Post('/:token')
+  @Get('/:token')
   async unsubscribe(_req: Request, _user: unknown, params?: Record<string, string>) {
     const token = params?.token;
     if (!token) {
@@ -29,7 +29,7 @@ export class UnsubscribeController {
     }
 
     try {
-      const result = await this.db.softDeleteGhostUser(token);
+      const result = await this.service.softDeleteGhostUser(token);
       if (!result) {
         return new Response(
           '<html><body style="font-family:Arial,sans-serif;text-align:center;padding:60px"><h2>Not Found</h2><p>This unsubscribe link is no longer valid.</p></body></html>',

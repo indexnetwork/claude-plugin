@@ -571,6 +571,7 @@ export class IntentDatabaseAdapter {
       socials: user.socials ?? null,
       onboarding: user.onboarding ?? null,
       isGhost: user.isGhost ?? false,
+      deletedAt: user.deletedAt ?? null,
     };
   }
 
