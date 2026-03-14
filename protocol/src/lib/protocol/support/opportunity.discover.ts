@@ -183,14 +183,16 @@ async function enrichOpportunities(
     existingOpportunityIds,
   } = input;
 
-  const baseEnriched = await Promise.all(
+  const baseEnrichedRaw = await Promise.all(
     opportunities.map(async (opp) => {
       const candidateActor = opp.actors.find((a) => a.userId !== userId && a.role !== 'introducer');
       const candidateUserId = candidateActor?.userId ?? "";
       const viewerActor = opp.actors.find((a) => a.userId === userId);
-      const profile = candidateUserId
-        ? await database.getProfile(candidateUserId)
-        : null;
+      const [profile, candidateUser] = candidateUserId
+        ? await Promise.all([database.getProfile(candidateUserId), database.getUser(candidateUserId)])
+        : [null, null];
+      // Skip soft-deleted users (deletedAt is set)
+      if (candidateUser && 'deletedAt' in candidateUser && candidateUser.deletedAt) return null;
       const confidence =
         typeof opp.interpretation?.confidence === "number"
           ? opp.interpretation.confidence
@@ -204,6 +206,7 @@ async function enrichOpportunities(
       };
     }),
   );
+  const baseEnriched = baseEnrichedRaw.filter((item): item is NonNullable<typeof item> => item !== null);
   debugSteps.push({
     step: "enrich_profiles",
     detail: `${baseEnriched.length} profile(s)`,

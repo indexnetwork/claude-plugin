@@ -33,34 +33,50 @@ function makeTestVector(seed: number): number[] {
 let fixture: {
   userAId: string;
   userBId: string;
+  /** Soft-deleted user (deletedAt set). */
+  deletedUserId: string;
   indexId: string;
   intentId: string;
   profileEmbeddingIntentId: string;
+  /** Intent owned by the soft-deleted user. */
+  deletedUserIntentId: string;
 };
 
 beforeAll(async () => {
   const userAId = uuidv4();
   const userBId = uuidv4();
+  const deletedUserId = uuidv4();
   const indexId = uuidv4();
   const intentId = uuidv4();
   const profileEmbeddingIntentId = uuidv4();
+  const deletedUserIntentId = uuidv4();
 
   await db.insert(users).values([
     { id: userAId, email: TEST_PREFIX + 'a@t.com', name: 'User A' },
     { id: userBId, email: TEST_PREFIX + 'b@t.com', name: 'User B' },
+    { id: deletedUserId, email: TEST_PREFIX + 'deleted@t.com', name: 'Deleted User', deletedAt: new Date() },
   ]);
-  await db.insert(userProfiles).values({
-    userId: userAId,
-    identity: { name: 'User A', bio: 'Bio A', location: '' },
-    narrative: { context: 'Context A' },
-    attributes: { interests: [], skills: [] },
-  });
-  await db.insert(userProfiles).values({
-    userId: userBId,
-    identity: { name: 'User B', bio: 'Bio B', location: '' },
-    narrative: { context: 'Context B' },
-    attributes: { interests: [], skills: [] },
-  });
+  await db.insert(userProfiles).values([
+    {
+      userId: userAId,
+      identity: { name: 'User A', bio: 'Bio A', location: '' },
+      narrative: { context: 'Context A' },
+      attributes: { interests: [], skills: [] },
+    },
+    {
+      userId: userBId,
+      identity: { name: 'User B', bio: 'Bio B', location: '' },
+      narrative: { context: 'Context B' },
+      attributes: { interests: [], skills: [] },
+    },
+    {
+      userId: deletedUserId,
+      identity: { name: 'Deleted User', bio: 'Bio Deleted', location: '' },
+      narrative: { context: 'Context Deleted' },
+      attributes: { interests: [], skills: [] },
+      embedding: makeTestVector(42),
+    },
+  ]);
   await db.insert(indexes).values({
     id: indexId,
     title: TEST_PREFIX + 'Index',
@@ -69,18 +85,28 @@ beforeAll(async () => {
   await db.insert(indexMembers).values([
     { indexId, userId: userAId, permissions: ['owner'], autoAssign: false },
     { indexId, userId: userBId, permissions: [], autoAssign: true },
+    { indexId, userId: deletedUserId, permissions: [], autoAssign: true },
   ]);
+  // Intent owned by soft-deleted user (has same embedding as test queries)
+  await db.insert(intents).values({
+    id: deletedUserIntentId,
+    userId: deletedUserId,
+    payload: TEST_PREFIX + 'Intent from deleted user',
+    summary: 'Summary deleted',
+    embedding: makeTestVector(42),
+  });
+  await db.insert(intentIndexes).values({ intentId: deletedUserIntentId, indexId });
 
-  fixture = { userAId, userBId, indexId, intentId, profileEmbeddingIntentId };
+  fixture = { userAId, userBId, deletedUserId, indexId, intentId, profileEmbeddingIntentId, deletedUserIntentId };
 });
 
 afterAll(async () => {
   await db.delete(intentIndexes).where(eq(intentIndexes.indexId, fixture.indexId));
-  await db.delete(intents).where(inArray(intents.userId, [fixture.userAId, fixture.userBId]));
+  await db.delete(intents).where(inArray(intents.userId, [fixture.userAId, fixture.userBId, fixture.deletedUserId]));
   await db.delete(indexMembers).where(eq(indexMembers.indexId, fixture.indexId));
-  await db.delete(userProfiles).where(inArray(userProfiles.userId, [fixture.userAId, fixture.userBId]));
+  await db.delete(userProfiles).where(inArray(userProfiles.userId, [fixture.userAId, fixture.userBId, fixture.deletedUserId]));
   await db.delete(indexes).where(eq(indexes.id, fixture.indexId));
-  await db.delete(users).where(inArray(users.id, [fixture.userAId, fixture.userBId]));
+  await db.delete(users).where(inArray(users.id, [fixture.userAId, fixture.userBId, fixture.deletedUserId]));
 });
 
 describe('EmbedderAdapter', () => {
@@ -262,6 +288,55 @@ describe('EmbedderAdapter', () => {
         expect(c.userId).not.toBe(fixture.userAId);
         expect(c.indexId).toBe(fixture.indexId);
       }
+    });
+  });
+
+  describe('soft-deleted user exclusion', () => {
+    it('should not return soft-deleted users from searchWithHydeEmbeddings (profiles)', async () => {
+      const vec = makeTestVector(42); // same as deleted user's profile embedding
+      const results = await adapter.searchWithHydeEmbeddings(
+        [{ lens: 'test lens', corpus: 'profiles' as const, embedding: vec }],
+        { indexScope: [fixture.indexId], limit: 20, minScore: 0, profileMinScore: 0 },
+      );
+
+      const deletedMatch = results.find((c) => c.userId === fixture.deletedUserId);
+      expect(deletedMatch).toBeUndefined();
+    });
+
+    it('should not return soft-deleted users from searchWithHydeEmbeddings (intents)', async () => {
+      const vec = makeTestVector(42); // same as deleted user's intent embedding
+      const results = await adapter.searchWithHydeEmbeddings(
+        [{ lens: 'test lens', corpus: 'intents' as const, embedding: vec }],
+        { indexScope: [fixture.indexId], limit: 20, minScore: 0 },
+      );
+
+      const deletedMatch = results.find((c) => c.userId === fixture.deletedUserId);
+      expect(deletedMatch).toBeUndefined();
+    });
+
+    it('should not return soft-deleted users from searchWithProfileEmbedding', async () => {
+      const vec = makeTestVector(42);
+      const results = await adapter.searchWithProfileEmbedding(vec, {
+        indexScope: [fixture.indexId],
+        limit: 20,
+        minScore: 0,
+        profileMinScore: 0,
+      });
+
+      const deletedMatch = results.find((c) => c.userId === fixture.deletedUserId);
+      expect(deletedMatch).toBeUndefined();
+    });
+
+    it('should not return soft-deleted users from search (intents collection)', async () => {
+      const vec = makeTestVector(42);
+      const results = await adapter.search<{ id: string; userId: string }>(
+        vec,
+        'intents',
+        { limit: 20, minScore: 0, filter: { indexScope: [fixture.indexId] } },
+      );
+
+      const deletedMatch = results.find((r) => (r.item as { userId: string }).userId === fixture.deletedUserId);
+      expect(deletedMatch).toBeUndefined();
     });
   });
 });
