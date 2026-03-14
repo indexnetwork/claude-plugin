@@ -448,6 +448,7 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
         return success({
           found: true,
           count: 1,
+          summary: "Draft introduction created",
           message:
             "Draft introduction created. IMPORTANT: Include the following " +
             CODE_FENCE +
@@ -813,6 +814,7 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
         return success({
           found: false,
           count: 0,
+          summary: "No opportunities yet",
           message:
             "You have no opportunities yet. Use create_opportunities to find connections.",
         });
@@ -824,6 +826,7 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
       return success({
         found: true,
         count: opportunityBlocks.length,
+        summary: `You have ${opportunityBlocks.length} opportunity(ies)`,
         message:
           "You have " +
           opportunityBlocks.length +
