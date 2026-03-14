@@ -72,6 +72,7 @@ const systemPrompt = `
     4. Be specific about the "Why" for BOTH sides in the reasoning.
     5. DEDUPLICATION: Do NOT suggest opportunities that duplicate "Existing Opportunities".
     6. Do not suggest an opportunity if the source and candidate clearly already know each other (e.g. same company, co-founders, same team).
+    7. SAME-SIDE MATCHING: If both the source and candidate are SEEKING the same resource (e.g., both looking for investors, both seeking a co-founder), this is not an opportunity. Return an empty list unless one side clearly OFFERS what the other SEEKS.
 `;
 
 // Entity-bundle system prompt (C2): entities + four match patterns + actors output

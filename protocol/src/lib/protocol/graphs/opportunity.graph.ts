@@ -109,6 +109,8 @@ function buildDiscovererContext(
   }
 
   if (intents?.length) {
+    // indexedIntents preserves DB order from getActiveIntents (newest first),
+    // so slice(0, 5) is deterministic without an explicit sort.
     const capped = intents.slice(0, 5);
     lines.push('');
     lines.push('Active intents:');
