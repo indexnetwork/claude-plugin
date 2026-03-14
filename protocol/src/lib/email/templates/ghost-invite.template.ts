@@ -16,6 +16,7 @@ export function ghostInviteTemplate(
   const safeReplyUrl = escapeHtml(sanitizeUrlForHref(replyUrl));
   const safeUnsubscribeUrl = escapeHtml(sanitizeUrlForHref(unsubscribeUrl));
   const sanitizedReplyUrlForText = sanitizeUrlForHref(replyUrl);
+  const sanitizedUnsubscribeUrlForText = sanitizeUrlForHref(unsubscribeUrl);
 
   const html = `
     <div style="font-family: Arial, sans-serif;">
@@ -43,6 +44,8 @@ ${senderName} reached out to you on Index:
 Reply on Index: ${sanitizedReplyUrlForText}
 
 —Index
+
+To unsubscribe: ${sanitizedUnsubscribeUrlForText}
 `;
 
   return { subject, html, text };

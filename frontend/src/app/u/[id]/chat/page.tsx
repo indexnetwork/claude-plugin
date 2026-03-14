@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useNavigate, useSearchParams, useParams } from "react-router";
+import { useNavigate, useSearchParams, useParams, useLocation } from "react-router";
 import { Loader2 } from "lucide-react";
 import { useAuthContext } from "@/contexts/AuthContext";
 import { useUsers } from "@/contexts/APIContext";
@@ -10,8 +10,9 @@ export default function ChatPage() {
   const { id } = useParams();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const location = useLocation();
   const initialGroupId = searchParams.get('groupId') ?? undefined;
-  const prefillMessage = searchParams.get('prefill') ?? undefined;
+  const prefillMessage = (location.state as { prefill?: string } | null)?.prefill ?? undefined;
   const { isAuthenticated, isLoading: authLoading } = useAuthContext();
   const usersService = useUsers();
 

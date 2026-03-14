@@ -54,7 +54,7 @@ The primary action on an opportunity card should differ based on whether the mat
 
 ### 3. Ghost Email Flow
 
-**Trigger**: Chat service detects ghost recipient on message send (`isGhost === true`), queues email.
+**Trigger**: Chat service detects ghost recipient on message send (`isGhost === true AND deletedAt == null`), queues email.
 
 **Email template**: `ghost-invite.template.ts`:
 - Sender's name and context ("reached out to you on Index")
@@ -65,15 +65,15 @@ The primary action on an opportunity card should differ based on whether the mat
 **Rate limiting**: Only the first message triggers an email. Tracked via `ghostInviteSent: boolean` in chat session metadata.
 
 **Unsubscribe flow**:
-- Endpoint: `POST /unsubscribe/:token` (token encodes ghost user ID)
+- Endpoint: `GET /unsubscribe/:token` (token encodes ghost user ID)
 - Action: soft-delete the ghost user (`deletedAt` timestamp set)
 - Soft-deleted ghosts are excluded from contact import — `ContactService.importContacts` filters out emails belonging to soft-deleted ghost users, preventing re-creation
 - Direct signup still allowed — if a soft-deleted ghost registers, normal auth flow proceeds; ghost claim skips since ghost row is soft-deleted
 
 ### 4. Ghost Claim Extension
 
-Extend `claimGhostUser()` in `auth.adapter.ts` to transfer:
-- `chat_sessions.userId` from ghost ID to real user ID
+The existing `claimGhostUser()` in `auth.adapter.ts` already transfers `chatSessions.userId`. This extension adds the transfer to the claim transaction alongside the existing transfers:
+- `chat_sessions.userId` from ghost ID to real user ID (added to claim transaction)
 - `chat_messages` transfer implicitly (tied to sessions)
 - `chat_session_metadata` and `chat_message_metadata` transfer with sessions
 

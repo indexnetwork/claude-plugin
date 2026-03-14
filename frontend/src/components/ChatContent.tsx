@@ -685,7 +685,7 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
             // Fetch invite message and navigate with prefill for ghost users
             try {
               const { message } = await opportunitiesService.getInviteMessage(opportunityId);
-              navigate(`/u/${counterpartUserId}/chat?prefill=${encodeURIComponent(message)}`);
+              navigate(`/u/${counterpartUserId}/chat`, { state: { prefill: message } });
             } catch {
               // Fallback: navigate without prefill
               navigate(`/u/${counterpartUserId}/chat`);

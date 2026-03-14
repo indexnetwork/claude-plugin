@@ -208,7 +208,9 @@ export class ChatSessionService {
               const { ghostInviteTemplate } = await import('../lib/email/templates');
               const appUrl = process.env.APP_URL || 'https://index.network';
               const replyUrl = `${appUrl}/onboarding?ref=invite`;
-              const unsubscribeUrl = `${appUrl}/api/unsubscribe/${recipient.id}`;
+              // Use unsubscribe token instead of raw user ID
+              const notifSettings = await this.db.getOrCreateNotificationSettings(recipient.id);
+              const unsubscribeUrl = `${appUrl}/api/unsubscribe/${notifSettings.unsubscribeToken}`;
 
               const email = ghostInviteTemplate(
                 recipient.name ?? 'there',

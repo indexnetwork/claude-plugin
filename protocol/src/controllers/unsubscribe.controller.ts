@@ -15,10 +15,10 @@ export class UnsubscribeController {
 
   /**
    * GET /unsubscribe/:token — soft-delete a ghost user to opt out of emails.
-   * The token is the ghost user's ID, included in invite email unsubscribe links.
+   * The token is the unsubscribeToken from userNotificationSettings, included in invite email unsubscribe links.
    * @param _req - Unused request object
    * @param _user - Unused (no auth guard)
-   * @param params - Route params containing the unsubscribe token (ghost user ID)
+   * @param params - Route params containing the unsubscribe token
    * @returns HTML response confirming unsubscribe or indicating not found
    */
   @Get('/:token')
@@ -29,7 +29,7 @@ export class UnsubscribeController {
     }
 
     try {
-      const result = await this.service.softDeleteGhostUser(token);
+      const result = await this.service.softDeleteGhostByToken(token);
       if (!result) {
         return new Response(
           '<html><body style="font-family:Arial,sans-serif;text-align:center;padding:60px"><h2>Not Found</h2><p>This unsubscribe link is no longer valid.</p></body></html>',

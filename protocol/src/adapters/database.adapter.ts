@@ -2661,6 +2661,58 @@ export class ChatDatabaseAdapter {
   }
 
   /**
+   * Soft-delete a ghost user by unsubscribe token.
+   * Looks up the user via userNotificationSettings.unsubscribeToken,
+   * then soft-deletes if the user is a ghost and not already deleted.
+   * @param token - The unsubscribe token from the email link
+   * @returns true if user was soft-deleted, false if not found or not eligible
+   */
+  async softDeleteGhostByUnsubscribeToken(token: string): Promise<boolean> {
+    const [settings] = await db.select({ userId: schema.userNotificationSettings.userId })
+      .from(schema.userNotificationSettings)
+      .where(eq(schema.userNotificationSettings.unsubscribeToken, token))
+      .limit(1);
+    if (!settings) return false;
+
+    const result = await db.update(schema.users)
+      .set({ deletedAt: new Date() })
+      .where(and(
+        eq(schema.users.id, settings.userId),
+        eq(schema.users.isGhost, true),
+        isNull(schema.users.deletedAt)
+      ))
+      .returning({ id: schema.users.id });
+    return result.length > 0;
+  }
+
+  /**
+   * Get or create notification settings for a user.
+   * If no row exists, creates one with default preferences.
+   * @param userId - The user's ID
+   * @returns The notification settings row (includes unsubscribeToken)
+   */
+  async getOrCreateNotificationSettings(userId: string): Promise<{ id: string; userId: string; unsubscribeToken: string }> {
+    const [existing] = await db.select({
+      id: schema.userNotificationSettings.id,
+      userId: schema.userNotificationSettings.userId,
+      unsubscribeToken: schema.userNotificationSettings.unsubscribeToken,
+    })
+      .from(schema.userNotificationSettings)
+      .where(eq(schema.userNotificationSettings.userId, userId))
+      .limit(1);
+    if (existing) return existing;
+
+    const [created] = await db.insert(schema.userNotificationSettings)
+      .values({ userId })
+      .returning({
+        id: schema.userNotificationSettings.id,
+        userId: schema.userNotificationSettings.userId,
+        unsubscribeToken: schema.userNotificationSettings.unsubscribeToken,
+      });
+    return created;
+  }
+
+  /**
    * Get emails of soft-deleted ghost users from a list of emails.
    * Used to prevent re-importing opted-out ghost contacts.
    * @param emails - List of emails to check

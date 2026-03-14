@@ -302,10 +302,13 @@ export class ChatController {
           }
 
           // Persist user message and assistant response
-          const recipientUserId =
+          let recipientUserId: string | undefined =
             typeof body.recipientUserId === "string" && body.recipientUserId.trim()
               ? body.recipientUserId.trim()
               : undefined;
+          if (recipientUserId && recipientUserId === user.id) {
+            recipientUserId = undefined; // Can't be your own recipient
+          }
           await chatSessionService.addMessage({
             sessionId,
             role: "user",

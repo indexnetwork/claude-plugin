@@ -216,7 +216,7 @@ export class OpportunityService {
 
     const otherPartyInfo = otherPartyIds[0] ? userMap.get(otherPartyIds[0])! : { id: '', name: 'Unknown', avatar: null as string | null };
     const counterpartUser = userRecords[0];
-    const isCounterpartGhost = counterpartUser?.isGhost ?? false;
+    const isCounterpartGhost = counterpartUser?.isGhost === true && counterpartUser?.deletedAt == null;
     const presentation = presentOpportunity(opp, viewerId, otherPartyInfo, introducerInfo, 'card');
 
     const otherParties = nonIntroducerActors.map((a) => {
@@ -565,6 +565,9 @@ export class OpportunityService {
     if (!isActor) {
       return { error: 'Not authorized', status: 403 };
     }
+    if (!canUserSeeOpportunity(opp.actors, opp.status, viewerId)) {
+      return { error: 'Not authorized to view this opportunity', status: 403 };
+    }
 
     const counterpart = opp.actors.find(
       (a) => a.role !== 'introducer' && a.userId !== viewerId
@@ -579,7 +582,7 @@ export class OpportunityService {
       this.db.getUser(counterpart.userId),
     ]);
 
-    if (!recipient?.isGhost) {
+    if (!recipient?.isGhost || recipient.deletedAt != null) {
       return { error: 'Counterpart is not a ghost user', status: 400 };
     }
 
