@@ -446,6 +446,72 @@ describe("opportunity.discover", () => {
       expect(card.homeCardPresentation?.headline).toContain("Connection with");
     });
 
+    test("excludes soft-deleted users from enriched results", async () => {
+      const deletedUserId = "deleted-user-1";
+      const activeUserId = "active-user-1";
+      const mockGraph = {
+        invoke: async () => ({
+          opportunities: [
+            {
+              id: "opp-deleted",
+              actors: [
+                { indexId: "idx-1", userId: "u1", role: "patient" },
+                { indexId: "idx-1", userId: deletedUserId, role: "agent" },
+              ],
+              interpretation: { reasoning: "Match with deleted user.", confidence: 0.9 },
+              detection: { source: "opportunity_graph", createdBy: "agent", timestamp: new Date().toISOString() },
+              status: "latent",
+            },
+            {
+              id: "opp-active",
+              actors: [
+                { indexId: "idx-1", userId: "u1", role: "patient" },
+                { indexId: "idx-1", userId: activeUserId, role: "agent" },
+              ],
+              interpretation: { reasoning: "Match with active user.", confidence: 0.85 },
+              detection: { source: "opportunity_graph", createdBy: "agent", timestamp: new Date().toISOString() },
+              status: "latent",
+            },
+          ],
+        }),
+      };
+      const dbWithDeletedUser = {
+        ...mockDatabase,
+        getProfile: async (userId: string) => {
+          if (userId === deletedUserId)
+            return { identity: { name: "Deleted Person", bio: "Gone." }, attributes: {}, narrative: {} };
+          if (userId === activeUserId)
+            return { identity: { name: "Active Person", bio: "Here." }, attributes: {}, narrative: {} };
+          return null;
+        },
+        getUser: async (userId: string) => {
+          if (userId === deletedUserId)
+            return { id: deletedUserId, name: "Deleted Person", avatar: null, deletedAt: new Date("2026-01-01") };
+          if (userId === activeUserId)
+            return { id: activeUserId, name: "Active Person", avatar: null, deletedAt: null };
+          if (userId === "u1")
+            return { id: "u1", name: "Viewer", avatar: null, deletedAt: null };
+          return null;
+        },
+      } as unknown as ChatGraphCompositeDatabase;
+
+      const result = await runDiscoverFromQuery({
+        opportunityGraph: mockGraph as any,
+        database: dbWithDeletedUser,
+        userId: "u1",
+        query: "find connections",
+        indexScope: ["idx1"],
+        minimalForChat: true,
+      });
+
+      expect(result.found).toBe(true);
+      expect(result.opportunities).toHaveLength(1);
+      expect(result.opportunities![0].userId).toBe(activeUserId);
+      // The deleted user should NOT appear
+      const deletedMatch = result.opportunities!.find((o) => o.userId === deletedUserId);
+      expect(deletedMatch).toBeUndefined();
+    });
+
     test("returns createIntentSuggested and suggestedIntentDescription when graph returns create-intent signal", async () => {
       const mockGraph = {
         invoke: async () => ({

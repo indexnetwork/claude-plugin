@@ -213,6 +213,7 @@ export class EmbedderAdapter {
     const conditions = [
       inArray(indexMembers.indexId, filter.indexScope),
       isNotNull(userProfiles.embedding),
+      isNull(schema.users.deletedAt),
       sql`1 - (${userProfiles.embedding} <=> ${vectorStr}::vector) >= ${minScore}`,
       ...(filter.excludeUserId ? [ne(userProfiles.userId, filter.excludeUserId)] : []),
     ];
@@ -225,6 +226,7 @@ export class EmbedderAdapter {
       })
       .from(userProfiles)
       .innerJoin(indexMembers, eq(userProfiles.userId, indexMembers.userId))
+      .innerJoin(schema.users, eq(userProfiles.userId, schema.users.id))
       .where(and(...conditions))
       .orderBy(userProfiles.userId, sql`${userProfiles.embedding} <=> ${vectorStr}::vector`, indexMembers.indexId)
       .as('deduped');
@@ -260,6 +262,7 @@ export class EmbedderAdapter {
       inArray(intentIndexes.indexId, filter.indexScope),
       ...(filter.excludeUserId ? [ne(intents.userId, filter.excludeUserId)] : []),
       isNull(intents.archivedAt),
+      isNull(schema.users.deletedAt),
       isNotNull(intents.embedding),
       sql`1 - (${intents.embedding} <=> ${vectorStr}::vector) >= ${minScore}`,
     ];
@@ -273,6 +276,7 @@ export class EmbedderAdapter {
       })
       .from(intents)
       .innerJoin(intentIndexes, eq(intents.id, intentIndexes.intentId))
+      .innerJoin(schema.users, eq(intents.userId, schema.users.id))
       .where(and(...conditions))
       .orderBy(sql`${intents.embedding} <=> ${vectorStr}::vector`)
       .limit(limit);
@@ -299,6 +303,7 @@ export class EmbedderAdapter {
     const conditions = [
       inArray(indexMembers.indexId, filter.indexScope),
       isNotNull(userProfiles.embedding),
+      isNull(schema.users.deletedAt),
       sql`1 - (${userProfiles.embedding} <=> ${vectorStr}::vector) >= ${minScore}`,
       ...(filter.excludeUserId ? [ne(userProfiles.userId, filter.excludeUserId)] : []),
     ];
@@ -311,6 +316,7 @@ export class EmbedderAdapter {
       })
       .from(userProfiles)
       .innerJoin(indexMembers, eq(userProfiles.userId, indexMembers.userId))
+      .innerJoin(schema.users, eq(userProfiles.userId, schema.users.id))
       .where(and(...conditions))
       .orderBy(userProfiles.userId, sql`${userProfiles.embedding} <=> ${vectorStr}::vector`, indexMembers.indexId)
       .as('deduped');
@@ -343,6 +349,7 @@ export class EmbedderAdapter {
     const conditions = [
       inArray(intentIndexes.indexId, filter.indexScope),
       isNull(intents.archivedAt),
+      isNull(schema.users.deletedAt),
       isNotNull(intents.embedding),
       sql`1 - (${intents.embedding} <=> ${vectorStr}::vector) >= ${minScore}`,
       ...(filter.excludeUserId ? [ne(intents.userId, filter.excludeUserId)] : []),
@@ -356,6 +363,7 @@ export class EmbedderAdapter {
       })
       .from(intents)
       .innerJoin(intentIndexes, eq(intents.id, intentIndexes.intentId))
+      .innerJoin(schema.users, eq(intents.userId, schema.users.id))
       .where(and(...conditions))
       .orderBy(sql`${intents.embedding} <=> ${vectorStr}::vector`)
       .limit(limit);
@@ -411,6 +419,7 @@ export class EmbedderAdapter {
       eq(hydeDocuments.sourceType, 'profile'),
       eq(hydeDocuments.targetCorpus, 'profiles'),
       isNotNull(hydeDocuments.hydeEmbedding),
+      isNull(schema.users.deletedAt),
       sql`1 - (${hydeDocuments.hydeEmbedding} <=> ${vectorStr}::vector) >= ${minScore}`,
     ];
 
@@ -427,6 +436,7 @@ export class EmbedderAdapter {
             .from(hydeDocuments)
             .innerJoin(indexMembers, eq(hydeDocuments.sourceId, indexMembers.userId))
             .innerJoin(userProfiles, eq(userProfiles.userId, hydeDocuments.sourceId))
+            .innerJoin(schema.users, eq(userProfiles.userId, schema.users.id))
             .where(and(...baseConditions, inArray(indexMembers.indexId, filter.indexScope as string[])))
             .orderBy(sql`${hydeDocuments.hydeEmbedding} <=> ${vectorStr}::vector`)
             .limit(limit)
@@ -440,6 +450,7 @@ export class EmbedderAdapter {
             })
             .from(hydeDocuments)
             .innerJoin(userProfiles, eq(userProfiles.userId, hydeDocuments.sourceId))
+            .innerJoin(schema.users, eq(userProfiles.userId, schema.users.id))
             .where(and(...baseConditions))
             .orderBy(sql`${hydeDocuments.hydeEmbedding} <=> ${vectorStr}::vector`)
             .limit(limit);
@@ -466,6 +477,7 @@ export class EmbedderAdapter {
 
     const baseConditions = [
       isNull(intents.archivedAt),
+      isNull(schema.users.deletedAt),
       sql`1 - (${intents.embedding} <=> ${vectorStr}::vector) >= ${minScore}`,
     ];
 
@@ -480,6 +492,7 @@ export class EmbedderAdapter {
         })
         .from(intents)
         .innerJoin(intentIndexes, eq(intents.id, intentIndexes.intentId))
+        .innerJoin(schema.users, eq(intents.userId, schema.users.id))
         .where(and(...baseConditions, inArray(intentIndexes.indexId, filter.indexScope as string[])))
         .orderBy(sql`${intents.embedding} <=> ${vectorStr}::vector`)
         .limit(limit);
@@ -504,6 +517,7 @@ export class EmbedderAdapter {
         similarity: sql<number>`1 - (${intents.embedding} <=> ${vectorStr}::vector)`,
       })
       .from(intents)
+      .innerJoin(schema.users, eq(intents.userId, schema.users.id))
       .where(and(...baseConditions))
       .orderBy(sql`${intents.embedding} <=> ${vectorStr}::vector`)
       .limit(limit);
