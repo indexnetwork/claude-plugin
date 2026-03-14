@@ -342,9 +342,14 @@ export class ChatSessionService {
    */
   async saveMessageMetadata(params: {
     messageId: string;
+    userId?: string;
     traceEvents?: unknown;
     debugMeta?: unknown;
   }): Promise<void> {
+    if (params.userId) {
+      const isOwner = await this.db.verifyMessageOwnership(params.messageId, params.userId);
+      if (!isOwner) throw new Error('Not authorized');
+    }
     const id = generateSnowflakeId();
     await this.db.upsertMessageMetadata({
       id,

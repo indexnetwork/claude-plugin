@@ -148,8 +148,6 @@ export function AIChatProvider({ children }: { children: React.ReactNode }) {
   const [isLoading, setIsLoading] = useState(false);
   const { refetchSessions } = useAIChatSessions();
   const abortControllerRef = useRef<AbortController | null>(null);
-  /** Tracks trace events accumulated during the current stream for non-blocking persistence. */
-  const streamTraceEventsRef = useRef<TraceEvent[]>([]);
   /** When true, sendMessage will only refetch sessions on X-Session-Id and not set sessionId (used when user navigated away during stream). */
   const skipSessionUpdateForRequestRef = useRef(false);
 
@@ -194,7 +192,8 @@ export function AIChatProvider({ children }: { children: React.ReactNode }) {
 
       setIsLoading(true);
       abortControllerRef.current = new AbortController();
-      streamTraceEventsRef.current = [];
+      /** Local trace buffer scoped to this sendMessage call — avoids cross-message corruption. */
+      const streamTraceEvents: TraceEvent[] = [];
 
       try {
         const bodyPayload: Record<string, unknown> = {
@@ -253,7 +252,7 @@ export function AIChatProvider({ children }: { children: React.ReactNode }) {
                       timestamp: Date.now(),
                       iteration: event.iteration,
                     };
-                    streamTraceEventsRef.current.push(iterTraceEvent);
+                    streamTraceEvents.push(iterTraceEvent);
                     setMessages((prev) =>
                       prev.map((msg) => {
                         if (msg.id !== assistantMessageId) return msg;
@@ -269,7 +268,7 @@ export function AIChatProvider({ children }: { children: React.ReactNode }) {
                       timestamp: Date.now(),
                       iteration: event.iteration,
                     };
-                    streamTraceEventsRef.current.push(llmStartEvent);
+                    streamTraceEvents.push(llmStartEvent);
                     setMessages((prev) =>
                       prev.map((msg) => {
                         if (msg.id !== assistantMessageId) return msg;
@@ -296,7 +295,7 @@ export function AIChatProvider({ children }: { children: React.ReactNode }) {
                       hasToolCalls: event.hasToolCalls,
                       toolNames: event.toolNames,
                     };
-                    streamTraceEventsRef.current.push(llmEndEvent);
+                    streamTraceEvents.push(llmEndEvent);
                     setMessages((prev) =>
                       prev.map((msg) => {
                         if (msg.id !== assistantMessageId) return msg;
@@ -323,7 +322,7 @@ export function AIChatProvider({ children }: { children: React.ReactNode }) {
                           summary: event.summary,
                           steps: event.steps,
                         };
-                    streamTraceEventsRef.current.push(toolTraceEvent);
+                    streamTraceEvents.push(toolTraceEvent);
                     setMessages((prev) =>
                       prev.map((msg) => {
                         if (msg.id !== assistantMessageId) return msg;
@@ -367,11 +366,11 @@ export function AIChatProvider({ children }: { children: React.ReactNode }) {
                       const serverMessageId = event.messageId as
                         | string
                         | undefined;
-                      if (serverMessageId && streamTraceEventsRef.current.length > 0) {
+                      if (serverMessageId && streamTraceEvents.length > 0) {
                         apiClient
                           .post(
                             `/chat/message/${serverMessageId}/metadata`,
-                            { traceEvents: streamTraceEventsRef.current },
+                            { traceEvents: streamTraceEvents },
                           )
                           .catch(() => {
                             // Non-critical — trace persistence failure shouldn't break the chat

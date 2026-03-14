@@ -1263,14 +1263,13 @@ export class OpportunityGraphFactory {
                 matchedVia: entity.matchedVia,
                 ragScore: entity.ragScore,
                 model: getModelName("opportunityEvaluator"),
-                intents: entity.intents?.map(i => ({ intentId: i.intentId, payload: i.payload, summary: i.summary })),
+                intents: entity.intents?.map((i: { intentId?: string; payload?: string; summary?: string }) => ({
+                  intentId: i.intentId,
+                  summary: (i.summary || i.payload || '').slice(0, 100),
+                })),
                 profile: entity.profile ? {
                   name: entity.profile.name,
-                  bio: entity.profile.bio,
                   location: entity.profile.location,
-                  interests: entity.profile.interests,
-                  skills: entity.profile.skills,
-                  context: entity.profile.context,
                 } : undefined,
               },
             });

@@ -647,12 +647,6 @@ export class ChatController {
       return Response.json({ error: "Message ID required" }, { status: 400 });
     }
 
-    // Verify the authenticated user owns the message
-    const isOwner = await chatSessionService.verifyMessageOwnership(messageId, user.id);
-    if (!isOwner) {
-      return Response.json({ error: "Message not found" }, { status: 404 });
-    }
-
     let body: { traceEvents?: unknown };
     try {
       body = (await req.json()) as { traceEvents?: unknown };
@@ -660,9 +654,11 @@ export class ChatController {
       return Response.json({ error: "Invalid request body" }, { status: 400 });
     }
 
-    if (!body.traceEvents) {
+    const traceEventsSchema = z.array(z.unknown()).max(2000);
+    const parsed = traceEventsSchema.safeParse(body.traceEvents);
+    if (!parsed.success) {
       return Response.json(
-        { error: "traceEvents required" },
+        { error: "Invalid traceEvents payload" },
         { status: 400 },
       );
     }
@@ -670,7 +666,8 @@ export class ChatController {
     try {
       await chatSessionService.saveMessageMetadata({
         messageId,
-        traceEvents: body.traceEvents,
+        userId: user.id,
+        traceEvents: parsed.data,
       });
       return Response.json({ success: true });
     } catch (error) {
