@@ -244,6 +244,7 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
             found: false,
             count: 0,
             message: result.message ?? "No more matching opportunities found in the remaining candidates.",
+            summary: "No more matches found",
             ...(result.pagination ? { pagination: result.pagination } : {}),
             debugSteps: allDebugSteps,
           });
@@ -294,6 +295,7 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
           found: true,
           count: displayedBlocks.length,
           message,
+          summary: `Found ${displayedBlocks.length} more match(es)`,
           ...(result.pagination ? { pagination: result.pagination } : {}),
           debugSteps: allDebugSteps,
         });
@@ -539,6 +541,7 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
           suggestedIntentDescription: result.suggestedIntentDescription,
           message:
             "No matching opportunities found. Call create_intent with the suggested description, then create_opportunities again.",
+          summary: "No matches found",
           ...(result.pagination ? { pagination: result.pagination } : {}),
           debugSteps: allDebugSteps,
         });
@@ -549,6 +552,7 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
           found: false,
           count: 0,
           message: result.message ?? "No matching opportunities found.",
+          summary: "No matches found",
           ...(result.pagination ? { pagination: result.pagination } : {}),
           debugSteps: allDebugSteps,
         });
@@ -566,6 +570,7 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
               forMention.map((c) => c.name + (c.status ? " (" + c.status + ")" : "")).join(", ") +
               ". View on your home page.",
           existingConnections: result.existingConnections,
+          summary: "No new matches (existing connections only)",
           debugSteps: allDebugSteps,
         });
       }
@@ -629,6 +634,7 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
         found: true,
         count: displayedBlocks.length,
         message,
+        summary: `Found ${displayedBlocks.length} match(es)`,
         ...(result.existingConnections?.length ? { existingConnections: result.existingConnections } : {}),
         ...(result.pagination ? { pagination: result.pagination } : {}),
         debugSteps: allDebugSteps,
