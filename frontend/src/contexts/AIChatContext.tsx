@@ -103,6 +103,32 @@ function getScopeIndexIdFromPathname(pathname: string | null): string | null {
   return match ? match[1] : null;
 }
 
+/**
+ * Merges tool step details from persisted debugMeta into trace events.
+ * When traceEvents are persisted without steps but debugMeta has them,
+ * this fills in the matching tool_end events so the UI can display steps on reload.
+ */
+function mergeDebugMetaIntoTraceEvents(
+  traceEvents: TraceEvent[] | undefined,
+  debugMeta: { tools?: Array<{ name: string; steps?: ToolCallStep[] }> } | undefined | null,
+): TraceEvent[] | undefined {
+  if (!traceEvents || !debugMeta?.tools?.length) return traceEvents;
+
+  const merged = [...traceEvents];
+  for (const toolDebug of debugMeta.tools) {
+    if (!toolDebug.steps?.length) continue;
+
+    // Find the matching tool_end event that doesn't already have steps
+    const toolEndIdx = merged.findIndex(
+      (e) => e.type === "tool_end" && e.name === toolDebug.name && !e.steps?.length,
+    );
+    if (toolEndIdx !== -1) {
+      merged[toolEndIdx] = { ...merged[toolEndIdx], steps: toolDebug.steps };
+    }
+  }
+  return merged;
+}
+
 export function AIChatProvider({ children }: { children: React.ReactNode }) {
   const { pathname } = useLocation();
   const [scopeIndexIdOverride, setScopeIndexIdOverride] = useState<
@@ -430,6 +456,8 @@ export function AIChatProvider({ children }: { children: React.ReactNode }) {
           role: string;
           content: string;
           createdAt: string;
+          traceEvents?: TraceEvent[];
+          debugMeta?: { tools?: Array<{ name: string; steps?: ToolCallStep[] }> } | null;
         }>;
       }>("/chat/session", { sessionId: id });
       setSessionId(data.session.id);
@@ -444,6 +472,7 @@ export function AIChatProvider({ children }: { children: React.ReactNode }) {
           content: m.content,
           timestamp: new Date(m.createdAt),
           isStreaming: false,
+          traceEvents: mergeDebugMetaIntoTraceEvents(m.traceEvents, m.debugMeta) ?? undefined,
         })),
       );
     } catch (err) {
