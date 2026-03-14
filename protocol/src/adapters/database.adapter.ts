@@ -2642,6 +2642,42 @@ export class ChatDatabaseAdapter {
   }
 
   /**
+   * Soft-delete a ghost user (opt-out from emails).
+   * Only deletes users where isGhost=true and not already deleted.
+   * @param userId - The ghost user's ID
+   * @returns true if user was soft-deleted, false if not found or not eligible
+   */
+  async softDeleteGhostUser(userId: string): Promise<boolean> {
+    const result = await db.update(schema.users)
+      .set({ deletedAt: new Date() })
+      .where(and(
+        eq(schema.users.id, userId),
+        eq(schema.users.isGhost, true),
+        isNull(schema.users.deletedAt)
+      ))
+      .returning({ id: schema.users.id });
+    return result.length > 0;
+  }
+
+  /**
+   * Get emails of soft-deleted ghost users from a list of emails.
+   * Used to prevent re-importing opted-out ghost contacts.
+   * @param emails - List of emails to check
+   * @returns Emails belonging to soft-deleted ghost users
+   */
+  async getSoftDeletedGhostEmails(emails: string[]): Promise<string[]> {
+    if (emails.length === 0) return [];
+    const results = await db.select({ email: schema.users.email })
+      .from(schema.users)
+      .where(and(
+        inArray(schema.users.email, emails),
+        eq(schema.users.isGhost, true),
+        isNotNull(schema.users.deletedAt),
+      ));
+    return results.map(r => r.email);
+  }
+
+  /**
    * Upsert a contact record (idempotent via unique constraint).
    * @param data - Contact data with ownerId, userId, and source
    */
