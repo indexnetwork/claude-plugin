@@ -93,6 +93,18 @@ Input:
   - ragScore, matchedVia (how they were found)
 - EXISTING OPPORTUNITIES: Context of matches already made (for deduplication).
 
+BEFORE SCORING — determine role satisfiability:
+
+Definitions:
+  SUBSTITUTIVE ROLE: The candidate can directly fill the open position in the discoverer's intent. The candidate IS the person/entity the discoverer is seeking. Example: discoverer seeks "co-founder" → candidate is an engineer willing to co-found.
+  COMPLEMENTARY ROLE: The candidate's contribution is defined relative to the seeker-sought relation from the outside — they fund, advise, recruit for, or enable the sought relationship rather than participating in it as the target. Example: discoverer seeks "co-founder" → candidate is a VC (funds the company, does not co-found it).
+
+Step 1 — Identify the open argument in each discoverer intent: what type of person or entity would satisfy the intent if found?
+Step 2 — For each candidate, ask: can this candidate directly fill that open argument position?
+  YES → substitutive role. Proceed to scoring.
+  NO → complementary role. Apply Rule 7 (score ≤ 30, return no opportunity).
+Step 3 — Contextual override: if the candidate's profile contains explicit evidence that they currently function in the substitutive role (e.g., a former investor who is now building full-time as a technical co-founder), re-evaluate Step 2 against their current role, not their categorical label.
+
 Match patterns to consider:
 1. Profile-to-profile: Complementary backgrounds (skills, interests, location).
 2. Profile-to-intents+profile: Someone's skills/background match another's stated goals (intents).
@@ -102,7 +114,13 @@ Match patterns to consider:
 Output:
 - A list of 0..N opportunities. Each opportunity has:
   - reasoning: Third-party analytical explanation (for other LLM agents). Mention entities by role. Do NOT use "you". Never leak private intents.
-  - score: 0-100. 90-100 = Must Meet, 70-89 = Should Meet, 50-69 = Worth Considering, <50 = weak match.
+  - score: 0-100.
+    - 90-100: Must Meet — candidate's PRIMARY role directly matches what the discoverer seeks.
+      Example: discoverer seeks "AI/ML co-founder" → candidate IS an AI/ML engineer who wants to co-found.
+    - 70-89: Should Meet — meaningful overlap on role type AND complementary intent.
+    - 50-69: Worth Considering — tangential overlap only.
+    - <30 (return empty): Complementary-role mismatch (candidate cannot fill the discoverer's open argument position), same-side match, or already acquainted.
+      Example: discoverer seeks "co-founder" → candidate is a VC investor. The investor's contribution is external to the co-founding relation; they cannot substitute into it. Score 0.
   - IMPORTANT: Include ALL reasonable matches with scores >= 30. Let the system filter by threshold.
   - actors: At least 2 actors per opportunity. Each actor has:
     - userId
@@ -121,7 +139,10 @@ Rules:
 4. Write reasoning from an objective observer's perspective; be specific about the "Why" for each side.
 5. When in introduction mode, each opportunity must have exactly two actors — the two people being introduced. The discoverer (introducer) is added by the system and must not be included in your actors list.
 6. ALREADY KNOW EACH OTHER: Do NOT suggest an opportunity if the entities clearly already know each other. Examples: co-founders of the same company, same team at the same organization, same employer, or any relationship that is obviously existing from their profiles (bio, context). When in doubt, if both profiles mention the same company/org/team in a way that implies they work together, return an empty list for that pair.
-7. SAME-SIDE MATCHING: Before scoring, check whether the DISCOVERER and CANDIDATE are both SEEKING the same thing. Look at both parties' intents for directionality:
+7. ROLE-SATISFIABILITY (evaluate before scoring): A candidate satisfies a discoverer's intent only if they can fill the SUBSTITUTIVE ROLE — the open argument position in the intent (the type of person the discoverer is seeking). A candidate in a COMPLEMENTARY ROLE (one that funds, advises, recruits for, or otherwise enables the sought relation from outside it) does not satisfy the intent, regardless of how closely associated their domain is.
+   COMPLEMENTARY-ROLE CAP: If the candidate occupies a complementary rather than substitutive role relative to the discoverer's intent, score ≤ 30. Return no opportunity.
+   CONTEXTUAL OVERRIDE: If the candidate's profile contains explicit evidence that they currently function in the substitutive role (not merely historically or tangentially), treat them as substitutive and score normally.
+8. SAME-SIDE MATCHING: Before scoring, check whether the DISCOVERER and CANDIDATE are both SEEKING the same thing. Look at both parties' intents for directionality:
    - SEEKING signals: "looking for", "seeking", "want to find", "need", "raising", "hiring"
    - OFFERING signals: "can offer", "expert in", "investing in", "mentoring", "available for"
    If both parties have SEEKING intents targeting the same resource (e.g., both seeking investors, both seeking co-founders, both seeking mentorship), this is NOT an opportunity — score <30. An opportunity requires one side to OFFER what the other SEEKS.
