@@ -39,6 +39,9 @@ const ONBOARDING_STEP_SUGGESTIONS: Record<string, Suggestion[]> = {
     { label: "No, let me fix that", type: "prompt", prefill: "No, let me fix that: " },
     { label: "Add more about my work", type: "direct", followupText: "Can you add more details about my work?" },
   ],
+  gmail: [
+    { label: "Skip for now", type: "direct", followupText: "Skip for now" },
+  ],
   communities: [
     { label: "Continue", type: "direct", followupText: "I'll skip joining networks for now, let's continue" },
   ],
@@ -523,6 +526,7 @@ export default function OnboardingPage() {
 
     if (userCount === 0) return "identity";
     if (content.includes("does that sound right") || content.includes("here's what i found")) return "profile";
+    if (content.includes("connect your google account") || content.includes("connect gmail")) return "gmail";
     if (content.includes("want to join") || content.includes("communities")) return "communities";
     if (content.includes("what are you open to") || content.includes("open to right now")) return "intent";
     return "identity";
