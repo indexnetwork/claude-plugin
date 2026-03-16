@@ -8,6 +8,7 @@ interface UserAvatarProps {
   avatar?: string | null;
   size: number;
   className?: string;
+  blur?: boolean;
 }
 
 function resolveAvatarSrc(avatar: string): string {
@@ -21,26 +22,28 @@ function resolveAvatarSrc(avatar: string): string {
   return apiUrl(`/api/storage/${cleanPath}`);
 }
 
-function BoringFallback({ id, name, size, className }: Omit<UserAvatarProps, 'avatar'>) {
+function BoringFallback({ id, name, size, className, blur }: Omit<UserAvatarProps, 'avatar'>) {
   return (
     <div
       className={`rounded-full overflow-hidden flex-shrink-0${className ? ` ${className}` : ''}`}
       style={{ width: size, height: size }}
     >
-      <Avatar
-        size={size}
-        name={id || name || 'default'}
-        variant="bauhaus"
-      />
+      <div className={blur ? 'blur-[3px]' : undefined}>
+        <Avatar
+          size={size}
+          name={id || name || 'default'}
+          variant="bauhaus"
+        />
+      </div>
     </div>
   );
 }
 
-export default function UserAvatar({ id, name, avatar, size, className }: UserAvatarProps) {
+export default function UserAvatar({ id, name, avatar, size, className, blur }: UserAvatarProps) {
   const [imgError, setImgError] = useState(false);
 
   if (!avatar || imgError) {
-    return <BoringFallback id={id} name={name} size={size} className={className} />;
+    return <BoringFallback id={id} name={name} size={size} className={className} blur={blur} />;
   }
 
   return (
@@ -54,7 +57,7 @@ export default function UserAvatar({ id, name, avatar, size, className }: UserAv
         width={size}
         height={size}
         loading="lazy"
-        className="w-full h-full object-cover"
+        className={`w-full h-full object-cover${blur ? ' blur-[3px]' : ''}`}
         onError={() => setImgError(true)}
       />
     </div>

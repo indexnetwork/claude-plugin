@@ -126,6 +126,7 @@ export class IndexService {
       name: m.name,
       email: m.email,
       avatar: m.avatar,
+      isGhost: m.isGhost ?? false,
       permissions: m.permissions,
       createdAt: m.joinedAt,
     }));

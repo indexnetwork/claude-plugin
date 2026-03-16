@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router";
 import { Bot, Check, CheckCircle2, Clock, X } from "lucide-react";
+import GhostBadge from "@/components/GhostBadge";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import UserAvatar from "@/components/UserAvatar";
@@ -283,12 +284,14 @@ export default function OpportunityCard({
             avatar={card.avatar || null}
             size={32}
             className="shrink-0"
+            blur={card.isGhost}
           />
           <div className="min-w-0">
-            <h4 className="font-bold text-gray-900 text-sm hover:underline">
+            <h4 className="font-bold text-gray-900 text-sm hover:underline flex items-center gap-1.5">
               {card.viewerRole === "introducer" && card.headline
                 ? card.headline
                 : card.name || "Someone"}
+              {card.isGhost && <GhostBadge />}
             </h4>
             <p className="text-[11px] text-[#3D3D3D]">
               {card.mutualIntentsLabel || "Potential connection"}
