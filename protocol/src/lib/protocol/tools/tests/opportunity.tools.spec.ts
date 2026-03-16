@@ -84,6 +84,61 @@ describe("buildMinimalOpportunityCard - IND-113", () => {
   });
 });
 
+describe('buildMinimalOpportunityCard - ghost user CTA (IND-161)', () => {
+  const baseOpp = {
+    id: 'opp-ghost',
+    status: 'latent',
+    interpretation: { reasoning: 'Strong match on AI interests.', confidence: 0.9 },
+    actors: [
+      { userId: 'viewer-1', role: 'party' },
+      { userId: 'ghost-user', role: 'party' },
+    ],
+    detection: { source: 'opportunity_graph' },
+  } as unknown as Opportunity;
+
+  it('uses "Invite to chat" as primaryActionLabel when counterpart is a ghost user', () => {
+    const card = buildMinimalOpportunityCard(
+      baseOpp, 'viewer-1', 'ghost-user', 'Ghost User', null,
+      undefined, null, undefined, undefined, true,
+    );
+    expect(card.primaryActionLabel).toBe('Invite to chat');
+    expect(card.isGhost).toBe(true);
+  });
+
+  it('uses "Start Chat" as primaryActionLabel when counterpart is not a ghost user', () => {
+    const card = buildMinimalOpportunityCard(
+      baseOpp, 'viewer-1', 'ghost-user', 'Real User', null,
+      undefined, null, undefined, undefined, false,
+    );
+    expect(card.primaryActionLabel).toBe('Start Chat');
+    expect(card.isGhost).toBe(false);
+  });
+
+  it('uses "Start Chat" as primaryActionLabel when isCounterpartGhost is not provided', () => {
+    const card = buildMinimalOpportunityCard(
+      baseOpp, 'viewer-1', 'ghost-user', 'Real User', null,
+    );
+    expect(card.primaryActionLabel).toBe('Start Chat');
+    expect(card.isGhost).toBe(false);
+  });
+
+  it('never uses "Invite to chat" when viewer is the introducer, even for ghost counterpart', () => {
+    const introOpp = {
+      ...baseOpp,
+      actors: [
+        { userId: 'introducer-1', role: 'introducer' },
+        { userId: 'ghost-user', role: 'party' },
+        { userId: 'other-party', role: 'party' },
+      ],
+    } as unknown as Opportunity;
+    const card = buildMinimalOpportunityCard(
+      introOpp, 'introducer-1', 'ghost-user', 'Ghost User', null,
+      undefined, null, undefined, undefined, true,
+    );
+    expect(card.primaryActionLabel).toBe('Introduce Them');
+  });
+});
+
 describe('buildMinimalOpportunityCard - introducer discovery (IND-140)', () => {
   const mockIntroducerOpp = {
     id: 'opp-intro-disc',

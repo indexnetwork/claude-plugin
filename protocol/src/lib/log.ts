@@ -278,6 +278,17 @@ function sanitizeForLogInternal(value: unknown): unknown {
     if (value.length > 0 && typeof value[0] === 'number') return `[redacted: ${value.length} values]`;
     return value.map(sanitizeForLogInternal);
   }
+  if (value instanceof Error) {
+    const out: Record<string, unknown> = {
+      message: value.message,
+      name: value.name,
+    };
+    // Capture any extra enumerable own properties (e.g. Drizzle/postgres driver fields: query, parameters, code, constraint)
+    for (const [k, v] of Object.entries(value as unknown as Record<string, unknown>)) {
+      if (!(k in out)) out[k] = sanitizeForLogInternal(v);
+    }
+    return out;
+  }
   if (typeof value === 'object' && value.constructor === Object) {
     const out: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
