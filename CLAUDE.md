@@ -393,6 +393,7 @@ The protocol uses OpenRouter as the LLM provider. Model settings per agent are c
 - `OPENROUTER_BASE_URL` - Optional (defaults to `https://openrouter.ai/api/v1`)
 - `CHAT_MODEL` - Override chat agent model (defaults to `google/gemini-3-pro-preview`)
 - `CHAT_REASONING_EFFORT` - Chat reasoning budget (`minimal|low|medium|high|xhigh`, defaults to `low`)
+- `RUN_OPPORTUNITY_EVAL_IN_PARALLEL` - Experimental: fire one LLM call per candidate in parallel instead of a single bundled call (default: `false`). ~2.5× faster at production minScore; validate on staging before enabling.
 
 ## Environment Setup
 
