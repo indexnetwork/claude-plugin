@@ -147,6 +147,9 @@ export function createAuth(deps: AuthDeps) {
         sameSite: "none",
         secure: true,
       },
+      database: {
+        generateId: () => crypto.randomUUID(),
+      },
     },
   });
 }
