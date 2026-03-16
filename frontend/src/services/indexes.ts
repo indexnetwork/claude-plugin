@@ -17,6 +17,7 @@ export interface Member {
   name: string;
   email: string;
   avatar?: string | null;
+  isGhost?: boolean;
   intro?: string | null;
   location?: string | null;
   socials?: {

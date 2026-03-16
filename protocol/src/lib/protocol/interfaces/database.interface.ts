@@ -244,6 +244,8 @@ export interface IndexMemberDetails {
   joinedAt: Date;
   /** Count of their intents in this index */
   intentCount: number;
+  /** Whether this user is a ghost (not yet onboarded) */
+  isGhost?: boolean;
 }
 
 /**

@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate, useParams } from "react-router";
 import { Loader2, MessageCircle } from "lucide-react";
+import GhostBadge from "@/components/GhostBadge";
 import { useAuthContext } from "@/contexts/AuthContext";
 import { useUsers, useIndexes } from "@/contexts/APIContext";
 import UserAvatar from "@/components/UserAvatar";
@@ -93,9 +94,12 @@ export default function UserProfilePage() {
 
           {/* Avatar, Name, Location, Socials */}
           <div className="flex items-center gap-4">
-            <UserAvatar id={profileData.id} name={profileData.name} avatar={profileData.avatar} size={80} />
+            <UserAvatar id={profileData.id} name={profileData.name} avatar={profileData.avatar} size={80} blur={profileData.isGhost} />
             <div className="flex-1">
-              <h1 className="font-ibm-plex-mono text-2xl font-bold text-black mb-1">{profileData.name}</h1>
+              <h1 className="font-ibm-plex-mono text-2xl font-bold text-black mb-1 flex items-center gap-2">
+                {profileData.name}
+                {profileData.isGhost && <GhostBadge />}
+              </h1>
               {profileData.location && (
                 <p className="text-sm text-gray-500 mb-3">{profileData.location}</p>
               )}
