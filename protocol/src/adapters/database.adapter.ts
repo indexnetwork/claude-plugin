@@ -4046,7 +4046,7 @@ export class UserDatabaseAdapter {
   /**
    * Find multiple users by IDs. Returns public profile fields only (same shape as single-user API).
    */
-  async findByIds(userIds: string[]): Promise<Array<Pick<typeof users.$inferSelect, 'id' | 'name' | 'intro' | 'avatar' | 'location' | 'socials' | 'createdAt' | 'updatedAt'>>> {
+  async findByIds(userIds: string[]): Promise<Array<Pick<typeof users.$inferSelect, 'id' | 'name' | 'intro' | 'avatar' | 'location' | 'socials' | 'isGhost' | 'createdAt' | 'updatedAt'>>> {
     if (userIds.length === 0) return [];
     const result = await db.select({
       id: users.id,
@@ -4055,6 +4055,7 @@ export class UserDatabaseAdapter {
       avatar: users.avatar,
       location: users.location,
       socials: users.socials,
+      isGhost: users.isGhost,
       createdAt: users.createdAt,
       updatedAt: users.updatedAt,
     })
