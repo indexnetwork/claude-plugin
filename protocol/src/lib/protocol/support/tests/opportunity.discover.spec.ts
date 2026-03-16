@@ -512,6 +512,94 @@ describe("opportunity.discover", () => {
       expect(deletedMatch).toBeUndefined();
     });
 
+    test("ghost counterpart gets 'Invite to chat' primaryActionLabel in minimalForChat path (IND-161)", async () => {
+      const ghostId = "ghost-user-1";
+      const mockGraph = {
+        invoke: async () => ({
+          opportunities: [
+            {
+              id: "opp-ghost",
+              actors: [
+                { indexId: "idx-1", userId: "u1", role: "patient" },
+                { indexId: "idx-1", userId: ghostId, role: "agent" },
+              ],
+              interpretation: { reasoning: "Great match.", confidence: 0.88 },
+              detection: { source: "opportunity_graph", createdBy: "agent", timestamp: new Date().toISOString() },
+              status: "latent",
+            },
+          ],
+        }),
+      };
+      const dbWithGhostUser = {
+        ...mockDatabase,
+        getProfile: async () => null,
+        getUser: async (userId: string) =>
+          userId === ghostId
+            ? { id: ghostId, name: "Ghost User", avatar: null, isGhost: true }
+            : userId === "u1"
+              ? { id: "u1", name: "Viewer", avatar: null, isGhost: false }
+              : null,
+      } as unknown as ChatGraphCompositeDatabase;
+
+      const result = await runDiscoverFromQuery({
+        opportunityGraph: mockGraph as any,
+        database: dbWithGhostUser,
+        userId: "u1",
+        query: "find connections",
+        indexScope: ["idx1"],
+        minimalForChat: true,
+      });
+
+      expect(result.found).toBe(true);
+      const card = result.opportunities![0];
+      expect(card.isGhost).toBe(true);
+      expect(card.homeCardPresentation?.primaryActionLabel).toBe("Invite to chat");
+    });
+
+    test("non-ghost counterpart keeps 'Start Chat' primaryActionLabel in minimalForChat path (IND-161)", async () => {
+      const onboardedId = "onboarded-user-1";
+      const mockGraph = {
+        invoke: async () => ({
+          opportunities: [
+            {
+              id: "opp-onboarded",
+              actors: [
+                { indexId: "idx-1", userId: "u1", role: "patient" },
+                { indexId: "idx-1", userId: onboardedId, role: "agent" },
+              ],
+              interpretation: { reasoning: "Good match.", confidence: 0.82 },
+              detection: { source: "opportunity_graph", createdBy: "agent", timestamp: new Date().toISOString() },
+              status: "latent",
+            },
+          ],
+        }),
+      };
+      const dbWithOnboardedUser = {
+        ...mockDatabase,
+        getProfile: async () => null,
+        getUser: async (userId: string) =>
+          userId === onboardedId
+            ? { id: onboardedId, name: "Onboarded User", avatar: null, isGhost: false }
+            : userId === "u1"
+              ? { id: "u1", name: "Viewer", avatar: null, isGhost: false }
+              : null,
+      } as unknown as ChatGraphCompositeDatabase;
+
+      const result = await runDiscoverFromQuery({
+        opportunityGraph: mockGraph as any,
+        database: dbWithOnboardedUser,
+        userId: "u1",
+        query: "find connections",
+        indexScope: ["idx1"],
+        minimalForChat: true,
+      });
+
+      expect(result.found).toBe(true);
+      const card = result.opportunities![0];
+      expect(card.isGhost).toBe(false);
+      expect(card.homeCardPresentation?.primaryActionLabel).toBe("Start Chat");
+    });
+
     test("returns createIntentSuggested and suggestedIntentDescription when graph returns create-intent signal", async () => {
       const mockGraph = {
         invoke: async () => ({
