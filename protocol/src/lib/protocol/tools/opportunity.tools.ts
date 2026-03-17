@@ -231,7 +231,9 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
 
       // ── Continuation mode ── (must take strict precedence — it's a pagination token)
       if (query.continueFrom) {
+        const _continueTraceEmitter = requestContext.getStore()?.traceEmitter;
         const _graphStart = Date.now();
+        _continueTraceEmitter?.({ type: "graph_start", name: "opportunity" });
         const result = await continueDiscovery({
           opportunityGraph: graphs.opportunity,
           database,
@@ -244,6 +246,7 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
           ...(context.sessionId ? { chatSessionId: context.sessionId } : {}),
         });
         const _graphMs = Date.now() - _graphStart;
+        _continueTraceEmitter?.({ type: "graph_end", name: "opportunity", durationMs: _graphMs });
 
         const allDebugSteps = [...(result.debugSteps ?? [])];
 
@@ -546,7 +549,9 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
         return error("You cannot discover introductions for yourself. Try regular discovery instead.");
       }
 
+      const _discoverTraceEmitter = requestContext.getStore()?.traceEmitter;
       const _discoverGraphStart = Date.now();
+      _discoverTraceEmitter?.({ type: "graph_start", name: "opportunity" });
       const result = await runDiscoverFromQuery({
         opportunityGraph: graphs.opportunity,
         database,
@@ -562,6 +567,7 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
         ...(context.sessionId ? { chatSessionId: context.sessionId } : {}),
       });
       const _discoverGraphMs = Date.now() - _discoverGraphStart;
+      _discoverTraceEmitter?.({ type: "graph_end", name: "opportunity", durationMs: _discoverGraphMs });
       const _discoverGraphTimings = [
         ..._scopeGraphTimings,
         { name: 'opportunity', durationMs: _discoverGraphMs, agents: [] },
