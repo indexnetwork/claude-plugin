@@ -2698,14 +2698,23 @@ export class ChatDatabaseAdapter {
       .limit(1);
     if (!settings) return false;
 
-    const result = await db.update(schema.users)
+    // Verify user is a ghost
+    const [user] = await db.select({ id: schema.users.id, isGhost: schema.users.isGhost })
+      .from(schema.users)
+      .where(eq(schema.users.id, settings.userId))
+      .limit(1);
+    if (!user || !user.isGhost) return false;
+
+    // Soft-delete all index_members rows where this ghost is a contact
+    const result = await db.update(schema.indexMembers)
       .set({ deletedAt: new Date() })
       .where(and(
-        eq(schema.users.id, settings.userId),
-        eq(schema.users.isGhost, true),
-        isNull(schema.users.deletedAt)
+        eq(schema.indexMembers.userId, settings.userId),
+        sql`'contact' = ANY(${schema.indexMembers.permissions})`,
+        isNull(schema.indexMembers.deletedAt),
       ))
-      .returning({ id: schema.users.id });
+      .returning({ indexId: schema.indexMembers.indexId });
+
     return result.length > 0;
   }
 
