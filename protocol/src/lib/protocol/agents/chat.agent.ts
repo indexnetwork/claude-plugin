@@ -47,11 +47,7 @@ export type AgentStreamEvent =
   | { type: "llm_start"; iteration: number }
   | { type: "text_chunk"; content: string }
   | { type: "llm_end"; iteration: number; hasToolCalls: boolean; toolNames?: string[] }
-  | {
-      type: "tool_activity";
-      phase: "start";
-      name: string;
-    }
+  | { type: "tool_activity"; phase: "start"; name: string }
   | {
       type: "tool_activity";
       phase: "end";
@@ -59,7 +55,11 @@ export type AgentStreamEvent =
       success: boolean;
       summary?: string;
       steps?: Array<{ step: string; detail?: string; data?: Record<string, unknown> }>;
-    };
+    }
+  | { type: "graph_start"; name: string }
+  | { type: "graph_end"; name: string; durationMs: number }
+  | { type: "agent_start"; name: string }
+  | { type: "agent_end"; name: string; durationMs: number; summary: string };
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // CONFIGURATION

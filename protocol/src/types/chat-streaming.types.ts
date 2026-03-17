@@ -28,7 +28,11 @@ export type ChatStreamEventType =
   // Internal response tracking events
   | "response_complete"
   // Debug meta (per-turn graph/tool usage for copy debug)
-  | "debug_meta";
+  | "debug_meta"
+  | "graph_start"
+  | "graph_end"
+  | "agent_start"
+  | "agent_end";
 
 /**
  * Base interface for all chat stream events.
@@ -340,6 +344,34 @@ export interface DebugMetaEvent extends ChatStreamEventBase {
   tools: DebugMetaToolCall[];
 }
 
+/** Graph start event — emitted when a LangGraph sub-graph begins inside a tool. */
+export interface GraphStartEvent extends ChatStreamEventBase {
+  type: "graph_start";
+  graphName: string;
+}
+
+/** Graph end event — emitted when a LangGraph sub-graph completes. */
+export interface GraphEndEvent extends ChatStreamEventBase {
+  type: "graph_end";
+  graphName: string;
+  durationMs: number;
+}
+
+/** Agent start event — emitted when an LLM agent begins inside a graph node. */
+export interface AgentStartEvent extends ChatStreamEventBase {
+  type: "agent_start";
+  agentName: string;
+}
+
+/** Agent end event — emitted when an LLM agent completes. */
+export interface AgentEndEvent extends ChatStreamEventBase {
+  type: "agent_end";
+  agentName: string;
+  durationMs: number;
+  /** Structured outcome summary, e.g. "5 of 12 passed" or "3 intents extracted". */
+  summary: string;
+}
+
 /**
  * Union type of all chat stream events.
  */
@@ -365,7 +397,12 @@ export type ChatStreamEvent =
   // Internal response tracking events
   | ResponseCompleteEvent
   // Debug meta
-  | DebugMetaEvent;
+  | DebugMetaEvent
+  // Trace hierarchy events
+  | GraphStartEvent
+  | GraphEndEvent
+  | AgentStartEvent
+  | AgentEndEvent;
 
 /**
  * Formats a chat stream event as an SSE message. If JSON.stringify throws (e.g. circular ref,
@@ -691,4 +728,25 @@ export function createDebugMetaEvent(
     iterations,
     tools,
   });
+}
+
+export function createGraphStartEvent(sessionId: string, graphName: string): GraphStartEvent {
+  return createStreamEvent<GraphStartEvent>("graph_start", sessionId, { graphName });
+}
+
+export function createGraphEndEvent(sessionId: string, graphName: string, durationMs: number): GraphEndEvent {
+  return createStreamEvent<GraphEndEvent>("graph_end", sessionId, { graphName, durationMs });
+}
+
+export function createAgentStartEvent(sessionId: string, agentName: string): AgentStartEvent {
+  return createStreamEvent<AgentStartEvent>("agent_start", sessionId, { agentName });
+}
+
+export function createAgentEndEvent(
+  sessionId: string,
+  agentName: string,
+  durationMs: number,
+  summary: string,
+): AgentEndEvent {
+  return createStreamEvent<AgentEndEvent>("agent_end", sessionId, { agentName, durationMs, summary });
 }
