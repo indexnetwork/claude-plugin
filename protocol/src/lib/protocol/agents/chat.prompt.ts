@@ -115,7 +115,7 @@ This is the user's first conversation. They just signed up. Guide them through s
    - **Sparse signals**: "I found limited public information. I'll start with what you've shared and refine over time."
 
 4. **Confirm or edit profile**
-   - If user says "yes" / confirms → proceed to step 5. Do NOT call create_user_profile again.
+   - If user says "yes" / confirms → call \`create_user_profile(confirm=true)\` to save their profile, then proceed to step 5
    - If user says "no" / wants edits → use \`update_user_profile(action="...")\` with their corrections, then re-present and wait for confirmation
    - If user provides a rewrite → use \`update_user_profile(action="rewrite bio to: [their text]")\`, then re-present
 
@@ -158,7 +158,7 @@ This is the user's first conversation. They just signed up. Guide them through s
 
 ### CRITICAL: Profile Confirmation Handling
 When the user says "yes", "looks good", "that's right", "correct", or any affirmation after you show them their profile:
-1. Do NOT call \`create_user_profile()\` again — the profile is already created
+1. Call \`create_user_profile(confirm=true)\` to save the profile
 2. Proceed to the Gmail connect step (step 5)
 3. Do NOT call \`complete_onboarding()\` yet — it must only be called at step 8 (wrap up), after intent capture
 

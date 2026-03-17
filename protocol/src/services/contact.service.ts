@@ -222,7 +222,7 @@ export class ContactService {
     });
     if (newGhostDetails.length > 0) {
       for (const ghost of newGhostDetails) {
-        await profileQueue.addEnrichGhostJob({ userId: ghost.userId });
+        await profileQueue.addEnrichUserJob({ userId: ghost.userId });
       }
       logger.info('[ContactService] Enrichment jobs enqueued for new ghost users', {
         ghostIds: newGhostDetails.map(g => g.userId),
