@@ -58,7 +58,7 @@ function createMockDb(opportunity: Opportunity | null) {
       Promise.resolve(opportunity ? { ...opportunity, status: "accepted" } : null)
     ),
     acceptSiblingOpportunities: mock(() => Promise.resolve()),
-    upsertContact: mock(() => Promise.resolve()),
+    upsertContactMembership: mock(() => Promise.resolve()),
   } as unknown as OpportunityControllerDatabase;
 }
 
@@ -67,7 +67,7 @@ function createMockDb(opportunity: Opportunity | null) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("OpportunityService.updateOpportunityStatus", () => {
-  it("calls upsertContact with counterpart when accepting a 2-actor opportunity", async () => {
+  it("calls upsertContactMembership with counterpart when accepting a 2-actor opportunity", async () => {
     const db = createMockDb(twoActorOpportunity);
     const service = new OpportunityService(db);
 
@@ -75,15 +75,11 @@ describe("OpportunityService.updateOpportunityStatus", () => {
 
     expect(result).not.toHaveProperty("error");
     expect((result as { counterpartUserId?: string }).counterpartUserId).toBe(USER_B);
-    expect(db.upsertContact).toHaveBeenCalledTimes(1);
-    expect(db.upsertContact).toHaveBeenCalledWith({
-      ownerId: USER_A,
-      userId: USER_B,
-      source: "manual",
-    });
+    expect(db.upsertContactMembership).toHaveBeenCalledTimes(1);
+    expect(db.upsertContactMembership).toHaveBeenCalledWith(USER_A, USER_B, { restore: true });
   });
 
-  it("calls upsertContact with non-introducer counterpart in 3-actor opportunity", async () => {
+  it("calls upsertContactMembership with non-introducer counterpart in 3-actor opportunity", async () => {
     const db = createMockDb(threeActorOpportunity);
     const service = new OpportunityService(db);
 
@@ -91,30 +87,26 @@ describe("OpportunityService.updateOpportunityStatus", () => {
 
     expect(result).not.toHaveProperty("error");
     expect((result as { counterpartUserId?: string }).counterpartUserId).toBe(USER_B);
-    expect(db.upsertContact).toHaveBeenCalledTimes(1);
-    expect(db.upsertContact).toHaveBeenCalledWith({
-      ownerId: USER_A,
-      userId: USER_B,
-      source: "manual",
-    });
+    expect(db.upsertContactMembership).toHaveBeenCalledTimes(1);
+    expect(db.upsertContactMembership).toHaveBeenCalledWith(USER_A, USER_B, { restore: true });
   });
 
-  it("does NOT call upsertContact when rejecting", async () => {
+  it("does NOT call upsertContactMembership when rejecting", async () => {
     const db = createMockDb(twoActorOpportunity);
     const service = new OpportunityService(db);
 
     await service.updateOpportunityStatus(OPP_ID, "rejected", USER_A);
 
-    expect(db.upsertContact).not.toHaveBeenCalled();
+    expect(db.upsertContactMembership).not.toHaveBeenCalled();
   });
 
-  it("does NOT call upsertContact when viewing", async () => {
+  it("does NOT call upsertContactMembership when viewing", async () => {
     const db = createMockDb(twoActorOpportunity);
     const service = new OpportunityService(db);
 
     await service.updateOpportunityStatus(OPP_ID, "viewed", USER_A);
 
-    expect(db.upsertContact).not.toHaveBeenCalled();
+    expect(db.upsertContactMembership).not.toHaveBeenCalled();
   });
 
   it("returns 404 when opportunity not found", async () => {
@@ -125,7 +117,7 @@ describe("OpportunityService.updateOpportunityStatus", () => {
 
     expect(result).toHaveProperty("error");
     expect((result as { status: number }).status).toBe(404);
-    expect(db.upsertContact).not.toHaveBeenCalled();
+    expect(db.upsertContactMembership).not.toHaveBeenCalled();
   });
 
   it("returns 403 when user is not an actor", async () => {
@@ -136,6 +128,6 @@ describe("OpportunityService.updateOpportunityStatus", () => {
 
     expect(result).toHaveProperty("error");
     expect((result as { status: number }).status).toBe(403);
-    expect(db.upsertContact).not.toHaveBeenCalled();
+    expect(db.upsertContactMembership).not.toHaveBeenCalled();
   });
 });

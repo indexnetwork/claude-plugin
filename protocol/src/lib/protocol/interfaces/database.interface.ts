@@ -1156,6 +1156,9 @@ export interface Database {
   /** Upsert a contact (idempotent; unique constraint on ownerId+userId). */
   upsertContact(data: { ownerId: string; userId: string; source: 'gmail' | 'google_calendar' | 'manual' }): Promise<void>;
 
+  /** Upsert a contact membership in the owner's personal index (index_members with permissions=['contact']). */
+  upsertContactMembership(ownerId: string, contactUserId: string, options?: { restore?: boolean }): Promise<void>;
+
   /** Get all contacts for a user with their user details. */
   getContacts(ownerId: string): Promise<Array<{
     id: string;
@@ -1669,7 +1672,7 @@ export type OpportunityControllerDatabase = Pick<
   | 'getIndexMemberships'
   | 'getProfile'
   | 'getActiveIntents'
-  | 'upsertContact'
+  | 'upsertContactMembership'
 >;
 
 /**
