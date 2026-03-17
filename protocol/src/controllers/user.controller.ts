@@ -1,7 +1,8 @@
-import { Controller, Get, UseGuards } from '../lib/router/router.decorators';
+import { Controller, Get, Post, UseGuards } from '../lib/router/router.decorators';
 import { AuthGuard } from '../guards/auth.guard';
 import type { AuthenticatedUser } from '../guards/auth.guard';
 import { userService } from '../services/user.service';
+import { contactService } from '../services/contact.service';
 import { log } from '../lib/log';
 
 const logger = log.controller.from('user');
@@ -37,6 +38,21 @@ export class UserController {
       updatedAt: row.updatedAt,
     }));
     return Response.json({ users });
+  }
+
+  /**
+   * POST /users/contacts — manually add a contact by email (creates ghost user if not registered).
+   */
+  @Post('/contacts')
+  @UseGuards(AuthGuard)
+  async addContact(req: Request, user: AuthenticatedUser) {
+    const body = await req.json().catch(() => ({})) as { email?: string; name?: string };
+    if (!body.email?.trim()) {
+      return Response.json({ error: 'email is required' }, { status: 400 });
+    }
+    logger.verbose('Add contact requested', { userId: user.id, email: body.email });
+    const result = await contactService.addContact(user.id, body.email.trim(), body.name?.trim());
+    return Response.json({ result });
   }
 
   @Get('/:userId')
