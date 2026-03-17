@@ -154,7 +154,7 @@ export class ProfileQueue {
       return;
     }
     try {
-      await this.invokeProfileGraph(userId);
+      await this.invokeProfileGraph(userId, 'write');
       this.logger.verbose('[ProfileHyde] Ensured profile HyDE for user', { userId });
     } catch (err) {
       this.logger.error('[ProfileHyde] Failed to ensure profile HyDE', { userId, error: err });
@@ -169,7 +169,7 @@ export class ProfileQueue {
       return;
     }
     try {
-      await this.invokeProfileGraph(userId);
+      await this.invokeProfileGraph(userId, 'generate');
       this.queueLogger.info('[EnrichUser] Profile enrichment completed', { userId });
     } catch (err) {
       this.queueLogger.error('[EnrichUser] Failed to enrich user', {
@@ -180,13 +180,13 @@ export class ProfileQueue {
     }
   }
 
-  private async invokeProfileGraph(userId: string) {
+  private async invokeProfileGraph(userId: string, operationMode: 'write' | 'generate') {
     const database = new ProfileDatabaseAdapter();
     const embedder = new EmbedderAdapter();
     const scraper = new ScraperAdapter();
     const factory = new ProfileGraphFactory(database, embedder, scraper);
     const graph = factory.createGraph();
-    return graph.invoke({ userId, operationMode: 'generate' });
+    return graph.invoke({ userId, operationMode });
   }
 }
 
