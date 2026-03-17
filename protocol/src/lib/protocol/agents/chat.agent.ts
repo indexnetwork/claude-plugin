@@ -41,6 +41,10 @@ export type StreamWriter = (data: unknown) => void;
  * - `text_chunk`      — a token (or group of tokens) of model text
  * - `llm_end`         — LLM finished generating (may have tool calls)
  * - `tool_activity`   — tool starts or finishes execution
+ * - `graph_start`     — a LangGraph sub-graph begins inside a tool
+ * - `graph_end`       — a LangGraph sub-graph completes
+ * - `agent_start`     — an LLM agent begins inside a graph node
+ * - `agent_end`       — an LLM agent completes
  */
 export type AgentStreamEvent =
   | { type: "iteration_start"; iteration: number }

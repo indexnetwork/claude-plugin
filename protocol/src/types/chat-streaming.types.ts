@@ -730,18 +730,34 @@ export function createDebugMetaEvent(
   });
 }
 
+// ════════════════════════════════════════════════════════════════════════════
+// TRACE HIERARCHY EVENT CREATORS
+// ════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Creates a graph start event emitted when a LangGraph sub-graph begins inside a tool.
+ */
 export function createGraphStartEvent(sessionId: string, graphName: string): GraphStartEvent {
   return createStreamEvent<GraphStartEvent>("graph_start", sessionId, { graphName });
 }
 
+/**
+ * Creates a graph end event emitted when a LangGraph sub-graph completes.
+ */
 export function createGraphEndEvent(sessionId: string, graphName: string, durationMs: number): GraphEndEvent {
   return createStreamEvent<GraphEndEvent>("graph_end", sessionId, { graphName, durationMs });
 }
 
+/**
+ * Creates an agent start event emitted when an LLM agent begins inside a graph node.
+ */
 export function createAgentStartEvent(sessionId: string, agentName: string): AgentStartEvent {
   return createStreamEvent<AgentStartEvent>("agent_start", sessionId, { agentName });
 }
 
+/**
+ * Creates an agent end event emitted when an LLM agent completes.
+ */
 export function createAgentEndEvent(
   sessionId: string,
   agentName: string,
