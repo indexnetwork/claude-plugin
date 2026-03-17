@@ -302,6 +302,7 @@ export const indexMembers = pgTable('index_members', {
   metadata: json('metadata').$type<Record<string, string | string[]>>(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  deletedAt: timestamp('deleted_at'),
 }, (table) => ({
   pk: primaryKey({ columns: [table.indexId, table.userId] }),
 }));

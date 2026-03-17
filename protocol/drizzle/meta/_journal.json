@@ -120,6 +120,13 @@
       "when": 1773497228139,
       "tag": "0016_create_chat_metadata_tables",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1773780467313,
+      "tag": "0017_add_index_members_deleted_at",
+      "breakpoints": true
     }
   ]
 }
