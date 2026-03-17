@@ -2666,12 +2666,16 @@ export class ChatDatabaseAdapter {
       return { id: result[0].id };
     }
 
-    // Real user already exists with this email — return their ID
+    // Real user already exists with this email — return their ID (exclude soft-deleted)
     const [existing] = await db
       .select({ id: schema.users.id })
       .from(schema.users)
-      .where(eq(schema.users.email, data.email))
+      .where(and(eq(schema.users.email, data.email), isNull(schema.users.deletedAt)))
       .limit(1);
+
+    if (!existing) {
+      throw new Error(`Cannot create ghost: email belongs to a deleted user (${data.email})`);
+    }
 
     return { id: existing.id };
   }
@@ -3009,6 +3013,7 @@ export class ChatDatabaseAdapter {
           eq(schema.indexMembers.indexId, personalIndexId),
           sql`'contact' = ANY(${schema.indexMembers.permissions})`,
           isNull(schema.indexMembers.deletedAt),
+          isNull(schema.users.deletedAt),
         )
       );
 
