@@ -8,6 +8,7 @@ import type { EmbeddingGenerator } from "../interfaces/embedder.interface";
 import type { IntentGraphQueue } from "../interfaces/queue.interface";
 import { protocolLogger } from "../support/protocol.logger";
 import { timed } from "../../performance";
+import { requestContext } from "../../request-context";
 
 const logger = protocolLogger("IntentGraphFactory");
 const MAX_PERMISSIBLE_ENTROPY = 0.75;
@@ -196,7 +197,9 @@ export class IntentGraphFactory {
         // Cast operationMode: 'read' and 'propose' map to 'create' for the inferrer
         // (inference node is never called in read mode; propose behaves like create for inference)
         const inferrerMode = (state.operationMode === 'read' || state.operationMode === 'propose') ? 'create' : state.operationMode;
+        const _traceEmitterInferrer = requestContext.getStore()?.traceEmitter;
         const inferrerStart = Date.now();
+        _traceEmitterInferrer?.({ type: "agent_start", name: "intent-inferrer" });
         const result = await inferrer.invoke(
           state.inputContent || null,
           state.userProfile,
@@ -207,6 +210,7 @@ export class IntentGraphFactory {
           }
         );
         agentTimingsAccum.push({ name: 'intent.inferrer', durationMs: Date.now() - inferrerStart });
+        _traceEmitterInferrer?.({ type: "agent_end", name: "intent-inferrer", durationMs: Date.now() - inferrerStart, summary: result.intents.length > 0 ? `Extracted ${result.intents.length} intent(s)` : "intent-inferrer completed" });
 
         logger.verbose("Inference complete", {
           inferredCount: result.intents.length,
@@ -257,9 +261,12 @@ export class IntentGraphFactory {
           intents.map(async (intent): Promise<VerifiedIntent | null> => {
             try {
               let description = intent.description;
+              const _traceEmitterVerifier = requestContext.getStore()?.traceEmitter;
               const verifierStart1 = Date.now();
+              _traceEmitterVerifier?.({ type: "agent_start", name: "intent-verifier" });
               let verdict = await verifier.invoke(description, state.userProfile);
               agentTimingsAccum.push({ name: 'intent.verifier', durationMs: Date.now() - verifierStart1 });
+              _traceEmitterVerifier?.({ type: "agent_end", name: "intent-verifier", durationMs: Date.now() - verifierStart1, summary: `Verified: ${verdict.classification}` });
 
               if (isVague(description, verdict.semantic_entropy, verdict.felicity_scores.clarity)) {
                 const enrichedDescription = enrichVagueIntentWithProfile(description, state.userProfile);
@@ -268,9 +275,12 @@ export class IntentGraphFactory {
                     before: description,
                     after: enrichedDescription,
                   });
+                  const _traceEmitterVerifier2 = requestContext.getStore()?.traceEmitter;
                   const verifierStart2 = Date.now();
+                  _traceEmitterVerifier2?.({ type: "agent_start", name: "intent-verifier" });
                   const enrichedVerdict = await verifier.invoke(enrichedDescription, state.userProfile);
                   agentTimingsAccum.push({ name: 'intent.verifier', durationMs: Date.now() - verifierStart2 });
+                  _traceEmitterVerifier2?.({ type: "agent_end", name: "intent-verifier", durationMs: Date.now() - verifierStart2, summary: `Verified (enriched): ${enrichedVerdict.classification}` });
                   const becameClear =
                     enrichedVerdict.semantic_entropy < verdict.semantic_entropy ||
                     enrichedVerdict.felicity_scores.clarity > verdict.felicity_scores.clarity;
@@ -433,9 +443,12 @@ export class IntentGraphFactory {
           operationMode: state.operationMode
         });
 
+        const _traceEmitterReconciler = requestContext.getStore()?.traceEmitter;
         const reconcilerStart = Date.now();
+        _traceEmitterReconciler?.({ type: "agent_start", name: "intent-reconciler" });
         const result = await reconciler.invoke(formattedCandidates, state.activeIntents);
         agentTimingsAccum.push({ name: 'intent.reconciler', durationMs: Date.now() - reconcilerStart });
+        _traceEmitterReconciler?.({ type: "agent_end", name: "intent-reconciler", durationMs: Date.now() - reconcilerStart, summary: `Reconciled ${result.actions.length} action(s)` });
 
         logger.verbose("Reconciliation complete", {
           actionCount: result.actions.length,

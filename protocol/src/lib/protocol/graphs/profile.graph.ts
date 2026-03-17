@@ -8,6 +8,7 @@ import { Scraper } from "../interfaces/scraper.interface";
 import { searchUser } from "../../../lib/parallel/parallel";
 import { protocolLogger } from "../support/protocol.logger";
 import { timed } from "../../performance";
+import { requestContext } from "../../request-context";
 
 const logger = protocolLogger("ProfileGraphFactory");
 
@@ -546,9 +547,12 @@ export class ProfileGraphFactory {
             logger.verbose("Merging with existing profile");
           }
 
+          const _traceEmitterProfileGen = requestContext.getStore()?.traceEmitter;
           const profileGeneratorStart = Date.now();
+          _traceEmitterProfileGen?.({ type: "agent_start", name: "profile-generator" });
           const result = await profileGenerator.invoke(inputWithContext);
           agentTimingsAccum.push({ name: 'profile.generator', durationMs: Date.now() - profileGeneratorStart });
+          _traceEmitterProfileGen?.({ type: "agent_end", name: "profile-generator", durationMs: Date.now() - profileGeneratorStart, summary: "profile-generator completed" });
 
           logger.verbose("✅ Profile generated successfully", {
             name: result.output.identity.name,
@@ -664,9 +668,12 @@ export class ProfileGraphFactory {
 
         try {
           const profileString = JSON.stringify(state.profile, null, 2);
+          const _traceEmitterHydeGen = requestContext.getStore()?.traceEmitter;
           const hydeGeneratorStart = Date.now();
+          _traceEmitterHydeGen?.({ type: "agent_start", name: "hyde-generator" });
           const result = await hydeGenerator.invoke(profileString);
           agentTimingsAccum.push({ name: 'hyde.generator', durationMs: Date.now() - hydeGeneratorStart });
+          _traceEmitterHydeGen?.({ type: "agent_end", name: "hyde-generator", durationMs: Date.now() - hydeGeneratorStart, summary: "hyde-generator completed" });
 
           logger.verbose("✅ HyDE generated successfully", {
             descriptionLength: result.textToEmbed.length

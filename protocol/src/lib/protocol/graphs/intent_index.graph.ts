@@ -4,6 +4,7 @@ import { IntentIndexer } from "../agents/intent.indexer";
 import type { IntentIndexGraphDatabase } from "../interfaces/database.interface";
 import { protocolLogger } from "../support/protocol.logger";
 import { timed } from "../../performance";
+import { requestContext } from "../../request-context";
 
 import {
   IntentIndexGraphState,
@@ -113,7 +114,9 @@ export class IntentIndexGraphFactory {
             ? `${intentForIndexing.sourceType}:${intentForIndexing.sourceId ?? ""}`
             : undefined;
 
+          const _traceEmitterIndexer = requestContext.getStore()?.traceEmitter;
           const _indexerStart = Date.now();
+          _traceEmitterIndexer?.({ type: "agent_start", name: "intent-indexer" });
           const result = await indexer.evaluate(
             intentForIndexing.payload,
             indexContext.indexPrompt,
@@ -122,6 +125,7 @@ export class IntentIndexGraphFactory {
           );
           const _indexerMs = Date.now() - _indexerStart;
           agentTimingsAccum.push({ name: 'intent.indexer', durationMs: _indexerMs });
+          _traceEmitterIndexer?.({ type: "agent_end", name: "intent-indexer", durationMs: _indexerMs, summary: result ? `Scored: index=${result.indexScore.toFixed(2)}, member=${result.memberScore.toFixed(2)}` : "intent-indexer completed" });
 
           if (!result) {
             return {

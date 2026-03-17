@@ -28,6 +28,7 @@ import { canUserSeeOpportunity, isActionableForViewer } from '../support/opportu
 import { resolveHomeSectionIcon, DEFAULT_HOME_SECTION_ICON } from '../support/lucide.icon-catalog';
 import { protocolLogger } from '../support/protocol.logger';
 import { timed } from '../../performance';
+import { requestContext } from '../../request-context';
 
 const logger = protocolLogger('HomeGraph');
 
@@ -405,9 +406,13 @@ export class HomeGraphFactory {
                 mutualIntentCount,
                 opportunityStatus: opportunity.status,
               };
+              const _traceEmitterPresenter = requestContext.getStore()?.traceEmitter;
               const presenterStart = Date.now();
+              _traceEmitterPresenter?.({ type: "agent_start", name: "opportunity-presenter" });
               const presentation = await presenter.presentHomeCard(homeInput);
-              agentTimingsAccum.push({ name: 'opportunity.presenter', durationMs: Date.now() - presenterStart });
+              const _presenterDuration = Date.now() - presenterStart;
+              agentTimingsAccum.push({ name: 'opportunity.presenter', durationMs: _presenterDuration });
+              _traceEmitterPresenter?.({ type: "agent_end", name: "opportunity-presenter", durationMs: _presenterDuration, summary: "opportunity-presenter completed" });
               let narratorChip: { name: string; text: string; avatar?: string | null; userId?: string } | undefined;
               // Only show a person as narrator when they are the introducer and not the display counterpart
               // (bad data can have same user as introducer and party, e.g. "Amina introduced you to Amina")
@@ -558,9 +563,13 @@ export class HomeGraphFactory {
               ? 'pending'
               : undefined,
         }));
+        const _traceEmitterCategorizer = requestContext.getStore()?.traceEmitter;
         const categorizerStart = Date.now();
+        _traceEmitterCategorizer?.({ type: "agent_start", name: "home-categorizer" });
         const { sections } = await categorizer.categorize(categorizerInput);
-        agentTimingsAccum.push({ name: 'home.categorizer', durationMs: Date.now() - categorizerStart });
+        const _categorizerDuration = Date.now() - categorizerStart;
+        agentTimingsAccum.push({ name: 'home.categorizer', durationMs: _categorizerDuration });
+        _traceEmitterCategorizer?.({ type: "agent_end", name: "home-categorizer", durationMs: _categorizerDuration, summary: `Categorized into ${sections.length} section(s)` });
         const proposals: HomeSectionProposal[] = sections.map((s) => ({
           ...s,
           itemIndices: s.itemIndices.filter((i) => i >= 0 && i < state.cards.length),

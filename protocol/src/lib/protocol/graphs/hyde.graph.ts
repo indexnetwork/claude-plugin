@@ -16,6 +16,7 @@ import type { HydeCache } from '../interfaces/cache.interface';
 import { HYDE_DEFAULT_CACHE_TTL } from '../agents/hyde.strategies';
 import { protocolLogger } from '../support/protocol.logger';
 import { timed } from '../../performance';
+import { requestContext } from '../../request-context';
 
 const logger = protocolLogger("HyDEGraphFactory");
 
@@ -66,13 +67,16 @@ export class HydeGraphFactory {
         const agentTimingsAccum: import('../../../types/chat-streaming.types').DebugMetaAgent[] = [];
 
         try {
+          const _traceEmitterLens = requestContext.getStore()?.traceEmitter;
           const inferrerStart = Date.now();
+          _traceEmitterLens?.({ type: "agent_start", name: "lens-inferrer" });
           const result = await self.inferrer.infer({
             sourceText,
             profileContext,
             maxLenses,
           });
           agentTimingsAccum.push({ name: 'lens.inferrer', durationMs: Date.now() - inferrerStart });
+          _traceEmitterLens?.({ type: "agent_end", name: "lens-inferrer", durationMs: Date.now() - inferrerStart, summary: result.lenses.length > 0 ? `Inferred ${result.lenses.length} lens(es)` : "lens-inferrer completed" });
 
           logger.verbose('Lenses inferred', {
             count: result.lenses.length,
@@ -164,13 +168,17 @@ export class HydeGraphFactory {
 
         await Promise.all(
           missing.map(async (lens) => {
+            const _traceEmitterHyde = requestContext.getStore()?.traceEmitter;
             const generatorStart = Date.now();
+            _traceEmitterHyde?.({ type: "agent_start", name: "hyde-generator" });
             const out = await self.generator.generate({
               sourceText,
               lens: lens.label,
               corpus: lens.corpus,
             });
-            agentTimingsAccum.push({ name: 'hyde.generator', durationMs: Date.now() - generatorStart });
+            const _hydeDuration = Date.now() - generatorStart;
+            agentTimingsAccum.push({ name: 'hyde.generator', durationMs: _hydeDuration });
+            _traceEmitterHyde?.({ type: "agent_end", name: "hyde-generator", durationMs: _hydeDuration, summary: "hyde-generator completed" });
             generated[lens.label] = {
               lens: lens.label,
               targetCorpus: lens.corpus,
