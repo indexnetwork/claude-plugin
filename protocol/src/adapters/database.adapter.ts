@@ -2393,14 +2393,18 @@ export class ChatDatabaseAdapter {
   async searchPersonalIndexMembers(userId: string, query: string, excludeIndexId?: string) {
     if (!query || query.trim().length === 0) return [];
 
-    // Find user's contacts from user_contacts table
+    // Find user's contacts from personal index (index_members with permissions=['contact'])
+    const personalIndexId = await getPersonalIndexId(userId);
+    if (!personalIndexId) return [];
+
     const contactUserIds = db
-      .select({ userId: schema.userContacts.userId })
-      .from(schema.userContacts)
+      .select({ userId: schema.indexMembers.userId })
+      .from(schema.indexMembers)
       .where(
         and(
-          eq(schema.userContacts.ownerId, userId),
-          isNull(schema.userContacts.deletedAt)
+          eq(schema.indexMembers.indexId, personalIndexId),
+          sql`'contact' = ANY(${schema.indexMembers.permissions})`,
+          isNull(schema.indexMembers.deletedAt)
         )
       );
 
@@ -2615,61 +2619,66 @@ export class ChatDatabaseAdapter {
   // ─────────────────────────────────────────────────────────────────────────────
 
   /**
-   * Get user IDs of all contacts owned by the given user.
-   * @param ownerId - The owner's user ID
-   * @returns Array of contact user IDs
-   */
-  async getContactUserIds(ownerId: string): Promise<string[]> {
-    const rows = await db
-      .select({ userId: schema.userContacts.userId })
-      .from(schema.userContacts)
-      .where(
-        and(
-          eq(schema.userContacts.ownerId, ownerId),
-          isNull(schema.userContacts.deletedAt)
-        )
-      );
-    return rows.map((r) => r.userId);
-  }
-
-  /**
    * Create a ghost user (unregistered contact) with empty profile.
+   * Uses the same ON CONFLICT DO UPDATE pattern as the auth adapter:
+   * - New email → inserts ghost row
+   * - Existing ghost → updates name, returns existing ghost ID
+   * - Existing real user → setWhere doesn't match, returns existing real user ID
+   *
+   * This ensures one consistent user-upsert mechanism across the codebase
+   * (auth adapter for real-user signup/ghost-claim, this method for ghost creation).
+   *
    * @param data - Name and email for the ghost user
-   * @returns The created ghost user's ID
+   * @returns The created ghost user's ID (or existing user's ID if email taken)
    */
   async createGhostUser(data: { name: string; email: string }): Promise<{ id: string }> {
     const id = crypto.randomUUID();
-    await db.insert(schema.users).values({
-      id,
-      name: data.name,
-      email: data.email,
-      isGhost: true,
-    });
+    const email = data.email.toLowerCase().trim();
 
-    // Create empty profile
-    await db.insert(schema.userProfiles).values({
-      userId: id,
-    });
-
-    return { id };
-  }
-
-  /**
-   * Soft-delete a ghost user (opt-out from emails).
-   * Only deletes users where isGhost=true and not already deleted.
-   * @param userId - The ghost user's ID
-   * @returns true if user was soft-deleted, false if not found or not eligible
-   */
-  async softDeleteGhostUser(userId: string): Promise<boolean> {
-    const result = await db.update(schema.users)
-      .set({ deletedAt: new Date() })
-      .where(and(
-        eq(schema.users.id, userId),
-        eq(schema.users.isGhost, true),
-        isNull(schema.users.deletedAt)
-      ))
+    // Same onConflictDoUpdate + setWhere pattern as AuthDatabaseAdapter.createDrizzleAdapter().
+    // If a ghost already exists with this email, update its name.
+    // If a real user exists, setWhere won't match → RETURNING is empty.
+    const result = await db
+      .insert(schema.users)
+      .values({
+        id,
+        name: data.name,
+        email,
+        isGhost: true,
+      })
+      .onConflictDoUpdate({
+        target: schema.users.email,
+        set: {
+          name: sql`EXCLUDED."name"`,
+          updatedAt: sql`now()`,
+        },
+        setWhere: sql`${schema.users.isGhost} = true`,
+      })
       .returning({ id: schema.users.id });
-    return result.length > 0;
+
+    if (result[0]) {
+      // New ghost created or existing ghost updated
+      if (result[0].id === id) {
+        // Truly new ghost — create empty profile
+        await db.insert(schema.userProfiles).values({
+          userId: id,
+        }).onConflictDoNothing();
+      }
+      return { id: result[0].id };
+    }
+
+    // Real user already exists with this email — return their ID (exclude soft-deleted)
+    const [existing] = await db
+      .select({ id: schema.users.id })
+      .from(schema.users)
+      .where(and(eq(schema.users.email, email), isNull(schema.users.deletedAt)))
+      .limit(1);
+
+    if (!existing) {
+      throw new Error(`Cannot create ghost: email belongs to a deleted user (${email})`);
+    }
+
+    return { id: existing.id };
   }
 
   /**
@@ -2686,14 +2695,23 @@ export class ChatDatabaseAdapter {
       .limit(1);
     if (!settings) return false;
 
-    const result = await db.update(schema.users)
+    // Verify user is a ghost
+    const [user] = await db.select({ id: schema.users.id, isGhost: schema.users.isGhost })
+      .from(schema.users)
+      .where(eq(schema.users.id, settings.userId))
+      .limit(1);
+    if (!user || !user.isGhost) return false;
+
+    // Soft-delete all index_members rows where this ghost is a contact
+    const result = await db.update(schema.indexMembers)
       .set({ deletedAt: new Date() })
       .where(and(
-        eq(schema.users.id, settings.userId),
-        eq(schema.users.isGhost, true),
-        isNull(schema.users.deletedAt)
+        eq(schema.indexMembers.userId, settings.userId),
+        sql`'contact' = ANY(${schema.indexMembers.permissions})`,
+        isNull(schema.indexMembers.deletedAt),
       ))
-      .returning({ id: schema.users.id });
+      .returning({ indexId: schema.indexMembers.indexId });
+
     return result.length > 0;
   }
 
@@ -2743,138 +2761,6 @@ export class ChatDatabaseAdapter {
     return results.map(r => r.email);
   }
 
-  /**
-   * Upsert a contact record (idempotent via unique constraint).
-   * @param data - Contact data with ownerId, userId, and source
-   */
-  async upsertContact(data: { ownerId: string; userId: string; source: 'gmail' | 'google_calendar' | 'manual' }): Promise<void> {
-    await db
-      .insert(schema.userContacts)
-      .values({
-        ownerId: data.ownerId,
-        userId: data.userId,
-        source: data.source,
-      })
-      .onConflictDoUpdate({
-        target: [schema.userContacts.ownerId, schema.userContacts.userId],
-        set: {
-          source: data.source,
-          importedAt: new Date(),
-          updatedAt: new Date(),
-          deletedAt: null, // reactivate if previously soft-deleted
-        },
-      });
-  }
-
-  /**
-   * Get all contacts for a user with their user details.
-   * @param ownerId - The owner's user ID
-   * @returns Array of contacts with user details
-   */
-  async getContacts(ownerId: string): Promise<Array<{
-    id: string;
-    userId: string;
-    source: string;
-    importedAt: Date;
-    user: { id: string; name: string; email: string; avatar: string | null; isGhost: boolean };
-  }>> {
-    const rows = await db
-      .select({
-        id: schema.userContacts.id,
-        userId: schema.userContacts.userId,
-        source: schema.userContacts.source,
-        importedAt: schema.userContacts.importedAt,
-        userName: schema.users.name,
-        userEmail: schema.users.email,
-        userAvatar: schema.users.avatar,
-        userIsGhost: schema.users.isGhost,
-      })
-      .from(schema.userContacts)
-      .innerJoin(schema.users, eq(schema.userContacts.userId, schema.users.id))
-      .where(
-        and(
-          eq(schema.userContacts.ownerId, ownerId),
-          isNull(schema.userContacts.deletedAt)
-        )
-      )
-      .orderBy(desc(schema.userContacts.importedAt));
-
-    return rows.map((row) => ({
-      id: row.id,
-      userId: row.userId,
-      source: row.source,
-      importedAt: row.importedAt,
-      user: {
-        id: row.userId,
-        name: row.userName,
-        email: row.userEmail,
-        avatar: row.userAvatar,
-        isGhost: row.userIsGhost,
-      },
-    }));
-  }
-
-  /**
-   * Soft-delete a contact.
-   * @param ownerId - The owner's user ID
-   * @param contactId - The contact record ID
-   */
-  async removeContact(ownerId: string, contactId: string): Promise<void> {
-    await db.transaction(async (tx) => {
-      // Look up the contact's userId before soft-deleting
-      const [contact] = await tx
-        .select({ userId: schema.userContacts.userId })
-        .from(schema.userContacts)
-        .where(
-          and(
-            eq(schema.userContacts.id, contactId),
-            eq(schema.userContacts.ownerId, ownerId),
-          )
-        );
-
-      // Soft-delete the contact
-      await tx
-        .update(schema.userContacts)
-        .set({ deletedAt: new Date() })
-        .where(
-          and(
-            eq(schema.userContacts.id, contactId),
-            eq(schema.userContacts.ownerId, ownerId)
-          )
-        );
-
-      // Clean up personal index membership and intent assignments
-      if (contact) {
-        const personalIndexId = await getPersonalIndexId(ownerId);
-        if (personalIndexId) {
-          await tx.delete(schema.indexMembers)
-            .where(
-              and(
-                eq(schema.indexMembers.indexId, personalIndexId),
-                eq(schema.indexMembers.userId, contact.userId),
-                sql`${schema.indexMembers.permissions} = ARRAY['contact']`,
-              )
-            );
-
-          // Remove contact's intents from the personal index
-          const contactIntentIds = await tx
-            .select({ id: schema.intents.id })
-            .from(schema.intents)
-            .where(eq(schema.intents.userId, contact.userId));
-
-          if (contactIntentIds.length > 0) {
-            await tx.delete(schema.intentIndexes)
-              .where(
-                and(
-                  eq(schema.intentIndexes.indexId, personalIndexId),
-                  inArray(schema.intentIndexes.intentId, contactIntentIds.map(i => i.id)),
-                )
-              );
-          }
-        }
-      }
-    });
-  }
 
   /**
    * Returns personal index IDs where the given user is a contact member.
@@ -2964,7 +2850,7 @@ export class ChatDatabaseAdapter {
     const usersToInsert = data.map(d => ({
       id: crypto.randomUUID(),
       name: d.name,
-      email: d.email,
+      email: d.email.toLowerCase().trim(),
       isGhost: true,
     }));
 
@@ -3004,159 +2890,144 @@ export class ChatDatabaseAdapter {
     return results;
   }
 
+
   /**
-   * Bulk upsert contact records.
-   * @param data - Array of contact records
+   * Upsert a contact membership in the owner's personal index.
+   * Inserts an index_members row with permissions=['contact'].
+   * @param ownerId - The owner of the personal index
+   * @param contactUserId - The user to add as a contact member
+   * @param options - If restore=true, reactivates soft-deleted rows via onConflictDoUpdate(deletedAt=null).
+   *                  If restore=false (default), skips soft-deleted rows and uses onConflictDoNothing for active ones.
    */
-  async upsertContactsBulk(data: Array<{ ownerId: string; userId: string; source: 'gmail' | 'google_calendar' | 'manual' }>): Promise<void> {
-    if (data.length === 0) return;
+  async upsertContactMembership(
+    ownerId: string,
+    contactUserId: string,
+    options: { restore?: boolean } = {}
+  ): Promise<void> {
+    const personalIndexId = await ensurePersonalIndex(ownerId);
 
-    const values = data.map(d => ({
-      ownerId: d.ownerId,
-      userId: d.userId,
-      source: d.source,
-    }));
+    if (options.restore) {
+      await db
+        .insert(schema.indexMembers)
+        .values({
+          indexId: personalIndexId,
+          userId: contactUserId,
+          permissions: ['contact'],
+          autoAssign: false,
+        })
+        .onConflictDoUpdate({
+          target: [schema.indexMembers.indexId, schema.indexMembers.userId],
+          set: { deletedAt: null, updatedAt: new Date() },
+        });
+    } else {
+      // Check for soft-deleted row first — skip if found (opt-out respected)
+      const [existing] = await db
+        .select({ deletedAt: schema.indexMembers.deletedAt })
+        .from(schema.indexMembers)
+        .where(
+          and(
+            eq(schema.indexMembers.indexId, personalIndexId),
+            eq(schema.indexMembers.userId, contactUserId),
+            sql`'contact' = ANY(${schema.indexMembers.permissions})`,
+          )
+        )
+        .limit(1);
 
-    await db
-      .insert(schema.userContacts)
-      .values(values)
-      .onConflictDoUpdate({
-        target: [schema.userContacts.ownerId, schema.userContacts.userId],
-        set: {
-          source: sql`excluded.source`,
-          importedAt: new Date(),
-          updatedAt: new Date(),
-          deletedAt: null,
-        },
-      });
+      if (existing?.deletedAt) return; // soft-deleted — do not restore
+
+      await db
+        .insert(schema.indexMembers)
+        .values({
+          indexId: personalIndexId,
+          userId: contactUserId,
+          permissions: ['contact'],
+          autoAssign: false,
+        })
+        .onConflictDoNothing();
+    }
   }
 
   /**
-   * Atomically create ghost users and upsert all contacts in a single transaction.
-   * Ghost users are created first, then all contacts (both existing-user and ghost-user)
-   * are upserted together, ensuring the write path is atomic.
-   *
-   * @param ownerId - The user importing contacts
-   * @param ghosts - Array of ghost user data to create
-   * @param validContacts - All validated contacts with resolved emails
-   * @param existingByEmail - Map of already-existing users by email
-   * @param source - Contact source type
-   * @returns Object containing the newly created ghost users
+   * Hard-delete a contact membership from the owner's personal index.
+   * @param ownerId - The owner of the personal index
+   * @param contactUserId - The contact user to remove
    */
-  async importContactsBulk(
-    ownerId: string,
-    ghosts: Array<{ name: string; email: string }>,
-    validContacts: Array<{ name: string; email: string }>,
-    existingByEmail: Map<string, { id: string; email: string; name: string; isGhost: boolean }>,
-    source: 'gmail' | 'google_calendar' | 'manual'
-  ): Promise<{ newGhosts: Array<{ id: string; name: string; email: string }>; newContacts: number }> {
-    return await db.transaction(async (tx) => {
-      // Create ghost users
-      const newGhosts: Array<{ id: string; name: string; email: string }> = [];
-      if (ghosts.length > 0) {
-        const usersToInsert = ghosts.map(d => ({
-          id: crypto.randomUUID(),
-          name: d.name,
-          email: d.email,
-          isGhost: true,
-        }));
+  async hardDeleteContactMembership(ownerId: string, contactUserId: string): Promise<void> {
+    const personalIndexId = await getPersonalIndexId(ownerId);
+    if (!personalIndexId) return;
 
-        await tx.insert(schema.users).values(usersToInsert).onConflictDoNothing();
+    await db.delete(schema.indexMembers)
+      .where(
+        and(
+          eq(schema.indexMembers.indexId, personalIndexId),
+          eq(schema.indexMembers.userId, contactUserId),
+          sql`'contact' = ANY(${schema.indexMembers.permissions})`,
+        )
+      );
+  }
 
-        const insertedEmails = new Set(usersToInsert.map(u => u.email));
-        const existingAfterInsert = await tx
-          .select({ id: schema.users.id, email: schema.users.email })
-          .from(schema.users)
-          .where(inArray(schema.users.email, [...insertedEmails]));
+  /**
+   * Clear a soft-deleted contact membership that the other user has for this owner.
+   * This removes the "reverse opt-out" so the other user's personal index no longer blocks the owner.
+   * @param ownerId - The user being added as a contact
+   * @param otherUserId - The other user whose personal index may have a soft-deleted row for ownerId
+   */
+  async clearReverseOptOut(ownerId: string, otherUserId: string): Promise<void> {
+    const otherPersonalIndexId = await getPersonalIndexId(otherUserId);
+    if (!otherPersonalIndexId) return;
 
-        const emailToId = new Map(existingAfterInsert.map(u => [u.email, u.id]));
-        const actuallyCreatedIds = new Set(
-          usersToInsert
-            .filter(u => emailToId.get(u.email) === u.id)
-            .map(u => u.id)
-        );
+    await db.delete(schema.indexMembers)
+      .where(
+        and(
+          eq(schema.indexMembers.indexId, otherPersonalIndexId),
+          eq(schema.indexMembers.userId, ownerId),
+          sql`'contact' = ANY(${schema.indexMembers.permissions})`,
+          isNotNull(schema.indexMembers.deletedAt),
+        )
+      );
+  }
 
-        if (actuallyCreatedIds.size > 0) {
-          const profilesToInsert = usersToInsert
-            .filter(u => actuallyCreatedIds.has(u.id))
-            .map(u => ({ userId: u.id }));
-          await tx.insert(schema.userProfiles).values(profilesToInsert);
-        }
+  /**
+   * Get all contact members from the owner's personal index.
+   * @param ownerId - The owner of the personal index
+   * @returns Array of contact members with user details
+   */
+  async getContactMembers(ownerId: string): Promise<Array<{
+    userId: string;
+    user: { id: string; name: string; email: string; avatar: string | null; isGhost: boolean };
+  }>> {
+    const personalIndexId = await getPersonalIndexId(ownerId);
+    if (!personalIndexId) return [];
 
-        for (const u of usersToInsert) {
-          const actualId = emailToId.get(u.email);
-          if (actualId) {
-            newGhosts.push({ id: actualId, name: u.name, email: u.email });
-            // Add ghosts to the lookup map so contacts can be resolved below
-            existingByEmail.set(u.email.toLowerCase(), { id: actualId, email: u.email, name: u.name, isGhost: true });
-          }
-        }
-      }
+    const rows = await db
+      .select({
+        userId: schema.indexMembers.userId,
+        userName: schema.users.name,
+        userEmail: schema.users.email,
+        userAvatar: schema.users.avatar,
+        userIsGhost: schema.users.isGhost,
+      })
+      .from(schema.indexMembers)
+      .innerJoin(schema.users, eq(schema.indexMembers.userId, schema.users.id))
+      .where(
+        and(
+          eq(schema.indexMembers.indexId, personalIndexId),
+          sql`'contact' = ANY(${schema.indexMembers.permissions})`,
+          isNull(schema.indexMembers.deletedAt),
+          isNull(schema.users.deletedAt),
+        )
+      );
 
-      // Upsert all contacts (existing users + newly created ghosts)
-      const contactsToUpsert: Array<{ ownerId: string; userId: string; source: typeof source }> = [];
-      for (const contact of validContacts) {
-        const user = existingByEmail.get(contact.email.toLowerCase());
-        if (user) {
-          contactsToUpsert.push({ ownerId, userId: user.id, source });
-        }
-      }
-
-      let newContacts = 0;
-      if (contactsToUpsert.length > 0) {
-        // Check which contacts already exist in the network
-        const userIds = contactsToUpsert.map(c => c.userId);
-        const existingContacts = await tx
-          .select({ userId: schema.userContacts.userId })
-          .from(schema.userContacts)
-          .where(
-            and(
-              eq(schema.userContacts.ownerId, ownerId),
-              isNull(schema.userContacts.deletedAt),
-              inArray(schema.userContacts.userId, userIds)
-            )
-          );
-        const existingUserIds = new Set(existingContacts.map(c => c.userId));
-        newContacts = contactsToUpsert.filter(c => !existingUserIds.has(c.userId)).length;
-
-        await tx
-          .insert(schema.userContacts)
-          .values(contactsToUpsert)
-          .onConflictDoUpdate({
-            target: [schema.userContacts.ownerId, schema.userContacts.userId],
-            set: {
-              source: sql`excluded.source`,
-              importedAt: new Date(),
-              updatedAt: new Date(),
-              deletedAt: null,
-            },
-          });
-
-        // Sync new contacts to the owner's personal index
-        const newContactUserIds = contactsToUpsert
-          .filter(c => !existingUserIds.has(c.userId))
-          .map(c => c.userId);
-
-        if (newContactUserIds.length > 0) {
-          const personalIndexId = await getPersonalIndexId(ownerId);
-          if (personalIndexId) {
-            // Add new contacts as members of the personal index
-            const contactMemberValues = newContactUserIds.map(userId => ({
-              indexId: personalIndexId,
-              userId,
-              permissions: ['contact'] as string[],
-              autoAssign: false,
-            }));
-            await tx.insert(schema.indexMembers)
-              .values(contactMemberValues)
-              .onConflictDoNothing();
-
-          }
-        }
-      }
-
-      return { newGhosts, newContacts };
-    });
+    return rows.map((row) => ({
+      userId: row.userId,
+      user: {
+        id: row.userId,
+        name: row.userName,
+        email: row.userEmail,
+        avatar: row.userAvatar,
+        isGhost: row.userIsGhost,
+      },
+    }));
   }
 
 }

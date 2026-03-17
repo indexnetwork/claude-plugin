@@ -1,0 +1,206 @@
+/**
+ * Integration tests for AuthDatabaseAdapter ghost-claim upsert.
+ * Requires DATABASE_URL and migrated schema.
+ * Run: bun test src/adapters/tests/auth.adapter.spec.ts
+ */
+/** Config */
+import { config } from "dotenv";
+config({ path: '.env.test' });
+
+import { describe, it, expect, afterAll } from 'bun:test';
+import { eq } from 'drizzle-orm';
+
+import db from '../../lib/drizzle/drizzle';
+import * as schema from '../../schemas/database.schema';
+import { AuthDatabaseAdapter } from '../auth.adapter';
+
+describe('AuthDatabaseAdapter', () => {
+  const adapter = new AuthDatabaseAdapter();
+  const testIds: string[] = [];
+  const cleanupIndexIds: string[] = [];
+
+  afterAll(async () => {
+    // Clean up index members and indexes first (FK constraints)
+    for (const indexId of cleanupIndexIds) {
+      await db.delete(schema.indexMembers).where(eq(schema.indexMembers.indexId, indexId)).catch(() => {});
+      await db.delete(schema.indexes).where(eq(schema.indexes.id, indexId)).catch(() => {});
+    }
+    for (const id of testIds) {
+      await db.delete(schema.users).where(eq(schema.users.id, id)).catch(() => {});
+    }
+  });
+
+  describe('ghost claim via adapter upsert', () => {
+    it('should create a normal user when no ghost exists', async () => {
+      const userId = crypto.randomUUID();
+      testIds.push(userId);
+      const email = `normal-${userId}@test.com`;
+
+      const adapterFactory = adapter.createDrizzleAdapter();
+      const adapterInstance = (adapterFactory as Function)({});
+
+      const result = await adapterInstance.create({
+        model: 'user',
+        data: {
+          id: userId,
+          name: 'Normal User',
+          email,
+          isGhost: false,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      });
+
+      expect(result.id).toBe(userId);
+      expect(result.email).toBe(email);
+      expect(result.isGhost).toBe(false);
+    });
+
+    it('should convert ghost to real user on email conflict', async () => {
+      const ghostId = crypto.randomUUID();
+      testIds.push(ghostId);
+      const email = `claim-${ghostId}@test.com`;
+
+      // Create ghost directly in DB
+      await db.insert(schema.users).values({
+        id: ghostId,
+        name: 'Ghost Before',
+        email,
+        isGhost: true,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+
+      // Simulate Better Auth signup with same email
+      const adapterFactory = adapter.createDrizzleAdapter();
+      const adapterInstance = (adapterFactory as Function)({});
+
+      const newId = crypto.randomUUID();
+      const result = await adapterInstance.create({
+        model: 'user',
+        data: {
+          id: newId,
+          name: 'Real User',
+          email,
+          isGhost: false,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      });
+
+      // Should return the ghost's original ID, not the new one
+      expect(result.id).toBe(ghostId);
+      expect(result.isGhost).toBe(false);
+      expect(result.name).toBe('Real User');
+
+      // New ID should NOT exist as a separate row
+      const rows = await db.select().from(schema.users).where(eq(schema.users.id, newId));
+      expect(rows.length).toBe(0);
+    });
+
+    it('should throw on email conflict with real (non-ghost) user', async () => {
+      const realId = crypto.randomUUID();
+      testIds.push(realId);
+      const email = `real-${realId}@test.com`;
+
+      await db.insert(schema.users).values({
+        id: realId,
+        name: 'Real Existing',
+        email,
+        isGhost: false,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+
+      const adapterFactory = adapter.createDrizzleAdapter();
+      const adapterInstance = (adapterFactory as Function)({});
+
+      const newId = crypto.randomUUID();
+
+      // Should throw — conflict with non-ghost user triggers explicit error
+      await expect(
+        adapterInstance.create({
+          model: 'user',
+          data: {
+            id: newId,
+            name: 'Duplicate',
+            email,
+            isGhost: false,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          },
+        })
+      ).rejects.toThrow('User with this email already exists');
+
+      // Original user should be unchanged
+      const [user] = await db.select().from(schema.users).where(eq(schema.users.id, realId));
+      expect(user.name).toBe('Real Existing');
+    });
+
+    it('should pass through non-user model creates to base adapter', async () => {
+      // Verify the adapter preserves all base methods for non-user models
+      const adapterFactory = adapter.createDrizzleAdapter();
+      const adapterInstance = (adapterFactory as Function)({});
+
+      expect(typeof adapterInstance.create).toBe('function');
+      expect(typeof adapterInstance.findOne).toBe('function');
+      expect(typeof adapterInstance.update).toBe('function');
+    });
+
+    it('should preserve existing ghost data after claim', async () => {
+      const ghostId = crypto.randomUUID();
+      testIds.push(ghostId);
+      const email = `preserve-${ghostId}@test.com`;
+
+      // Create ghost with profile data
+      await db.insert(schema.users).values({
+        id: ghostId,
+        name: 'Ghost Original',
+        email,
+        isGhost: true,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+
+      // Create some related data for the ghost (index membership)
+      const indexId = crypto.randomUUID();
+      cleanupIndexIds.push(indexId);
+      await db.insert(schema.indexes).values({
+        id: indexId,
+        title: 'Test Index',
+        isPersonal: false,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+      await db.insert(schema.indexMembers).values({
+        indexId,
+        userId: ghostId,
+        permissions: ['contact'],
+      });
+
+      // Claim via adapter upsert
+      const adapterFactory = adapter.createDrizzleAdapter();
+      const adapterInstance = (adapterFactory as Function)({});
+
+      const result = await adapterInstance.create({
+        model: 'user',
+        data: {
+          id: crypto.randomUUID(),
+          name: 'Real Claimed',
+          email,
+          isGhost: false,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      });
+
+      expect(result.id).toBe(ghostId);
+
+      // Verify index membership still references ghost's original ID
+      const [member] = await db.select()
+        .from(schema.indexMembers)
+        .where(eq(schema.indexMembers.userId, ghostId));
+      expect(member).toBeDefined();
+    });
+  });
+});

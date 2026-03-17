@@ -178,7 +178,7 @@ export class HydeGraphFactory {
             });
             const _hydeDuration = Date.now() - generatorStart;
             agentTimingsAccum.push({ name: 'hyde.generator', durationMs: _hydeDuration });
-            _traceEmitterHyde?.({ type: "agent_end", name: "hyde-generator", durationMs: _hydeDuration, summary: "hyde-generator completed" });
+            _traceEmitterHyde?.({ type: "agent_end", name: "hyde-generator", durationMs: _hydeDuration, summary: `Generated: ${lens.label}` });
             generated[lens.label] = {
               lens: lens.label,
               targetCorpus: lens.corpus,

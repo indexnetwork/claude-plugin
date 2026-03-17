@@ -1134,17 +1134,20 @@ export class OpportunityGraphFactory {
                 const _evalStart = Date.now();
                 const _traceEmitter = requestContext.getStore()?.traceEmitter;
                 _traceEmitter?.({ type: "agent_start", name: "opportunity-evaluator" });
+                const _candidateName = candidateEntity.profile?.name ?? "Unknown";
                 return evaluator.invokeEntityBundle(input, { minScore, returnAll: true })
                   .then((res) => {
                     const _evalDuration = Date.now() - _evalStart;
                     agentTimingsAccum.push({ name: 'opportunity.evaluator', durationMs: _evalDuration });
-                    _traceEmitter?.({ type: "agent_end", name: "opportunity-evaluator", durationMs: _evalDuration, summary: `Evaluated 1 candidate` });
+                    const _topScore = res.length > 0 ? Math.max(...res.map(r => r.score)) : -1;
+                    const _summary = _topScore < 0 ? `${_candidateName}: no match` : `${_candidateName}: ${_topScore}`;
+                    _traceEmitter?.({ type: "agent_end", name: "opportunity-evaluator", durationMs: _evalDuration, summary: _summary });
                     return res;
                   })
                   .catch((err) => {
                     const _evalDuration = Date.now() - _evalStart;
                     agentTimingsAccum.push({ name: 'opportunity.evaluator', durationMs: _evalDuration });
-                    _traceEmitter?.({ type: "agent_end", name: "opportunity-evaluator", durationMs: _evalDuration, summary: "opportunity-evaluator completed" });
+                    _traceEmitter?.({ type: "agent_end", name: "opportunity-evaluator", durationMs: _evalDuration, summary: `${_candidateName}: error` });
                     logger.warn('[Graph:Evaluation] Parallel eval failed for candidate', {
                       candidateUserId: candidateEntity.userId,
                       error: err,
