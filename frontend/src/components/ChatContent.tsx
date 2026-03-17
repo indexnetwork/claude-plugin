@@ -618,6 +618,7 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
       navigatingToHomeRef.current = true;
       // Don't abort in-flight stream so the new session can finish and appear in the sidebar
       clearChat({ abortStream: false });
+      setSelectedIndexIds([]);
       setSessionLoaded(true);
     }
   }, [sessionIdFromUrl, loadSession, clearChat]);
