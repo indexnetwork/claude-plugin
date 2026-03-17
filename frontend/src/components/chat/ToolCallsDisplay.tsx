@@ -389,8 +389,13 @@ interface NonToolItem {
   duration?: number | null;
 }
 
+/** A single entry in the chronological timeline. */
+type TimelineEntry =
+  | { kind: "non_tool"; item: NonToolItem }
+  | { kind: "tool"; tool: ToolNode; toolIdx: number };
+
 interface ParsedTrace {
-  items: NonToolItem[];
+  timeline: TimelineEntry[];
   tools: ToolNode[];
 }
 
@@ -401,7 +406,7 @@ interface ParsedTrace {
  * The corresponding *_end events close and annotate their nodes.
  */
 function parseTraceEvents(events: TraceEvent[]): ParsedTrace {
-  const items: NonToolItem[] = [];
+  const timeline: TimelineEntry[] = [];
   const tools: ToolNode[] = [];
 
   // Pointers to the currently-open nodes (stack state)
@@ -413,7 +418,7 @@ function parseTraceEvents(events: TraceEvent[]): ParsedTrace {
 
     switch (event.type) {
       case "iteration_start":
-        items.push({ kind: "iteration_start", event });
+        timeline.push({ kind: "non_tool", item: { kind: "iteration_start", event } });
         break;
 
       case "llm_start": {
@@ -422,12 +427,12 @@ function parseTraceEvents(events: TraceEvent[]): ParsedTrace {
           .slice(i + 1)
           .find((e) => e.type === "llm_end" && e.iteration === event.iteration);
         const duration = llmEnd ? llmEnd.timestamp - event.timestamp : null;
-        items.push({ kind: "llm_start", event, duration });
+        timeline.push({ kind: "non_tool", item: { kind: "llm_start", event, duration } });
         break;
       }
 
       case "llm_end":
-        items.push({ kind: "llm_end", event });
+        timeline.push({ kind: "non_tool", item: { kind: "llm_end", event } });
         break;
 
       case "tool_start": {
@@ -438,7 +443,9 @@ function parseTraceEvents(events: TraceEvent[]): ParsedTrace {
           activities: [],
           graphs: [],
         };
+        const toolIdx = tools.length;
         tools.push(node);
+        timeline.push({ kind: "tool", tool: node, toolIdx });
         currentTool = node;
         currentGraph = null;
         break;
@@ -537,7 +544,156 @@ function parseTraceEvents(events: TraceEvent[]): ParsedTrace {
     }
   }
 
-  return { items, tools };
+  return { timeline, tools };
+}
+
+// ─── Step grouping types and helpers ──────────────────────────────────────────
+
+type StepGroup =
+  | { kind: "match_group"; steps: ToolCallStep[] }
+  | { kind: "candidate_passed"; steps: ToolCallStep[] }
+  | { kind: "candidate_failed"; steps: ToolCallStep[] }
+  | { kind: "single"; step: ToolCallStep };
+
+type ToolCallStep = NonNullable<ToolNode["steps"]>[number];
+
+/**
+ * Groups consecutive steps for summarized rendering.
+ * - Consecutive "match" steps -> single match_group
+ * - Consecutive "candidate" steps -> split into passed/failed groups
+ * - Everything else -> single step
+ */
+function groupSteps(steps: ToolCallStep[]): StepGroup[] {
+  const groups: StepGroup[] = [];
+  let i = 0;
+
+  while (i < steps.length) {
+    const step = steps[i];
+
+    // Group consecutive match steps
+    if (step.step === "match") {
+      const matchSteps: ToolCallStep[] = [];
+      while (i < steps.length && steps[i].step === "match") {
+        matchSteps.push(steps[i]);
+        i++;
+      }
+      groups.push({ kind: "match_group", steps: matchSteps });
+      continue;
+    }
+
+    // Group consecutive candidate steps into passed/failed
+    if (step.step === "candidate") {
+      const candidateSteps: ToolCallStep[] = [];
+      while (i < steps.length && steps[i].step === "candidate") {
+        candidateSteps.push(steps[i]);
+        i++;
+      }
+      const passed = candidateSteps.filter((s) => (s.data as CandidateData | undefined)?.passed === true);
+      const failed = candidateSteps.filter((s) => (s.data as CandidateData | undefined)?.passed !== true);
+      if (passed.length > 0) {
+        groups.push({ kind: "candidate_passed", steps: passed });
+      }
+      if (failed.length > 0) {
+        groups.push({ kind: "candidate_failed", steps: failed });
+      }
+      continue;
+    }
+
+    // Everything else is a single step
+    groups.push({ kind: "single", step });
+    i++;
+  }
+
+  return groups;
+}
+
+function MatchGroupSummary({ steps }: { steps: ToolCallStep[] }) {
+  // Extract similarity scores and sort descending
+  const scores = steps
+    .map((s) => {
+      const data = s.data as Record<string, unknown> | undefined;
+      const sim = data?.similarity;
+      return typeof sim === "number" ? sim : undefined;
+    })
+    .filter((s): s is number => s !== undefined)
+    .sort((a, b) => b - a);
+
+  const topScores = scores.slice(0, 3).map((s) => `${s}%`);
+  const suffix = scores.length > 3 ? "..." : "";
+
+  return (
+    <div className="px-3 py-0.5 text-gray-400">
+      <div className="flex items-center gap-2">
+        <Circle className="w-1.5 h-1.5 text-gray-600 fill-gray-600 flex-shrink-0" />
+        <span>
+          {steps.length} matches
+          {topScores.length > 0 && (
+            <span className="text-gray-500">
+              {" "}(top: {topScores.join(", ")}{suffix})
+            </span>
+          )}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function CandidatePassedGroup({ steps }: { steps: ToolCallStep[] }) {
+  return (
+    <>
+      {steps.map((step, stepIdx) => (
+        <div key={`cand-pass-${stepIdx}`} className="px-3 py-0.5 text-gray-400">
+          <div className="flex items-center gap-2">
+            <Circle className="w-1.5 h-1.5 text-green-600 fill-green-600 flex-shrink-0" />
+            <span>
+              candidate
+              {step.detail && <span className="text-gray-500">: {step.detail}</span>}
+            </span>
+          </div>
+          {step.data && <CandidateScore data={step.data as CandidateData} />}
+        </div>
+      ))}
+    </>
+  );
+}
+
+function CandidateFailedGroup({ steps }: { steps: ToolCallStep[] }) {
+  const [isExpanded, setIsExpanded] = useState(false);
+
+  return (
+    <div className="px-3 py-0.5 text-gray-400">
+      <button
+        type="button"
+        onClick={() => setIsExpanded(!isExpanded)}
+        className="flex items-center gap-2 hover:text-gray-300 transition-colors"
+      >
+        {isExpanded ? (
+          <ChevronDown className="w-2.5 h-2.5 text-gray-600 flex-shrink-0" />
+        ) : (
+          <ChevronRight className="w-2.5 h-2.5 text-gray-600 flex-shrink-0" />
+        )}
+        <span className="text-red-400/70">
+          {steps.length} below threshold
+        </span>
+      </button>
+      {isExpanded && (
+        <div className="mt-1">
+          {steps.map((step, stepIdx) => (
+            <div key={`cand-fail-${stepIdx}`} className="py-0.5">
+              <div className="flex items-center gap-2 ml-4">
+                <Circle className="w-1.5 h-1.5 text-gray-600 fill-gray-600 flex-shrink-0" />
+                <span>
+                  candidate
+                  {step.detail && <span className="text-gray-500">: {step.detail}</span>}
+                </span>
+              </div>
+              {step.data && <CandidateScore data={step.data as CandidateData} />}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 // ─── Sub-components for hierarchical rendering ───────────────────────────────
@@ -770,14 +926,26 @@ function ToolRow({
       {/* Expandable steps detail */}
       {hasSteps && isToolExpanded && (
         <div id={`tool-steps-${toolIdx}`} className="bg-gray-950 border-l-2 border-gray-700 ml-4 py-1">
-          {tool.steps!.map((step, stepIdx) => {
-            const isCandidate = step.step === "candidate" || step.step === "match";
-            const isFelicity = !isCandidate && step.data && ("clarity" in step.data || "classification" in step.data);
+          {groupSteps(tool.steps!).map((group, groupIdx) => {
+            if (group.kind === "match_group") {
+              return <MatchGroupSummary key={`match-group-${groupIdx}`} steps={group.steps} />;
+            }
+
+            if (group.kind === "candidate_passed") {
+              return <CandidatePassedGroup key={`cand-pass-${groupIdx}`} steps={group.steps} />;
+            }
+
+            if (group.kind === "candidate_failed") {
+              return <CandidateFailedGroup key={`cand-fail-${groupIdx}`} steps={group.steps} />;
+            }
+
+            const { step } = group;
+            const isFelicity = step.data && ("clarity" in step.data || "classification" in step.data);
             const isSearchQuery = step.step === "search_query" || step.step === "hyde_query";
 
             return (
               <div
-                key={`${step.step}-${stepIdx}`}
+                key={`${step.step}-${groupIdx}`}
                 className="px-3 py-0.5 text-gray-400"
               >
                 <div className="flex items-center gap-2">
@@ -791,16 +959,13 @@ function ToolRow({
                     )}
                   </span>
                 </div>
-                {step.data && isCandidate && (
-                  <CandidateScore data={step.data as CandidateData} />
-                )}
                 {step.data && isFelicity && (
                   <FelicityScores data={step.data as FelicityData} />
                 )}
                 {step.data && isSearchQuery && (
                   <SearchQueryDisplay data={step.data as SearchQueryData} />
                 )}
-                {step.data && !isCandidate && !isFelicity && !isSearchQuery && (
+                {step.data && !isFelicity && !isSearchQuery && (
                   <div className="ml-4 mt-1 text-xs text-gray-500 space-y-0.5">
                     {Object.entries(step.data).map(([key, value]) => (
                       <div key={key} className="flex gap-2">
@@ -897,8 +1062,22 @@ export function ToolCallsDisplay({
 
       {isExpanded && (
         <div className="divide-y divide-gray-800">
-          {/* Non-tool items (iteration_start, llm_start, llm_end) */}
-          {parsed.items.map((item, idx) => {
+          {parsed.timeline.map((entry, idx) => {
+            if (entry.kind === "tool") {
+              return (
+                <ToolRow
+                  key={`tool-${entry.tool.name}-${entry.toolIdx}`}
+                  tool={entry.tool}
+                  toolIdx={entry.toolIdx}
+                  expandedTools={expandedTools}
+                  onToggleExpand={toggleToolExpanded}
+                  wasStoppedByUser={wasStoppedByUser}
+                  stoppedAt={stoppedAt}
+                />
+              );
+            }
+
+            const { item } = entry;
             const { event } = item;
 
             if (item.kind === "iteration_start") {
@@ -977,19 +1156,6 @@ export function ToolCallsDisplay({
 
             return null;
           })}
-
-          {/* Tool rows (with nested graph/agent rows) */}
-          {parsed.tools.map((tool, toolIdx) => (
-            <ToolRow
-              key={`tool-${tool.name}-${toolIdx}`}
-              tool={tool}
-              toolIdx={toolIdx}
-              expandedTools={expandedTools}
-              onToggleExpand={toggleToolExpanded}
-              wasStoppedByUser={wasStoppedByUser}
-              stoppedAt={stoppedAt}
-            />
-          ))}
         </div>
       )}
     </div>
