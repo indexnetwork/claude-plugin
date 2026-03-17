@@ -75,6 +75,8 @@ export default function NetworkSettingsPanel({ index, onDeleted, activeTab }: Ne
   const [invitationLink, setInvitationLink] = useState<{ code: string } | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
+  const usersService = createUsersService(api);
+
   const [integrations, setIntegrations] = useState<IntegrationItem[]>([]);
   const [integrationsLoaded, setIntegrationsLoaded] = useState(false);
   const [pendingIntegration, setPendingIntegration] = useState<string | null>(null);
@@ -328,11 +330,13 @@ export default function NetworkSettingsPanel({ index, onDeleted, activeTab }: Ne
     }
   };
 
-  const handleAddContact = async (query: string) => {
-    const usersService = createUsersService(api);
-    const isEmail = query.includes('@');
+  const [isAddingContact, setIsAddingContact] = useState(false);
+
+  const handleAddContact = async (email: string) => {
+    if (isAddingContact) return;
+    setIsAddingContact(true);
     try {
-      await usersService.addContact(isEmail ? query : '', isEmail ? undefined : query);
+      await usersService.addContact(email);
       setMemberSearchQuery('');
       setSuggestedUsers([]);
       setShowSuggestions(false);
@@ -342,6 +346,8 @@ export default function NetworkSettingsPanel({ index, onDeleted, activeTab }: Ne
     } catch (err) {
       console.error('Error adding contact:', err);
       error('Failed to add contact');
+    } finally {
+      setIsAddingContact(false);
     }
   };
 
@@ -572,7 +578,7 @@ export default function NetworkSettingsPanel({ index, onDeleted, activeTab }: Ne
               <Plus className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400 pointer-events-none" />
               <Input
                 ref={searchInputRef}
-                placeholder="Search or add people by name..."
+                placeholder="Search by name or add by email..."
                 value={memberSearchQuery}
                 onChange={(e) => {
                   setMemberSearchQuery(e.target.value);
@@ -595,18 +601,23 @@ export default function NetworkSettingsPanel({ index, onDeleted, activeTab }: Ne
                 </div>
               )}
 
-              {/* No results anywhere: invite action */}
+              {/* No results: add by email or show empty state */}
               {showSuggestions && memberSearchQuery.trim() && !searchIsLoading && noResults && (
                 <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-sm shadow-sm z-10">
-                  <button
-                    className="w-full flex items-center gap-2.5 px-3 py-2.5 hover:bg-gray-50 text-left"
-                    onClick={() => handleAddContact(memberSearchQuery)}
-                  >
-                    <div className="h-6 w-6 bg-gray-100 rounded-full flex items-center justify-center flex-shrink-0">
-                      <Plus className="h-3.5 w-3.5 text-gray-500" />
-                    </div>
-                    <span className="text-sm text-black flex-1 truncate">Add "{memberSearchQuery}"</span>
-                  </button>
+                  {memberSearchQuery.includes('@') ? (
+                    <button
+                      className="w-full flex items-center gap-2.5 px-3 py-2.5 hover:bg-gray-50 text-left disabled:opacity-50"
+                      onClick={() => handleAddContact(memberSearchQuery)}
+                      disabled={isAddingContact}
+                    >
+                      <div className="h-6 w-6 bg-gray-100 rounded-full flex items-center justify-center flex-shrink-0">
+                        <Plus className="h-3.5 w-3.5 text-gray-500" />
+                      </div>
+                      <span className="text-sm text-black flex-1 truncate">Add "{memberSearchQuery}"</span>
+                    </button>
+                  ) : (
+                    <div className="px-3 py-2.5 text-sm text-gray-400">No results found</div>
+                  )}
                 </div>
               )}
             </div>

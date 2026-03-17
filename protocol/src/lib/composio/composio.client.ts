@@ -27,7 +27,7 @@ export function getComposioClient(): ComposioLangchain {
 
 /**
  * Fetches all enabled auth configs from Composio and builds a toolkit→authConfigId map.
- * Cached after first call. Uses the most recently updated config per toolkit.
+ * Cached after first successful call. Keeps the first enabled config encountered per toolkit.
  */
 export async function getAuthConfigMap(): Promise<Record<string, string>> {
   if (authConfigMap) return authConfigMap;
@@ -48,7 +48,7 @@ export async function getAuthConfigMap(): Promise<Record<string, string>> {
     logger.warn('Failed to load auth configs, sessions will use Composio defaults', {
       error: err instanceof Error ? err.message : String(err),
     });
-    authConfigMap = {};
+    return {};
   }
 
   return authConfigMap;

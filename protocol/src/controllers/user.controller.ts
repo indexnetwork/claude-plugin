@@ -1,3 +1,5 @@
+import { z } from 'zod';
+
 import { Controller, Get, Post, UseGuards } from '../lib/router/router.decorators';
 import { AuthGuard } from '../guards/auth.guard';
 import type { AuthenticatedUser } from '../guards/auth.guard';
@@ -6,6 +8,11 @@ import { contactService } from '../services/contact.service';
 import { log } from '../lib/log';
 
 const logger = log.controller.from('user');
+
+const AddContactBodySchema = z.object({
+  email: z.string().trim().email(),
+  name: z.string().trim().min(1).optional(),
+});
 
 const BATCH_MAX_IDS = 100;
 
@@ -46,12 +53,12 @@ export class UserController {
   @Post('/contacts')
   @UseGuards(AuthGuard)
   async addContact(req: Request, user: AuthenticatedUser) {
-    const body = await req.json().catch(() => ({})) as { email?: string; name?: string };
-    if (!body.email?.trim()) {
-      return Response.json({ error: 'email is required' }, { status: 400 });
+    const parsed = AddContactBodySchema.safeParse(await req.json().catch(() => null));
+    if (!parsed.success) {
+      return Response.json({ error: 'A valid email is required' }, { status: 400 });
     }
-    logger.verbose('Add contact requested', { userId: user.id, email: body.email });
-    const result = await contactService.addContact(user.id, body.email.trim(), body.name?.trim());
+    logger.verbose('Add contact requested', { userId: user.id });
+    const result = await contactService.addContact(user.id, parsed.data.email, parsed.data.name);
     return Response.json({ result });
   }
 
