@@ -591,7 +591,13 @@ export class DebugController {
         args: Record<string, unknown>;
         resultSummary: string;
         success: boolean;
+        durationMs: number;
         steps: Array<{ step: string; detail?: string; data?: Record<string, unknown> }>;
+        graphs: Array<{
+          name: string;
+          durationMs: number;
+          agents: Array<{ name: string; durationMs: number }>;
+        }>;
       }>;
     }> = [];
 
@@ -609,7 +615,13 @@ export class DebugController {
             args?: Record<string, unknown>;
             resultSummary?: string;
             success?: boolean;
+            durationMs?: number;
             steps?: Array<{ step: string; detail?: string; data?: Record<string, unknown> }>;
+            graphs?: Array<{
+              name: string;
+              durationMs: number;
+              agents: Array<{ name: string; durationMs: number }>;
+            }>;
           }>;
         } | undefined;
 
@@ -629,7 +641,9 @@ export class DebugController {
                 args: t.args ?? {},
                 resultSummary: t.resultSummary ?? '',
                 success: t.success ?? true,
+                durationMs: t.durationMs ?? 0,
                 steps: t.steps ?? [],
+                graphs: t.graphs ?? [],
               }))
             : [],
         });
