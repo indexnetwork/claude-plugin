@@ -7,8 +7,12 @@ import type {
   DebugMetaToolCall,
 } from "../../../types/chat-streaming.types";
 import {
+  createAgentEndEvent,
+  createAgentStartEvent,
   createDebugMetaEvent,
   createErrorEvent,
+  createGraphEndEvent,
+  createGraphStartEvent,
   createIterationStartEvent,
   createLlmStartEvent,
   createLlmEndEvent,
@@ -221,6 +225,22 @@ export class ChatStreamer {
                 event.steps,
               );
             }
+          }
+
+          if (event.type === "graph_start") {
+            yield createGraphStartEvent(sessionId, event.name);
+          }
+
+          if (event.type === "graph_end") {
+            yield createGraphEndEvent(sessionId, event.name, event.durationMs);
+          }
+
+          if (event.type === "agent_start") {
+            yield createAgentStartEvent(sessionId, event.name);
+          }
+
+          if (event.type === "agent_end") {
+            yield createAgentEndEvent(sessionId, event.name, event.durationMs, event.summary);
           }
         }
 
