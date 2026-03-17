@@ -95,7 +95,6 @@ function createMockGraph(deps?: {
     getOpportunitiesForUser: () => Promise.resolve([]),
     updateOpportunityStatus: () => Promise.resolve(null),
     getIntent: () => Promise.resolve(null),
-    getContactUserIds: () => Promise.resolve([]),
     getIntentIndexScores: async () => [],
     getIndexMemberContext: async () => null,
   };
@@ -187,7 +186,6 @@ function createMockGraphWithFnOverrides(deps?: {
     getOpportunitiesForUser: () => Promise.resolve([]),
     updateOpportunityStatus: () => Promise.resolve(null),
     getIntent: () => Promise.resolve(null),
-    getContactUserIds: () => Promise.resolve([]),
     getIntentIndexScores: async () => [],
     getIndexMemberContext: async () => null,
   };
@@ -1373,8 +1371,7 @@ describe('Opportunity Graph', () => {
         getOpportunitiesForUser: () => Promise.resolve([]),
         updateOpportunityStatus: () => Promise.resolve(null),
         getIntent: () => Promise.resolve(null),
-        getContactUserIds: () => Promise.resolve([]),
-        getIntentIndexScores: async () => [],
+            getIntentIndexScores: async () => [],
         getIndexMemberContext: async () => null,
       };
 

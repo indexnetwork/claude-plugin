@@ -12,7 +12,7 @@ import { config } from 'dotenv';
 config({ path: '.env.test' });
 
 import { describe, expect, it, beforeAll, afterAll } from 'bun:test';
-import { eq, and, inArray, isNull } from 'drizzle-orm';
+import { eq, and, inArray } from 'drizzle-orm';
 
 import db from '../../lib/drizzle/drizzle';
 import {
@@ -22,7 +22,6 @@ import {
   indexMembers,
   intents,
   intentIndexes,
-  userContacts,
   personalIndexes,
 } from '../../schemas/database.schema';
 import {
@@ -44,7 +43,6 @@ interface TestFixture {
   /** IDs created during tests that need cleanup */
   extraIntentIndexIds: string[];
   extraMemberIndexIds: string[];
-  contactRecordId: string | null;
 }
 
 let fixture: TestFixture;
@@ -103,7 +101,6 @@ beforeAll(async () => {
     contactIntentId,
     extraIntentIndexIds: [],
     extraMemberIndexIds: [],
-    contactRecordId: null,
   };
 });
 
@@ -116,9 +113,6 @@ afterAll(async () => {
   // Cleanup in reverse FK order
   await db.delete(intentIndexes).where(
     inArray(intentIndexes.indexId, allIndexIds),
-  );
-  await db.delete(userContacts).where(
-    inArray(userContacts.ownerId, allUserIds),
   );
   await db.delete(indexMembers).where(
     inArray(indexMembers.indexId, allIndexIds),
@@ -245,12 +239,12 @@ describe('getPersonalIndexesForContact', () => {
   });
 });
 
-// ─── Contact import → personal index sync ───────────────────────────────────────
+// ─── upsertContactMembership → personal index sync ─────────────────────────────
 
-describe('importContactsBulk → personal index sync', () => {
+describe('upsertContactMembership → personal index sync', () => {
   const chatDb = new ChatDatabaseAdapter();
 
-  it('creates index_members and intent_indexes entries for new contacts', async () => {
+  it('creates index_members entry with contact permissions for new contacts', async () => {
     // Remove the manually-added contact member from previous test
     await db.delete(indexMembers).where(
       and(
@@ -259,21 +253,7 @@ describe('importContactsBulk → personal index sync', () => {
       ),
     );
 
-    const existingByEmail = new Map<string, { id: string; email: string; name: string; isGhost: boolean }>();
-    existingByEmail.set(
-      (TEST_PREFIX + 'contact@test.com').toLowerCase(),
-      { id: fixture.contactUserId, email: TEST_PREFIX + 'contact@test.com', name: TEST_PREFIX + 'Contact', isGhost: false },
-    );
-
-    const result = await chatDb.importContactsBulk(
-      fixture.ownerUserId,
-      [], // no ghosts
-      [{ name: TEST_PREFIX + 'Contact', email: TEST_PREFIX + 'contact@test.com' }],
-      existingByEmail,
-      'manual',
-    );
-
-    expect(result.newContacts).toBe(1);
+    await chatDb.upsertContactMembership(fixture.ownerUserId, fixture.contactUserId);
 
     // Verify contact was added as member with ['contact'] permissions
     const [membership] = await db
@@ -287,43 +267,16 @@ describe('importContactsBulk → personal index sync', () => {
       );
     expect(membership).toBeDefined();
     expect(membership.permissions).toEqual(['contact']);
-
-    // Verify the contact's active intent was NOT backfilled into the personal index
-    const intentLinks = await db
-      .select()
-      .from(intentIndexes)
-      .where(
-        and(
-          eq(intentIndexes.indexId, fixture.personalIndexId),
-          eq(intentIndexes.intentId, fixture.contactIntentId),
-        ),
-      );
-    expect(intentLinks).toHaveLength(0);
-
-    // Record the contact record ID for removal test
-    const [contactRecord] = await db
-      .select({ id: userContacts.id })
-      .from(userContacts)
-      .where(
-        and(
-          eq(userContacts.ownerId, fixture.ownerUserId),
-          eq(userContacts.userId, fixture.contactUserId),
-          isNull(userContacts.deletedAt),
-        ),
-      );
-    fixture.contactRecordId = contactRecord?.id ?? null;
   });
 });
 
 // ─── Contact removal → cleanup ──────────────────────────────────────────────────
 
-describe('removeContact → personal index cleanup', () => {
+describe('hardDeleteContactMembership → personal index cleanup', () => {
   const chatDb = new ChatDatabaseAdapter();
 
-  it('removes contact membership and intent_indexes entries from personal index', async () => {
-    expect(fixture.contactRecordId).not.toBeNull();
-
-    await chatDb.removeContact(fixture.ownerUserId, fixture.contactRecordId!);
+  it('removes contact membership from personal index', async () => {
+    await chatDb.hardDeleteContactMembership(fixture.ownerUserId, fixture.contactUserId);
 
     // Contact's membership should be removed
     const memberships = await db
@@ -336,18 +289,6 @@ describe('removeContact → personal index cleanup', () => {
         ),
       );
     expect(memberships).toHaveLength(0);
-
-    // Contact's intents should be removed from the personal index
-    const intentLinks = await db
-      .select()
-      .from(intentIndexes)
-      .where(
-        and(
-          eq(intentIndexes.indexId, fixture.personalIndexId),
-          eq(intentIndexes.intentId, fixture.contactIntentId),
-        ),
-      );
-    expect(intentLinks).toHaveLength(0);
   });
 });
 

@@ -1,5 +1,5 @@
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
-import { eq, and } from 'drizzle-orm';
+import { sql } from 'drizzle-orm';
 
 import db from '../lib/drizzle/drizzle';
 import * as schema from '../schemas/database.schema';
@@ -7,13 +7,21 @@ import { ensurePersonalIndex } from './database.adapter';
 
 /**
  * Database adapter for Better Auth integration.
- * Provides the drizzle adapter config and ghost-claim lifecycle methods
- * used by the Better Auth database hooks during signup.
+ * Wraps the default Drizzle adapter with ghost-claim-via-upsert behavior:
+ * when a real user signs up with an email belonging to a ghost user,
+ * the ghost row is converted in-place instead of creating a new row.
  */
 export class AuthDatabaseAdapter {
-  /** Returns a configured drizzle adapter for Better Auth's `database` option. */
+  /**
+   * Returns a configured drizzle adapter for Better Auth's `database` option.
+   * Wraps the default adapter to intercept user creation: if a user signs up
+   * with an email that belongs to a ghost, the ghost row is updated in-place
+   * (isGhost=false, name/avatar updated) via ON CONFLICT DO UPDATE.
+   * The `.returning()` call gives Better Auth the ghost's original ID,
+   * so session creation works correctly.
+   */
   createDrizzleAdapter() {
-    return drizzleAdapter(db, {
+    const baseAdapterFactory = drizzleAdapter(db, {
       provider: 'pg',
       schema: {
         ...schema,
@@ -24,41 +32,47 @@ export class AuthDatabaseAdapter {
         jwks: schema.jwks,
       },
     });
-  }
 
-  /**
-   * Frees a ghost user's email so a real user can sign up with it.
-   * Called from Better Auth's `create.before` hook to avoid unique constraint violations.
-   * @param email - The email to check for ghost users
-   * @returns The ghost user's ID if found, null otherwise
-   */
-  async prepareGhostClaim(email: string): Promise<string | null> {
-    const ghost = await db
-      .select({ id: schema.users.id })
-      .from(schema.users)
-      .where(and(eq(schema.users.email, email), eq(schema.users.isGhost, true)))
-      .limit(1)
-      .then((rows) => rows[0]);
+    // The drizzle adapter is a factory function: (options) => adapterObject
+    return (options: unknown) => {
+      const resolved = (baseAdapterFactory as Function)(options);
 
-    if (!ghost) return null;
+      return {
+        ...resolved,
+        create: async (params: { model: string; data: Record<string, unknown>; [key: string]: unknown }) => {
+          if (params.model === 'user') {
+            // Use ON CONFLICT to handle ghost claim atomically.
+            // If a ghost exists with this email, update it in-place.
+            // The WHERE clause ensures we only upsert over ghosts, not real users.
+            // If a real (non-ghost) user already has this email, the WHERE doesn't
+            // match, RETURNING is empty, and we throw to signal a duplicate signup.
+            const result = await db
+              .insert(schema.users)
+              .values(params.data as typeof schema.users.$inferInsert)
+              .onConflictDoUpdate({
+                target: schema.users.email,
+                set: {
+                  name: sql`EXCLUDED."name"`,
+                  avatar: sql`EXCLUDED."avatar"`,
+                  isGhost: sql`false`,
+                  updatedAt: sql`now()`,
+                },
+                setWhere: sql`${schema.users.isGhost} = true`,
+              })
+              .returning();
 
-    // Set ghost email to a unique placeholder to free the unique constraint
-    await db.update(schema.users)
-      .set({ email: `__ghost_claimed_${ghost.id}` })
-      .where(eq(schema.users.id, ghost.id));
+            if (!result[0]) {
+              // Conflict with a real (non-ghost) user — the WHERE filtered it out
+              // so neither INSERT nor UPDATE happened. Surface as a constraint error.
+              throw new Error(`User with this email already exists`);
+            }
 
-    return ghost.id;
-  }
-
-  /**
-   * Restores a ghost user's email after a failed claim attempt.
-   * @param ghostId - The ghost user's ID
-   * @param email - The original email to restore
-   */
-  async restoreGhostEmail(ghostId: string, email: string): Promise<void> {
-    await db.update(schema.users)
-      .set({ email })
-      .where(eq(schema.users.id, ghostId));
+            return result[0];
+          }
+          return resolved.create(params);
+        },
+      };
+    };
   }
 
   /**
@@ -69,24 +83,5 @@ export class AuthDatabaseAdapter {
    */
   async ensurePersonalIndex(userId: string): Promise<string> {
     return ensurePersonalIndex(userId);
-  }
-
-  /**
-   * Claims a ghost user's data after a real user has been created.
-   * Transfers all ghost data (profiles, intents, index memberships, contacts, HyDE documents,
-   * chat sessions) to the real user, then deletes the ghost row.
-   * @param realUserId - The real user's ID
-   * @param ghostId - The ghost user's ID (from prepareGhostClaim)
-   */
-  async claimGhostUser(realUserId: string, ghostId: string): Promise<void> {
-    await db.transaction(async (tx) => {
-      await tx.update(schema.userProfiles).set({ userId: realUserId }).where(eq(schema.userProfiles.userId, ghostId));
-      await tx.update(schema.intents).set({ userId: realUserId }).where(eq(schema.intents.userId, ghostId));
-      await tx.update(schema.indexMembers).set({ userId: realUserId }).where(eq(schema.indexMembers.userId, ghostId));
-      await tx.update(schema.hydeDocuments).set({ sourceId: realUserId }).where(eq(schema.hydeDocuments.sourceId, ghostId));
-      await tx.update(schema.userContacts).set({ userId: realUserId }).where(eq(schema.userContacts.userId, ghostId));
-      await tx.update(schema.chatSessions).set({ userId: realUserId }).where(eq(schema.chatSessions.userId, ghostId));
-      await tx.delete(schema.users).where(eq(schema.users.id, ghostId));
-    });
   }
 }
