@@ -66,6 +66,7 @@ export default function NetworkSettingsPanel({ index, onDeleted, activeTab }: Ne
   const [members, setMembers] = useState<Member[]>([]);
   const [memberSearchQuery, setMemberSearchQuery] = useState('');
   const [suggestedUsers, setSuggestedUsers] = useState<Member[]>([]);
+  const [isMembersLoading, setIsMembersLoading] = useState(false);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [searchIsLoading, setSearchIsLoading] = useState(false);
   const [searchHasQueried, setSearchHasQueried] = useState(false);
@@ -129,11 +130,14 @@ export default function NetworkSettingsPanel({ index, onDeleted, activeTab }: Ne
   }, []);
 
   const loadMembers = useCallback(async () => {
+    setIsMembersLoading(true);
     try {
       const response = await indexesService.getMembers(index.id, {});
       setMembers(response.members);
     } catch (err) {
       console.error('Error loading members:', err);
+    } finally {
+      setIsMembersLoading(false);
     }
   }, [indexesService, index.id]);
 
@@ -607,6 +611,16 @@ export default function NetworkSettingsPanel({ index, onDeleted, activeTab }: Ne
               )}
             </div>
 
+            {isMembersLoading ? (
+              <div className="space-y-0.5">
+                {Array.from({ length: 6 }).map((_, i) => (
+                  <div key={i} className="flex items-center gap-3 px-3 py-2">
+                    <div className="h-7 w-7 rounded-full bg-gray-100 animate-pulse flex-shrink-0" />
+                    <div className="h-3.5 rounded bg-gray-100 animate-pulse flex-1" style={{ maxWidth: `${60 + (i % 3) * 15}%` }} />
+                  </div>
+                ))}
+              </div>
+            ) : (
             <div className="space-y-0.5">
               {filteredMembers.map((member) => (
                 <div key={member.id} className="flex items-center gap-3 px-3 py-2 rounded-sm hover:bg-gray-50 transition-colors group">
@@ -639,6 +653,7 @@ export default function NetworkSettingsPanel({ index, onDeleted, activeTab }: Ne
                 </div>
               ))}
             </div>
+            )}
           </div>
 
         </div>
