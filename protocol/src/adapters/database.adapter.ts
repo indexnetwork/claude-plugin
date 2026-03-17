@@ -1788,6 +1788,7 @@ export class ChatDatabaseAdapter {
         userId: indexMembers.userId,
         name: users.name,
         avatar: users.avatar,
+        intro: users.intro,
         email: users.email,
         isGhost: users.isGhost,
         permissions: indexMembers.permissions,
@@ -1810,6 +1811,7 @@ export class ChatDatabaseAdapter {
           userId: m.userId,
           name: m.name,
           avatar: m.avatar,
+          intro: m.intro ?? null,
           email: m.email,
           isGhost: m.isGhost ?? false,
           permissions: m.permissions ?? [],
@@ -4040,13 +4042,13 @@ export class UserDatabaseAdapter {
       .where(eq(users.id, userId))
       .limit(1);
 
-    return result[0] || null;
+    return result[0] ?? null;
   }
 
   /**
    * Find multiple users by IDs. Returns public profile fields only (same shape as single-user API).
    */
-  async findByIds(userIds: string[]): Promise<Array<Pick<typeof users.$inferSelect, 'id' | 'name' | 'intro' | 'avatar' | 'location' | 'socials' | 'createdAt' | 'updatedAt'>>> {
+  async findByIds(userIds: string[]): Promise<Array<Pick<typeof users.$inferSelect, 'id' | 'name' | 'intro' | 'avatar' | 'location' | 'socials' | 'isGhost' | 'createdAt' | 'updatedAt'>>> {
     if (userIds.length === 0) return [];
     const result = await db.select({
       id: users.id,
@@ -4055,6 +4057,7 @@ export class UserDatabaseAdapter {
       avatar: users.avatar,
       location: users.location,
       socials: users.socials,
+      isGhost: users.isGhost,
       createdAt: users.createdAt,
       updatedAt: users.updatedAt,
     })
