@@ -148,6 +148,39 @@ function getToolDescription(name: string): { action: string; running: string } {
   );
 }
 
+const GRAPH_DISPLAY_NAMES: Record<string, string> = {
+  "opportunity": "Opportunity graph",
+  "intent": "Intent graph",
+  "intent_index": "Intent indexing",
+  "profile": "Profile graph",
+  "hyde": "HyDE graph",
+  "home": "Home graph",
+  "index": "Index graph",
+  "index_membership": "Index membership",
+};
+
+const AGENT_DISPLAY_NAMES: Record<string, string> = {
+  "opportunity-evaluator": "Evaluating opportunities",
+  "opportunity-presenter": "Presenting opportunities",
+  "intro-evaluator": "Evaluating introduction",
+  "intent-inferrer": "Inferring intents",
+  "intent-verifier": "Verifying intents",
+  "intent-reconciler": "Reconciling intents",
+  "intent-indexer": "Indexing intents",
+  "profile-generator": "Generating profile",
+  "hyde-generator": "Generating HyDE",
+  "lens-inferrer": "Inferring lenses",
+  "home-categorizer": "Categorizing home",
+};
+
+function getGraphDisplayName(name: string): string {
+  return GRAPH_DISPLAY_NAMES[name] ?? name;
+}
+
+function getAgentDisplayName(name: string): string {
+  return AGENT_DISPLAY_NAMES[name] ?? name;
+}
+
 const SPEECH_ACT_LABELS: Record<string, { label: string; color: string }> = {
   COMMISSIVE: { label: "Commitment", color: "text-green-400" },
   DIRECTIVE: { label: "Request", color: "text-blue-400" },
@@ -318,6 +351,197 @@ function FelicityScores({ data }: { data: FelicityData }) {
   );
 }
 
+// ─── Hierarchical tree structures ───────────────────────────────────────────
+
+interface AgentNode {
+  name: string;
+  startTimestamp?: number;
+  durationMs?: number;
+  isRunning: boolean;
+  summary?: string;
+}
+
+interface GraphNode {
+  name: string;
+  startTimestamp?: number;
+  durationMs?: number;
+  isRunning: boolean;
+  agents: AgentNode[];
+}
+
+interface ToolNode {
+  name: string;
+  startTimestamp?: number;
+  durationMs?: number;
+  isRunning: boolean;
+  activities: TraceEvent[];
+  steps?: TraceEvent["steps"];
+  status?: "success" | "error";
+  summary?: string;
+  graphs: GraphNode[];
+}
+
+/** Ordered list of items to render in the non-tool sections (llm / iteration events). */
+interface NonToolItem {
+  kind: "iteration_start" | "llm_start" | "llm_end";
+  event: TraceEvent;
+  /** For llm_start: duration if matched; null if still running. */
+  duration?: number | null;
+}
+
+interface ParsedTrace {
+  items: NonToolItem[];
+  tools: ToolNode[];
+}
+
+/**
+ * Scan the flat TraceEvent array and build a hierarchical ParsedTrace.
+ * tool_start opens a ToolNode; graph_start opens a GraphNode inside the current tool;
+ * agent_start opens an AgentNode inside the current graph.
+ * The corresponding *_end events close and annotate their nodes.
+ */
+function parseTraceEvents(events: TraceEvent[]): ParsedTrace {
+  const items: NonToolItem[] = [];
+  const tools: ToolNode[] = [];
+
+  // Pointers to the currently-open nodes (stack state)
+  let currentTool: ToolNode | null = null;
+  let currentGraph: GraphNode | null = null;
+
+  for (let i = 0; i < events.length; i++) {
+    const event = events[i];
+
+    switch (event.type) {
+      case "iteration_start":
+        items.push({ kind: "iteration_start", event });
+        break;
+
+      case "llm_start": {
+        // Find matching llm_end for duration
+        const llmEnd = events
+          .slice(i + 1)
+          .find((e) => e.type === "llm_end" && e.iteration === event.iteration);
+        const duration = llmEnd ? llmEnd.timestamp - event.timestamp : null;
+        items.push({ kind: "llm_start", event, duration });
+        break;
+      }
+
+      case "llm_end":
+        items.push({ kind: "llm_end", event });
+        break;
+
+      case "tool_start": {
+        const node: ToolNode = {
+          name: event.name ?? "",
+          startTimestamp: event.timestamp,
+          isRunning: true,
+          activities: [],
+          graphs: [],
+        };
+        tools.push(node);
+        currentTool = node;
+        currentGraph = null;
+        break;
+      }
+
+      case "tool_end": {
+        // Find the most-recently opened tool with this name that is still running
+        const toolNode = [...tools].reverse().find(
+          (t) => t.name === (event.name ?? "") && t.isRunning,
+        );
+        if (toolNode) {
+          if (toolNode.startTimestamp && event.timestamp) {
+            toolNode.durationMs = event.timestamp - toolNode.startTimestamp;
+          }
+          toolNode.isRunning = false;
+          toolNode.steps = event.steps;
+          toolNode.summary = event.summary;
+          toolNode.status = event.status as "success" | "error" | undefined;
+          if (currentTool === toolNode) {
+            currentTool = null;
+            currentGraph = null;
+          }
+        }
+        break;
+      }
+
+      case "graph_start": {
+        const graphNode: GraphNode = {
+          name: event.name ?? "",
+          startTimestamp: event.timestamp,
+          isRunning: true,
+          agents: [],
+        };
+        // Attach to current tool if one is open, otherwise orphan (attach to last tool)
+        const targetTool = currentTool ?? (tools.length > 0 ? tools[tools.length - 1] : null);
+        if (targetTool) {
+          targetTool.graphs.push(graphNode);
+        }
+        currentGraph = graphNode;
+        break;
+      }
+
+      case "graph_end": {
+        // Find the most-recently opened graph with this name that is still running
+        const allGraphs = tools.flatMap((t) => t.graphs);
+        const graphNode = [...allGraphs].reverse().find(
+          (g) => g.name === (event.name ?? "") && g.isRunning,
+        );
+        if (graphNode) {
+          if (graphNode.startTimestamp && event.timestamp) {
+            graphNode.durationMs = event.timestamp - graphNode.startTimestamp;
+          }
+          graphNode.isRunning = false;
+          if (currentGraph === graphNode) {
+            currentGraph = null;
+          }
+        }
+        break;
+      }
+
+      case "agent_start": {
+        const agentNode: AgentNode = {
+          name: event.name ?? "",
+          startTimestamp: event.timestamp,
+          isRunning: true,
+        };
+        // Attach to current graph if one is open, otherwise orphan (attach to last open graph)
+        const targetGraph = currentGraph ?? (() => {
+          for (let ti = tools.length - 1; ti >= 0; ti--) {
+            const gs = tools[ti].graphs;
+            for (let gi = gs.length - 1; gi >= 0; gi--) {
+              if (gs[gi].isRunning) return gs[gi];
+            }
+          }
+          return null;
+        })();
+        if (targetGraph) {
+          targetGraph.agents.push(agentNode);
+        }
+        break;
+      }
+
+      case "agent_end": {
+        // Find the most-recently opened agent with this name that is still running
+        const allAgents = tools.flatMap((t) => t.graphs.flatMap((g) => g.agents));
+        const agentNode = [...allAgents].reverse().find(
+          (a) => a.name === (event.name ?? "") && a.isRunning,
+        );
+        if (agentNode) {
+          agentNode.durationMs = event.durationMs;
+          agentNode.isRunning = false;
+          agentNode.summary = event.summary;
+        }
+        break;
+      }
+    }
+  }
+
+  return { items, tools };
+}
+
+// ─── Sub-components for hierarchical rendering ───────────────────────────────
+
 interface TraceDisplayProps {
   traceEvents: TraceEvent[];
   isStreaming?: boolean;
@@ -340,6 +564,265 @@ function RunningTimer({ startedAt }: { startedAt: number }) {
   return <span className="tabular-nums">{formatDuration(elapsed)}</span>;
 }
 
+interface AgentRowProps {
+  agent: AgentNode;
+  wasStoppedByUser?: boolean;
+  stoppedAt?: number;
+}
+
+function AgentRow({ agent, wasStoppedByUser, stoppedAt }: AgentRowProps) {
+  const isStopped = agent.isRunning && wasStoppedByUser && stoppedAt;
+  const isRunning = agent.isRunning && !wasStoppedByUser;
+  const displayName = getAgentDisplayName(agent.name);
+
+  return (
+    <div
+      className={cn(
+        "flex items-center gap-2 pl-12 pr-3 py-0.5",
+        isRunning && "bg-orange-900/10",
+        isStopped && "bg-amber-900/10",
+      )}
+    >
+      <span className="text-gray-700 flex-shrink-0 select-none">└─</span>
+      {isRunning ? (
+        <Loader2 className="w-2.5 h-2.5 text-orange-400 animate-spin flex-shrink-0" />
+      ) : isStopped ? (
+        <Square className="w-2.5 h-2.5 text-amber-400 fill-amber-400 flex-shrink-0" />
+      ) : (
+        <Circle className="w-2.5 h-2.5 text-orange-400 fill-orange-400 flex-shrink-0" />
+      )}
+      <span className={cn(
+        "flex-1 truncate",
+        isStopped ? "text-amber-300" : "text-orange-300",
+      )}>
+        {isStopped ? "Stopped" : displayName}
+        {!isRunning && !isStopped && agent.summary && (
+          <span className="text-gray-500"> — {agent.summary}</span>
+        )}
+      </span>
+      <span className="tabular-nums flex-shrink-0 text-gray-500">
+        {isRunning && agent.startTimestamp ? (
+          <RunningTimer startedAt={agent.startTimestamp} />
+        ) : isStopped && stoppedAt && agent.startTimestamp ? (
+          formatDuration(stoppedAt - agent.startTimestamp)
+        ) : agent.durationMs !== undefined ? (
+          formatDuration(agent.durationMs)
+        ) : null}
+      </span>
+    </div>
+  );
+}
+
+interface GraphRowProps {
+  graph: GraphNode;
+  wasStoppedByUser?: boolean;
+  stoppedAt?: number;
+}
+
+function GraphRow({ graph, wasStoppedByUser, stoppedAt }: GraphRowProps) {
+  const isStopped = graph.isRunning && wasStoppedByUser && stoppedAt;
+  const isRunning = graph.isRunning && !wasStoppedByUser;
+  const displayName = getGraphDisplayName(graph.name);
+
+  return (
+    <>
+      <div
+        className={cn(
+          "flex items-center gap-2 pl-8 pr-3 py-0.5",
+          isRunning && "bg-teal-900/10",
+          isStopped && "bg-amber-900/10",
+        )}
+      >
+        <span className="text-gray-700 flex-shrink-0 select-none">└─</span>
+        {isRunning ? (
+          <Loader2 className="w-2.5 h-2.5 text-teal-400 animate-spin flex-shrink-0" />
+        ) : isStopped ? (
+          <Square className="w-2.5 h-2.5 text-amber-400 fill-amber-400 flex-shrink-0" />
+        ) : (
+          <Square className="w-2.5 h-2.5 text-teal-500 fill-teal-500 flex-shrink-0" />
+        )}
+        <span className={cn(
+          "flex-1 truncate",
+          isStopped ? "text-amber-300" : "text-teal-300",
+        )}>
+          {isStopped ? "Stopped" : displayName}
+        </span>
+        <span className="tabular-nums flex-shrink-0 text-gray-500">
+          {isRunning && graph.startTimestamp ? (
+            <RunningTimer startedAt={graph.startTimestamp} />
+          ) : isStopped && stoppedAt && graph.startTimestamp ? (
+            formatDuration(stoppedAt - graph.startTimestamp)
+          ) : graph.durationMs !== undefined ? (
+            formatDuration(graph.durationMs)
+          ) : null}
+        </span>
+      </div>
+      {graph.agents.map((agent, aIdx) => (
+        <AgentRow
+          key={`${agent.name}-${aIdx}`}
+          agent={agent}
+          wasStoppedByUser={wasStoppedByUser}
+          stoppedAt={stoppedAt}
+        />
+      ))}
+    </>
+  );
+}
+
+interface ToolRowProps {
+  tool: ToolNode;
+  toolIdx: number;
+  expandedTools: Set<number>;
+  onToggleExpand: (idx: number) => void;
+  wasStoppedByUser?: boolean;
+  stoppedAt?: number;
+}
+
+function ToolRow({
+  tool,
+  toolIdx,
+  expandedTools,
+  onToggleExpand,
+  wasStoppedByUser,
+  stoppedAt,
+}: ToolRowProps) {
+  const isStopped = tool.isRunning && wasStoppedByUser && stoppedAt;
+  const isRunning = tool.isRunning && !wasStoppedByUser;
+  const desc = getToolDescription(tool.name);
+  const hasSteps = (tool.steps?.length ?? 0) > 0;
+  const isToolExpanded = expandedTools.has(toolIdx);
+
+  return (
+    <div>
+      {/* Tool header row */}
+      <div
+        className={cn(
+          "flex items-center gap-2 px-3 py-1.5",
+          isRunning && "bg-yellow-900/10",
+          isStopped && "bg-amber-900/10",
+          !isRunning && !isStopped && tool.status === "error" && "bg-red-900/10",
+        )}
+      >
+        {hasSteps ? (
+          <button
+            type="button"
+            onClick={() => onToggleExpand(toolIdx)}
+            aria-label={isToolExpanded ? `Collapse ${desc.action} details` : `Expand ${desc.action} details`}
+            aria-expanded={isToolExpanded}
+            aria-controls={`tool-steps-${toolIdx}`}
+            className="w-3 h-3 flex items-center justify-center text-gray-500 hover:text-gray-300"
+          >
+            {isToolExpanded ? (
+              <ChevronDown className="w-3 h-3" />
+            ) : (
+              <ChevronRight className="w-3 h-3" />
+            )}
+          </button>
+        ) : isRunning ? (
+          <Loader2 className="w-3 h-3 text-yellow-400 animate-spin flex-shrink-0" />
+        ) : isStopped ? (
+          <Square className="w-3 h-3 text-amber-400 fill-amber-400 flex-shrink-0" />
+        ) : tool.status === "success" ? (
+          <Play className="w-3 h-3 text-cyan-400 fill-cyan-400 flex-shrink-0" />
+        ) : tool.status === "error" ? (
+          <X className="w-3 h-3 text-red-500 flex-shrink-0" />
+        ) : (
+          <Play className="w-3 h-3 text-cyan-400 fill-cyan-400 flex-shrink-0" />
+        )}
+
+        <span className={cn(
+          "flex-1",
+          isStopped ? "text-amber-300" : tool.status === "error" ? "text-red-300" : "text-cyan-300",
+        )}>
+          {isRunning
+            ? desc.running
+            : isStopped
+              ? "Stopped"
+              : tool.status === "error"
+                ? `Failed: ${desc.action}`
+                : desc.action}
+          {!isRunning && !isStopped && tool.summary && (
+            <span className="text-gray-500"> — {tool.summary}</span>
+          )}
+        </span>
+
+        <span className="tabular-nums flex-shrink-0 ml-auto text-gray-500">
+          {isRunning && tool.startTimestamp ? (
+            <RunningTimer startedAt={tool.startTimestamp} />
+          ) : isStopped && stoppedAt && tool.startTimestamp ? (
+            formatDuration(stoppedAt - tool.startTimestamp)
+          ) : tool.durationMs !== undefined ? (
+            formatDuration(tool.durationMs)
+          ) : null}
+        </span>
+      </div>
+
+      {/* Graphs nested under this tool */}
+      {tool.graphs.map((graph, gIdx) => (
+        <GraphRow
+          key={`${graph.name}-${gIdx}`}
+          graph={graph}
+          wasStoppedByUser={wasStoppedByUser}
+          stoppedAt={stoppedAt}
+        />
+      ))}
+
+      {/* Expandable steps detail */}
+      {hasSteps && isToolExpanded && (
+        <div id={`tool-steps-${toolIdx}`} className="bg-gray-950 border-l-2 border-gray-700 ml-4 py-1">
+          {tool.steps!.map((step, stepIdx) => {
+            const isCandidate = step.step === "candidate" || step.step === "match";
+            const isFelicity = !isCandidate && step.data && ("clarity" in step.data || "classification" in step.data);
+            const isSearchQuery = step.step === "search_query" || step.step === "hyde_query";
+
+            return (
+              <div
+                key={`${step.step}-${stepIdx}`}
+                className="px-3 py-0.5 text-gray-400"
+              >
+                <div className="flex items-center gap-2">
+                  <Circle className="w-1.5 h-1.5 text-gray-600 fill-gray-600 flex-shrink-0" />
+                  <span>
+                    {step.step}
+                    {step.detail && (
+                      <span className="text-gray-500">
+                        : {step.detail}
+                      </span>
+                    )}
+                  </span>
+                </div>
+                {step.data && isCandidate && (
+                  <CandidateScore data={step.data as CandidateData} />
+                )}
+                {step.data && isFelicity && (
+                  <FelicityScores data={step.data as FelicityData} />
+                )}
+                {step.data && isSearchQuery && (
+                  <SearchQueryDisplay data={step.data as SearchQueryData} />
+                )}
+                {step.data && !isCandidate && !isFelicity && !isSearchQuery && (
+                  <div className="ml-4 mt-1 text-xs text-gray-500 space-y-0.5">
+                    {Object.entries(step.data).map(([key, value]) => (
+                      <div key={key} className="flex gap-2">
+                        <span className="text-gray-600 flex-shrink-0">{key}:</span>
+                        <span className="text-gray-400 break-all">
+                          {typeof value === "string"
+                            ? value.length > 200 ? value.slice(0, 200) + "..." : value
+                            : (() => { const s = JSON.stringify(value); return s.length > 200 ? s.slice(0, 200) + "..." : s; })()}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function ToolCallsDisplay({
   traceEvents,
   isStreaming,
@@ -351,12 +834,10 @@ export function ToolCallsDisplay({
 
   if (!traceEvents || traceEvents.length === 0) return null;
 
-  const toolStarts = traceEvents.filter((e) => e.type === "tool_start").length;
-  const toolEnds = traceEvents.filter((e) => e.type === "tool_end").length;
-  const runningTools = toolStarts - toolEnds;
-  const hasErrors = traceEvents.some(
-    (e) => e.type === "tool_end" && e.status === "error"
-  );
+  const parsed = parseTraceEvents(traceEvents);
+
+  const runningTools = parsed.tools.filter((t) => t.isRunning).length;
+  const hasErrors = parsed.tools.some((t) => t.status === "error");
 
   const firstEvent = traceEvents[0];
   const lastEvent = traceEvents[traceEvents.length - 1];
@@ -373,28 +854,6 @@ export function ToolCallsDisplay({
       }
       return next;
     });
-  };
-
-  const getEventDuration = (event: TraceEvent, idx: number): number | null => {
-    if (event.type === "llm_start") {
-      const llmEnd = traceEvents
-        .slice(idx + 1)
-        .find((e) => e.type === "llm_end" && e.iteration === event.iteration);
-      return llmEnd ? llmEnd.timestamp - event.timestamp : null;
-    }
-    if (event.type === "tool_start") {
-      // Count how many prior tool_start events share the same name (occurrence index)
-      const occurrence = traceEvents
-        .slice(0, idx)
-        .filter((e) => e.type === "tool_start" && e.name === event.name).length;
-      // Find the Nth tool_end with the same name (matching occurrence)
-      let seen = 0;
-      const toolEnd = traceEvents
-        .slice(idx + 1)
-        .find((e) => e.type === "tool_end" && e.name === event.name && seen++ === occurrence);
-      return toolEnd ? toolEnd.timestamp - event.timestamp : null;
-    }
-    return null;
   };
 
   return (
@@ -438,18 +897,14 @@ export function ToolCallsDisplay({
 
       {isExpanded && (
         <div className="divide-y divide-gray-800">
-          {traceEvents.map((event, idx) => {
-            const duration = getEventDuration(event, idx);
-            const wouldBeRunning =
-              (event.type === "llm_start" || event.type === "tool_start") &&
-              duration === null;
-            const isRunning = wouldBeRunning && !wasStoppedByUser;
-            const isStopped = wouldBeRunning && wasStoppedByUser && stoppedAt;
+          {/* Non-tool items (iteration_start, llm_start, llm_end) */}
+          {parsed.items.map((item, idx) => {
+            const { event } = item;
 
-            if (event.type === "iteration_start") {
+            if (item.kind === "iteration_start") {
               return (
                 <div
-                  key={idx}
+                  key={`iter-${idx}`}
                   className="flex items-center gap-2 px-3 py-1.5 bg-blue-900/20"
                 >
                   <Zap className="w-3 h-3 text-blue-400 flex-shrink-0" />
@@ -463,14 +918,19 @@ export function ToolCallsDisplay({
               );
             }
 
-            if (event.type === "llm_start") {
+            if (item.kind === "llm_start") {
+              const duration = item.duration ?? null;
+              const wouldBeRunning = duration === null;
+              const isRunning = wouldBeRunning && !wasStoppedByUser;
+              const isStopped = wouldBeRunning && wasStoppedByUser && stoppedAt;
+
               return (
                 <div
-                  key={idx}
+                  key={`llm-start-${idx}`}
                   className={cn(
                     "flex items-center gap-2 px-3 py-1.5",
                     isRunning && "bg-purple-900/10",
-                    isStopped && "bg-amber-900/10"
+                    isStopped && "bg-amber-900/10",
                   )}
                 >
                   {isRunning ? (
@@ -500,9 +960,9 @@ export function ToolCallsDisplay({
               );
             }
 
-            if (event.type === "llm_end") {
+            if (item.kind === "llm_end") {
               return (
-                <div key={idx} className="flex items-center gap-2 px-3 py-1.5">
+                <div key={`llm-end-${idx}`} className="flex items-center gap-2 px-3 py-1.5">
                   <Square className="w-3 h-3 text-purple-500 fill-purple-500 flex-shrink-0" />
                   <span className="text-purple-300">
                     {event.hasToolCalls && event.toolNames
@@ -515,146 +975,21 @@ export function ToolCallsDisplay({
               );
             }
 
-            if (event.type === "tool_start") {
-              const desc = getToolDescription(event.name || "");
-              return (
-                <div
-                  key={idx}
-                  className={cn(
-                    "flex items-center gap-2 px-3 py-1.5",
-                    isRunning && "bg-yellow-900/10",
-                    isStopped && "bg-amber-900/10"
-                  )}
-                >
-                  {isRunning ? (
-                    <Loader2 className="w-3 h-3 text-yellow-400 animate-spin flex-shrink-0" />
-                  ) : isStopped ? (
-                    <Square className="w-3 h-3 text-amber-400 fill-amber-400 flex-shrink-0" />
-                  ) : (
-                    <Play className="w-3 h-3 text-cyan-400 fill-cyan-400 flex-shrink-0" />
-                  )}
-                  <span className={isStopped ? "text-amber-300" : "text-cyan-300"}>
-                    {isRunning ? desc.running : isStopped ? "Stopped" : desc.action}
-                  </span>
-                  <span className="tabular-nums flex-shrink-0 ml-auto text-gray-500">
-                    {isRunning ? (
-                      <RunningTimer startedAt={event.timestamp} />
-                    ) : isStopped && stoppedAt ? (
-                      formatDuration(stoppedAt - event.timestamp)
-                    ) : duration !== null ? (
-                      formatDuration(duration)
-                    ) : null}
-                  </span>
-                </div>
-              );
-            }
-
-            if (event.type === "tool_end") {
-              const hasSteps = event.steps && event.steps.length > 0;
-              const isToolExpanded = expandedTools.has(idx);
-              const desc = getToolDescription(event.name || "");
-
-              return (
-                <div key={idx}>
-                  <div
-                    className={cn(
-                      "flex items-center gap-2 px-3 py-1.5",
-                      event.status === "error" && "bg-red-900/10"
-                    )}
-                  >
-                    {hasSteps ? (
-                      <button
-                        type="button"
-                        onClick={() => toggleToolExpanded(idx)}
-                        aria-label={isToolExpanded ? `Collapse ${desc.action} details` : `Expand ${desc.action} details`}
-                        aria-expanded={isToolExpanded}
-                        aria-controls={`tool-steps-${idx}`}
-                        className="w-3 h-3 flex items-center justify-center text-gray-500 hover:text-gray-300"
-                      >
-                        {isToolExpanded ? (
-                          <ChevronDown className="w-3 h-3" />
-                        ) : (
-                          <ChevronRight className="w-3 h-3" />
-                        )}
-                      </button>
-                    ) : event.status === "success" ? (
-                      <Square className="w-3 h-3 text-green-500 fill-green-500 flex-shrink-0" />
-                    ) : (
-                      <X className="w-3 h-3 text-red-500 flex-shrink-0" />
-                    )}
-                    <span
-                      className={cn(
-                        event.status === "success"
-                          ? "text-green-300"
-                          : "text-red-300"
-                      )}
-                    >
-                      {event.status === "success"
-                        ? `Completed: ${desc.action}`
-                        : `Failed: ${desc.action}`}
-                      {event.summary && (
-                        <span className="text-gray-500"> — {event.summary}</span>
-                      )}
-                    </span>
-                  </div>
-
-                  {hasSteps && isToolExpanded && (
-                    <div id={`tool-steps-${idx}`} className="bg-gray-950 border-l-2 border-gray-700 ml-4 py-1">
-                      {event.steps!.map((step, stepIdx) => {
-                        const isCandidate = step.step === "candidate" || step.step === "match";
-                        const isFelicity = !isCandidate && step.data && ("clarity" in step.data || "classification" in step.data);
-                        const isSearchQuery = step.step === "search_query" || step.step === "hyde_query";
-
-                        return (
-                          <div
-                            key={`${step.step}-${stepIdx}`}
-                            className="px-3 py-0.5 text-gray-400"
-                          >
-                            <div className="flex items-center gap-2">
-                              <Circle className="w-1.5 h-1.5 text-gray-600 fill-gray-600 flex-shrink-0" />
-                              <span>
-                                {step.step}
-                                {step.detail && (
-                                  <span className="text-gray-500">
-                                    : {step.detail}
-                                  </span>
-                                )}
-                              </span>
-                            </div>
-                            {step.data && isCandidate && (
-                              <CandidateScore data={step.data as CandidateData} />
-                            )}
-                            {step.data && isFelicity && (
-                              <FelicityScores data={step.data as FelicityData} />
-                            )}
-                            {step.data && isSearchQuery && (
-                              <SearchQueryDisplay data={step.data as SearchQueryData} />
-                            )}
-                            {step.data && !isCandidate && !isFelicity && !isSearchQuery && (
-                              <div className="ml-4 mt-1 text-xs text-gray-500 space-y-0.5">
-                                {Object.entries(step.data).map(([key, value]) => (
-                                  <div key={key} className="flex gap-2">
-                                    <span className="text-gray-600 flex-shrink-0">{key}:</span>
-                                    <span className="text-gray-400 break-all">
-                                      {typeof value === 'string'
-                                        ? value.length > 200 ? value.slice(0, 200) + '...' : value
-                                        : (() => { const s = JSON.stringify(value); return s.length > 200 ? s.slice(0, 200) + '...' : s; })()}
-                                    </span>
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              );
-            }
-
             return null;
           })}
+
+          {/* Tool rows (with nested graph/agent rows) */}
+          {parsed.tools.map((tool, toolIdx) => (
+            <ToolRow
+              key={`tool-${tool.name}-${toolIdx}`}
+              tool={tool}
+              toolIdx={toolIdx}
+              expandedTools={expandedTools}
+              onToggleExpand={toggleToolExpanded}
+              wasStoppedByUser={wasStoppedByUser}
+              stoppedAt={stoppedAt}
+            />
+          ))}
         </div>
       )}
     </div>
