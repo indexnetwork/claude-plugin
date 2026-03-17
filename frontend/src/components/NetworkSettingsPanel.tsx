@@ -18,6 +18,9 @@ import DirectoryConfigModal from '@/components/modals/DirectoryConfigModal';
 import SlackChannelModal from '@/components/modals/SlackChannelModal';
 import { validateFiles } from '@/lib/file-validation';
 import IndexAvatar, { resolveIndexImageSrc } from '@/components/IndexAvatar';
+import UserAvatar from '@/components/UserAvatar';
+import GhostBadge from '@/components/GhostBadge';
+import { useNavigate } from 'react-router';
 
 interface IntegrationItem {
   id: string | null;
@@ -36,6 +39,7 @@ interface NetworkSettingsPanelProps {
 
 export default function NetworkSettingsPanel({ index, onDeleted, activeTab }: NetworkSettingsPanelProps) {
   const indexesService = useIndexes();
+  const navigate = useNavigate();
   const { indexes, updateIndex, removeIndex } = useIndexesState();
   const { success, error } = useNotifications();
   const api = useAuthenticatedAPI();
@@ -397,9 +401,10 @@ export default function NetworkSettingsPanel({ index, onDeleted, activeTab }: Ne
   const hasSettingsChanged = title !== originalTitle || prompt !== originalPrompt || hasImageChanged;
   const isDeleteConfirmationValid = deleteConfirmationText === currentIndex.title;
   const filteredSuggestions = suggestedUsers.filter(u => !members.find(m => m.id === u.id));
-  const filteredMembers = memberSearchQuery.trim()
+  const filteredMembers = (memberSearchQuery.trim()
     ? members.filter(m => m.name.toLowerCase().includes(memberSearchQuery.toLowerCase()))
-    : members;
+    : members
+  ).slice().sort((a, b) => (a.isGhost ? 1 : 0) - (b.isGhost ? 1 : 0));
   const noResults = searchHasQueried && filteredSuggestions.length === 0 && filteredMembers.length === 0;
 
   return (
@@ -578,9 +583,7 @@ export default function NetworkSettingsPanel({ index, onDeleted, activeTab }: Ne
                 <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-sm shadow-sm z-10 max-h-40 overflow-y-auto">
                   {filteredSuggestions.map((u) => (
                     <button key={u.id} onClick={() => handleAddMember(u)} className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-gray-50 text-left">
-                      <div className="h-6 w-6 bg-gray-100 rounded-full flex items-center justify-center text-gray-500 text-xs font-medium flex-shrink-0">
-                        {u.name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)}
-                      </div>
+                      <UserAvatar id={u.id} name={u.name} avatar={(u as Member).avatar} size={24} />
                       <span className="text-sm text-black flex-1 truncate">{u.name}</span>
                       <span className="text-xs text-gray-400 flex-shrink-0">Add</span>
                     </button>
@@ -604,20 +607,32 @@ export default function NetworkSettingsPanel({ index, onDeleted, activeTab }: Ne
               )}
             </div>
 
-            <div className="space-y-1.5">
+            <div className="space-y-0.5">
               {filteredMembers.map((member) => (
                 <div key={member.id} className="flex items-center gap-3 px-3 py-2 rounded-sm hover:bg-gray-50 transition-colors group">
-                  <div className="h-7 w-7 bg-gray-100 rounded-full flex items-center justify-center text-gray-600 text-xs font-medium flex-shrink-0">
-                    {member.name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)}
-                  </div>
-                  <span className="text-sm text-black flex-1 truncate">{member.name}</span>
+                  <button
+                    className="flex items-center gap-3 flex-1 min-w-0 text-left"
+                    onClick={() => navigate(`/u/${member.id}`)}
+                  >
+                    <UserAvatar
+                      id={member.id}
+                      name={member.name}
+                      avatar={member.avatar}
+                      size={28}
+                      blur={member.isGhost}
+                    />
+                    <span className="text-sm flex-1 truncate flex items-center gap-1.5 text-black">
+                      {member.name}
+                      {member.isGhost && <GhostBadge />}
+                    </span>
+                  </button>
                   {member.permissions.includes('owner') && (
-                    <span className="text-xs px-1.5 py-0.5 rounded-sm font-medium bg-gray-900 text-white">
+                    <span className="text-xs px-1.5 py-0.5 rounded-sm font-medium bg-gray-900 text-white flex-shrink-0">
                       Owner
                     </span>
                   )}
                   {!member.permissions.includes('owner') && (
-                    <button onClick={() => handleRemoveMember(member.id)} className="opacity-0 group-hover:opacity-100 p-1 text-gray-300 hover:text-red-500 transition-colors">
+                    <button onClick={() => handleRemoveMember(member.id)} className="opacity-0 group-hover:opacity-100 p-1 text-gray-300 hover:text-red-500 transition-colors flex-shrink-0">
                       <Trash2 className="h-3.5 w-3.5" />
                     </button>
                   )}
