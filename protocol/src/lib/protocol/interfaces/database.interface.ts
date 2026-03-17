@@ -1147,29 +1147,23 @@ export interface Database {
   // Contact / My Network Operations
   // ─────────────────────────────────────────────────────────────────────────────
 
-  /** Get user IDs of all contacts owned by the given user. */
-  getContactUserIds(ownerId: string): Promise<string[]>;
-
   /** Create a ghost user (unregistered contact) with empty profile. */
   createGhostUser(data: { name: string; email: string }): Promise<{ id: string }>;
-
-  /** Upsert a contact (idempotent; unique constraint on ownerId+userId). */
-  upsertContact(data: { ownerId: string; userId: string; source: 'gmail' | 'google_calendar' | 'manual' }): Promise<void>;
 
   /** Upsert a contact membership in the owner's personal index (index_members with permissions=['contact']). */
   upsertContactMembership(ownerId: string, contactUserId: string, options?: { restore?: boolean }): Promise<void>;
 
-  /** Get all contacts for a user with their user details. */
-  getContacts(ownerId: string): Promise<Array<{
-    id: string;
+  /** Hard-delete a contact membership from the owner's personal index. */
+  hardDeleteContactMembership(ownerId: string, contactUserId: string): Promise<void>;
+
+  /** Get all contact members from the owner's personal index with user details. */
+  getContactMembers(ownerId: string): Promise<Array<{
     userId: string;
-    source: string;
-    importedAt: Date;
     user: { id: string; name: string; email: string; avatar: string | null; isGhost: boolean };
   }>>;
 
-  /** Soft-delete a contact. */
-  removeContact(ownerId: string, contactId: string): Promise<void>;
+  /** Clear a reverse opt-out (reactivate soft-deleted contact membership in another user's personal index). */
+  clearReverseOptOut(ownerId: string, otherUserId: string): Promise<void>;
 
   /**
    * Returns the IDs of personal indexes where the given user is a contact member.
@@ -1591,8 +1585,6 @@ export type ChatGraphCompositeDatabase = Pick<
   | 'unassignIntentFromIndex'
   | 'getIndexIdsForIntent'
   | 'getIntentIndexScores'
-  // Contact Operations (for contacts-only discovery)
-  | 'getContactUserIds'
   // Personal index auto-assignment (used by intent graph executor)
   | 'getPersonalIndexesForContact'
   // Index Ownership Operations (owner-only)
@@ -1644,8 +1636,6 @@ export type OpportunityGraphDatabase = Pick<
   | 'getUser'
   // Load candidate intent payload/summary for evaluator
   | 'getIntent'
-  // Contacts-only discovery
-  | 'getContactUserIds'
 >;
 
 /**
