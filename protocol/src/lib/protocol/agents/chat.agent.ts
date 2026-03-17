@@ -17,6 +17,7 @@ import { createModel } from "./model.config";
 import { sanitizeForDebugMeta } from "../support/debug-meta.sanitizer";
 import type { DebugMetaToolCall } from "../../../types/chat-streaming.types";
 import { Timed } from "../../performance";
+import { requestContext } from '../../request-context';
 
 const logger = protocolLogger("ChatAgent");
 
@@ -641,7 +642,11 @@ export class ChatAgent {
           const toolStart = Date.now();
           try {
             logger.verbose("Streaming: executing tool", { name: tc.name });
-            let result = await tool.invoke(tc.args);
+            const currentCtx = requestContext.getStore() ?? {};
+            let result = await requestContext.run(
+              { ...currentCtx, traceEmitter: (e) => emit({ type: e.type, name: e.name, durationMs: e.durationMs, summary: e.summary } as AgentStreamEvent) },
+              () => tool.invoke(tc.args),
+            );
             const toolDurationMs = Date.now() - toolStart;
             let resultStr =
               typeof result === "string" ? result : JSON.stringify(result);
