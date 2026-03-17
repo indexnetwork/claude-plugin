@@ -1,4 +1,7 @@
 import { z } from "zod";
+
+import { requestContext } from "../../request-context";
+
 import type { DefineTool, ToolDeps } from "./tool.helpers";
 import { success, error, UUID_REGEX } from "./tool.helpers";
 import { MINIMAL_MAIN_TEXT_MAX_CHARS } from "../support/opportunity.constants";
@@ -362,6 +365,8 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
         );
 
         const _introGraphStart = Date.now();
+        const _introTraceEmitter = requestContext.getStore()?.traceEmitter;
+        _introTraceEmitter?.({ type: "graph_start", name: "opportunity" });
         const result = await graphs.opportunity.invoke({
           operationMode: "create_introduction",
           userId: context.userId,
@@ -375,6 +380,7 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
           },
         });
         const _introGraphMs = Date.now() - _introGraphStart;
+        _introTraceEmitter?.({ type: "graph_end", name: "opportunity", durationMs: _introGraphMs });
 
         if (result.error || !result.opportunities?.length) {
           return error(
@@ -492,12 +498,16 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
           return error("Invalid index ID format.");
         }
         const _scopeGraphStart = Date.now();
+        const _scopeIndexMembershipTraceEmitter = requestContext.getStore()?.traceEmitter;
+        _scopeIndexMembershipTraceEmitter?.({ type: "graph_start", name: "index_membership" });
         const memberResult = await graphs.indexMembership.invoke({
           userId: context.userId,
           indexId: effectiveIndexId,
           operationMode: "read" as const,
         });
-        _scopeGraphTimings.push({ name: 'index_membership', durationMs: Date.now() - _scopeGraphStart, agents: [] });
+        const _scopeIndexMembershipMs = Date.now() - _scopeGraphStart;
+        _scopeIndexMembershipTraceEmitter?.({ type: "graph_end", name: "index_membership", durationMs: _scopeIndexMembershipMs });
+        _scopeGraphTimings.push({ name: 'index_membership', durationMs: _scopeIndexMembershipMs, agents: [] });
         if (memberResult.error) {
           return error("Index not found or you are not a member.");
         }
@@ -508,12 +518,16 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
       } else {
         // No scope - use all indexes (only in unscoped chat)
         const _scopeGraphStart = Date.now();
+        const _scopeIndexTraceEmitter = requestContext.getStore()?.traceEmitter;
+        _scopeIndexTraceEmitter?.({ type: "graph_start", name: "index" });
         const indexResult = await graphs.index.invoke({
           userId: context.userId,
           operationMode: "read" as const,
           showAll: true,
         });
-        _scopeGraphTimings.push({ name: 'index', durationMs: Date.now() - _scopeGraphStart, agents: [] });
+        const _scopeIndexMs = Date.now() - _scopeGraphStart;
+        _scopeIndexTraceEmitter?.({ type: "graph_end", name: "index", durationMs: _scopeIndexMs });
+        _scopeGraphTimings.push({ name: 'index', durationMs: _scopeIndexMs, agents: [] });
         indexScope = (indexResult.readResult?.memberOf || []).map(
           (m: { indexId: string }) => m.indexId,
         );
@@ -902,6 +916,8 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
 
       const isSend = query.status === "pending";
       const _updateGraphStart = Date.now();
+      const _updateTraceEmitter = requestContext.getStore()?.traceEmitter;
+      _updateTraceEmitter?.({ type: "graph_start", name: "opportunity" });
       const result = await graphs.opportunity.invoke({
         userId: context.userId,
         operationMode: isSend ? ("send" as const) : ("update" as const),
@@ -909,6 +925,7 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
         ...(isSend ? {} : { newStatus: query.status }),
       });
       const _updateGraphMs = Date.now() - _updateGraphStart;
+      _updateTraceEmitter?.({ type: "graph_end", name: "opportunity", durationMs: _updateGraphMs });
 
       if (result.mutationResult) {
         if (result.mutationResult.success) {

@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import type { ExecutionResult, VerifiedIntent } from "../states/intent.state";
 import { protocolLogger } from "../support/protocol.logger";
+import { requestContext } from "../../request-context";
 
 import type { DefineTool, ToolDeps } from "./tool.helpers";
 import { success, error, UUID_REGEX } from "./tool.helpers";
@@ -94,6 +95,8 @@ export function createIntentTools(defineTool: DefineTool, deps: ToolDeps) {
       const allUserIntents = !context.indexId && !effectiveIndexId && (!queryUserId || queryUserId === context.userId);
 
       const _readIntentGraphStart = Date.now();
+      const _readIntentTraceEmitter = requestContext.getStore()?.traceEmitter;
+      _readIntentTraceEmitter?.({ type: "graph_start", name: "intent" });
       const result = await graphs.intent.invoke({
         userId: context.userId,
         userProfile: "",
@@ -103,6 +106,7 @@ export function createIntentTools(defineTool: DefineTool, deps: ToolDeps) {
         allUserIntents,
       });
       const _readIntentGraphMs = Date.now() - _readIntentGraphStart;
+      _readIntentTraceEmitter?.({ type: "graph_end", name: "intent", durationMs: _readIntentGraphMs });
 
       if (result.readResult) {
         if (result.readResult.count === 0 && result.readResult.message && /not a member|Index not found/i.test(result.readResult.message)) {
@@ -159,12 +163,17 @@ export function createIntentTools(defineTool: DefineTool, deps: ToolDeps) {
 
       // Fetch profile (the intent graph needs it for inference)
       const _profileGraphStart1 = Date.now();
+      const _createIntentProfileTraceEmitter = requestContext.getStore()?.traceEmitter;
+      _createIntentProfileTraceEmitter?.({ type: "graph_start", name: "profile" });
       const profileResult = await graphs.profile.invoke({ userId: context.userId, operationMode: 'query' as const });
       const _profileGraphMs1 = Date.now() - _profileGraphStart1;
+      _createIntentProfileTraceEmitter?.({ type: "graph_end", name: "profile", durationMs: _profileGraphMs1 });
       const userProfile = profileResult.profile ? JSON.stringify(profileResult.profile) : "";
 
       // Run inference + verification only (propose mode — no DB persistence)
       const _intentGraphStart1 = Date.now();
+      const _createIntentTraceEmitter = requestContext.getStore()?.traceEmitter;
+      _createIntentTraceEmitter?.({ type: "graph_start", name: "intent" });
       const result = await graphs.intent.invoke({
         userId: context.userId,
         userProfile,
@@ -173,6 +182,7 @@ export function createIntentTools(defineTool: DefineTool, deps: ToolDeps) {
         ...(effectiveIndexId ? { indexId: effectiveIndexId } : {}),
       });
       const _intentGraphMs1 = Date.now() - _intentGraphStart1;
+      _createIntentTraceEmitter?.({ type: "graph_end", name: "intent", durationMs: _intentGraphMs1 });
       logger.debug("Intent graph propose response", { result });
 
       const verified = result.verifiedIntents || [];
@@ -274,11 +284,16 @@ export function createIntentTools(defineTool: DefineTool, deps: ToolDeps) {
       }
 
       const _profileGraphStart2 = Date.now();
+      const _updateIntentProfileTraceEmitter = requestContext.getStore()?.traceEmitter;
+      _updateIntentProfileTraceEmitter?.({ type: "graph_start", name: "profile" });
       const profileResult = await graphs.profile.invoke({ userId: context.userId, operationMode: 'query' as const });
       const _profileGraphMs2 = Date.now() - _profileGraphStart2;
+      _updateIntentProfileTraceEmitter?.({ type: "graph_end", name: "profile", durationMs: _profileGraphMs2 });
       const userProfile = profileResult.profile ? JSON.stringify(profileResult.profile) : "";
 
       const _intentGraphStart2 = Date.now();
+      const _updateIntentTraceEmitter = requestContext.getStore()?.traceEmitter;
+      _updateIntentTraceEmitter?.({ type: "graph_start", name: "intent" });
       const result = await graphs.intent.invoke({
         userId: context.userId,
         userProfile,
@@ -288,6 +303,7 @@ export function createIntentTools(defineTool: DefineTool, deps: ToolDeps) {
         ...(context.indexId && { indexId: context.indexId }),
       });
       const _intentGraphMs2 = Date.now() - _intentGraphStart2;
+      _updateIntentTraceEmitter?.({ type: "graph_end", name: "intent", durationMs: _intentGraphMs2 });
 
       if (result.executionResults?.some((r: ExecutionResult) => !r.success)) {
         return error("Failed to update intent.");
@@ -328,6 +344,8 @@ export function createIntentTools(defineTool: DefineTool, deps: ToolDeps) {
       }
 
       const _deleteIntentGraphStart = Date.now();
+      const _deleteIntentTraceEmitter = requestContext.getStore()?.traceEmitter;
+      _deleteIntentTraceEmitter?.({ type: "graph_start", name: "intent" });
       const result = await graphs.intent.invoke({
         userId: context.userId,
         userProfile: "",
@@ -336,6 +354,7 @@ export function createIntentTools(defineTool: DefineTool, deps: ToolDeps) {
         ...(context.indexId && { indexId: context.indexId }),
       });
       const _deleteIntentGraphMs = Date.now() - _deleteIntentGraphStart;
+      _deleteIntentTraceEmitter?.({ type: "graph_end", name: "intent", durationMs: _deleteIntentGraphMs });
 
       if (result.executionResults?.some((r: ExecutionResult) => !r.success)) {
         return error("Failed to delete intent.");
@@ -375,6 +394,8 @@ export function createIntentTools(defineTool: DefineTool, deps: ToolDeps) {
       }
 
       const _createIntentIndexGraphStart = Date.now();
+      const _createIntentIndexTraceEmitter = requestContext.getStore()?.traceEmitter;
+      _createIntentIndexTraceEmitter?.({ type: "graph_start", name: "intent_index" });
       const result = await graphs.intentIndex.invoke({
         userId: context.userId,
         indexId,
@@ -383,6 +404,7 @@ export function createIntentTools(defineTool: DefineTool, deps: ToolDeps) {
         skipEvaluation: true,
       });
       const _createIntentIndexGraphMs = Date.now() - _createIntentIndexGraphStart;
+      _createIntentIndexTraceEmitter?.({ type: "graph_end", name: "intent_index", durationMs: _createIntentIndexGraphMs });
 
       if (result.mutationResult) {
         if (result.mutationResult.success) {
@@ -445,6 +467,8 @@ export function createIntentTools(defineTool: DefineTool, deps: ToolDeps) {
       }
 
       const _readIntentIndexGraphStart = Date.now();
+      const _readIntentIndexTraceEmitter = requestContext.getStore()?.traceEmitter;
+      _readIntentIndexTraceEmitter?.({ type: "graph_start", name: "intent_index" });
       const result = await graphs.intentIndex.invoke({
         userId: context.userId,
         indexId,
@@ -453,6 +477,7 @@ export function createIntentTools(defineTool: DefineTool, deps: ToolDeps) {
         queryUserId,
       });
       const _readIntentIndexGraphMs = Date.now() - _readIntentIndexGraphStart;
+      _readIntentIndexTraceEmitter?.({ type: "graph_end", name: "intent_index", durationMs: _readIntentIndexGraphMs });
 
       if (result.error) {
         return error(result.error);
@@ -488,6 +513,8 @@ export function createIntentTools(defineTool: DefineTool, deps: ToolDeps) {
       }
 
       const _deleteIntentIndexGraphStart = Date.now();
+      const _deleteIntentIndexTraceEmitter = requestContext.getStore()?.traceEmitter;
+      _deleteIntentIndexTraceEmitter?.({ type: "graph_start", name: "intent_index" });
       const result = await graphs.intentIndex.invoke({
         userId: context.userId,
         indexId,
@@ -495,6 +522,7 @@ export function createIntentTools(defineTool: DefineTool, deps: ToolDeps) {
         operationMode: 'delete' as const,
       });
       const _deleteIntentIndexGraphMs = Date.now() - _deleteIntentIndexGraphStart;
+      _deleteIntentIndexTraceEmitter?.({ type: "graph_end", name: "intent_index", durationMs: _deleteIntentIndexGraphMs });
 
       if (result.mutationResult) {
         if (result.mutationResult.success) {

@@ -1,4 +1,7 @@
 import { z } from "zod";
+
+import { requestContext } from "../../request-context";
+
 import type { DefineTool, ToolDeps } from "./tool.helpers";
 import { success, error, needsClarification, UUID_REGEX } from "./tool.helpers";
 import { protocolLogger } from "../support/protocol.logger";
@@ -176,11 +179,14 @@ export function createProfileTools(defineTool: DefineTool, deps: ToolDeps) {
 
       // --- Mode 1: No args / self → use profileGraph query (returns id for updates) ---
       const _readProfileGraphStart = Date.now();
+      const _readProfileTraceEmitter = requestContext.getStore()?.traceEmitter;
+      _readProfileTraceEmitter?.({ type: "graph_start", name: "profile" });
       const result = await graphs.profile.invoke({
         userId: context.userId,
         operationMode: 'query' as const,
       });
       const _readProfileGraphMs = Date.now() - _readProfileGraphStart;
+      _readProfileTraceEmitter?.({ type: "graph_end", name: "profile", durationMs: _readProfileGraphMs });
 
       if (result.readResult) {
         return success({ ...result.readResult, _graphTimings: [{ name: 'profile', durationMs: _readProfileGraphMs, agents: result.agentTimings ?? [] }] });
@@ -227,8 +233,11 @@ export function createProfileTools(defineTool: DefineTool, deps: ToolDeps) {
         !onboarding.completedAt;
       if (isOnboarding) {
         const _onboardingProfileGraphStart = Date.now();
+        const _onboardingProfileTraceEmitter = requestContext.getStore()?.traceEmitter;
+        _onboardingProfileTraceEmitter?.({ type: "graph_start", name: "profile" });
         const existing = await graphs.profile.invoke({ userId: context.userId, operationMode: 'query' as const });
         const _onboardingProfileGraphMs = Date.now() - _onboardingProfileGraphStart;
+        _onboardingProfileTraceEmitter?.({ type: "graph_end", name: "profile", durationMs: _onboardingProfileGraphMs });
         if (existing.readResult?.hasProfile && existing.readResult.profile) {
           const p = existing.readResult.profile;
           return success({
@@ -258,6 +267,8 @@ export function createProfileTools(defineTool: DefineTool, deps: ToolDeps) {
         const profileInput = inputParts.join('\n');
         
         const _bioProfileGraphStart = Date.now();
+        const _bioProfileTraceEmitter = requestContext.getStore()?.traceEmitter;
+        _bioProfileTraceEmitter?.({ type: "graph_start", name: "profile" });
         const result = await graphs.profile.invoke({
           userId: context.userId,
           operationMode: 'write' as const,
@@ -265,6 +276,7 @@ export function createProfileTools(defineTool: DefineTool, deps: ToolDeps) {
           forceUpdate: true,
         });
         const _bioProfileGraphMs = Date.now() - _bioProfileGraphStart;
+        _bioProfileTraceEmitter?.({ type: "graph_end", name: "profile", durationMs: _bioProfileGraphMs });
         if (result.error) {
           return error(result.error);
         }
@@ -309,12 +321,15 @@ export function createProfileTools(defineTool: DefineTool, deps: ToolDeps) {
 
       // Invoke profile graph in generate mode (uses user table data + Parallels searchUser)
       const _generateProfileGraphStart = Date.now();
+      const _generateProfileTraceEmitter = requestContext.getStore()?.traceEmitter;
+      _generateProfileTraceEmitter?.({ type: "graph_start", name: "profile" });
       const result = await graphs.profile.invoke({
         userId: context.userId,
         operationMode: 'generate' as const,
         forceUpdate: true,
       });
       const _generateProfileGraphMs = Date.now() - _generateProfileGraphStart;
+      _generateProfileTraceEmitter?.({ type: "graph_end", name: "profile", durationMs: _generateProfileGraphMs });
 
       // If user info is insufficient, ask conversationally
       if (result.needsUserInfo) {
@@ -359,8 +374,11 @@ export function createProfileTools(defineTool: DefineTool, deps: ToolDeps) {
     handler: async ({ context, query }) => {
       // Use profileGraph query mode to validate profile existence and get id
       const _updateQueryProfileGraphStart = Date.now();
+      const _updateQueryProfileTraceEmitter = requestContext.getStore()?.traceEmitter;
+      _updateQueryProfileTraceEmitter?.({ type: "graph_start", name: "profile" });
       const queryResult = await graphs.profile.invoke({ userId: context.userId, operationMode: 'query' as const });
       const _updateQueryProfileGraphMs = Date.now() - _updateQueryProfileGraphStart;
+      _updateQueryProfileTraceEmitter?.({ type: "graph_end", name: "profile", durationMs: _updateQueryProfileGraphMs });
       if (!queryResult.readResult?.hasProfile && !queryResult.profile) {
         return error("You don't have a profile yet. Use create_user_profile first.");
       }
@@ -377,6 +395,8 @@ export function createProfileTools(defineTool: DefineTool, deps: ToolDeps) {
 
       // Execute update directly
       const _updateWriteProfileGraphStart = Date.now();
+      const _updateWriteProfileTraceEmitter = requestContext.getStore()?.traceEmitter;
+      _updateWriteProfileTraceEmitter?.({ type: "graph_start", name: "profile" });
       const _writeResult = await graphs.profile.invoke({
         userId: context.userId,
         operationMode: "write",
@@ -384,6 +404,7 @@ export function createProfileTools(defineTool: DefineTool, deps: ToolDeps) {
         forceUpdate: true,
       });
       const _updateWriteProfileGraphMs = Date.now() - _updateWriteProfileGraphStart;
+      _updateWriteProfileTraceEmitter?.({ type: "graph_end", name: "profile", durationMs: _updateWriteProfileGraphMs });
       if (_writeResult.error) {
         return error(_writeResult.error);
       }

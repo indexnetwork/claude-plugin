@@ -1,4 +1,7 @@
 import { z } from "zod";
+
+import { requestContext } from "../../request-context";
+
 import type { DefineTool, ToolDeps } from "./tool.helpers";
 import { success, error, UUID_REGEX } from "./tool.helpers";
 
@@ -17,6 +20,8 @@ export function createIndexTools(defineTool: DefineTool, deps: ToolDeps) {
       }
 
       const _readIndexGraphStart = Date.now();
+      const _readIndexTraceEmitter = requestContext.getStore()?.traceEmitter;
+      _readIndexTraceEmitter?.({ type: "graph_start", name: "index" });
       const result = await graphs.index.invoke({
         userId: context.userId,
         indexId: context.indexId || undefined,
@@ -24,6 +29,7 @@ export function createIndexTools(defineTool: DefineTool, deps: ToolDeps) {
         showAll: false, // Never allow bypass - strict scope enforcement
       });
       const _readIndexGraphMs = Date.now() - _readIndexGraphStart;
+      _readIndexTraceEmitter?.({ type: "graph_end", name: "index", durationMs: _readIndexGraphMs });
 
       if (result.error) {
         return error(result.error);
@@ -73,12 +79,15 @@ export function createIndexTools(defineTool: DefineTool, deps: ToolDeps) {
         }
 
         const _readMembersGraphStart = Date.now();
+        const _readMembersTraceEmitter = requestContext.getStore()?.traceEmitter;
+        _readMembersTraceEmitter?.({ type: "graph_start", name: "index_membership" });
         const result = await graphs.indexMembership.invoke({
           userId: context.userId,
           indexId,
           operationMode: 'read' as const,
         });
         const _readMembersGraphMs = Date.now() - _readMembersGraphStart;
+        _readMembersTraceEmitter?.({ type: "graph_end", name: "index_membership", durationMs: _readMembersGraphMs });
 
         if (result.error) {
           return error(result.error);
@@ -272,6 +281,8 @@ export function createIndexTools(defineTool: DefineTool, deps: ToolDeps) {
       }
 
       const _updateIndexGraphStart = Date.now();
+      const _updateIndexTraceEmitter = requestContext.getStore()?.traceEmitter;
+      _updateIndexTraceEmitter?.({ type: "graph_start", name: "index" });
       const result = await graphs.index.invoke({
         userId: context.userId,
         indexId: effectiveIndexId,
@@ -279,6 +290,7 @@ export function createIndexTools(defineTool: DefineTool, deps: ToolDeps) {
         updateInput: query.settings,
       });
       const _updateIndexGraphMs = Date.now() - _updateIndexGraphStart;
+      _updateIndexTraceEmitter?.({ type: "graph_end", name: "index", durationMs: _updateIndexGraphMs });
 
       if (result.mutationResult && !result.mutationResult.success) {
         return error(result.mutationResult.error || "Failed to update index.");
@@ -302,6 +314,8 @@ export function createIndexTools(defineTool: DefineTool, deps: ToolDeps) {
       }
 
       const _createIndexGraphStart = Date.now();
+      const _createIndexTraceEmitter = requestContext.getStore()?.traceEmitter;
+      _createIndexTraceEmitter?.({ type: "graph_start", name: "index" });
       const result = await graphs.index.invoke({
         userId: context.userId,
         operationMode: 'create' as const,
@@ -313,6 +327,7 @@ export function createIndexTools(defineTool: DefineTool, deps: ToolDeps) {
         },
       });
       const _createIndexGraphMs = Date.now() - _createIndexGraphStart;
+      _createIndexTraceEmitter?.({ type: "graph_end", name: "index", durationMs: _createIndexGraphMs });
 
       if (result.mutationResult) {
         if (result.mutationResult.success) {
@@ -350,12 +365,15 @@ export function createIndexTools(defineTool: DefineTool, deps: ToolDeps) {
       }
 
       const _deleteIndexGraphStart = Date.now();
+      const _deleteIndexTraceEmitter = requestContext.getStore()?.traceEmitter;
+      _deleteIndexTraceEmitter?.({ type: "graph_start", name: "index" });
       const result = await graphs.index.invoke({
         userId: context.userId,
         indexId,
         operationMode: 'delete' as const,
       });
       const _deleteIndexGraphMs = Date.now() - _deleteIndexGraphStart;
+      _deleteIndexTraceEmitter?.({ type: "graph_end", name: "index", durationMs: _deleteIndexGraphMs });
 
       if (result.mutationResult && !result.mutationResult.success) {
         return error(result.mutationResult.error || "Failed to delete index.");
@@ -386,6 +404,8 @@ export function createIndexTools(defineTool: DefineTool, deps: ToolDeps) {
       }
 
       const _createMembershipGraphStart = Date.now();
+      const _createMembershipTraceEmitter = requestContext.getStore()?.traceEmitter;
+      _createMembershipTraceEmitter?.({ type: "graph_start", name: "index_membership" });
       const result = await graphs.indexMembership.invoke({
         userId: context.userId,
         indexId,
@@ -393,6 +413,7 @@ export function createIndexTools(defineTool: DefineTool, deps: ToolDeps) {
         operationMode: 'create' as const,
       });
       const _createMembershipGraphMs = Date.now() - _createMembershipGraphStart;
+      _createMembershipTraceEmitter?.({ type: "graph_end", name: "index_membership", durationMs: _createMembershipGraphMs });
 
       if (result.mutationResult) {
         if (result.mutationResult.success) {
@@ -435,6 +456,8 @@ export function createIndexTools(defineTool: DefineTool, deps: ToolDeps) {
       }
 
       const _deleteMembershipGraphStart = Date.now();
+      const _deleteMembershipTraceEmitter = requestContext.getStore()?.traceEmitter;
+      _deleteMembershipTraceEmitter?.({ type: "graph_start", name: "index_membership" });
       const result = await graphs.indexMembership.invoke({
         userId: context.userId,
         indexId,
@@ -442,6 +465,7 @@ export function createIndexTools(defineTool: DefineTool, deps: ToolDeps) {
         operationMode: 'delete' as const,
       });
       const _deleteMembershipGraphMs = Date.now() - _deleteMembershipGraphStart;
+      _deleteMembershipTraceEmitter?.({ type: "graph_end", name: "index_membership", durationMs: _deleteMembershipGraphMs });
 
       if (result.mutationResult) {
         if (result.mutationResult.success) {
