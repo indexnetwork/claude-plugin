@@ -1139,9 +1139,9 @@ export class OpportunityGraphFactory {
                   .then((res) => {
                     const _evalDuration = Date.now() - _evalStart;
                     agentTimingsAccum.push({ name: 'opportunity.evaluator', durationMs: _evalDuration });
-                    const _topScore = res.length > 0 ? Math.max(...res.map(r => r.score)) : 0;
-                    const _passed = _topScore >= minScore;
-                    _traceEmitter?.({ type: "agent_end", name: "opportunity-evaluator", durationMs: _evalDuration, summary: `${_candidateName}: ${_passed ? _topScore : "not scored"}` });
+                    const _topScore = res.length > 0 ? Math.max(...res.map(r => r.score)) : -1;
+                    const _summary = _topScore < 0 ? `${_candidateName}: no match` : `${_candidateName}: ${_topScore}`;
+                    _traceEmitter?.({ type: "agent_end", name: "opportunity-evaluator", durationMs: _evalDuration, summary: _summary });
                     return res;
                   })
                   .catch((err) => {

@@ -869,6 +869,12 @@ function AgentGroupRow({ name, agents, wasStoppedByUser, stoppedAt }: AgentGroup
           {anyRunning && runningCount < agents.length && (
             <span className="text-gray-600"> — {agents.length - runningCount} done, {runningCount} running</span>
           )}
+          {!anyRunning && !anyStopped && (() => {
+            const scored = agents.filter((a) => isAgentSummaryPassed(a.summary)).length;
+            return scored > 0
+              ? <span className="text-gray-600"> — <span className="text-green-400">{scored} scored</span>, {agents.length - scored} no match</span>
+              : <span className="text-gray-600"> — no matches</span>;
+          })()}
         </span>
         <span className="tabular-nums flex-shrink-0 text-gray-500">
           {anyRunning && earliestStart ? (
