@@ -2634,6 +2634,7 @@ export class ChatDatabaseAdapter {
 
   /**
    * Create a ghost user (unregistered contact) with empty profile.
+   * Uses onConflictDoNothing so concurrent creates are safe.
    * @param data - Name and email for the ghost user
    * @returns The created ghost user's ID
    */
@@ -2644,14 +2645,25 @@ export class ChatDatabaseAdapter {
       name: data.name,
       email: data.email,
       isGhost: true,
-    });
+    }).onConflictDoNothing();
 
-    // Create empty profile
-    await db.insert(schema.userProfiles).values({
-      userId: id,
-    });
+    // Re-query to get actual ID (may have existed already)
+    const [existing] = await db
+      .select({ id: schema.users.id })
+      .from(schema.users)
+      .where(eq(schema.users.email, data.email))
+      .limit(1);
 
-    return { id };
+    const actualId = existing?.id ?? id;
+
+    // Create empty profile (only for newly created users)
+    if (actualId === id) {
+      await db.insert(schema.userProfiles).values({
+        userId: id,
+      }).onConflictDoNothing();
+    }
+
+    return { id: actualId };
   }
 
   /**
@@ -3157,6 +3169,145 @@ export class ChatDatabaseAdapter {
 
       return { newGhosts, newContacts };
     });
+  }
+
+  /**
+   * Upsert a contact membership in the owner's personal index.
+   * Inserts an index_members row with permissions=['contact'].
+   * @param ownerId - The owner of the personal index
+   * @param contactUserId - The user to add as a contact member
+   * @param options - If restore=true, reactivates soft-deleted rows via onConflictDoUpdate(deletedAt=null).
+   *                  If restore=false (default), skips soft-deleted rows and uses onConflictDoNothing for active ones.
+   */
+  async upsertContactMembership(
+    ownerId: string,
+    contactUserId: string,
+    options: { restore?: boolean } = {}
+  ): Promise<void> {
+    const personalIndexId = await getPersonalIndexId(ownerId);
+    if (!personalIndexId) return;
+
+    if (options.restore) {
+      await db
+        .insert(schema.indexMembers)
+        .values({
+          indexId: personalIndexId,
+          userId: contactUserId,
+          permissions: ['contact'],
+          autoAssign: false,
+        })
+        .onConflictDoUpdate({
+          target: [schema.indexMembers.indexId, schema.indexMembers.userId],
+          set: { deletedAt: null, updatedAt: new Date() },
+        });
+    } else {
+      // Check for soft-deleted row first — skip if found (opt-out respected)
+      const [existing] = await db
+        .select({ deletedAt: schema.indexMembers.deletedAt })
+        .from(schema.indexMembers)
+        .where(
+          and(
+            eq(schema.indexMembers.indexId, personalIndexId),
+            eq(schema.indexMembers.userId, contactUserId),
+            sql`'contact' = ANY(${schema.indexMembers.permissions})`,
+          )
+        )
+        .limit(1);
+
+      if (existing?.deletedAt) return; // soft-deleted — do not restore
+
+      await db
+        .insert(schema.indexMembers)
+        .values({
+          indexId: personalIndexId,
+          userId: contactUserId,
+          permissions: ['contact'],
+          autoAssign: false,
+        })
+        .onConflictDoNothing();
+    }
+  }
+
+  /**
+   * Hard-delete a contact membership from the owner's personal index.
+   * @param ownerId - The owner of the personal index
+   * @param contactUserId - The contact user to remove
+   */
+  async hardDeleteContactMembership(ownerId: string, contactUserId: string): Promise<void> {
+    const personalIndexId = await getPersonalIndexId(ownerId);
+    if (!personalIndexId) return;
+
+    await db.delete(schema.indexMembers)
+      .where(
+        and(
+          eq(schema.indexMembers.indexId, personalIndexId),
+          eq(schema.indexMembers.userId, contactUserId),
+          sql`'contact' = ANY(${schema.indexMembers.permissions})`,
+        )
+      );
+  }
+
+  /**
+   * Clear a soft-deleted contact membership that the other user has for this owner.
+   * This removes the "reverse opt-out" so the other user's personal index no longer blocks the owner.
+   * @param ownerId - The user being added as a contact
+   * @param otherUserId - The other user whose personal index may have a soft-deleted row for ownerId
+   */
+  async clearReverseOptOut(ownerId: string, otherUserId: string): Promise<void> {
+    const otherPersonalIndexId = await getPersonalIndexId(otherUserId);
+    if (!otherPersonalIndexId) return;
+
+    await db.delete(schema.indexMembers)
+      .where(
+        and(
+          eq(schema.indexMembers.indexId, otherPersonalIndexId),
+          eq(schema.indexMembers.userId, ownerId),
+          sql`'contact' = ANY(${schema.indexMembers.permissions})`,
+          isNotNull(schema.indexMembers.deletedAt),
+        )
+      );
+  }
+
+  /**
+   * Get all contact members from the owner's personal index.
+   * @param ownerId - The owner of the personal index
+   * @returns Array of contact members with user details
+   */
+  async getContactMembers(ownerId: string): Promise<Array<{
+    userId: string;
+    user: { id: string; name: string; email: string; avatar: string | null; isGhost: boolean };
+  }>> {
+    const personalIndexId = await getPersonalIndexId(ownerId);
+    if (!personalIndexId) return [];
+
+    const rows = await db
+      .select({
+        userId: schema.indexMembers.userId,
+        userName: schema.users.name,
+        userEmail: schema.users.email,
+        userAvatar: schema.users.avatar,
+        userIsGhost: schema.users.isGhost,
+      })
+      .from(schema.indexMembers)
+      .innerJoin(schema.users, eq(schema.indexMembers.userId, schema.users.id))
+      .where(
+        and(
+          eq(schema.indexMembers.indexId, personalIndexId),
+          sql`'contact' = ANY(${schema.indexMembers.permissions})`,
+          isNull(schema.indexMembers.deletedAt),
+        )
+      );
+
+    return rows.map((row) => ({
+      userId: row.userId,
+      user: {
+        id: row.userId,
+        name: row.userName,
+        email: row.userEmail,
+        avatar: row.userAvatar,
+        isGhost: row.userIsGhost,
+      },
+    }));
   }
 
 }
