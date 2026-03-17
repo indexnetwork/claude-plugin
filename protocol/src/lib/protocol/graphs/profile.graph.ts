@@ -552,7 +552,7 @@ export class ProfileGraphFactory {
           _traceEmitterProfileGen?.({ type: "agent_start", name: "profile-generator" });
           const result = await profileGenerator.invoke(inputWithContext);
           agentTimingsAccum.push({ name: 'profile.generator', durationMs: Date.now() - profileGeneratorStart });
-          _traceEmitterProfileGen?.({ type: "agent_end", name: "profile-generator", durationMs: Date.now() - profileGeneratorStart, summary: "profile-generator completed" });
+          _traceEmitterProfileGen?.({ type: "agent_end", name: "profile-generator", durationMs: Date.now() - profileGeneratorStart, summary: `Generated profile for ${result.output.identity.name || "user"}` });
 
           logger.verbose("✅ Profile generated successfully", {
             name: result.output.identity.name,
@@ -673,7 +673,7 @@ export class ProfileGraphFactory {
           _traceEmitterHydeGen?.({ type: "agent_start", name: "hyde-generator" });
           const result = await hydeGenerator.invoke(profileString);
           agentTimingsAccum.push({ name: 'hyde.generator', durationMs: Date.now() - hydeGeneratorStart });
-          _traceEmitterHydeGen?.({ type: "agent_end", name: "hyde-generator", durationMs: Date.now() - hydeGeneratorStart, summary: "hyde-generator completed" });
+          _traceEmitterHydeGen?.({ type: "agent_end", name: "hyde-generator", durationMs: Date.now() - hydeGeneratorStart, summary: `Generated HyDE for ${state.profile?.identity?.name || "profile"}` });
 
           logger.verbose("✅ HyDE generated successfully", {
             descriptionLength: result.textToEmbed.length

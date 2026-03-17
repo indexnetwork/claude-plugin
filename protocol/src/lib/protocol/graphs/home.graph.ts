@@ -412,7 +412,7 @@ export class HomeGraphFactory {
               const presentation = await presenter.presentHomeCard(homeInput);
               const _presenterDuration = Date.now() - presenterStart;
               agentTimingsAccum.push({ name: 'opportunity.presenter', durationMs: _presenterDuration });
-              _traceEmitterPresenter?.({ type: "agent_end", name: "opportunity-presenter", durationMs: _presenterDuration, summary: "opportunity-presenter completed" });
+              _traceEmitterPresenter?.({ type: "agent_end", name: "opportunity-presenter", durationMs: _presenterDuration, summary: `Presented: ${userName}` });
               let narratorChip: { name: string; text: string; avatar?: string | null; userId?: string } | undefined;
               // Only show a person as narrator when they are the introducer and not the display counterpart
               // (bad data can have same user as introducer and party, e.g. "Amina introduced you to Amina")
