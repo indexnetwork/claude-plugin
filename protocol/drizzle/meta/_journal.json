@@ -127,6 +127,13 @@
       "when": 1773780467313,
       "tag": "0017_add_index_members_deleted_at",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1773780529000,
+      "tag": "0018_drop_ghost_users_and_user_contacts",
+      "breakpoints": true
     }
   ]
 }
