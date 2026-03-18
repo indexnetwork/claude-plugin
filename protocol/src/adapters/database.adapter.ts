@@ -2951,6 +2951,43 @@ export class ChatDatabaseAdapter {
   }
 
   /**
+   * Bulk upsert contact memberships in the owner's personal index.
+   * Respects opt-outs: skips contacts that have a soft-deleted membership row.
+   * @param ownerId - The owner of the personal index
+   * @param contactUserIds - User IDs to add as contacts
+   */
+  async upsertContactMembershipBulk(ownerId: string, contactUserIds: string[]): Promise<void> {
+    if (contactUserIds.length === 0) return;
+    const personalIndexId = await ensurePersonalIndex(ownerId);
+
+    const softDeleted = new Set(
+      (await db
+        .select({ userId: schema.indexMembers.userId })
+        .from(schema.indexMembers)
+        .where(
+          and(
+            eq(schema.indexMembers.indexId, personalIndexId),
+            inArray(schema.indexMembers.userId, contactUserIds),
+            sql`'contact' = ANY(${schema.indexMembers.permissions})`,
+            isNotNull(schema.indexMembers.deletedAt),
+          )
+        )
+      ).map(r => r.userId)
+    );
+
+    const idsToInsert = contactUserIds.filter(id => !softDeleted.has(id));
+    if (idsToInsert.length === 0) return;
+
+    const values = idsToInsert.map(userId => ({
+      indexId: personalIndexId,
+      userId,
+      permissions: ['contact'],
+      autoAssign: false,
+    }));
+    await db.insert(schema.indexMembers).values(values).onConflictDoNothing();
+  }
+
+  /**
    * Hard-delete a contact membership from the owner's personal index.
    * @param ownerId - The owner of the personal index
    * @param contactUserId - The contact user to remove
