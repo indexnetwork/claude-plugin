@@ -58,8 +58,8 @@ export default function ChatSidebar() {
     return {
       groupId: conv.id,
       peerUserId: peer?.participantId ?? null,
-      peerAvatar: null,
-      name: conv.metadata?.title ?? peer?.participantId ?? 'Conversation',
+      peerAvatar: peer?.avatar ?? null,
+      name: conv.metadata?.title ?? peer?.name ?? 'Conversation',
       lastMessage: lastText,
       sortTimestamp: conv.lastMessageAt ? new Date(conv.lastMessageAt).getTime() : 0,
     };

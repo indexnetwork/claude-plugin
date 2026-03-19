@@ -4969,13 +4969,21 @@ import type {
   Artifact,
 } from '../schemas/conversation.schema';
 
+/** Participant with resolved user info. */
+export interface ResolvedParticipant {
+  participantId: string;
+  participantType: 'user' | 'agent';
+  name: string | null;
+  avatar: string | null;
+}
+
 /** Summary returned by getConversationsForUser. */
 export interface ConversationSummary {
   id: string;
   lastMessageAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
-  participants: ConversationParticipant[];
+  participants: ResolvedParticipant[];
   lastMessage: { parts: unknown[]; senderId: string; createdAt: Date } | null;
   metadata: Record<string, unknown> | null;
 }
@@ -5074,10 +5082,29 @@ export class ConversationDatabaseAdapter {
       .from(schema.conversationParticipants)
       .where(inArray(schema.conversationParticipants.conversationId, ids));
 
-    const participantsByConv = new Map<string, ConversationParticipant[]>();
+    // Resolve user names/avatars for participants
+    const userIds = [...new Set(allParticipants.filter(p => p.participantType === 'user').map(p => p.participantId))];
+    const userMap = new Map<string, { name: string; avatar: string | null }>();
+    if (userIds.length > 0) {
+      const users = await db
+        .select({ id: schema.users.id, name: schema.users.name, avatar: schema.users.avatar })
+        .from(schema.users)
+        .where(inArray(schema.users.id, userIds));
+      for (const u of users) {
+        userMap.set(u.id, { name: u.name, avatar: u.avatar });
+      }
+    }
+
+    const participantsByConv = new Map<string, ResolvedParticipant[]>();
     for (const p of allParticipants) {
       const list = participantsByConv.get(p.conversationId) ?? [];
-      list.push(p);
+      const userInfo = userMap.get(p.participantId);
+      list.push({
+        participantId: p.participantId,
+        participantType: p.participantType,
+        name: userInfo?.name ?? (p.participantType === 'agent' ? 'Agent' : null),
+        avatar: userInfo?.avatar ?? null,
+      });
       participantsByConv.set(p.conversationId, list);
     }
 
