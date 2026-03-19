@@ -1021,6 +1021,82 @@ describe('Opportunity Graph', () => {
       expect(result.existingBetweenActors.length).toBe(0);
     });
 
+    test('when latent opportunity exists between actors, dedup prevents duplicate creation (IND-166)', async () => {
+      const latentOpp: Opportunity = {
+        id: 'opp-latent',
+        status: 'latent',
+        actors: [
+          { indexId: 'idx-1', userId: 'a0000000-0000-4000-8000-000000000001', role: 'patient' as const },
+          { indexId: 'idx-1', userId: 'b0000000-0000-4000-8000-000000000002', role: 'agent' as const },
+        ],
+        detection: { source: 'opportunity_graph' as const, timestamp: new Date().toISOString() },
+        interpretation: { category: 'collaboration', reasoning: 'Background match', confidence: 0.75 },
+        context: {},
+        confidence: '0.75',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        expiresAt: null,
+      };
+
+      const { compiledGraph, mockDb, mockEmbedder } = createMockGraph();
+      const createSpy = spyOn(mockDb, 'createOpportunity');
+      spyOn(mockDb, 'findOverlappingOpportunities').mockResolvedValue([latentOpp]);
+      spyOn(mockEmbedder, 'searchWithHydeEmbeddings').mockResolvedValue([
+        { type: 'intent' as const, id: 'intent-bob', userId: 'b0000000-0000-4000-8000-000000000002', score: 0.9, matchedVia: 'mirror' as const, indexId: 'idx-1' },
+      ]);
+
+      const result = (await compiledGraph.invoke({
+        userId: 'a0000000-0000-4000-8000-000000000001' as Id<'users'>,
+        searchQuery: 'co-founder',
+        options: { initialStatus: 'latent', minScore: 70 },
+      } as OpportunityGraphInvokeInput)) as OpportunityGraphInvokeResult;
+
+      // Should NOT create a new opportunity — latent dedup kicks in
+      expect(createSpy).not.toHaveBeenCalled();
+      expect(result.opportunities.length).toBe(0);
+      expect(result.existingBetweenActors.length).toBe(1);
+      expect(result.existingBetweenActors[0].existingStatus).toBe('latent');
+    });
+
+    test('when latent opportunity exists and initialStatus is pending, upgrades to pending (IND-166)', async () => {
+      const latentOpp: Opportunity = {
+        id: 'opp-latent-upgrade',
+        status: 'latent',
+        actors: [
+          { indexId: 'idx-1', userId: 'a0000000-0000-4000-8000-000000000001', role: 'patient' as const },
+          { indexId: 'idx-1', userId: 'b0000000-0000-4000-8000-000000000002', role: 'agent' as const },
+        ],
+        detection: { source: 'opportunity_graph' as const, timestamp: new Date().toISOString() },
+        interpretation: { category: 'collaboration', reasoning: 'Background match', confidence: 0.75 },
+        context: {},
+        confidence: '0.75',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        expiresAt: null,
+      };
+      const upgradedOpp: Opportunity = { ...latentOpp, status: 'pending', updatedAt: new Date() };
+
+      const { compiledGraph, mockDb, mockEmbedder } = createMockGraph();
+      const createSpy = spyOn(mockDb, 'createOpportunity');
+      spyOn(mockDb, 'findOverlappingOpportunities').mockResolvedValue([latentOpp]);
+      const updateSpy = spyOn(mockDb, 'updateOpportunityStatus').mockResolvedValue(upgradedOpp);
+      spyOn(mockEmbedder, 'searchWithHydeEmbeddings').mockResolvedValue([
+        { type: 'intent' as const, id: 'intent-bob', userId: 'b0000000-0000-4000-8000-000000000002', score: 0.9, matchedVia: 'mirror' as const, indexId: 'idx-1' },
+      ]);
+
+      const result = (await compiledGraph.invoke({
+        userId: 'a0000000-0000-4000-8000-000000000001' as Id<'users'>,
+        searchQuery: 'co-founder',
+        options: { minScore: 70 },  // initialStatus defaults to 'pending'
+      } as OpportunityGraphInvokeInput)) as OpportunityGraphInvokeResult;
+
+      // Should upgrade, not create
+      expect(createSpy).not.toHaveBeenCalled();
+      expect(updateSpy).toHaveBeenCalledWith('opp-latent-upgrade', 'pending');
+      expect(result.opportunities.length).toBe(1);
+      expect(result.opportunities[0].status).toBe('pending');
+    });
+
     test('when existing draft opportunity exists between actors, allows creation (does not dedup)', async () => {
       // Draft opportunities are excluded via excludeStatuses in the DB query,
       // so findOverlappingOpportunities returns [] when only drafts exist.
@@ -1039,7 +1115,7 @@ describe('Opportunity Graph', () => {
 
       expect(findOverlappingSpy).toHaveBeenCalledWith(
         expect.arrayContaining(['a0000000-0000-4000-8000-000000000001', 'b0000000-0000-4000-8000-000000000002']),
-        { excludeStatuses: ['draft', 'latent'] },
+        { excludeStatuses: ['draft'] },
       );
       expect(createSpy).toHaveBeenCalled();
       expect(result.opportunities.length).toBe(1);

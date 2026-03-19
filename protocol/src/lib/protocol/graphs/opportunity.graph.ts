@@ -1710,7 +1710,11 @@ export class OpportunityGraphFactory {
           }> = [];
           const now = new Date().toISOString();
           const initialStatus = state.options.initialStatus ?? 'pending';
-          const DEDUP_SKIP_STATUSES: Array<'draft' | 'latent'> = ['draft', 'latent'];
+          // Only skip 'draft' (chat-only) opportunities during dedup.
+          // 'latent' must NOT be skipped — background discovery creates latent opportunities,
+          // and excluding them causes the same user pair to get duplicate opportunities
+          // when multiple intents trigger separate discovery jobs (IND-166).
+          const DEDUP_SKIP_STATUSES: Array<'draft'> = ['draft'];
 
           const introducerUserForOnBehalf = state.onBehalfOfUserId
             ? await this.database.getUser(state.userId)
@@ -1817,6 +1821,18 @@ export class OpportunityGraphFactory {
                   if (reactivated) reactivatedOpportunities.push(reactivated);
                   continue;
                 }
+                if (existing.status === 'latent') {
+                  // Upgrade latent to draft for introduction path
+                  const upgraded = await this.database.updateOpportunityStatus(existing.id, 'draft');
+                  if (upgraded) {
+                    logger.verbose('[Graph:Persist] Upgraded latent opportunity to draft (introduction path)', {
+                      opportunityId: existing.id,
+                      candidateUserId,
+                    });
+                    reactivatedOpportunities.push(upgraded);
+                  }
+                  continue;
+                }
                 if (existing.status !== 'expired' && candidateUserId) {
                   existingBetweenActors.push({
                     candidateUserId: candidateUserId as Id<'users'>,
@@ -1912,6 +1928,18 @@ export class OpportunityGraphFactory {
                       newStatus: initialStatus,
                     });
                     reactivatedOpportunities.push(reactivated);
+                  }
+                } else if (existing.status === 'latent' && initialStatus !== 'latent') {
+                  // Upgrade latent (background-discovered) to the higher-priority status (e.g. pending)
+                  const upgraded = await this.database.updateOpportunityStatus(existing.id, initialStatus);
+                  if (upgraded) {
+                    logger.verbose('[Graph:Persist] Upgraded latent opportunity to higher-priority status', {
+                      opportunityId: existing.id,
+                      candidateUserId,
+                      previousStatus: 'latent',
+                      newStatus: initialStatus,
+                    });
+                    reactivatedOpportunities.push(upgraded);
                   }
                 } else if (candidateUserId) {
                   existingBetweenActors.push({
