@@ -26,7 +26,7 @@ export class ConversationController {
    * @param user - Authenticated user from AuthGuard
    * @returns JSON with conversations array
    */
-  @Get('/')
+  @Get('')
   @UseGuards(AuthGuard)
   async listConversations(_req: Request, user: AuthenticatedUser) {
     try {
@@ -46,7 +46,7 @@ export class ConversationController {
    * @param user - Authenticated user from AuthGuard
    * @returns JSON with created conversation
    */
-  @Post('/')
+  @Post('')
   @UseGuards(AuthGuard)
   async createConversation(req: Request, user: AuthenticatedUser) {
     let body: { participants?: { participantId: string; participantType: 'user' | 'agent' }[] };
