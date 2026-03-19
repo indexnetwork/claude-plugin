@@ -783,6 +783,7 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
 
       const opportunityBlocks: string[] = [];
       const seenOpportunityIds = new Set<string>();
+      const skippedCards: Array<{ opportunityId: string; error: string }> = [];
 
       for (const opp of opportunities) {
         if (seenOpportunityIds.has(opp.id)) continue;
@@ -852,15 +853,40 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
               "\n" + CODE_FENCE,
           );
         } catch (err) {
+          const errMsg = err instanceof Error ? err.message : String(err);
           logger.warn("Skipping opportunity that failed to build minimal card", {
             opportunityId: opp.id,
-            error: err instanceof Error ? err.message : String(err),
+            error: errMsg,
           });
+          skippedCards.push({ opportunityId: opp.id, error: errMsg });
           continue;
         }
       }
 
+      const listDebugSteps: Array<{ step: string; detail?: string; data?: Record<string, unknown> }> = [];
+      if (skippedCards.length > 0) {
+        listDebugSteps.push({
+          step: "card_build_errors",
+          detail: `${skippedCards.length} opportunity card(s) failed to build`,
+          data: {
+            skippedCount: skippedCards.length,
+            totalOpportunities: opportunities.length,
+            errors: skippedCards,
+          },
+        });
+      }
+
       if (opportunityBlocks.length === 0) {
+        if (skippedCards.length > 0) {
+          return success({
+            found: false,
+            count: 0,
+            summary: "Some opportunities couldn't be displayed",
+            message:
+              "I found opportunities, but couldn't render them. Please try again.",
+            ...(listDebugSteps.length ? { debugSteps: listDebugSteps } : {}),
+          });
+        }
         return success({
           found: false,
           count: 0,
@@ -884,6 +910,7 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
           CODE_FENCE +
           "opportunity code blocks EXACTLY as-is in your response (they render as interactive cards):\n\n" +
           blocksText,
+        ...(listDebugSteps.length ? { debugSteps: listDebugSteps } : {}),
       });
     },
   });

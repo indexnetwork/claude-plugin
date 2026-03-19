@@ -28,6 +28,7 @@ import {
 import {
   OpportunityEvaluator,
   type CandidateProfile,
+  type EvaluatedOpportunityWithActors,
   type EvaluatorEntity,
   type EvaluatorInput,
 } from '../agents/opportunity.evaluator';
@@ -213,9 +214,15 @@ export class OpportunityGraphFactory {
           },
           { context: { userId: state.userId }, logOutput: true }
         ).catch((error) => {
+          const errMsg = error instanceof Error ? error.message : String(error);
           logger.error('[Graph:Prep] Failed', { error });
           return {
             error: 'Failed to prepare opportunity search. Please try again.',
+            trace: [{
+              node: "prep_fatal",
+              detail: `Prep failed: ${errMsg}`,
+              data: { error: errMsg },
+            }],
           };
         })
       );
@@ -347,10 +354,16 @@ export class OpportunityGraphFactory {
             }],
           };
         } catch (error) {
+          const errMsg = error instanceof Error ? error.message : String(error);
           logger.error('[Graph:Scope] Failed', { error });
           return {
             targetIndexes: [],
             error: 'Failed to determine search scope.',
+            trace: [{
+              node: "scope_fatal",
+              detail: `Scope failed: ${errMsg}`,
+              data: { error: errMsg },
+            }],
           };
         }
       });
@@ -412,6 +425,7 @@ export class OpportunityGraphFactory {
             discoverySource: 'profile' as const,
           };
         } catch (err) {
+          const errMsg = err instanceof Error ? err.message : String(err);
           logger.error('[Graph:Resolve] Failed', {
             triggerIntentId: state.triggerIntentId,
             searchQuery: state.searchQuery,
@@ -421,7 +435,12 @@ export class OpportunityGraphFactory {
             resolvedTriggerIntentId: undefined,
             resolvedIntentInIndex: false,
             discoverySource: 'profile' as const,
-            error: err instanceof Error ? err.message : 'Resolve failed',
+            error: errMsg || 'Resolve failed',
+            trace: [{
+              node: "resolve_fatal",
+              detail: `Resolve failed: ${errMsg}`,
+              data: { error: errMsg },
+            }],
           };
         }
       });
@@ -961,10 +980,16 @@ export class OpportunityGraphFactory {
             trace: traceEntries,
           };
         } catch (error) {
+          const errMsg = error instanceof Error ? error.message : String(error);
           logger.error('[Graph:Discovery] Failed', { error });
           return {
             candidates: [],
             error: 'Failed to search for candidates.',
+            trace: [{
+              node: "discovery_fatal",
+              detail: `Discovery failed: ${errMsg}`,
+              data: { error: errMsg },
+            }],
           };
         }
       });
@@ -1121,6 +1146,10 @@ export class OpportunityGraphFactory {
 
           const runParallel = process.env.RUN_OPPORTUNITY_EVAL_IN_PARALLEL === 'true';
 
+          // Declare trace entries early so both parallel and serial paths can push error entries
+          const traceEntries: Array<{ node: string; detail?: string; data?: Record<string, unknown> }> = [];
+          const parallelErrors: Array<{ candidateUserId: string; candidateName: string; error: string; durationMs: number }> = [];
+
           let pairwiseOpportunities: Array<{ reasoning: string; score: number; actors: Array<{ userId: string; role: 'agent' | 'patient' | 'peer'; intentId?: string | null }> }>;
 
           if (runParallel) {
@@ -1149,11 +1178,18 @@ export class OpportunityGraphFactory {
                   })
                   .catch((err) => {
                     const _evalDuration = Date.now() - _evalStart;
+                    const _errMsg = err instanceof Error ? err.message : String(err);
                     agentTimingsAccum.push({ name: 'opportunity.evaluator', durationMs: _evalDuration });
-                    _traceEmitter?.({ type: "agent_end", name: "opportunity-evaluator", durationMs: _evalDuration, summary: `${_candidateName}: error` });
+                    _traceEmitter?.({ type: "agent_end", name: "opportunity-evaluator", durationMs: _evalDuration, summary: `${_candidateName}: error — ${_errMsg}` });
                     logger.warn('[Graph:Evaluation] Parallel eval failed for candidate', {
                       candidateUserId: candidateEntity.userId,
                       error: err,
+                    });
+                    parallelErrors.push({
+                      candidateUserId: candidateEntity.userId,
+                      candidateName: _candidateName,
+                      error: _errMsg,
+                      durationMs: _evalDuration,
                     });
                     return [] as Array<{ reasoning: string; score: number; actors: Array<{ userId: string; role: 'agent' | 'patient' | 'peer'; intentId?: string | null }> }>;
                   });
@@ -1161,6 +1197,24 @@ export class OpportunityGraphFactory {
             );
             // Each call is already pairwise (source + 1 candidate) — flatten directly
             pairwiseOpportunities = parallelResults.flat();
+
+            // Record trace entries for candidates that failed during parallel evaluation
+            if (parallelErrors.length > 0) {
+              traceEntries.push({
+                node: "evaluation_errors",
+                detail: `${parallelErrors.length}/${candidateEntities.length} candidate evaluation(s) failed`,
+                data: {
+                  failedCount: parallelErrors.length,
+                  totalCandidates: candidateEntities.length,
+                  errors: parallelErrors.map(e => ({
+                    candidateUserId: e.candidateUserId,
+                    candidateName: e.candidateName,
+                    error: e.error,
+                    durationMs: e.durationMs,
+                  })),
+                },
+              });
+            }
           } else {
             // Default: single bundled LLM call with all candidates
             const entities: EvaluatorEntity[] = [sourceEntity, ...candidateEntities];
@@ -1174,10 +1228,19 @@ export class OpportunityGraphFactory {
             const _evalStart = Date.now();
             const _traceEmitterSerial = requestContext.getStore()?.traceEmitter;
             _traceEmitterSerial?.({ type: "agent_start", name: "opportunity-evaluator" });
-            const opportunitiesWithActors = await evaluator.invokeEntityBundle(input, { minScore, returnAll: true });
-            const _evalDuration = Date.now() - _evalStart;
-            agentTimingsAccum.push({ name: 'opportunity.evaluator', durationMs: _evalDuration });
-            _traceEmitterSerial?.({ type: "agent_end", name: "opportunity-evaluator", durationMs: _evalDuration, summary: `Evaluated ${candidateEntities.length} candidate(s)` });
+            let opportunitiesWithActors: EvaluatedOpportunityWithActors[];
+            try {
+              opportunitiesWithActors = await evaluator.invokeEntityBundle(input, { minScore, returnAll: true });
+              const _evalDuration = Date.now() - _evalStart;
+              agentTimingsAccum.push({ name: 'opportunity.evaluator', durationMs: _evalDuration });
+              _traceEmitterSerial?.({ type: "agent_end", name: "opportunity-evaluator", durationMs: _evalDuration, summary: `Evaluated ${candidateEntities.length} candidate(s)` });
+            } catch (serialErr) {
+              const _evalDuration = Date.now() - _evalStart;
+              const _errMsg = serialErr instanceof Error ? serialErr.message : String(serialErr);
+              agentTimingsAccum.push({ name: 'opportunity.evaluator', durationMs: _evalDuration });
+              _traceEmitterSerial?.({ type: "agent_end", name: "opportunity-evaluator", durationMs: _evalDuration, summary: `error — ${_errMsg}` });
+              throw serialErr; // Re-throw for the outer catch to handle
+            }
 
             // Split multi-actor evaluator results into pairwise (viewer + candidate).
             // Each persisted discovery opportunity should have exactly 2 actors.
@@ -1267,7 +1330,6 @@ export class OpportunityGraphFactory {
           });
 
           // Build detailed trace entries for each evaluated candidate
-          const traceEntries: Array<{ node: string; detail?: string; data?: Record<string, unknown> }> = [];
 
           // Threshold filter trace: how many candidates in this batch were above/below similarity threshold
           const aboveThreshold = batchToEvaluate.filter(c => c.similarity >= 0.40).length;
@@ -1355,10 +1417,20 @@ export class OpportunityGraphFactory {
             agentTimings: agentTimingsAccum,
           };
         } catch (error) {
+          const errMsg = error instanceof Error ? error.message : String(error);
           logger.error('[Graph:Evaluation] Failed', { error });
           return {
             evaluatedOpportunities: [],
             error: 'Failed to evaluate candidates.',
+            trace: [{
+              node: "evaluation_fatal",
+              detail: `Evaluation failed: ${errMsg}`,
+              data: {
+                error: errMsg,
+                candidateCount: state.candidates?.length ?? 0,
+                durationMs: Date.now() - startTime,
+              },
+            }],
             agentTimings: agentTimingsAccum,
           };
         }
@@ -1400,8 +1472,17 @@ export class OpportunityGraphFactory {
           });
           return { evaluatedOpportunities: deduplicated };
         } catch (error) {
+          const errMsg = error instanceof Error ? error.message : String(error);
           logger.error('[Graph:Ranking] Failed', { error });
-          return { error: 'Failed to rank opportunities.' };
+          return {
+            evaluatedOpportunities: [],
+            error: 'Failed to rank opportunities.',
+            trace: [{
+              node: "ranking_fatal",
+              detail: `Ranking failed: ${errMsg}`,
+              data: { error: errMsg },
+            }],
+          };
         }
       });
     };
@@ -1459,13 +1540,19 @@ export class OpportunityGraphFactory {
           logger.verbose('[Graph:IntroValidation] Validation passed');
           return {};
         } catch (err) {
+          const errMsg = err instanceof Error ? err.message : String(err);
           logger.error('[Graph:IntroValidation] Failed', {
             userId: state.userId,
             indexId: state.indexId,
             error: err,
           });
           return {
-            error: err instanceof Error ? err.message : 'Introduction validation failed.',
+            error: 'Introduction validation failed.',
+            trace: [{
+              node: "intro_validation_fatal",
+              detail: `IntroValidation failed: ${errMsg}`,
+              data: { error: errMsg },
+            }],
           };
         }
       });
@@ -1517,6 +1604,9 @@ export class OpportunityGraphFactory {
         let score: number;
         let actors: EvaluatedOpportunityActor[] = [];
 
+        const _traceEmitterIntro = requestContext.getStore()?.traceEmitter;
+        let _introEvalStarted = false;
+        let _evalStart = Date.now();
         try {
           const introducerUser = await this.database.getUser(state.userId);
           introducerName = introducerUser?.name ?? undefined;
@@ -1528,9 +1618,9 @@ export class OpportunityGraphFactory {
             introductionHint: state.introductionHint ?? undefined,
           };
 
-          const _evalStart = Date.now();
-          const _traceEmitterIntro = requestContext.getStore()?.traceEmitter;
+          _evalStart = Date.now();
           _traceEmitterIntro?.({ type: "agent_start", name: "intro-evaluator" });
+          _introEvalStarted = true;
           const evaluated = await (evaluatorAgent as OpportunityEvaluator).invokeEntityBundle(input, { minScore: 0 });
           const _introDuration = Date.now() - _evalStart;
           agentTimingsAccum.push({ name: 'opportunity.evaluator', durationMs: _introDuration });
@@ -1552,11 +1642,29 @@ export class OpportunityGraphFactory {
             actors = fallback.actors;
           }
         } catch (evalErr) {
+          const errMsg = evalErr instanceof Error ? evalErr.message : String(evalErr);
+          // Close the intro-evaluator span if it was started before the error
+          if (_introEvalStarted) {
+            const _introErrDuration = Date.now() - _evalStart;
+            _traceEmitterIntro?.({ type: "agent_end", name: "intro-evaluator", durationMs: _introErrDuration, summary: `error — ${errMsg}` });
+            agentTimingsAccum.push({ name: 'opportunity.evaluator', durationMs: _introErrDuration });
+          }
           logger.warn('[Graph:IntroEvaluation] Evaluator or getUser failed, using fallback', { error: evalErr });
           const fallback = buildIntroFallback(entities, state, primaryIndexId, introducerName);
           reasoning = fallback.reasoning;
           score = fallback.score;
           actors = fallback.actors;
+          return {
+            evaluatedOpportunities: [{ actors, score, reasoning }],
+            introductionContext: { createdByName: introducerName },
+            options: { ...state.options, initialStatus: state.options.initialStatus ?? 'latent' },
+            agentTimings: agentTimingsAccum,
+            trace: [{
+              node: "intro_evaluation_fatal",
+              detail: `IntroEvaluation failed (using fallback): ${errMsg}`,
+              data: { error: errMsg },
+            }],
+          };
         }
 
         const evaluatedOpportunity: EvaluatedOpportunity = {
@@ -1895,11 +2003,17 @@ export class OpportunityGraphFactory {
             }],
           };
         } catch (error) {
+          const errMsg = error instanceof Error ? error.message : String(error);
           logger.error('[Graph:Persist] Failed', { error });
           return {
             opportunities: [],
             existingBetweenActors: [],
             error: 'Failed to persist opportunities.',
+            trace: [{
+              node: "persist_fatal",
+              detail: `Persist failed: ${errMsg}`,
+              data: { error: errMsg },
+            }],
           };
         }
       });
