@@ -1841,7 +1841,12 @@ export class ChatDatabaseAdapter {
       .innerJoin(users, eq(indexMembers.userId, users.id))
       .innerJoin(indexes, eq(indexMembers.indexId, indexes.id))
       .where(
-        and(inArray(indexMembers.indexId, myIndexIds), isNull(indexes.deletedAt))
+        and(
+          inArray(indexMembers.indexId, myIndexIds),
+          isNull(indexes.deletedAt),
+          isNull(users.deletedAt),
+          sql`(${users.isGhost} = true OR ${users.onboarding}->>'completedAt' IS NOT NULL)`,
+        )
       );
 
     const byId = new Map<Id<'users'>, { userId: Id<'users'>; name: string; avatar: string | null }>();
