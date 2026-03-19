@@ -370,7 +370,7 @@ export class OpportunityEvaluator {
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : String(e);
       logger.warn(`[OpportunityEvaluator] Analysis failed for candidate ${candidateUserId}`, { message });
-      return [];
+      throw e;
     }
   }
 
@@ -468,14 +468,14 @@ CRITICAL SCORING RULES FOR DISCOVERY REQUESTS:
       });
       return returnAll ? introGuard : filtered;
     } catch (llmError) {
-      logger.error('[OpportunityEvaluator.invokeEntityBundle] Failed; returning empty opportunities.', {
+      logger.error('[OpportunityEvaluator.invokeEntityBundle] Failed', {
         discovererId: input.discovererId,
         totalEntities,
         parsedTotal,
         minScore,
         llmError,
       });
-      return [];
+      throw llmError;
     }
   }
 
