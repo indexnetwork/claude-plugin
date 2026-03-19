@@ -1,8 +1,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router';
-import { MoreHorizontal, Trash2, Loader2 } from 'lucide-react';
+import { MoreHorizontal, Trash2 } from 'lucide-react';
 import UserAvatar from '@/components/UserAvatar';
-import { useXMTP } from '@/contexts/XMTPContext';
 import { useAuthContext } from '@/contexts/AuthContext';
 
 interface RecentChat {
@@ -40,25 +39,20 @@ export default function ChatSidebar() {
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const { user } = useAuthContext();
-  const { isConnected, conversations, refreshConversations, deleteConversation } = useXMTP();
-  
-  const [loading, setLoading] = useState(true);
+  // TODO(Task 8): replace with ConversationContext once implemented
+  const conversations: RecentChat[] = [];
+
+  const [loading, setLoading] = useState(false);
   const [chatMenuOpen, setChatMenuOpen] = useState<string | null>(null);
   const chatMenuRef = useRef<HTMLDivElement>(null);
 
+  // TODO(Task 8): load real conversations from ConversationContext
   useEffect(() => {
-    if (!isConnected || !user?.id) return;
-    refreshConversations().finally(() => setLoading(false));
-  }, [isConnected, user?.id, refreshConversations]);
+    if (!user?.id) return;
+    setLoading(false);
+  }, [user?.id]);
 
-  const recentChats: RecentChat[] = conversations.map((c) => ({
-    groupId: c.groupId,
-    peerUserId: c.peerUserId,
-    peerAvatar: c.peerAvatar,
-    name: c.name || 'Conversation',
-    lastMessage: c.lastMessage ? String(c.lastMessage.content ?? '') : 'No messages yet',
-    sortTimestamp: c.updatedAt ? Number(c.updatedAt) / 1_000_000 : 0,
-  })).sort((a, b) => b.sortTimestamp - a.sortTimestamp);
+  const recentChats: RecentChat[] = conversations;
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -124,7 +118,7 @@ export default function ChatSidebar() {
                       onClick={async (e) => {
                         e.stopPropagation();
                         setChatMenuOpen(null);
-                        await deleteConversation(chat.groupId);
+                        // TODO(Task 8): call deleteConversation from ConversationContext
                         if (pathname?.includes(chat.peerUserId ?? '')) {
                           navigate('/');
                         }

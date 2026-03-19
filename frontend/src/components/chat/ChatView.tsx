@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { useXMTP } from '@/contexts/XMTPContext';
 import { Loader2, ArrowUp, MoreHorizontal, Trash2, ChevronDown, ChevronUp } from 'lucide-react';
 import { Link } from 'react-router';
 import UserAvatar from '@/components/UserAvatar';
@@ -8,7 +7,12 @@ import remarkGfm from 'remark-gfm';
 import { cn } from '@/lib/utils';
 import { ContentContainer } from '@/components/layout';
 import { useAuthContext } from '@/contexts/AuthContext';
-import type { XmtpChatContext } from '@/services/xmtp';
+
+// TODO(Task 8): replace with real type from ConversationContext
+interface XmtpChatContext {
+  groupId?: string;
+  opportunities?: Array<{ opportunityId: string; headline?: string; personalizedSummary?: string }>;
+}
 
 interface ChatViewProps {
   userId: string;
@@ -24,7 +28,14 @@ interface ChatViewProps {
 
 export default function ChatView({ userId, userName, userAvatar, initialGroupId, initialMessage, onClose, onBack }: ChatViewProps) {
   const { user } = useAuthContext();
-  const { isConnected, myInboxId, sendMessage: xmtpSend, loadMessages, messages: allMessages, getChatContext, deleteConversation } = useXMTP();
+  // TODO(Task 8): wire up real ConversationContext here
+  const isConnected = false;
+  const myInboxId: string | null = null;
+  const allMessages: Map<string, Array<{ id: string; senderInboxId: string; content: unknown; sentAt: string }>> = new Map();
+  const xmtpSend = async (_: unknown): Promise<string | null> => { console.warn('TODO(Task 8): sendMessage not implemented'); return null; };
+  const loadMessages = async (_groupId: string, _limit: number): Promise<void> => {};
+  const getChatContext = async (_userId: string): Promise<XmtpChatContext | null> => { return null; };
+  const deleteConversation = async (_groupId: string): Promise<void> => {};
   const [groupId, setGroupId] = useState<string | null>(initialGroupId ?? null);
   const [chatContext, setChatContext] = useState<XmtpChatContext | null>(null);
   const [messageText, setMessageText] = useState(initialMessage ?? '');

@@ -1,10 +1,9 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router';
 import { Link } from 'react-router';
-import { Compass, MessagesSquare, Loader2, ChevronDown, User as UserIcon, LogOut, Library, History, Network } from 'lucide-react';
+import { Compass, MessagesSquare, ChevronDown, User as UserIcon, LogOut, Library, History, Network } from 'lucide-react';
 import { useAuthContext } from '@/contexts/AuthContext';
 import { useIndexFilter } from '@/contexts/IndexFilterContext';
-import { useXMTP } from '@/contexts/XMTPContext';
 import { useAIChatSessions } from '@/contexts/AIChatSessionsContext';
 import { useAIChat } from '@/contexts/AIChatContext';
 import { apiClient } from '@/lib/api';
@@ -27,8 +26,10 @@ interface ChatSession {
 export default function Sidebar() {
   const navigate = useNavigate();
   const { pathname } = useLocation();
-  const { user, updateUser, refetchUser, signOut } = useAuthContext();
-  const { isConnected: isReady, totalUnreadCount: xmtpUnreadCount } = useXMTP();
+  const { user, signOut } = useAuthContext();
+  // TODO(Task 8): restore isConnected / totalUnreadCount from new ConversationContext
+  const isConnected = false;
+  const totalUnreadCount = 0;
   const { sessionsVersion } = useAIChatSessions();
   const { clearChat } = useAIChat();
   const { setSelectedIndexIds } = useIndexFilter();
@@ -40,7 +41,6 @@ export default function Sidebar() {
   const [chatSessions, setChatSessions] = useState<ChatSession[]>([]);
   const [loadingSessions, setLoadingSessions] = useState(false);
   const [navigatingToChat, setNavigatingToChat] = useState(false);
-  const [totalUnreadCount, setTotalUnreadCount] = useState(0);
   const [createIndexModalOpen, setCreateIndexModalOpen] = useState(false);
   const [userDropdownOpen, setUserDropdownOpen] = useState(false);
   const [historyExpanded, setHistoryExpanded] = useState(true);
@@ -143,11 +143,6 @@ export default function Sidebar() {
     fetchSessions();
   }, [sessionsVersion, user?.id]);
 
-
-  // Sync unread count from XMTP context
-  useEffect(() => {
-    setTotalUnreadCount(xmtpUnreadCount);
-  }, [xmtpUnreadCount]);
 
   // Close menus when clicking outside
   useEffect(() => {
