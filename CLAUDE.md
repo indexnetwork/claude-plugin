@@ -99,8 +99,8 @@ index/
 **Tech Stack**: Bun runtime, Express.js, Drizzle ORM, PostgreSQL with pgvector, BullMQ (Redis-backed queues), LangChain/LangGraph
 
 **Key Directories**:
-- `src/controllers/` - API controllers (chat, intent, opportunity, profile, upload, messaging); used with decorator-based routing in `main.ts`
-- `src/adapters/` - Implementations of protocol interfaces (database, embedder, cache, queue, scraper, storage, messaging); implement interfaces from `src/lib/protocol/interfaces/`
+- `src/controllers/` - API controllers (chat, intent, opportunity, profile, upload, conversation); used with decorator-based routing in `main.ts`
+- `src/adapters/` - Implementations of protocol interfaces (database, embedder, cache, queue, scraper, storage); implement interfaces from `src/lib/protocol/interfaces/`
 - `src/services/` - Business logic layer
 - `src/schemas/` - Drizzle table definitions; primary schema is `schemas/database.schema.ts`
 - `src/guards/` - Auth/validation guards for the decorator router (e.g. `auth.guard.ts`)
@@ -209,15 +209,17 @@ When adding a new tool file or graph file, follow this same pattern. Use kebab-c
 - `index_members` - Membership with custom prompts and auto-assignment settings
 - `intent_indexes` - Many-to-many junction (intents ↔ indexes) with composite PK and optional `relevancyScore` (0.0–1.0)
 - `files` / `user_integrations` - Source tracking for intents
-- `chat_sessions` / `chat_messages` - Chat session and message storage (chat graph, chat.service)
-- `chat_message_metadata` - Per-message debug metadata (trace events, debug_meta payload from agent execution)
-- `chat_session_metadata` - Per-session aggregated debug metadata (accumulated turn summaries for bug icon copy)
+- `conversations` - Conversation containers (A2A context). `lastMessageAt` for sorting.
+- `conversation_participants` - Who is in each conversation. Composite PK (conversationId, participantId). `hiddenAt` for soft-hide.
+- `messages` - A2A-compatible messages with parts (jsonb), role (user|agent), senderId, taskId. Metadata for agent debug data.
+- `tasks` - A2A task lifecycle (submitted→working→completed/failed). Tracks agent work units within conversations.
+- `artifacts` - Structured outputs from tasks (opportunity cards, etc.). A2A-compatible parts format.
+- `conversation_metadata` - Sparse 1:1 data per conversation (title, shareToken, indexId).
 - `user_notification_settings` - User notification preferences
 - `opportunities` - Opportunity records (detection, actors, interpretation, context, status)
 - `hyde_documents` - Stored HyDE documents for retrieval
 - `sessions` / `accounts` / `verifications` / `jwks` - Better Auth tables
 - `links` - Shareable link records
-- `hidden_conversations` - Hidden conversation tracking
 
 **Key Features**:
 - pgvector extension for 2000-dimensional embeddings
@@ -263,7 +265,7 @@ When adding a new tool file or graph file, follow this same pattern. Use kebab-c
 - `UploadController` - Upload handling
 - `UserController` - User management
 - `LinkController` - Link management
-- `MessagingController` - Messaging operations
+- `ConversationController` - Unified conversations, messages, tasks, artifacts (REST + SSE)
 - `DebugController` - Debug endpoints for pipeline tracing (dev/admin only, gated by `DebugGuard`)
 - `QueuesController` - Bull Board queue monitoring UI
 - `UnsubscribeController` - Ghost user email opt-out (public, no auth)
@@ -293,7 +295,7 @@ When adding a new tool file or graph file, follow this same pattern. Use kebab-c
   - `/pages/privacy-policy`, `/pages/terms-of-use` - Legal pages
   - `/dev/intent-proposal` - Dev tool for intent proposal testing
 - `src/components/` - Reusable React components
-- `src/contexts/` - React Context providers (Auth, AIChatContext, AIChatSessionsContext, API, DiscoveryFilter, Indexes, IndexFilter, Notifications, SaveBar, XMTP)
+- `src/contexts/` - React Context providers (Auth, AIChatContext, AIChatSessionsContext, API, DiscoveryFilter, Indexes, IndexFilter, Notifications, SaveBar, Conversation)
 - `src/services/` - Frontend API clients (typed fetch wrappers)
 - `src/lib/` - Utilities and shared logic
 - `build-blog.ts` - Blog pre-build script (generates blog assets at build time)
