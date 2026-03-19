@@ -248,6 +248,23 @@ export function createProfileTools(defineTool: DefineTool, deps: ToolDeps) {
       confirm: z.boolean().optional().describe("Pass true to save a previously previewed profile during onboarding"),
     }),
     handler: async ({ context, query }) => {
+      // Persist user-info fields (name, location, socials) to users table before any branching.
+      // This ensures users.name is always updated regardless of which code path runs.
+      const hasSocialsFromQuery = !!(query.linkedinUrl || query.githubUrl || query.twitterUrl || (query.websites && query.websites.length));
+      if (query.name || query.location || hasSocialsFromQuery) {
+        const socialsUpdate: { linkedin?: string; github?: string; x?: string; websites?: string[] } = {};
+        if (query.linkedinUrl) socialsUpdate.linkedin = query.linkedinUrl;
+        if (query.githubUrl) socialsUpdate.github = query.githubUrl;
+        if (query.twitterUrl) socialsUpdate.x = query.twitterUrl;
+        if (query.websites && query.websites.length) socialsUpdate.websites = query.websites;
+        await userDb.updateUser({
+          ...(query.name ? { name: query.name } : {}),
+          ...(query.location ? { location: query.location } : {}),
+          ...(hasSocialsFromQuery ? { socials: socialsUpdate } : {}),
+        });
+        logger.verbose("Persisted user-info fields to user record", { userId: context.userId });
+      }
+
       const isOnboarding = !(context.user.onboarding?.completedAt);
       if (isOnboarding) {
         const existingProfile = await userDb.getProfile();
@@ -263,22 +280,6 @@ export function createProfileTools(defineTool: DefineTool, deps: ToolDeps) {
               interests: existingProfile.attributes.interests,
             },
           });
-        }
-
-        // Persist any query fields (name, location, socials) to user record before enrichment
-        const hasSocialsFromQuery = !!(query.linkedinUrl || query.githubUrl || query.twitterUrl || (query.websites && query.websites.length));
-        if (query.name || query.location || hasSocialsFromQuery) {
-          const socialsUpdate: { linkedin?: string; github?: string; x?: string; websites?: string[] } = {};
-          if (query.linkedinUrl) socialsUpdate.linkedin = query.linkedinUrl;
-          if (query.githubUrl) socialsUpdate.github = query.githubUrl;
-          if (query.twitterUrl) socialsUpdate.x = query.twitterUrl;
-          if (query.websites && query.websites.length) socialsUpdate.websites = query.websites;
-          await userDb.updateUser({
-            ...(query.name ? { name: query.name } : {}),
-            ...(query.location ? { location: query.location } : {}),
-            ...(hasSocialsFromQuery ? { socials: socialsUpdate } : {}),
-          });
-          logger.verbose("Persisted query fields to user record before onboarding enrichment", { userId: context.userId });
         }
 
         // Preview mode: enrich and persist enrichment results, but don't generate full profile
@@ -405,24 +406,6 @@ export function createProfileTools(defineTool: DefineTool, deps: ToolDeps) {
           message: "Profile created/updated with the information you provided.",
           _graphTimings: [{ name: 'profile', durationMs: _bioProfileGraphMs, agents: result.agentTimings ?? [] }],
         });
-      }
-
-      // If any user-info fields are provided, persist them to the users table first
-      const hasSocials = !!(query.linkedinUrl || query.githubUrl || query.twitterUrl || (query.websites && query.websites.length));
-      if (query.name || query.location || hasSocials) {
-        const socialsUpdate: { linkedin?: string; github?: string; x?: string; websites?: string[] } = {};
-        if (query.linkedinUrl) socialsUpdate.linkedin = query.linkedinUrl;
-        if (query.githubUrl) socialsUpdate.github = query.githubUrl;
-        if (query.twitterUrl) socialsUpdate.x = query.twitterUrl;
-        if (query.websites && query.websites.length) socialsUpdate.websites = query.websites;
-
-        // Use userDb for the user's own data
-        await userDb.updateUser({
-          ...(query.name ? { name: query.name } : {}),
-          ...(query.location ? { location: query.location } : {}),
-          ...(hasSocials ? { socials: socialsUpdate } : {}),
-        });
-        logger.verbose("Updated user record before profile generation", { userId: context.userId });
       }
 
       // Invoke profile graph in generate mode (uses enrichUserProfile Chat API)
