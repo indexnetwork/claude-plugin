@@ -13,6 +13,9 @@ import { createIntegrationsService, type ComposioConnection } from '@/services/i
 import { createUsersService } from '@/services/users';
 import { Member } from '@/services/indexes';
 import { validateFiles } from '@/lib/file-validation';
+
+/** Toolkits available for connection. Add entries here when enabling new Composio integrations. */
+const AVAILABLE_TOOLKITS = ['gmail'] as const;
 import IndexAvatar, { resolveIndexImageSrc } from '@/components/IndexAvatar';
 import UserAvatar from '@/components/UserAvatar';
 import GhostBadge from '@/components/GhostBadge';
@@ -670,7 +673,7 @@ export default function NetworkSettingsPanel({ index, onDeleted, activeTab }: Ne
         <div className="space-y-4">
 
           <div className="space-y-2">
-            {['gmail'].map((toolkit) => {
+            {AVAILABLE_TOOLKITS.map((toolkit) => {
               const conn = connections.find((c) => c.toolkit === toolkit);
               const isConnected = !!conn;
               const isPending = pendingToolkit === toolkit;
