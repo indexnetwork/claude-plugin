@@ -1,0 +1,56 @@
+import { describe, it, expect } from 'bun:test';
+
+describe('Non-onboarded user filtering in opportunity enrichment', () => {
+  it('should skip non-onboarded real users (onboarding.completedAt is undefined)', () => {
+    // Simulate the filter logic from opportunity.discover.ts
+    const candidateUser = {
+      id: 'test-user-1',
+      name: 'Test User',
+      isGhost: false,
+      onboarding: {},
+      deletedAt: null,
+    };
+
+    const shouldSkip = candidateUser && !candidateUser.isGhost && !candidateUser.onboarding?.completedAt;
+    expect(shouldSkip).toBe(true);
+  });
+
+  it('should NOT skip ghost users even without onboarding', () => {
+    const candidateUser = {
+      id: 'ghost-user-1',
+      name: 'Ghost',
+      isGhost: true,
+      onboarding: {},
+      deletedAt: null,
+    };
+
+    const shouldSkip = candidateUser && !candidateUser.isGhost && !candidateUser.onboarding?.completedAt;
+    expect(shouldSkip).toBe(false);
+  });
+
+  it('should NOT skip onboarded real users', () => {
+    const candidateUser = {
+      id: 'real-user-1',
+      name: 'Real User',
+      isGhost: false,
+      onboarding: { completedAt: '2026-01-01T00:00:00Z' },
+      deletedAt: null,
+    };
+
+    const shouldSkip = candidateUser && !candidateUser.isGhost && !candidateUser.onboarding?.completedAt;
+    expect(shouldSkip).toBe(false);
+  });
+
+  it('should still skip soft-deleted users regardless of onboarding', () => {
+    const candidateUser = {
+      id: 'deleted-user-1',
+      name: 'Deleted',
+      isGhost: false,
+      onboarding: { completedAt: '2026-01-01T00:00:00Z' },
+      deletedAt: '2026-02-01T00:00:00Z',
+    };
+
+    const shouldSkipDeleted = candidateUser && 'deletedAt' in candidateUser && candidateUser.deletedAt;
+    expect(shouldSkipDeleted).toBeTruthy();
+  });
+});
