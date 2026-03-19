@@ -1841,7 +1841,11 @@ export class ChatDatabaseAdapter {
       .innerJoin(users, eq(indexMembers.userId, users.id))
       .innerJoin(indexes, eq(indexMembers.indexId, indexes.id))
       .where(
-        and(inArray(indexMembers.indexId, myIndexIds), isNull(indexes.deletedAt))
+        and(
+          inArray(indexMembers.indexId, myIndexIds),
+          isNull(indexes.deletedAt),
+          isNull(users.deletedAt),
+        )
       );
 
     const byId = new Map<Id<'users'>, { userId: Id<'users'>; name: string; avatar: string | null }>();
