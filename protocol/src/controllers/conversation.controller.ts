@@ -92,7 +92,7 @@ export class ConversationController {
     const taskId = url.searchParams.get('taskId') ?? undefined;
 
     try {
-      const messages = await this.conversationService.getMessages(conversationId, { limit, before, taskId });
+      const messages = await this.conversationService.getMessages(conversationId, { limit, before, taskId, userId: user.id });
       return Response.json({ messages });
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);

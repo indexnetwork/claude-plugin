@@ -3,7 +3,7 @@
  * Postgres implementations; no dependency on lib/protocol.
  */
 
-import { eq, and, or, isNull, isNotNull, sql, count, desc, lt, lte, ne, inArray, ilike, notInArray, asc } from 'drizzle-orm';
+import { eq, and, or, isNull, isNotNull, sql, count, desc, gt, lt, lte, ne, inArray, ilike, notInArray, asc } from 'drizzle-orm';
 
 import * as schema from '../schemas/database.schema';
 import db from '../lib/drizzle/drizzle';
@@ -5234,6 +5234,15 @@ export class ConversationDatabaseAdapter {
 
     await this.updateLastMessageAt(data.conversationId);
 
+    // Clear hiddenAt so conversation reappears in sender's list
+    await db
+      .update(schema.conversationParticipants)
+      .set({ hiddenAt: null })
+      .where(and(
+        eq(schema.conversationParticipants.conversationId, data.conversationId),
+        eq(schema.conversationParticipants.participantId, data.senderId),
+      ));
+
     return msg;
   }
 
@@ -5245,9 +5254,24 @@ export class ConversationDatabaseAdapter {
    */
   async getMessages(
     conversationId: string,
-    opts?: { limit?: number; before?: string; taskId?: string },
+    opts?: { limit?: number; before?: string; taskId?: string; userId?: string },
   ): Promise<Message[]> {
     const conditions = [eq(schema.messages.conversationId, conversationId)];
+
+    // Filter out messages before hiddenAt for this user
+    if (opts?.userId) {
+      const [participant] = await db
+        .select({ hiddenAt: schema.conversationParticipants.hiddenAt })
+        .from(schema.conversationParticipants)
+        .where(and(
+          eq(schema.conversationParticipants.conversationId, conversationId),
+          eq(schema.conversationParticipants.participantId, opts.userId),
+        ))
+        .limit(1);
+      if (participant?.hiddenAt) {
+        conditions.push(gt(schema.messages.createdAt, participant.hiddenAt));
+      }
+    }
 
     if (opts?.taskId) {
       conditions.push(eq(schema.messages.taskId, opts.taskId));

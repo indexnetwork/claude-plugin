@@ -76,7 +76,7 @@ export class ConversationService {
    * @param opts - Optional limit, cursor (before), or taskId filter
    * @returns Ordered list of messages
    */
-  async getMessages(conversationId: string, opts?: { limit?: number; before?: string; taskId?: string }) {
+  async getMessages(conversationId: string, opts?: { limit?: number; before?: string; taskId?: string; userId?: string }) {
     return this.db.getMessages(conversationId, opts);
   }
 
