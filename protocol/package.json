@@ -23,6 +23,7 @@
     "maintenance:fix-migrations": "bash ./scripts/fix-migrations.sh",
     "maintenance:generate-profiles": "bun ./src/cli/generate-profiles.ts",
     "maintenance:reset-remote-db": "bun ./src/cli/db-reset-remote.ts",
+    "maintenance:migrate-chat": "bun ./src/cli/migrate-chat-to-conversations.ts",
     "audit-freshness": "bun ./src/cli/audit-intent-freshness.ts",
     "test:opportunity-three-user": "bun ./src/cli/opportunity-three-user-test.ts",
     "test": "NODE_ENV=test bun test"
