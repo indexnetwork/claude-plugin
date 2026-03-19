@@ -2,7 +2,6 @@ import { describe, it, expect } from 'bun:test';
 
 describe('Non-onboarded user filtering in opportunity enrichment', () => {
   it('should skip non-onboarded real users (onboarding.completedAt is undefined)', () => {
-    // Simulate the filter logic from opportunity.discover.ts
     const candidateUser = {
       id: 'test-user-1',
       name: 'Test User',
@@ -63,7 +62,16 @@ describe('Non-onboarded user filtering in opportunity enrichment', () => {
       deletedAt: '2026-02-01T00:00:00Z',
     };
 
-    const shouldSkipDeleted = candidateUser && 'deletedAt' in candidateUser && candidateUser.deletedAt;
-    expect(shouldSkipDeleted).toBeTruthy();
+    const shouldSkipDeleted = !!(candidateUser && 'deletedAt' in candidateUser && candidateUser.deletedAt);
+    expect(shouldSkipDeleted).toBe(true);
+  });
+
+  it('should NOT skip when candidateUser is null (transient DB miss)', () => {
+    const candidateUser = null;
+
+    // opportunity.discover.ts: the onboarding filter guards with `candidateUser &&`
+    // so a null user should NOT be skipped by the onboarding filter
+    const shouldSkipOnboarding = candidateUser && !candidateUser.isGhost && !candidateUser.onboarding?.completedAt;
+    expect(shouldSkipOnboarding).toBeFalsy();
   });
 });

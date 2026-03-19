@@ -1845,7 +1845,6 @@ export class ChatDatabaseAdapter {
           inArray(indexMembers.indexId, myIndexIds),
           isNull(indexes.deletedAt),
           isNull(users.deletedAt),
-          sql`(${users.isGhost} = true OR ${users.onboarding}->>'completedAt' IS NOT NULL)`,
         )
       );
 
