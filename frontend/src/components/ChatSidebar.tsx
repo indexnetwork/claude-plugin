@@ -51,8 +51,11 @@ export default function ChatSidebar() {
     refreshConversations().finally(() => setLoading(false));
   }, [user?.id, refreshConversations]);
 
-  // Map ConversationSummary[] to RecentChat[] for rendering
-  const recentChats: RecentChat[] = conversations.map((conv) => {
+  // Only show human-to-human DMs (no agent participants); agent chats appear in History sidebar
+  const dmConversations = conversations.filter((conv) =>
+    (conv.participants ?? []).every((p) => p.participantType === 'user')
+  );
+  const recentChats: RecentChat[] = dmConversations.map((conv) => {
     const peer = (conv.participants ?? []).find((p) => p.participantId !== user?.id && p.participantType === 'user');
     const lastText = (conv.lastMessage?.parts?.[0] as { text?: string } | undefined)?.text ?? '';
     return {
