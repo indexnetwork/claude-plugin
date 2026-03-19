@@ -157,5 +157,100 @@ describe('OpportunityEvaluator', () => {
       const result = await evaluator.invokeEntityBundle(input, { minScore: 70 });
       expect(result).toHaveLength(0);
     }, 30000);
+
+    it('penalizes candidates with known location mismatch when discoveryQuery mentions location', async () => {
+      const mockEntityBundleModel = {
+        invoke: async () => ({
+          opportunities: [
+            {
+              reasoning: 'NY-based investor matches investor criteria but is in wrong city.',
+              score: 35,
+              actors: [
+                { userId: 'discoverer-1', role: 'patient', intentId: null },
+                { userId: 'candidate-ny', role: 'agent', intentId: null },
+              ],
+            },
+          ],
+        }),
+      } as unknown as Runnable;
+      const evaluatorWithMock = new OpportunityEvaluator({
+        entityBundleModel: mockEntityBundleModel,
+      });
+      const input: EvaluatorInput = {
+        discovererId: 'discoverer-1',
+        entities: [
+          {
+            userId: 'discoverer-1',
+            profile: {
+              name: 'Alice',
+              bio: 'Founder building an AI startup.',
+              location: 'San Francisco',
+            },
+            indexId: 'index-1',
+          },
+          {
+            userId: 'candidate-ny',
+            profile: {
+              name: 'Bob',
+              bio: 'VC partner at TechFund.',
+              location: 'New York',
+            },
+            indexId: 'index-1',
+            ragScore: 85,
+          },
+        ],
+        discoveryQuery: 'investors in San Francisco',
+      };
+      const results = await evaluatorWithMock.invokeEntityBundle(input, { minScore: 50 });
+      // Mock returns score 35, which is below minScore 50 — should be filtered
+      expect(results.length).toBe(0);
+    }, 30000);
+
+    it('does not penalize candidates with unknown location when discoveryQuery mentions location', async () => {
+      const mockEntityBundleModel = {
+        invoke: async () => ({
+          opportunities: [
+            {
+              reasoning: 'Candidate matches investor criteria; location unverified.',
+              score: 80,
+              actors: [
+                { userId: 'discoverer-1', role: 'patient', intentId: null },
+                { userId: 'candidate-unknown', role: 'agent', intentId: null },
+              ],
+            },
+          ],
+        }),
+      } as unknown as Runnable;
+      const evaluatorWithMock = new OpportunityEvaluator({
+        entityBundleModel: mockEntityBundleModel,
+      });
+      const input: EvaluatorInput = {
+        discovererId: 'discoverer-1',
+        entities: [
+          {
+            userId: 'discoverer-1',
+            profile: {
+              name: 'Alice',
+              bio: 'Founder building an AI startup.',
+              location: 'San Francisco',
+            },
+            indexId: 'index-1',
+          },
+          {
+            userId: 'candidate-unknown',
+            profile: {
+              name: 'Charlie',
+              bio: 'Angel investor in deep tech.',
+            },
+            indexId: 'index-1',
+            ragScore: 75,
+          },
+        ],
+        discoveryQuery: 'investors in San Francisco',
+      };
+      const results = await evaluatorWithMock.invokeEntityBundle(input, { minScore: 50 });
+      expect(results.length).toBe(1);
+      expect(results[0].score).toBeGreaterThanOrEqual(50);
+    }, 30000);
   });
 });

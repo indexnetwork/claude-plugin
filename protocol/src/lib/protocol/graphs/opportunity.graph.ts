@@ -91,7 +91,7 @@ export type QueueOpportunityNotificationFn = (
  * @param intents - The discoverer's indexed intents (capped at 5)
  * @returns A context string, or undefined if no meaningful data is available
  */
-function buildDiscovererContext(
+export function buildDiscovererContext(
   profile: SourceProfileData | null | undefined,
   intents: IndexedIntent[] | undefined
 ): string | undefined {
@@ -102,6 +102,9 @@ function buildDiscovererContext(
     const attrs = profile.attributes;
     if (identity?.name || identity?.bio) {
       lines.push(`Profile: ${[identity.name, identity.bio].filter(Boolean).join(', ')}`);
+    }
+    if (identity?.location) {
+      lines.push(`Location: ${identity.location}`);
     }
     if (attrs?.skills?.length) {
       lines.push(`Skills: ${attrs.skills.join(', ')}`);

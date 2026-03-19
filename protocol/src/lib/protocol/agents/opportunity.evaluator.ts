@@ -146,6 +146,11 @@ Rules:
    - SEEKING signals: "looking for", "seeking", "want to find", "need", "raising", "hiring"
    - OFFERING signals: "can offer", "expert in", "investing in", "mentoring", "available for"
    If both parties have SEEKING intents targeting the same resource (e.g., both seeking investors, both seeking co-founders, both seeking mentorship), this is NOT an opportunity — score <30. An opportunity requires one side to OFFER what the other SEEKS.
+9. LOCATION MATCHING: When the DISCOVERY REQUEST mentions a specific location (city, region, or country):
+   a. If a candidate's profile.location is KNOWN and clearly does NOT match the requested location (different city/region), score ≤ 40 for that candidate. Geographic mismatch is a strong negative signal when the user explicitly requested a location.
+   b. If a candidate's profile.location is UNKNOWN, EMPTY, or AMBIGUOUS, do NOT penalize — allow them through and score based on other factors. Note in reasoning that their location is unverified.
+   c. If a candidate's profile.location matches or is reasonably close (e.g., "Bay Area" matches "San Francisco", "Remote" matches any location), score normally.
+   d. "Remote" or "Global" locations are compatible with any requested location.
 `;
 
 // ──────────────────────────────────────────────────────────────
@@ -413,6 +418,10 @@ CRITICAL SCORING RULES FOR DISCOVERY REQUESTS:
    - <50: Does not match the request - exclude or heavily down-rank
 4. DO NOT score collaborators/builders highly when the user explicitly asks for investors, and vice versa.
 5. SAME-SIDE CHECK: If the candidate's intents show they are ALSO SEEKING what the discoverer is seeking (e.g., both looking for investors, both looking for co-founders), this is a same-side match. Score <30 regardless of keyword overlap in bios. The candidate must BE or OFFER what the discoverer is looking for, not also be looking for it.
+6. LOCATION ENFORCEMENT: If the discovery request mentions a specific location (e.g., "in SF", "based in London", "Istanbul"), check each candidate's profile.location:
+   - KNOWN MISMATCH (e.g., request says "SF" but candidate is "New York"): Score ≤ 40. State the mismatch in reasoning.
+   - UNKNOWN/EMPTY location: Do not penalize. Note that location is unverified.
+   - MATCH or COMPATIBLE (e.g., "Bay Area" ≈ "SF", "Remote" ≈ any): Score normally.
 `
       : '';
     const entitiesBlock = input.entities.map((e) => {

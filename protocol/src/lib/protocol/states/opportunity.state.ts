@@ -16,7 +16,7 @@ import type { DebugMetaAgent } from '../../../types/chat-streaming.types';
 /** Asker's profile shape (embedding + optional identity/narrative/attributes). Used by sourceProfile annotation. */
 export interface SourceProfileData {
   embedding: number[] | null;
-  identity?: { name?: string; bio?: string };
+  identity?: { name?: string; bio?: string; location?: string };
   narrative?: { context?: string };
   attributes?: { skills?: string[]; interests?: string[] };
 }
