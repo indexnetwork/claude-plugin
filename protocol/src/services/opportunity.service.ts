@@ -17,6 +17,7 @@ import { canUserSeeOpportunity, validateOpportunityActors } from '../lib/protoco
 import { persistOpportunities } from '../lib/protocol/support/opportunity.persist';
 import { OpportunityPresenter, gatherPresenterContext, type PresenterDatabase } from '../lib/protocol/agents/opportunity.presenter';
 import { stripUuids, stripIntroducerMentions } from '../lib/protocol/support/opportunity.sanitize';
+import { opportunityQueue } from '../queues/opportunity.queue';
 
 const logger = log.service.from("OpportunityService");
 const presenter = new OpportunityPresenter();
@@ -135,10 +136,20 @@ export class OpportunityService {
       if (result.error) {
         return { error: result.error };
       }
-      return {
-        sections: result.sections ?? [],
-        meta: result.meta ?? { totalOpportunities: 0, totalSections: 0 },
-      };
+      const sections = result.sections ?? [];
+      const meta = result.meta ?? { totalOpportunities: 0, totalSections: 0 };
+
+      // Self-healing: when no actionable opportunities exist, re-queue discovery for active intents
+      const totalItems = sections.reduce(
+        (sum: number, s: { items: unknown[] }) => sum + (s.items?.length ?? 0), 0
+      );
+      if (totalItems === 0) {
+        this.triggerRediscoveryIfNeeded(userId).catch((err) =>
+          logger.warn('[OpportunityService] Rediscovery trigger failed', { userId, error: err })
+        );
+      }
+
+      return { sections, meta };
     } catch (e) {
       logger.error('[OpportunityService] getHomeView failed', { userId, error: e });
       return { error: 'Failed to load home view' };
@@ -610,8 +621,47 @@ export class OpportunityService {
   }
 
   /**
+   * Re-queue opportunity discovery for a user's active intents when no actionable
+   * opportunities exist. Throttled to once per 6 hours per user via cache key.
+   */
+  private async triggerRediscoveryIfNeeded(userId: string): Promise<void> {
+    const cacheKey = `rediscovery:throttle:${userId}`;
+    const existing = await this.cache.get(cacheKey);
+    if (existing) return;
+
+    const activeIntents = await this.db.getActiveIntents(userId);
+    if (!activeIntents?.length) return;
+
+    // Set throttle before enqueuing (6-hour cooldown)
+    await this.cache.set(cacheKey, { triggeredAt: new Date().toISOString() }, { ttl: 6 * 60 * 60 });
+
+    logger.info('[OpportunityService] Triggering rediscovery for stale user', {
+      userId,
+      intentCount: activeIntents.length,
+    });
+
+    const results = await Promise.allSettled(
+      activeIntents.map((intent) =>
+        opportunityQueue.addJob(
+          { intentId: intent.id, userId },
+          { priority: 10, jobId: `rediscovery:${userId}:${intent.id}` },
+        )
+      )
+    );
+
+    const failed = results.filter((r) => r.status === 'rejected');
+    if (failed.length > 0) {
+      logger.warn('[OpportunityService] Some rediscovery jobs failed to enqueue', {
+        userId,
+        failedCount: failed.length,
+        totalCount: activeIntents.length,
+      });
+    }
+  }
+
+  /**
    * Check if user has permission to create opportunities in an index.
-   * 
+   *
    * @param creatorId - User creating the opportunity
    * @param parties - Parties involved
    * @param indexId - The index ID
