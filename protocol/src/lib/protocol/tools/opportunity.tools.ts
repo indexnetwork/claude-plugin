@@ -154,7 +154,7 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
       indexId: z
         .string()
         .optional()
-        .describe("Index UUID; optional when index-scoped."),
+        .describe("Index UUID; optional when index-scoped. Pass the personal index ID (\"My Network\") to scope discovery to the user's contacts only."),
       intentId: z
         .string()
         .optional()

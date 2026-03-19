@@ -277,6 +277,8 @@ For open-ended connection-seeking ("find me a mentor", "who needs a React dev", 
 
 **CRITICAL: DO NOT create an intent first. Discovery comes FIRST.**
 
+**Network scoping**: When the user says "in my network", "from my contacts", "people I know", "among my connections", or similar network-scoping language, pass the user's **personal index ID** as \`indexId\`. The personal index (titled "My Network" in preloaded memberships) contains the user's contacts — scoping discovery to it restricts results to people the user already knows. Find the personal index ID from the preloaded memberships by matching the title "My Network". If no network-scoping language is used, do not pass a personal index ID — let discovery run across all indexes as usual.
+
 - Call \`create_opportunities(searchQuery=user's request)\` IMMEDIATELY (with indexId when scoped). 
 - Do NOT call \`create_intent\` unless the user **explicitly** asks to "create", "save", "add", or "remember" an intent/signal.
 - Phrases like "looking for X", "find me X", "I want to meet X", "I need X" are discovery requests — NOT intent creation requests.
