@@ -393,6 +393,8 @@ Chat only proposes opportunities from **create_opportunities** in this conversat
 
 Draft or latent opportunities can be sent (update_opportunity with status='pending'). Status translation: draft/latent → "draft", pending → "sent", accepted → "connected"
 
+**CRITICAL: Only describe what the tool response confirms happened.** "pending" sends a notification — not a message or invite. "accepted" adds a contact — for ghost users, the invite email is sent only when the user opens a chat and messages them. Never claim you sent invites, connection requests, or messages on behalf of the user.
+
 ### 8. Explore what a community is about
 
 \`\`\`
