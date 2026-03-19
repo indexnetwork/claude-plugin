@@ -1,30 +1,24 @@
 ---
-description: Adapter file naming — use conceptual names, not implementation tech
+description: Adapter interfaces vs implementations; name by concept, not tech
 globs: protocol/src/adapters/**/*.ts
 alwaysApply: false
 ---
 
-# Adapters: Conceptual Naming
+# Adapters: interfaces and naming
 
-Name adapter files by **concept/role**, not by the underlying technology.
-
-## Do
-
-- **database.adapter.ts** — persistence/ORM (even if implemented with Drizzle)
-- **cache.adapter.ts** — caching (even if implemented with Redis)
-- **queue.adapter.ts** — job queues (even if implemented with Redis/BullMQ)
-- **embedder.adapter.ts** — embeddings
-- **storage.adapter.ts** — blob/file storage
-- **scraper.adapter.ts** — scraping/crawling
-- **messaging.adapter.ts** — messaging/notifications
-
-## Don’t
-
-- **drizzle.adapter.ts** → use `database.adapter.ts`
-- **redis.adapter.ts** → use `cache.adapter.ts` and/or `queue.adapter.ts` (separate concepts)
-- **bullmq.adapter.ts** → use `queue.adapter.ts`
-- **s3.adapter.ts** → use `storage.adapter.ts`
+**Contracts** live in `protocol/src/lib/protocol/interfaces/` (e.g. `database.interface.ts`, `storage.interface.ts`). **Implementations** live in `protocol/src/adapters/` and must not rename concepts after the library (Drizzle, Redis, S3, etc.).
 
 ## Pattern
 
-`{concept}.adapter.ts` where **concept** is the protocol role (database, cache, queue, etc.), not the library or service name. Tests: `{concept}.adapter.spec.ts`.
+`{concept}.adapter.ts` — **concept** is the protocol role. Tests: `{concept}.adapter.spec.ts`.
+
+## Examples
+
+| Use | Avoid |
+|-----|--------|
+| `database.adapter.ts` | `drizzle.adapter.ts` |
+| `cache.adapter.ts` | `redis.adapter.ts` (for cache) |
+| `queue.adapter.ts` | `bullmq.adapter.ts` |
+| `storage.adapter.ts` | `s3.adapter.ts` |
+
+Split cache vs queue when both exist; do not collapse unrelated roles into one file name.

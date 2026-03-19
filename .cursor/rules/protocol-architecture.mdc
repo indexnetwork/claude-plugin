@@ -1,57 +1,34 @@
 ---
-description: Protocol layering (controllers → services → adapters), interfaces, templates, and TSDoc
+description: Protocol layering (controllers → services → adapters), DI, templates, decorator routing
 globs: "protocol/**/*.ts"
 alwaysApply: false
 ---
 
-# Protocol Architecture & Conventions
+# Protocol architecture
 
-## Layering Rules
+## Layering (strict)
 
-1. **Only `services` may import `adapters`.**  
-   Controllers and other layers must not depend on adapters directly.
+**Controllers → Services → Adapters**
 
-2. **`lib` implementations** that need infrastructure must receive **adapters via constructor**, following the contract defined in the corresponding `*.interface.ts` file (e.g. under `src/lib/protocol/interfaces/`). They do not import adapters; they are injected.
+| Rule | Detail |
+|------|--------|
+| Adapters | **Only `services` may import `adapters`.** Controllers and other layers must not. |
+| `lib` | Code under `lib` uses **constructor-injected** adapters per `src/lib/protocol/interfaces/*.interface.ts`. **Do not** import adapter implementations in `lib`. |
+| Controllers | Import **services** (or graph factories). Handle HTTP only; **no** direct adapter imports. |
+| Services | **Must not import other services.** Use **events**, **queues**, or **shared lib/graphs** instead. |
 
-3. **`controllers`** import and call **`services`** to perform operations. Controllers handle HTTP and delegate business logic to services (or protocol graph factories).
+## Adapter pattern
 
-4. **`services` must not import other `services`.** Cross-service orchestration should use events, queues, or shared lib/graph layer—not service-to-service imports.
+- **Contracts:** `src/lib/protocol/interfaces/` (e.g. `database.interface.ts`).
+- **Implementations:** `src/adapters/`. Controllers get abstractions via **constructor injection** (testability).
 
-**Summary:** Controllers → Services → Adapters. Lib code depends on interfaces; adapters are injected.
+## Controller routing
 
-## Adapter Pattern
+Class-based controllers: `@Controller(prefix)`, `@Get` / `@Post`, optional **guards**. Registration via **`RouteRegistry`**; dispatch from **`main.ts`**. See `router.decorators.ts`.
 
-Protocol interfaces live in `src/lib/protocol/interfaces/` (e.g. `database.interface.ts`). Implementations live in `src/adapters/` (database, embedder, cache, queue, scraper). Controllers (e.g. opportunity, chat) receive database/queue abstractions via constructor injection so they can be tested with mocks.
-
-## Controller and Decorator Routing
-
-The API uses class-based controllers with `@Controller(prefix)`, `@Get(path)`, `@Post(path)`, and optional guards. Routes are registered in `RouteRegistry` and dispatched in `main.ts`. See `protocol/src/controllers/controller.template.md` and `protocol/src/lib/router/router.decorators.ts`.
-
-## Template Files
-
-Each category has a `*.template.md` with coding guidelines. Consult before adding or changing code in that layer:
+## Template files (read before editing)
 
 - `protocol/src/controllers/controller.template.md`
 - `protocol/src/services/service.template.md`
 - `protocol/src/queues/queue.template.md`
 - `protocol/src/lib/protocol/agents/agent.template.md`
-
-## TSDoc
-
-- Add **TSDoc comments** for all **classes** (summary and, when useful, `@remarks` or `@example`).
-- Add **TSDoc comments** for all **public methods** (summary, `@param`, `@returns`, `@throws` where relevant).
-
-```typescript
-/**
- * Handles intent lifecycle and persistence.
- * @remarks Delegates to adapters for DB and queue; does not call other services.
- */
-export class IntentService {
-  /**
-   * Creates an intent and enqueues indexing jobs.
-   * @param input - Validated intent payload
-   * @returns The created intent with id
-   */
-  async create(input: CreateIntentInput): Promise<Intent> { ... }
-}
-```
