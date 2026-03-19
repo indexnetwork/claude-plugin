@@ -36,11 +36,17 @@ export class IntegrationController {
 
   /**
    * Disconnect (delete) a connected account.
+   * Verifies the connection belongs to the authenticated user before deleting.
    * DELETE /api/integrations/:id
    */
   @Delete('/:id')
   @UseGuards(AuthGuard)
-  async disconnect(_req: Request, _user: AuthenticatedUser, params: { id: string }) {
+  async disconnect(_req: Request, user: AuthenticatedUser, params: { id: string }) {
+    const connections = await this.adapter.listConnections(user.id);
+    const owns = connections.some((c) => c.id === params.id);
+    if (!owns) {
+      return new Response(JSON.stringify({ error: 'Connection not found' }), { status: 404 });
+    }
     const result = await this.adapter.disconnect(params.id);
     return result;
   }
