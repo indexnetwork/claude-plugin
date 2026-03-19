@@ -87,6 +87,19 @@ export function ConversationProvider({ children }: { children: React.ReactNode }
       return next;
     });
 
+    // Optimistically update conversation sidebar (last message + timestamp)
+    setConversations((prev) =>
+      prev.map((c) =>
+        c.id === conversationId
+          ? {
+              ...c,
+              lastMessage: { parts, senderId: user?.id ?? '', createdAt: optimistic.createdAt },
+              lastMessageAt: optimistic.createdAt,
+            }
+          : c
+      )
+    );
+
     try {
       const data = await apiClient.post<{ message: ConversationMessage }>(
         `/conversations/${conversationId}/messages`,
