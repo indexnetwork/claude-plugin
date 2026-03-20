@@ -5126,11 +5126,12 @@ export class ConversationDatabaseAdapter {
     // Fetch last message per conversation efficiently using DISTINCT ON
     const lastMessageByConv = new Map<string, { parts: unknown[]; senderId: string; createdAt: Date }>();
     if (ids.length > 0) {
+      const idsArray = `{${ids.join(',')}}`;
       const lastMessages = await db.execute(sql`
         SELECT DISTINCT ON (conversation_id)
           conversation_id, parts, sender_id, created_at
         FROM messages
-        WHERE conversation_id = ANY(${ids})
+        WHERE conversation_id = ANY(${idsArray}::text[])
         ORDER BY conversation_id, created_at DESC
       `);
 
