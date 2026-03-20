@@ -5261,9 +5261,9 @@ export class ConversationDatabaseAdapter {
     conversationId: string;
     senderId: string;
     role: 'user' | 'agent';
-    parts: any[];
+    parts: unknown[];
     taskId?: string;
-    metadata?: any;
+    metadata?: Record<string, unknown> | null;
     extensions?: string[];
     referenceTaskIds?: string[];
   }): Promise<Message> {
@@ -5451,7 +5451,7 @@ export class ConversationDatabaseAdapter {
    * @param conversationId - Conversation ID
    * @param metadata - Arbitrary JSON metadata
    */
-  async upsertMetadata(conversationId: string, metadata: Record<string, any>): Promise<void> {
+  async upsertMetadata(conversationId: string, metadata: Record<string, unknown>): Promise<void> {
     await db
       .insert(schema.conversationMetadata)
       .values({ conversationId, metadata })
@@ -5466,14 +5466,14 @@ export class ConversationDatabaseAdapter {
    * @param conversationId - Conversation ID
    * @returns The metadata object, or null if none exists
    */
-  async getMetadata(conversationId: string): Promise<Record<string, any> | null> {
+  async getMetadata(conversationId: string): Promise<Record<string, unknown> | null> {
     const [row] = await db
       .select({ metadata: schema.conversationMetadata.metadata })
       .from(schema.conversationMetadata)
       .where(eq(schema.conversationMetadata.conversationId, conversationId))
       .limit(1);
 
-    return (row?.metadata as Record<string, any>) ?? null;
+    return (row?.metadata as Record<string, unknown>) ?? null;
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -5486,7 +5486,7 @@ export class ConversationDatabaseAdapter {
    * @param metadata - Optional task metadata
    * @returns The newly created task
    */
-  async createTask(conversationId: string, metadata?: Record<string, any>): Promise<Task> {
+  async createTask(conversationId: string, metadata?: Record<string, unknown>): Promise<Task> {
     const [task] = await db
       .insert(schema.tasks)
       .values({
@@ -5506,11 +5506,11 @@ export class ConversationDatabaseAdapter {
    * @returns The updated task
    * @throws If the task is not found
    */
-  async updateTaskState(taskId: string, state: string, statusMessage?: any): Promise<Task> {
+  async updateTaskState(taskId: string, state: string, statusMessage?: unknown): Promise<Task> {
     const [task] = await db
       .update(schema.tasks)
       .set({
-        state: state as any,
+        state: state as typeof schema.taskStateEnum.enumValues[number],
         statusMessage: statusMessage ?? null,
         statusTimestamp: new Date(),
         updatedAt: new Date(),
@@ -5563,8 +5563,8 @@ export class ConversationDatabaseAdapter {
     taskId: string;
     name?: string;
     description?: string;
-    parts: any[];
-    metadata?: any;
+    parts: unknown[];
+    metadata?: Record<string, unknown> | null;
   }): Promise<Artifact> {
     const [artifact] = await db
       .insert(schema.artifacts)
