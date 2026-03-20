@@ -271,7 +271,7 @@ export default function ChatView({ userId, userName, userAvatar, initialGroupId,
 
               {messages.map((message, index) => {
                 const isOwn = message.senderId === user?.id;
-                const textPart = (message.parts?.[0] as { text?: string } | undefined)?.text;
+                const textPart = (message.parts as { text?: string }[] | undefined)?.find(p => p.text)?.text;
                 const content = textPart ?? '';
                 if (!content.trim()) return null;
                 const prevMessage = messages[index - 1];

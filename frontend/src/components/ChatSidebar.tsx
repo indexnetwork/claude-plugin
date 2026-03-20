@@ -42,12 +42,13 @@ export default function ChatSidebar() {
   const { user } = useAuthContext();
   const { conversations, refreshConversations, hideConversation } = useConversation();
 
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [chatMenuOpen, setChatMenuOpen] = useState<string | null>(null);
   const chatMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!user?.id) return;
+    setLoading(true);
     refreshConversations().finally(() => setLoading(false));
   }, [user?.id, refreshConversations]);
 
@@ -57,7 +58,7 @@ export default function ChatSidebar() {
   );
   const recentChats: RecentChat[] = dmConversations.map((conv) => {
     const peer = (conv.participants ?? []).find((p) => p.participantId !== user?.id && p.participantType === 'user');
-    const lastText = (conv.lastMessage?.parts?.[0] as { text?: string } | undefined)?.text ?? '';
+    const lastText = (conv.lastMessage?.parts as { text?: string }[] | undefined)?.find(p => p.text)?.text ?? '';
     return {
       groupId: conv.id,
       peerUserId: peer?.participantId ?? null,

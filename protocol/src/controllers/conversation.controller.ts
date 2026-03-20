@@ -280,7 +280,7 @@ export class ConversationController {
 
     try {
       const task = await this.taskService.getTask(taskId);
-      if (!task) {
+      if (!task || task.conversationId !== conversationId) {
         return Response.json({ error: 'Task not found' }, { status: 404 });
       }
       return Response.json({ task });
@@ -309,6 +309,10 @@ export class ConversationController {
     }
 
     try {
+      const task = await this.taskService.getTask(taskId);
+      if (!task || task.conversationId !== conversationId) {
+        return Response.json({ error: 'Task not found' }, { status: 404 });
+      }
       const artifacts = await this.taskService.getArtifacts(taskId);
       return Response.json({ artifacts });
     } catch (err: unknown) {
