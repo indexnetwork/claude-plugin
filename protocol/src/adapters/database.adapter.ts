@@ -5290,17 +5290,20 @@ export class ConversationDatabaseAdapter {
       }
     }
 
+    // Query newest messages first (DESC), then reverse for chronological order.
+    // This ensures limit returns the LATEST N messages, not the oldest.
     let query = db
       .select()
       .from(schema.messages)
       .where(and(...conditions))
-      .orderBy(schema.messages.createdAt);
+      .orderBy(desc(schema.messages.createdAt));
 
     if (opts?.limit) {
       query = query.limit(opts.limit) as typeof query;
     }
 
-    return query;
+    const rows = await query;
+    return rows.reverse();
   }
 
   // ─────────────────────────────────────────────────────────────────────────
