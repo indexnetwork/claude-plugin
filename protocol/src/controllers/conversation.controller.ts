@@ -2,7 +2,6 @@ import { AuthGuard, type AuthenticatedUser } from '../guards/auth.guard';
 import { Controller, Get, Post, Patch, Delete, UseGuards } from '../lib/router/router.decorators';
 import { ConversationService } from '../services/conversation.service';
 import { TaskService } from '../services/task.service';
-import { createRedisClient } from '../adapters/cache.adapter';
 import { log } from '../lib/log';
 
 type RouteParams = Record<string, string>;
@@ -336,7 +335,7 @@ export class ConversationController {
 
   /**
    * GET /conversations/stream — SSE endpoint for real-time conversation events.
-   * Subscribes to the user's Redis pub/sub channel and forwards events to the SSE stream.
+   * Delegates subscription to ConversationService and pipes events into SSE response.
    *
    * @param _req - The HTTP request object (unused)
    * @param user - Authenticated user from AuthGuard
@@ -346,42 +345,26 @@ export class ConversationController {
   @UseGuards(AuthGuard)
   async stream(_req: Request, user: AuthenticatedUser) {
     const encoder = new TextEncoder();
-    const channel = `conversations:user:${user.id}`;
-
-    // Dedicated Redis subscriber (pub/sub requires its own connection)
-    const sub = createRedisClient();
-
-    let cancelled = false;
+    const { onMessage, cleanup } = this.conversationService.subscribe(user.id);
     let keepaliveInterval: ReturnType<typeof setInterval> | null = null;
 
     const readableStream = new ReadableStream({
       start(controller) {
-        // Send initial connected event immediately
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'connected', userId: user.id })}\n\n`));
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'connected' })}\n\n`));
 
-        // Register message handler BEFORE subscribing to avoid race conditions
-        sub.on('message', (_ch: string, data: string) => {
-          if (cancelled) return;
+        onMessage((data) => {
           try {
             controller.enqueue(encoder.encode(`data: ${data}\n\n`));
           } catch { /* stream closed */ }
         });
 
-        // Fire-and-forget subscribe — handler is already registered
-        sub.subscribe(channel).catch((err) => {
-          logger.error('[stream] Redis subscribe failed', { userId: user.id, error: err instanceof Error ? err.message : String(err) });
-        });
-
-        // Keepalive every 15s
         keepaliveInterval = setInterval(() => {
-          if (cancelled) { clearInterval(keepaliveInterval!); return; }
           try { controller.enqueue(encoder.encode(': keepalive\n\n')); } catch { clearInterval(keepaliveInterval!); }
         }, 15000);
       },
       cancel() {
-        cancelled = true;
         if (keepaliveInterval) clearInterval(keepaliveInterval);
-        sub.unsubscribe(channel).then(() => sub.disconnect()).catch(() => {});
+        cleanup();
       },
     });
 

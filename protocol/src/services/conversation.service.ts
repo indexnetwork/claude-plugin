@@ -1,6 +1,6 @@
 import { log } from '../lib/log';
 
-import { getRedisClient } from '../adapters/cache.adapter';
+import { createRedisClient, getRedisClient } from '../adapters/cache.adapter';
 import { conversationDatabaseAdapter, ConversationDatabaseAdapter } from '../adapters/database.adapter';
 
 const logger = log.service.from('ConversationService');
@@ -146,5 +146,34 @@ export class ConversationService {
   async updateMetadata(conversationId: string, metadata: Record<string, unknown>, userId: string) {
     await this.verifyParticipant(userId, conversationId);
     return this.db.upsertMetadata(conversationId, metadata);
+  }
+
+  /**
+   * Creates a dedicated Redis subscriber for a user's conversation events.
+   * @param userId - User to subscribe for
+   * @returns Object with `onMessage` handler registration and `cleanup` teardown function
+   */
+  subscribe(userId: string) {
+    const sub = createRedisClient();
+    const channel = `conversations:user:${userId}`;
+    let cancelled = false;
+
+    return {
+      onMessage(handler: (data: string) => void) {
+        sub.on('message', (_ch: string, data: string) => {
+          if (!cancelled) handler(data);
+        });
+        sub.subscribe(channel).catch((err) => {
+          logger.error('[subscribe] Redis subscribe failed', {
+            userId,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        });
+      },
+      cleanup() {
+        cancelled = true;
+        sub.unsubscribe(channel).then(() => sub.disconnect()).catch(() => {});
+      },
+    };
   }
 }
