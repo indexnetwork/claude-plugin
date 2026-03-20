@@ -59,6 +59,7 @@ export const conversationParticipants = pgTable(
   (table) => ({
     pk: primaryKey({ columns: [table.conversationId, table.participantId] }),
     participantIdIdx: index('conversation_participants_participant_id_idx').on(table.participantId),
+    conversationIdIdx: index('conversation_participants_conversation_id_idx').on(table.conversationId),
   }),
 );
 

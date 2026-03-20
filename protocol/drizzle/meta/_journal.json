@@ -155,6 +155,13 @@
       "when": 1773955520222,
       "tag": "0021_drop_old_chat_and_xmtp_tables",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1774010711543,
+      "tag": "0022_add_conversation_participants_conversation_id_idx",
+      "breakpoints": true
     }
   ]
 }
