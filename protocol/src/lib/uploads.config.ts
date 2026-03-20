@@ -74,6 +74,16 @@ export interface ValidationResult {
 
 // ----- Pure Validation Functions -----
 
+/**
+ * Validates file type based on filename extension and MIME type.
+ * For general uploads, accepts exact MIME matches or application/octet-stream.
+ * For avatars, requires exact MIME type match.
+ *
+ * @param filename - The file's name including extension
+ * @param mimetype - The reported MIME type from the multipart Content-Type header
+ * @param uploadType - Whether this is a 'general' or 'avatar' upload
+ * @returns ValidationResult indicating if the file type is valid
+ */
 export function validateFileTypeByMetadata(
   filename: string,
   mimetype: string,

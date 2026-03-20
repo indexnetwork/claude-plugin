@@ -56,4 +56,12 @@ describe('validateFileByMetadata', () => {
   test('rejects oversized files', () => {
     expect(validateFileByMetadata('doc.md', 'application/octet-stream', 11 * 1024 * 1024, 'general').isValid).toBe(false);
   });
+
+  test('rejects oversized avatar files', () => {
+    expect(validateFileByMetadata('photo.png', 'image/png', 5 * 1024 * 1024, 'avatar').isValid).toBe(false);
+  });
+
+  test('accepts avatar files under size limit', () => {
+    expect(validateFileByMetadata('photo.png', 'image/png', 3 * 1024 * 1024, 'avatar').isValid).toBe(true);
+  });
 });
