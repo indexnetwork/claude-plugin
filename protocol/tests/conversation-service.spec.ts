@@ -145,7 +145,44 @@ describe('TaskService', () => {
     });
     expect(artifact.name).toBe('opportunity-card');
 
-    const artifacts = await taskService.getArtifacts(task.id);
+    const artifacts = await taskService.getArtifacts(task.id, conv.id);
     expect(artifacts).toHaveLength(1);
+  }, 15000);
+});
+
+describe('task authorization', () => {
+  it('should reject getTask when task does not belong to conversation', async () => {
+    const conv1 = await conversationService.createConversation([
+      { participantId: 'task-auth-user', participantType: 'user' },
+    ]);
+    cleanupIds.push(conv1.id);
+    const task = await taskService.createTask(conv1.id);
+
+    await expect(
+      taskService.getTask(task.id, 'wrong-conversation-id')
+    ).rejects.toThrow(/does not belong/i);
+  }, 15000);
+
+  it('should return task when it belongs to conversation', async () => {
+    const conv = await conversationService.createConversation([
+      { participantId: 'task-auth-user', participantType: 'user' },
+    ]);
+    cleanupIds.push(conv.id);
+    const task = await taskService.createTask(conv.id);
+
+    const fetched = await taskService.getTask(task.id, conv.id);
+    expect(fetched?.id).toBe(task.id);
+  }, 15000);
+
+  it('should reject getArtifacts when task does not belong to conversation', async () => {
+    const conv = await conversationService.createConversation([
+      { participantId: 'task-auth-user', participantType: 'user' },
+    ]);
+    cleanupIds.push(conv.id);
+    const task = await taskService.createTask(conv.id);
+
+    await expect(
+      taskService.getArtifacts(task.id, 'wrong-conversation-id')
+    ).rejects.toThrow(/does not belong/i);
   }, 15000);
 });

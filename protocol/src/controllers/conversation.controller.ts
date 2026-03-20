@@ -279,13 +279,16 @@ export class ConversationController {
     }
 
     try {
-      const task = await this.taskService.getTask(taskId);
-      if (!task || task.conversationId !== conversationId) {
+      const task = await this.taskService.getTask(taskId, conversationId);
+      if (!task) {
         return Response.json({ error: 'Task not found' }, { status: 404 });
       }
       return Response.json({ task });
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
+      if (message.startsWith('Forbidden')) {
+        return Response.json({ error: 'Task not found' }, { status: 404 });
+      }
       logger.error('[getTask] Error', { userId: user.id, conversationId, taskId, error: message });
       return Response.json({ error: message }, { status: 500 });
     }
@@ -309,14 +312,13 @@ export class ConversationController {
     }
 
     try {
-      const task = await this.taskService.getTask(taskId);
-      if (!task || task.conversationId !== conversationId) {
-        return Response.json({ error: 'Task not found' }, { status: 404 });
-      }
-      const artifacts = await this.taskService.getArtifacts(taskId);
+      const artifacts = await this.taskService.getArtifacts(taskId, conversationId);
       return Response.json({ artifacts });
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
+      if (message.startsWith('Forbidden')) {
+        return Response.json({ error: 'Task not found' }, { status: 404 });
+      }
       logger.error('[getArtifacts] Error', { userId: user.id, conversationId, taskId, error: message });
       return Response.json({ error: message }, { status: 500 });
     }

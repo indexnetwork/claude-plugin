@@ -30,12 +30,18 @@ export class TaskService {
   }
 
   /**
-   * Retrieves a task by ID.
+   * Retrieves a task by ID, verifying it belongs to the given conversation.
    * @param taskId - Task ID
+   * @param conversationId - Conversation the task must belong to
    * @returns The task, or null if not found
+   * @throws If the task exists but belongs to a different conversation
    */
-  async getTask(taskId: string) {
-    return this.db.getTask(taskId);
+  async getTask(taskId: string, conversationId: string) {
+    const task = await this.db.getTask(taskId);
+    if (task && task.conversationId !== conversationId) {
+      throw new Error('Forbidden: task does not belong to this conversation');
+    }
+    return task;
   }
 
   /**
@@ -61,11 +67,17 @@ export class TaskService {
   }
 
   /**
-   * Lists all artifacts for a task, ordered by creation time.
+   * Lists all artifacts for a task, verifying the task belongs to the given conversation.
    * @param taskId - Task ID
+   * @param conversationId - Conversation the task must belong to
    * @returns Ordered list of artifacts
+   * @throws If the task does not exist or belongs to a different conversation
    */
-  async getArtifacts(taskId: string) {
+  async getArtifacts(taskId: string, conversationId: string) {
+    const task = await this.db.getTask(taskId);
+    if (!task || task.conversationId !== conversationId) {
+      throw new Error('Forbidden: task does not belong to this conversation');
+    }
     return this.db.getArtifacts(taskId);
   }
 }
