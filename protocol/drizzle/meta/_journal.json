@@ -162,6 +162,13 @@
       "when": 1774010711543,
       "tag": "0022_add_conversation_participants_conversation_id_idx",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1774011557244,
+      "tag": "0023_add_conversations_dm_pair",
+      "breakpoints": true
     }
   ]
 }

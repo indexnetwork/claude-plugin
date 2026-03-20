@@ -5024,7 +5024,7 @@ export class ConversationDatabaseAdapter {
       }
     });
 
-    return { id, lastMessageAt: null, createdAt: now, updatedAt: now };
+    return { id, dmPair: null, lastMessageAt: null, createdAt: now, updatedAt: now };
   }
 
   /**
@@ -5170,41 +5170,74 @@ export class ConversationDatabaseAdapter {
 
   /**
    * Finds an existing DM between exactly two users, or creates one.
+   * Uses a unique `dmPair` column to prevent duplicate DMs under concurrency.
    * @param userA - First user ID
    * @param userB - Second user ID
    * @returns The existing or newly created conversation
    */
   async getOrCreateDM(userA: string, userB: string): Promise<Conversation> {
-    // Find existing DM: a conversation with exactly these two user participants
-    const existing = await db.execute(sql`
-      SELECT cp1."conversation_id" AS id
-      FROM conversation_participants cp1
-      JOIN conversation_participants cp2 ON cp1."conversation_id" = cp2."conversation_id"
-      WHERE cp1."participant_id" = ${userA}
-        AND cp2."participant_id" = ${userB}
-        AND cp1."participant_type" = 'user'
-        AND cp2."participant_type" = 'user'
-        AND (SELECT count(*) FROM conversation_participants cp3
-             WHERE cp3."conversation_id" = cp1."conversation_id") = 2
-      LIMIT 1
-    `);
+    const dmPair = [userA, userB].sort().join(':');
 
-    const rows = Array.isArray(existing) ? existing : (existing as any).rows ?? [];
-    if (rows.length > 0) {
-      const convId = (rows[0] as { id: string }).id;
-      const [conv] = await db
-        .select()
-        .from(schema.conversations)
-        .where(eq(schema.conversations.id, convId))
-        .limit(1);
-      return conv;
+    // Try to find existing DM by the unique pair key
+    const [existing] = await db
+      .select()
+      .from(schema.conversations)
+      .where(eq(schema.conversations.dmPair, dmPair))
+      .limit(1);
+
+    if (existing) return existing;
+
+    // Try to create — unique constraint prevents duplicates
+    try {
+      return await this.createConversationWithDmPair(
+        [
+          { participantId: userA, participantType: 'user' as const },
+          { participantId: userB, participantType: 'user' as const },
+        ],
+        dmPair,
+      );
+    } catch (err: unknown) {
+      // Unique constraint violation — concurrent create won
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes('unique') || msg.includes('duplicate')) {
+        const [conv] = await db
+          .select()
+          .from(schema.conversations)
+          .where(eq(schema.conversations.dmPair, dmPair))
+          .limit(1);
+        if (conv) return conv;
+      }
+      throw err;
     }
+  }
 
-    // No existing DM — create one
-    return this.createConversation([
-      { participantId: userA, participantType: 'user' },
-      { participantId: userB, participantType: 'user' },
-    ]);
+  /**
+   * Creates a conversation with a dmPair key for DM deduplication.
+   * @param participants - List of participant descriptors
+   * @param dmPair - Normalized pair key (sorted user IDs joined by ':')
+   * @returns The newly created conversation row
+   */
+  private async createConversationWithDmPair(
+    participants: { participantId: string; participantType: 'user' | 'agent' }[],
+    dmPair: string,
+  ): Promise<Conversation> {
+    const id = crypto.randomUUID();
+    const now = new Date();
+
+    await db.transaction(async (tx) => {
+      await tx.insert(schema.conversations).values({ id, dmPair, createdAt: now, updatedAt: now });
+      if (participants.length > 0) {
+        await tx.insert(schema.conversationParticipants).values(
+          participants.map((p) => ({
+            conversationId: id,
+            participantId: p.participantId,
+            participantType: p.participantType,
+          })),
+        );
+      }
+    });
+
+    return { id, dmPair, lastMessageAt: null, createdAt: now, updatedAt: now };
   }
 
   /**

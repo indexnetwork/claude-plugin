@@ -6,6 +6,7 @@ import {
   jsonb,
   index,
   primaryKey,
+  uniqueIndex,
 } from 'drizzle-orm/pg-core';
 import { relations } from 'drizzle-orm';
 
@@ -37,10 +38,13 @@ export const taskStateEnum = pgEnum('task_state', [
  */
 export const conversations = pgTable('conversations', {
   id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  dmPair: text('dm_pair'),
   lastMessageAt: timestamp('last_message_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
-});
+}, (table) => ({
+  dmPairIdx: uniqueIndex('conversations_dm_pair_idx').on(table.dmPair),
+}));
 
 /**
  * Join table tracking which users or agents participate in a conversation.

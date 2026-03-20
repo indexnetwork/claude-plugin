@@ -55,10 +55,7 @@ describe('ConversationDatabaseAdapter', () => {
     it('finds existing DM between two users', async () => {
       const userA = 'dm-user-a-' + Date.now();
       const userB = 'dm-user-b-' + Date.now();
-      const dm = await adapter.createConversation([
-        { participantId: userA, participantType: 'user' as const },
-        { participantId: userB, participantType: 'user' as const },
-      ]);
+      const dm = await adapter.getOrCreateDM(userA, userB);
       createdIds.push(dm.id);
       const found = await adapter.getOrCreateDM(userA, userB);
       expect(found.id).toBe(dm.id);
