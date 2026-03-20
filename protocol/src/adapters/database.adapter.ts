@@ -5123,26 +5123,28 @@ export class ConversationDatabaseAdapter {
       participantsByConv.set(p.conversationId, list);
     }
 
-    // Fetch last message per conversation (respecting hiddenAt — only show messages after hide)
-    const allMessages = ids.length > 0
-      ? await db
-          .select()
-          .from(schema.messages)
-          .where(inArray(schema.messages.conversationId, ids))
-          .orderBy(desc(schema.messages.createdAt))
-      : [];
-
+    // Fetch last message per conversation efficiently using DISTINCT ON
     const lastMessageByConv = new Map<string, { parts: unknown[]; senderId: string; createdAt: Date }>();
-    for (const m of allMessages) {
-      if (lastMessageByConv.has(m.conversationId)) continue;
-      // Skip messages from before hiddenAt so sidebar preview shows only new messages
-      const hiddenAt = hiddenAtByConv.get(m.conversationId);
-      if (hiddenAt && m.createdAt <= hiddenAt) continue;
-      lastMessageByConv.set(m.conversationId, {
-        parts: m.parts as unknown[],
-        senderId: m.senderId,
-        createdAt: m.createdAt,
-      });
+    if (ids.length > 0) {
+      const lastMessages = await db.execute(sql`
+        SELECT DISTINCT ON (conversation_id)
+          conversation_id, parts, sender_id, created_at
+        FROM messages
+        WHERE conversation_id = ANY(${ids})
+        ORDER BY conversation_id, created_at DESC
+      `);
+
+      const msgRows = Array.isArray(lastMessages) ? lastMessages : ((lastMessages as { rows: unknown[] }).rows ?? []);
+      for (const row of msgRows) {
+        const r = row as { conversation_id: string; parts: unknown[]; sender_id: string; created_at: Date };
+        const hiddenAt = hiddenAtByConv.get(r.conversation_id);
+        if (hiddenAt && r.created_at <= hiddenAt) continue;
+        lastMessageByConv.set(r.conversation_id, {
+          parts: r.parts,
+          senderId: r.sender_id,
+          createdAt: r.created_at,
+        });
+      }
     }
 
     // Fetch metadata per conversation
