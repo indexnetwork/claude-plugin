@@ -38,6 +38,7 @@ export function ConversationProvider({ children }: { children: React.ReactNode }
   const eventSourceRef = useRef<EventSource | null>(null);
   const retryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const retryCountRef = useRef(0);
+  const sseGenerationRef = useRef(0);
   const refreshConversationsRef = useRef<() => Promise<void>>(() => Promise.resolve());
 
   // --- REST helpers (use apiClient directly, same pattern as AIChatContext) ---
@@ -63,7 +64,16 @@ export function ConversationProvider({ children }: { children: React.ReactNode }
       );
       setMessages((prev) => {
         const next = new Map(prev);
-        next.set(conversationId, data.messages);
+        const existing = next.get(conversationId) ?? [];
+        if (opts?.before) {
+          const olderIds = new Set(data.messages.map((m: ConversationMessage) => m.id));
+          next.set(
+            conversationId,
+            [...data.messages, ...existing.filter((m) => !olderIds.has(m.id))]
+          );
+        } else {
+          next.set(conversationId, data.messages);
+        }
         return next;
       });
     } catch (err) {
@@ -95,8 +105,10 @@ export function ConversationProvider({ children }: { children: React.ReactNode }
     });
 
     // Optimistically update conversation sidebar (last message + timestamp)
-    setConversations((prev) =>
-      prev.map((c) =>
+    let prevConversation: ConversationSummary | undefined;
+    setConversations((prev) => {
+      prevConversation = prev.find((c) => c.id === conversationId);
+      return prev.map((c) =>
         c.id === conversationId
           ? {
               ...c,
@@ -104,8 +116,8 @@ export function ConversationProvider({ children }: { children: React.ReactNode }
               lastMessageAt: optimistic.createdAt,
             }
           : c
-      )
-    );
+      );
+    });
 
     try {
       const data = await apiClient.post<{ message: ConversationMessage }>(
@@ -125,7 +137,7 @@ export function ConversationProvider({ children }: { children: React.ReactNode }
       return data.message;
     } catch (err) {
       console.error('[ConversationContext] Failed to send message:', err);
-      // Roll back optimistic update
+      // Roll back optimistic update (messages + conversation sidebar)
       setMessages((prev) => {
         const next = new Map(prev);
         const existing = next.get(conversationId) || [];
@@ -135,6 +147,11 @@ export function ConversationProvider({ children }: { children: React.ReactNode }
         );
         return next;
       });
+      if (prevConversation) {
+        setConversations((prev) =>
+          prev.map((c) => (c.id === conversationId ? prevConversation! : c))
+        );
+      }
       return null;
     }
   }, [user, apiClient]);
@@ -169,6 +186,8 @@ export function ConversationProvider({ children }: { children: React.ReactNode }
   // --- SSE connection ---
 
   const connectSSE = useCallback(async () => {
+    const generation = ++sseGenerationRef.current;
+
     // Close any existing connection
     if (eventSourceRef.current) {
       eventSourceRef.current.close();
@@ -177,6 +196,8 @@ export function ConversationProvider({ children }: { children: React.ReactNode }
 
     try {
       const token = await getJwtToken();
+      if (generation !== sseGenerationRef.current) return;
+
       const url = `${SSE_URL}?token=${encodeURIComponent(token)}`;
       const es = new EventSource(url);
       eventSourceRef.current = es;
@@ -256,6 +277,7 @@ export function ConversationProvider({ children }: { children: React.ReactNode }
   // Connect SSE and load conversations when authenticated
   useEffect(() => {
     if (!isAuthenticated) {
+      sseGenerationRef.current += 1;
       // Clean up on logout
       if (eventSourceRef.current) {
         eventSourceRef.current.close();
@@ -275,6 +297,7 @@ export function ConversationProvider({ children }: { children: React.ReactNode }
     connectSSE();
 
     return () => {
+      sseGenerationRef.current += 1;
       if (eventSourceRef.current) {
         eventSourceRef.current.close();
         eventSourceRef.current = null;

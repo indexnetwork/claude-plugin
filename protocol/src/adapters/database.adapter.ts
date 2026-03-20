@@ -828,6 +828,17 @@ export class ChatDatabaseAdapter {
    * Queries conversation_participants to find the user's conversations.
    */
   async getUserSessions(userId: string, limit: number): Promise<ChatSession[]> {
+    // Subquery: conversation IDs that include the system agent (i.e. chat sessions, not DMs)
+    const chatSessionIds = db
+      .select({ conversationId: schema.conversationParticipants.conversationId })
+      .from(schema.conversationParticipants)
+      .where(
+        and(
+          eq(schema.conversationParticipants.participantId, SYSTEM_AGENT_ID),
+          eq(schema.conversationParticipants.participantType, 'agent'),
+        ),
+      );
+
     const rows = await db
       .select({
         id: schema.conversations.id,
@@ -844,6 +855,7 @@ export class ChatDatabaseAdapter {
           eq(schema.conversationParticipants.participantId, userId),
           eq(schema.conversationParticipants.participantType, 'user'),
           isNull(schema.conversationParticipants.hiddenAt),
+          inArray(schema.conversations.id, chatSessionIds),
         ),
       )
       .orderBy(desc(schema.conversations.updatedAt))
@@ -851,31 +863,15 @@ export class ChatDatabaseAdapter {
 
     if (rows.length === 0) return [];
 
-    // Filter to only chat sessions (conversations that include the system agent)
-    const convIds = rows.map((r) => r.id);
-    const agentParticipants = await db
-      .select({ conversationId: schema.conversationParticipants.conversationId })
-      .from(schema.conversationParticipants)
-      .where(
-        and(
-          inArray(schema.conversationParticipants.conversationId, convIds),
-          eq(schema.conversationParticipants.participantId, SYSTEM_AGENT_ID),
-        ),
-      );
-    const chatConvIds = new Set(agentParticipants.map((p) => p.conversationId));
-    const chatRows = rows.filter((r) => chatConvIds.has(r.id));
-
-    if (chatRows.length === 0) return [];
-
     // Batch-fetch metadata for chat conversations
-    const chatConvIdList = chatRows.map((r) => r.id);
+    const chatConvIdList = rows.map((r) => r.id);
     const metaRows = await db
       .select()
       .from(schema.conversationMetadata)
       .where(inArray(schema.conversationMetadata.conversationId, chatConvIdList));
     const metaMap = new Map(metaRows.map((m) => [m.conversationId, m.metadata as ChatConversationMeta]));
 
-    return chatRows.map((conv) => this._toChatSession(conv, userId, metaMap.get(conv.id) ?? null));
+    return rows.map((conv) => this._toChatSession(conv, userId, metaMap.get(conv.id) ?? null));
   }
 
   /**
@@ -1015,7 +1011,10 @@ export class ChatDatabaseAdapter {
 
     return rows.map((msg) => {
       const parts = msg.parts as Array<{ type?: string; text?: string }>;
-      const content = parts?.[0]?.text ?? '';
+      const content =
+        parts?.find((p) => p?.type === 'text' && typeof p.text === 'string')?.text
+        ?? parts?.find((p) => typeof p?.text === 'string')?.text
+        ?? '';
       const meta = (msg.metadata ?? {}) as ChatMessageMeta;
 
       // Map role back: 'agent' -> 'assistant'
