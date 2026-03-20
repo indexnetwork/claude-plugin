@@ -8,6 +8,13 @@ import { eq, and, or, isNull, isNotNull, sql, count, desc, gt, lt, lte, ne, inAr
 import * as schema from '../schemas/database.schema';
 import db from '../lib/drizzle/drizzle';
 import type { User, NotificationPreferences, OnboardingState } from '../schemas/database.schema';
+import type {
+  Conversation,
+  ConversationParticipant,
+  Message,
+  Task,
+  Artifact,
+} from '../schemas/conversation.schema';
 import type { Id } from '../types/common.types';
 import { log } from '../lib/log';
 import { IndexMembershipEvents } from '../events/index_membership.event';
@@ -5063,14 +5070,6 @@ export function createSystemDatabase(
 // Conversation Database Adapter
 // ─────────────────────────────────────────────────────────────────────────────
 
-import type {
-  Conversation,
-  ConversationParticipant,
-  Message,
-  Task,
-  Artifact,
-} from '../schemas/conversation.schema';
-
 /** Participant with resolved user info. */
 export interface ResolvedParticipant {
   participantId: string;
@@ -5228,24 +5227,24 @@ export class ConversationDatabaseAdapter {
     // Fetch last message per conversation efficiently using DISTINCT ON
     const lastMessageByConv = new Map<string, { parts: unknown[]; senderId: string; createdAt: Date }>();
     if (ids.length > 0) {
-      const idsArray = `{${ids.join(',')}}`;
-      const lastMessages = await db.execute(sql`
-        SELECT DISTINCT ON (conversation_id)
-          conversation_id, parts, sender_id, created_at
-        FROM messages
-        WHERE conversation_id = ANY(${idsArray}::text[])
-        ORDER BY conversation_id, created_at DESC
-      `);
+      const lastMessages = await db
+        .selectDistinctOn([schema.messages.conversationId], {
+          conversationId: schema.messages.conversationId,
+          parts: schema.messages.parts,
+          senderId: schema.messages.senderId,
+          createdAt: schema.messages.createdAt,
+        })
+        .from(schema.messages)
+        .where(inArray(schema.messages.conversationId, ids))
+        .orderBy(schema.messages.conversationId, desc(schema.messages.createdAt));
 
-      const msgRows = Array.isArray(lastMessages) ? lastMessages : ((lastMessages as { rows: unknown[] }).rows ?? []);
-      for (const row of msgRows) {
-        const r = row as { conversation_id: string; parts: unknown[]; sender_id: string; created_at: Date };
-        const hiddenAt = hiddenAtByConv.get(r.conversation_id);
-        if (hiddenAt && r.created_at <= hiddenAt) continue;
-        lastMessageByConv.set(r.conversation_id, {
-          parts: r.parts,
-          senderId: r.sender_id,
-          createdAt: r.created_at,
+      for (const r of lastMessages) {
+        const hiddenAt = hiddenAtByConv.get(r.conversationId);
+        if (hiddenAt && r.createdAt <= hiddenAt) continue;
+        lastMessageByConv.set(r.conversationId, {
+          parts: r.parts as unknown[],
+          senderId: r.senderId,
+          createdAt: r.createdAt,
         });
       }
     }
@@ -5279,6 +5278,10 @@ export class ConversationDatabaseAdapter {
    * @returns The existing or newly created conversation
    */
   async getOrCreateDM(userA: string, userB: string): Promise<Conversation> {
+    if (userA === userB) {
+      throw new Error('Cannot create a DM with yourself');
+    }
+
     const dmPair = [userA, userB].sort().join(':');
 
     // Try to find existing DM by the unique pair key
@@ -5480,12 +5483,6 @@ export class ConversationDatabaseAdapter {
   }
 
   /**
-   * Checks whether a user is a participant in a conversation.
-   * @param conversationId - Conversation ID
-   * @param userId - User ID to check
-   * @returns True if the user is a participant
-   */
-  /**
    * Retrieves participant info for a conversation.
    * @param conversationId - Conversation ID
    * @returns Array of participant records
@@ -5500,6 +5497,12 @@ export class ConversationDatabaseAdapter {
       .where(eq(schema.conversationParticipants.conversationId, conversationId));
   }
 
+  /**
+   * Checks whether a user is a participant in a conversation.
+   * @param conversationId - Conversation ID
+   * @param userId - User ID to check
+   * @returns True if the user is a participant
+   */
   async isParticipant(conversationId: string, userId: string): Promise<boolean> {
     const [row] = await db
       .select({ participantId: schema.conversationParticipants.participantId })
