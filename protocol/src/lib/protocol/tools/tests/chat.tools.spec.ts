@@ -1445,6 +1445,37 @@ describe("create_opportunities tool", () => {
     // Should mention remaining candidates (2 from pagination + 2 extra from cap = 4)
     expect(parsed.data.message).toContain("more candidates");
   });
+
+  test("continueFrom introducer flow: final page does not include signal creation CTA (IND-177)", async () => {
+    mockDiscoveryResult = {
+      found: true,
+      count: 1,
+      opportunities: [{
+        opportunityId: "opp-intro-continue-1",
+        userId: "candidate-intro-continue",
+        name: "Diana Researcher",
+        avatar: null,
+        matchReason: "Both interested in biotech",
+        score: 0.8,
+        status: "draft",
+      }],
+    };
+    const mockDb = createMockDatabase(async () => [], {});
+    const context: ToolContext = { userId: testUserId, database: mockDb, embedder: mockEmbedder, scraper: mockScraper };
+    const tools = await createChatTools(context);
+    const tool = tools.find((t: { name: string }) => t.name === "create_opportunities") as {
+      invoke: (args: { continueFrom: string; introTargetUserId: string }) => Promise<string>;
+    };
+    const result = await tool.invoke({
+      continueFrom: "disc-intro-continue-456",
+      introTargetUserId: "abb9fae3-fdef-48a4-8d2c-e71fb1169264",
+    });
+    const parsed = JSON.parse(result);
+    expect(parsed.success).toBe(true);
+    expect(parsed.data.found).toBe(true);
+    expect(parsed.data.message).not.toContain("create a signal");
+    expect(parsed.data.message).toContain("introduction candidates");
+  });
 });
 
 describe("update_opportunity tool (send via status pending)", () => {

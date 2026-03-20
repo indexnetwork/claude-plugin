@@ -15,7 +15,7 @@ You are reviewing code changes for production readiness.
 
 ## Requirements/Plan
 
-{PLAN_REFERENCE}
+{PLAN_OR_REQUIREMENTS}
 
 ## Git Range to Review
 
@@ -109,7 +109,7 @@ git diff {BASE_SHA}..{HEAD_SHA}
 
 ## Example Output
 
-```
+```text
 ### Strengths
 - Clean database schema with proper migrations (db.ts:15-42)
 - Comprehensive test coverage (18 tests, all edge cases)

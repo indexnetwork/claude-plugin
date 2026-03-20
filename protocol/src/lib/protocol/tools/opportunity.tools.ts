@@ -297,9 +297,12 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
           "Found " + displayedBlocks.length + " more potential connection(s). IMPORTANT: Include the following opportunity code blocks EXACTLY as-is in your response (they render as interactive cards):\n\n" +
           blocksText;
 
+        const isIntroducerContinuation = !!query.introTargetUserId?.trim();
         const totalRemaining = (result.pagination?.remaining ?? 0) + extraFromCap;
         if (totalRemaining > 0 && result.pagination?.discoveryId) {
           message += `\n\nThere are ${totalRemaining} more candidates. Ask if the user wants to see more — they can say "show me more" and you should call create_opportunities with continueFrom="${result.pagination.discoveryId}".`;
+        } else if (isIntroducerContinuation) {
+          message += `\n\nThese are all the introduction candidates I found for this person.`;
         } else {
           message += `\n\nThese are all the connections I found. If the user wants to attract more connections, suggest they create a signal — e.g. "Would you like to create a signal so others looking for someone like you can find you?" If they agree, call create_intent with a description based on what they were searching for.`;
         }
