@@ -36,6 +36,8 @@ const ONBOARDING_STEP_SUGGESTIONS: Record<string, Suggestion[]> = {
   ],
   identity_no_name: [
     { label: "I'm ...", type: "prompt", prefill: "I'm " },
+    { label: "Here's my LinkedIn", type: "prompt", prefill: "Here's my LinkedIn: " },
+    { label: "Here's my Twitter", type: "prompt", prefill: "Here's my Twitter: " },
   ],
   profile: [
     { label: "That's right", type: "direct", followupText: "That's right" },
@@ -332,8 +334,8 @@ export default function OnboardingPage() {
   // Networks panel join tracking
   const [networkPanelPendingJoinIds, setNetworkPanelPendingJoinIds] = useState<Set<string>>(new Set());
 
-  const hasName = !!user?.name;
-  const fullGreeting = buildGreeting(hasName, hasName ? `**${user!.name}**` : undefined);
+  const hasName = !!user?.name?.trim();
+  const fullGreeting = buildGreeting(hasName, hasName ? `**${user?.name}**` : undefined);
 
   // Stream the greeting on mount (typewriter effect)
   const [streamedGreeting, setStreamedGreeting] = useState("");

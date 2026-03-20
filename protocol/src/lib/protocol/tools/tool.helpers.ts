@@ -179,7 +179,7 @@ export async function resolveChatContext(params: {
 
   const userName = user.name ?? "Unknown";
   const userEmail = user.email ?? "";
-  const hasName = !!user.name;
+  const hasName = !!user.name?.trim();
 
   return {
     userId,
