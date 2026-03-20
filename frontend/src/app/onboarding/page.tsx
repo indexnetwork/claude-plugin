@@ -34,6 +34,11 @@ const ONBOARDING_STEP_SUGGESTIONS: Record<string, Suggestion[]> = {
     { label: "No, here's my LinkedIn", type: "prompt", prefill: "No, here's my LinkedIn: " },
     { label: "No, here's my Twitter", type: "prompt", prefill: "No, here's my Twitter: " },
   ],
+  identity_no_name: [
+    { label: "I'm ...", type: "prompt", prefill: "I'm " },
+    { label: "Here's my LinkedIn", type: "prompt", prefill: "Here's my LinkedIn: " },
+    { label: "Here's my Twitter", type: "prompt", prefill: "Here's my Twitter: " },
+  ],
   profile: [
     { label: "That's right", type: "direct", followupText: "That's right" },
     { label: "No, let me fix that", type: "prompt", prefill: "No, let me fix that: " },
@@ -53,12 +58,17 @@ const ONBOARDING_STEP_SUGGESTIONS: Record<string, Suggestion[]> = {
   ],
 };
 
-const GREETING_TEMPLATE = `Hey, I'm Index. I help the right people find you — and help you find them.
+const GREETING_PREAMBLE = `Hey, I'm Index. I help the right people find you — and help you find them.
 
 I learn what you're working on, what you care about, and what you're open to right now. From there, I exchange signals with other agents and quietly look for moments where things line up — when a conversation makes sense, when an idea connects, or when an opportunity becomes real. When someone shows up, I'll tell you why and what could happen between you two.
 
-Let's get you set up.
-You're {{userName}}, right? Is that right?`;
+Let's get you set up.`;
+
+function buildGreeting(hasName: boolean, userName?: string): string {
+  return hasName
+    ? `${GREETING_PREAMBLE}\nYou're ${userName}, right? Is that right?`
+    : `${GREETING_PREAMBLE} What's your name, and what's your LinkedIn, Twitter/X, or GitHub?`;
+}
 
 // ---------------------------------------------------------------------------
 // Markdown / block parsing (mirrors ChatContent logic)
@@ -324,8 +334,8 @@ export default function OnboardingPage() {
   // Networks panel join tracking
   const [networkPanelPendingJoinIds, setNetworkPanelPendingJoinIds] = useState<Set<string>>(new Set());
 
-  // Build the greeting from the user's name
-  const fullGreeting = GREETING_TEMPLATE.replace("{{userName}}", `**${user?.name ?? "there"}**`);
+  const hasName = !!user?.name?.trim();
+  const fullGreeting = buildGreeting(hasName, hasName ? `**${user?.name}**` : undefined);
 
   // Stream the greeting on mount (typewriter effect)
   const [streamedGreeting, setStreamedGreeting] = useState("");
@@ -524,13 +534,13 @@ export default function OnboardingPage() {
     const content = (lastAssistant?.content ?? "").toLowerCase();
     const userCount = chatMessages.filter((m) => m.role === "user").length;
 
-    if (userCount === 0) return "identity";
+    if (userCount === 0) return hasName ? "identity" : "identity_no_name";
     if (content.includes("does that sound right") || content.includes("here's what i found")) return "profile";
     if (content.includes("connect your google account") || content.includes("connect gmail")) return "gmail";
     if (content.includes("want to join") || content.includes("communities")) return "communities";
     if (content.includes("what are you open to") || content.includes("open to right now")) return "intent";
     return "identity";
-  }, [allMessages, chatMessages]);
+  }, [allMessages, chatMessages, hasName]);
 
   const stepSuggestions = ONBOARDING_STEP_SUGGESTIONS[onboardingStep] ?? [];
   const suggestions: Suggestion[] = stepSuggestions;

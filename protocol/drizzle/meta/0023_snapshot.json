@@ -1,6 +1,6 @@
 {
-  "id": "67407f2e-f49a-42f6-90ee-cf79e6b0bf6b",
-  "prevId": "06d11a99-b566-42e8-908e-795fb77ec321",
+  "id": "4f713fd0-0182-480f-b68f-d4afada5b0ca",
+  "prevId": "5d653ca9-c081-4cf0-831c-ee052548b626",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -1839,21 +1839,6 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
-        },
-        "conversation_participants_conversation_id_idx": {
-          "name": "conversation_participants_conversation_id_idx",
-          "columns": [
-            {
-              "expression": "conversation_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
         }
       },
       "foreignKeys": {
@@ -1895,12 +1880,6 @@
           "primaryKey": true,
           "notNull": true
         },
-        "dm_pair": {
-          "name": "dm_pair",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
         "last_message_at": {
           "name": "last_message_at",
           "type": "timestamp with time zone",
@@ -1922,23 +1901,7 @@
           "default": "now()"
         }
       },
-      "indexes": {
-        "conversations_dm_pair_idx": {
-          "name": "conversations_dm_pair_idx",
-          "columns": [
-            {
-              "expression": "dm_pair",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
+      "indexes": {},
       "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},

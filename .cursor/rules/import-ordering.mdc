@@ -1,24 +1,24 @@
 ---
-description: Order imports from external to local, with blank lines between groups
+description: TypeScript/TSX import order — external, then deep relative, then nearby relative
 globs: "**/*.{ts,tsx}"
 alwaysApply: false
 ---
 
-# Import Ordering
+# Import ordering
 
-Order imports from most general (external) to most local (nearby), separated by blank lines.
+Order imports **most general → most local**, with **blank lines** between groups:
 
-1. **External packages** (npm modules)
-2. **Deep relative imports** (multiple levels up: `../../`, `../../../`, etc.)
-3. **Nearby relative imports** (siblings/children: `./` or `../`)
+1. **External** — npm packages (`express`, `zod`, …)
+2. **Deep relative** — multiple levels up (`../../`, `../../../`, …)
+3. **Nearby relative** — same tree / one level (`./`, `../`)
 
 ```typescript
-// ❌ BAD
+// BAD — wrong order, no grouping
 import { something } from "./nearby";
 import { util } from "../../../lib/utils";
 import express from "express";
 
-// ✅ GOOD
+// GOOD
 import express from "express";
 import { z } from "zod";
 

@@ -195,6 +195,8 @@ async function enrichOpportunities(
         : [null, null];
       // Skip soft-deleted users (deletedAt is set)
       if (candidateUser && 'deletedAt' in candidateUser && candidateUser.deletedAt) return null;
+      // Skip non-onboarded real users (registered but haven't completed onboarding)
+      if (candidateUser && !candidateUser.isGhost && !candidateUser.onboarding?.completedAt) return null;
       const confidence =
         typeof opp.interpretation?.confidence === "number"
           ? opp.interpretation.confidence

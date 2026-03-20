@@ -1,87 +1,44 @@
 ---
-description: File naming convention - domain.purpose.extension pattern
+description: Protocol TS files use domain.purpose.extension; adapter exception
 globs: protocol/**/*.ts
 alwaysApply: false
 ---
 
-# File Naming Convention
+# File naming (`protocol/`)
 
-All files in the protocol directory should follow the pattern: `{domain}.{purpose}.{extension}`
+Pattern: **`{domain}.{purpose}.{extension}`**
 
-- **domain**: The scope or area of the codebase (e.g., `chat`, `intent`, `profile`, `opportunity`)
-- **purpose**: The type or role of the file (e.g., `graph`, `agent`, `generator`, `verifier`, `state`, `spec`)
+- **domain** — scope (e.g. `chat`, `intent`, `profile`, `opportunity`)
+- **purpose** — role/type (see table)
 
-## Pattern Examples
+## Common purposes
 
-### ✅ GOOD - Following the Convention
+| purpose | role | example |
+|---------|------|---------|
+| `graph` | LangGraph workflow | `chat.graph.ts` |
+| `state` | graph/app state | `chat.state.ts` |
+| `agent` | LLM agent | `chat.agent.ts` |
+| `generator` | generates text/artifacts | `hyde.generator.ts` |
+| `evaluator` | scoring | `opportunity.evaluator.ts` |
+| `verifier` | validation | `intent.verifier.ts` |
+| `inferrer` | inference | `intent.inferrer.ts` |
+| `reconciler` | merge/reconcile | `intent.reconciler.ts` |
+| `controller` | HTTP layer | `chat.controller.ts` |
+| `service` | business logic | `intent.service.ts` |
+| `queue` | BullMQ / jobs | `intent.queue.ts` |
+| `spec` | tests (often `*.spec.ts`) | `router.agent.spec.ts` |
 
-```typescript
-// Graph files
-chat.graph.ts              // domain: chat, purpose: graph
-chat.graph.state.ts        // domain: chat, purpose: graph.state
-intent.graph.ts            // domain: intent, purpose: graph
-intent.graph.spec.ts       // domain: intent, purpose: graph.spec (test)
-
-// Agent files
-router.agent.ts            // domain: router, purpose: agent
-router.agent.spec.ts       // domain: router, purpose: agent.spec (test)
-
-// Generator/processor files
-response.generator.ts      // domain: response, purpose: generator
-hyde.generator.ts          // domain: hyde, purpose: generator
-
-// Other specialized files
-explicit.inferrer.ts       // domain: explicit, purpose: inferrer
-semantic.verifier.ts       // domain: semantic, purpose: verifier
-intent.reconciler.ts       // domain: intent, purpose: reconciler
-opportunity.evaluator.ts   // domain: opportunity, purpose: evaluator
-```
-
-### ❌ BAD - Not Following the Convention
-
-```typescript
-// Missing domain or purpose
-chatGraph.ts              // Use: chat.graph.ts
-intentAgent.ts            // Use: intent.agent.ts
-generator.ts              // Use: {domain}.generator.ts
-utils.ts                  // Use: {domain}.utils.ts
-```
+**Adapters** (under `src/adapters/`): **`{concept}.adapter.ts`** by capability, not tech — see adapters rule.
 
 ## Exceptions
 
-The following file types are **exempt** from this convention:
+`index.ts`, `schema.ts`, `main.ts`, and small root-level utilities (`constants.ts`, `types.ts`) are exempt.
 
-- `index.ts` - Barrel export files
-- `schema.ts` - Database schema files
-- `main.ts` - Application entry points
-- Single-purpose utility files at the root level (e.g., `constants.ts`, `types.ts`)
+## Good vs bad
 
-## Common Purpose Types
+- Good: `chat.graph.ts`, `opportunity.evaluator.ts`, `intent.reconciler.ts`
+- Bad: `chatGraph.ts`, `intentAgent.ts`, bare `generator.ts`
 
-| Purpose | Description | Example |
-|---------|-------------|---------|
-| `.graph` | LangGraph state machines | `chat.graph.ts` |
-| `.state` | State definitions | `chat.graph.state.ts` |
-| `.agent` | AI agents | `router.agent.ts` |
-| `.generator` | Content generators | `response.generator.ts` |
-| `.evaluator` | Evaluation/scoring logic | `opportunity.evaluator.ts` |
-| `.verifier` | Verification/validation | `semantic.verifier.ts` |
-| `.inferrer` | Inference logic | `explicit.inferrer.ts` |
-| `.reconciler` | Reconciliation logic | `intent.reconciler.ts` |
-| `.controller` | API controllers | `chat.controller.ts` |
-| `.service` | Business logic services | `intent.service.ts` |
-| `.queue` | Job queue definitions | `intent.queue.ts` |
-| `.spec` | Test files | `router.agent.spec.ts` |
+## New file
 
-## Naming New Files
-
-When creating a new file:
-
-1. Identify the **domain/scope**: What area does this belong to? (e.g., chat, intent, profile)
-2. Identify the **purpose/type**: What does this file do? (e.g., agent, graph, generator)
-3. Combine: `{domain}.{purpose}.ts`
-
-Example: Creating a new validator for messages
-- Domain: `message`
-- Purpose: `validator`
-- File name: `message.validator.ts`
+1. Pick **domain** (area). 2. Pick **purpose** (type). 3. Name: **`{domain}.{purpose}.ts`** (e.g. message validation → `message.validator.ts`).

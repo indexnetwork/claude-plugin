@@ -1,64 +1,44 @@
 ---
-description: Git worktrees, conventional commits, conventional branches, and PR conventions
+description: Worktrees for feature/fix work, conventional commits/branches, PRs, finishing a branch
 globs: "**/*"
 alwaysApply: false
 ---
 
-# Git Workflow
+# Git workflow
 
-Follow these conventions for version control operations.
+## Worktrees (features and fixes)
 
-## Always use worktrees for fixes and new features
+Use a **worktree** for new features and bugfixes. Do **not** do that work on the main tree (`dev` at repo root). Use the root only for small docs/config, dependency bumps, or when told otherwise.
 
-Use a worktree for any new feature or bugfix. Do not do feature or fix work on the main working tree (e.g. on `dev` at repo root). Create a worktree, do the work there, then open PRs from that branch.
+- **Feature** → e.g. `.worktrees/feat-my-feature` on branch `feat/my-feature`
+- **Fix** → e.g. `.worktrees/fix-issue-name` on branch `fix/short-description`
 
-- **New feature** → create worktree (e.g. `feat/my-feature`), implement and test there.
-- **Bug fix** → create worktree (e.g. `fix/issue-name`), fix and test there.
-
-Only use the main working tree for small docs/config edits, dependency bumps, or when explicitly told otherwise.
-
-## Worktrees
-
-Worktrees live in `.worktrees/` (gitignored). They share the same git history but have an isolated working tree. Since `.gitignore`d files (`node_modules/`, `.env*`) are not copied into worktrees, you must run `bun run worktree:setup <name>` after creating one. This symlinks `.env*` files from the main repo into the worktree for all workspaces (`protocol`, `frontend`, `evaluator`) and runs `bun install` in each workspace.
+Worktrees live under `.worktrees/` (gitignored). **Folder names use dashes** (not slashes). After `git worktree add`, run setup:
 
 ```bash
-# After creating a worktree (e.g., via `git worktree add .worktrees/feat-foo dev`)
+git worktree add .worktrees/feat-foo dev
 bun run worktree:setup feat-foo
-
-# Run all dev servers (protocol + frontend + evaluator) from a worktree
 bun run worktree:dev feat-foo
 ```
 
-`worktree:dev` auto-runs setup if the worktree hasn't been set up yet. Use `bun run worktree:list` to see available worktrees and whether they've been set up.
+Use `bun run worktree:list` to inspect worktrees.
 
-## Conventional Commits
-
-Commit messages follow the Conventional Commits format:
+## Conventional commits
 
 ```
 <type>[optional scope]: <description>
-
-[optional body]
-
-[optional footer]
 ```
 
-**Commit types**: `feat` (new feature), `fix` (bug fix), `docs`, `style`, `refactor`, `perf`, `test`, `chore`.
+Types: `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `chore`. Breaking: `BREAKING CHANGE:` in body/footer, or `feat!:` (etc.).
 
-**Breaking changes**: Add `BREAKING CHANGE:` in body/footer, or append `!` after type (e.g. `feat!:`).
+## Conventional branches
 
-## Conventional Branches
+`<type>/<short-description>` — e.g. `feat/user-auth`, `fix/login-loop`. **Do not** use Linear issue IDs as branch names.
 
-Branch names follow `<type>/<short-description>`:
+## Pull requests
 
-```bash
-feat/user-authentication
-fix/login-redirect-loop
-refactor/intent-service
-test/chat-controller
-```
+Create with `gh` targeting **`upstream/dev`**. Description: changelog-style (**New Features**, **Bug Fixes**, **Refactors**, **Documentation**, **Tests**).
 
-## Pull Requests
+## Finishing a branch
 
-1. Use `gh` CLI to create PRs into `upstream/dev`.
-2. Write PR description as a changelog with categories: **New Features**, **Bug Fixes**, **Refactors**, **Documentation**, **Tests**.
+If the branch changed structure (new dirs, routes, tables, agents, graphs), **update `CLAUDE.md`**. Then merge into `dev`, push **both** remotes (`upstream` and `origin`), delete the branch, remove the worktree (`git worktree remove .worktrees/<name>`).
