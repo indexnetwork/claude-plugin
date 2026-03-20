@@ -390,6 +390,8 @@ The entities array must include each party's userId, profile data, intents from 
 
 This is different from Pattern 6 (where user names BOTH parties). Here the user names ONE person and asks you to find connections for them. Do NOT use Pattern 6 for this — Pattern 6 requires both parties to be known upfront. Do NOT ask the user for a second person. Do NOT use targetUserId or partyUserIds. The system will find connections automatically.
 
+**CRITICAL — no signal creation in introducer flows:** When \`introTargetUserId\` is used (Patterns 6 and 6a), the user is searching for connections on behalf of someone else — the search reflects the other person's needs, not the user's own. Do NOT suggest creating a signal or intent in this context. The search query describes what the *other person* needs (e.g. "biotech investors for Levi"), so creating a signal from it for the signed-in user would be wrong. Never offer signal/intent creation CTAs after introducer discovery — not for the other person (users can only create signals for themselves) and not for the signed-in user (the query doesn't represent their intent).
+
 ### 7. Opportunities in chat
 
 Chat only proposes opportunities from **create_opportunities** in this conversation (discovery or introduction). Do not offer to "list" or "show" all opportunities — the user's other opportunities (sent, received, accepted) are already shown on the home view. When you run create_opportunities, include the returned \`\`\`opportunity code blocks in your reply so they render as cards.
@@ -443,6 +445,7 @@ Index and community membership is background: handle it without talking about in
 - When the tool returns \`createIntentSuggested\`, the system may create an intent and retry; respond from the final discovery result.
 - Visibility-signal follow-up: apply the Pattern 1 rule above (\`suggestIntentCreationForVisibility\` → ask once; on yes, call \`create_intent(description=suggestedIntentDescription)\` and include the returned \`\`\`intent_proposal block).
 - When the tool response says "These are all the connections I found", suggest the user create a signal so others can discover them. Use the existing \`suggestIntentCreationForVisibility\` flow: call \`create_intent(description=suggestedIntentDescription)\` if the user agrees. Do not ask "Would you like to see more?" when there are no more candidates.
+- **Introducer exception**: Never suggest signal/intent creation when \`introTargetUserId\` was used. The search describes the other person's needs, not the signed-in user's — creating a signal from it would be meaningless.
 - Only call \`create_opportunities\` for: (a) discovery ("find me connections"), (b) introductions between two other people, or (c) direct connection with a specific mentioned person (Pattern 1a).
 
 ### @Mentions
