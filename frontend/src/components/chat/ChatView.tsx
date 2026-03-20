@@ -24,7 +24,6 @@ interface ChatViewProps {
 export default function ChatView({ userId, userName, userAvatar, initialGroupId, initialMessage, onClose, onBack }: ChatViewProps) {
   const { user } = useAuthContext();
   const {
-    isConnected,
     messages: allMessages,
     sendMessage: conversationSend,
     loadMessages,
@@ -49,21 +48,18 @@ export default function ChatView({ userId, userName, userAvatar, initialGroupId,
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, []);
 
-  // Load messages when connected and we have a conversationId
+  // Load messages when we have a conversationId
   useEffect(() => {
-    if (!isConnected) return;
     const cid = initialGroupId ?? conversationId;
     if (cid) {
       loadMessages(cid, { limit: 50 }).finally(() => setMessagesLoading(false));
     } else {
       setMessagesLoading(false);
     }
-  }, [isConnected, initialGroupId, conversationId, loadMessages]);
+  }, [initialGroupId, conversationId, loadMessages]);
 
   // Get or create DM conversation
   useEffect(() => {
-    if (!isConnected) return;
-
     let mounted = true;
     const init = async () => {
       try {
@@ -80,7 +76,7 @@ export default function ChatView({ userId, userName, userAvatar, initialGroupId,
 
     init();
     return () => { mounted = false; };
-  }, [isConnected, userId, initialGroupId, getOrCreateDM, conversationId]);
+  }, [userId, initialGroupId, getOrCreateDM, conversationId]);
 
   useEffect(() => { scrollToBottom(); }, [messages, scrollToBottom]);
 
