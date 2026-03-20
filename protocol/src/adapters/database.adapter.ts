@@ -5276,6 +5276,8 @@ export class ConversationDatabaseAdapter {
 
       const pubClient = getRedisClient();
       for (const p of participants) {
+        // Skip the sender — they already get the message from the POST response
+        if (p.participantId === data.senderId) continue;
         await pubClient.publish(`conversations:user:${p.participantId}`, event);
       }
     } catch (err) {
