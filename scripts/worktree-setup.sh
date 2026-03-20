@@ -3,7 +3,7 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 WORKTREES_DIR="$REPO_ROOT/.worktrees"
-WORKSPACES=("protocol" "frontend" "evaluator")
+WORKSPACES=("protocol" "frontend")
 
 if [ -z "${1:-}" ]; then
   echo "Usage: bun run worktree:setup <worktree-name>"
