@@ -3033,6 +3033,36 @@ export class ChatDatabaseAdapter {
   }
 
   /**
+   * Bulk clear soft-deleted contact memberships (reverse opt-outs) for multiple users.
+   * Removes rows where `ownerId` appears as a soft-deleted contact in each user's personal index.
+   * @param ownerId - The user being added as a contact
+   * @param otherUserIds - The users whose personal indexes may have soft-deleted rows for ownerId
+   */
+  async clearReverseOptOutBulk(ownerId: string, otherUserIds: string[]): Promise<void> {
+    if (otherUserIds.length === 0) return;
+
+    // Batch lookup personal indexes for all other users
+    const personalIndexRows = await db
+      .select({ userId: schema.personalIndexes.userId, indexId: schema.personalIndexes.indexId })
+      .from(schema.personalIndexes)
+      .where(inArray(schema.personalIndexes.userId, otherUserIds));
+
+    const personalIndexIds = personalIndexRows.map(r => r.indexId);
+    if (personalIndexIds.length === 0) return;
+
+    // Single DELETE across all matching personal indexes
+    await db.delete(schema.indexMembers)
+      .where(
+        and(
+          inArray(schema.indexMembers.indexId, personalIndexIds),
+          eq(schema.indexMembers.userId, ownerId),
+          sql`'contact' = ANY(${schema.indexMembers.permissions})`,
+          isNotNull(schema.indexMembers.deletedAt),
+        )
+      );
+  }
+
+  /**
    * Get all contact members from the owner's personal index.
    * @param ownerId - The owner of the personal index
    * @returns Array of contact members with user details

@@ -1,6 +1,10 @@
+import type { IntegrationAdapter } from '../lib/protocol/interfaces/integration.interface';
+
 import { AuthGuard, type AuthenticatedUser } from '../guards/auth.guard';
 import { Controller, Delete, Get, Post, UseGuards } from '../lib/router/router.decorators';
-import type { IntegrationAdapter } from '../lib/protocol/interfaces/integration.interface';
+
+/** Server-side allowlist of supported Composio toolkits. */
+const ALLOWED_TOOLKITS = ['gmail'] as const;
 
 /**
  * Thin proxy to the integration adapter (Composio).
@@ -28,6 +32,9 @@ export class IntegrationController {
   @Post('/connect/:toolkit')
   @UseGuards(AuthGuard)
   async connect(_req: Request, user: AuthenticatedUser, params: { toolkit: string }) {
+    if (!ALLOWED_TOOLKITS.includes(params.toolkit as typeof ALLOWED_TOOLKITS[number])) {
+      return new Response(JSON.stringify({ error: 'Unsupported toolkit' }), { status: 400 });
+    }
     const baseUrl = (process.env.FRONTEND_URL || process.env.APP_URL || '').replace(/\/$/, '');
     const callbackUrl = `${baseUrl}/oauth/callback`;
     const result = await this.adapter.getAuthUrl(user.id, params.toolkit, callbackUrl);

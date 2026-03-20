@@ -68,7 +68,7 @@ describe("IntegrationController", () => {
   });
 
   describe("POST /connect/:toolkit (connect)", () => {
-    test("should return a redirect URL", async () => {
+    test("should return a redirect URL for allowed toolkit", async () => {
       const req = new Request("http://test/api/integrations/connect/gmail", {
         method: "POST",
         headers: { origin: "http://localhost:5173" },
@@ -77,6 +77,19 @@ describe("IntegrationController", () => {
 
       const data = result as { redirectUrl: string };
       expect(data.redirectUrl).toBe("https://oauth.example.com/auth");
+    });
+
+    test("should return 400 for unsupported toolkit", async () => {
+      const req = new Request("http://test/api/integrations/connect/evilkit", {
+        method: "POST",
+      });
+      const result = await controller.connect(req, USER_A, { toolkit: "evilkit" });
+
+      expect(result).toBeInstanceOf(Response);
+      const res = result as Response;
+      expect(res.status).toBe(400);
+      const body = await res.json() as { error: string };
+      expect(body.error).toBe("Unsupported toolkit");
     });
   });
 

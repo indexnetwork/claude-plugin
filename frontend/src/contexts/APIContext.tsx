@@ -112,11 +112,6 @@ export function useAuth() {
   return authService;
 }
 
-export function useIntegrations() {
-  const { integrationsService } = useAPI();
-  return integrationsService;
-}
-
 export function useAdmin() {
   const { adminService } = useAPI();
   return adminService;
