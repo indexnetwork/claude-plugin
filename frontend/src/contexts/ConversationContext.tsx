@@ -37,6 +37,7 @@ export function ConversationProvider({ children }: { children: React.ReactNode }
   const [isConnected, setIsConnected] = useState(false);
   const eventSourceRef = useRef<EventSource | null>(null);
   const retryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const refreshConversationsRef = useRef<() => Promise<void>>(() => Promise.resolve());
 
   // --- REST helpers (use apiClient directly, same pattern as AIChatContext) ---
 
@@ -48,6 +49,7 @@ export function ConversationProvider({ children }: { children: React.ReactNode }
       console.error('[ConversationContext] Failed to fetch conversations:', err);
     }
   }, []);
+  refreshConversationsRef.current = refreshConversations;
 
   const loadMessages = useCallback(async (conversationId: string, opts?: { limit?: number; before?: string }) => {
     try {
@@ -197,9 +199,15 @@ export function ConversationProvider({ children }: { children: React.ReactNode }
                 next.set(convId, [...existing, msg]);
                 return next;
               });
-              // Update conversation summary
-              setConversations((prev) =>
-                prev.map((c) =>
+              // Update conversation summary, or refresh list if conversation is unknown (e.g. was hidden)
+              setConversations((prev) => {
+                const exists = prev.some((c) => c.id === convId);
+                if (!exists) {
+                  // Conversation not in local list — re-fetch from server (it was unhidden by the new message)
+                  refreshConversationsRef.current();
+                  return prev;
+                }
+                return prev.map((c) =>
                   c.id === convId
                     ? {
                         ...c,
@@ -207,8 +215,8 @@ export function ConversationProvider({ children }: { children: React.ReactNode }
                         lastMessageAt: msg.createdAt,
                       }
                     : c
-                )
-              );
+                );
+              });
               break;
             }
           }

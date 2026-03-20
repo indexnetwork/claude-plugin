@@ -54,6 +54,24 @@ export function getRedisClient(): Redis {
 }
 
 /**
+ * Creates a new, dedicated Redis client (e.g. for pub/sub subscribers).
+ * Uses the same connection config as the shared client but without lazyConnect.
+ */
+export function createRedisClient(): Redis {
+  const redisUrl = process.env.REDIS_URL;
+  if (redisUrl) {
+    return new Redis(redisUrl, { maxRetriesPerRequest: 3 });
+  }
+  return new Redis({
+    host: process.env.REDIS_HOST || 'localhost',
+    port: parseInt(process.env.REDIS_PORT || '6379'),
+    password: process.env.REDIS_PASSWORD,
+    db: parseInt(process.env.REDIS_DB || '0'),
+    maxRetriesPerRequest: 3,
+  });
+}
+
+/**
  * Close the shared Redis connection and reset the singleton.
  */
 export async function closeRedisConnection(): Promise<void> {

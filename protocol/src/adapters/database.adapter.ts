@@ -5058,19 +5058,34 @@ export class ConversationDatabaseAdapter {
    * @returns Summaries with participant lists
    */
   async getConversationsForUser(userId: string): Promise<ConversationSummary[]> {
+    // Include conversations that are not hidden OR have new messages since hiding
     const rows = await db
-      .select({ conversationId: schema.conversationParticipants.conversationId })
+      .select({
+        conversationId: schema.conversationParticipants.conversationId,
+        hiddenAt: schema.conversationParticipants.hiddenAt,
+      })
       .from(schema.conversationParticipants)
+      .innerJoin(
+        schema.conversations,
+        eq(schema.conversationParticipants.conversationId, schema.conversations.id),
+      )
       .where(
         and(
           eq(schema.conversationParticipants.participantId, userId),
-          isNull(schema.conversationParticipants.hiddenAt),
+          or(
+            isNull(schema.conversationParticipants.hiddenAt),
+            gt(schema.conversations.lastMessageAt, schema.conversationParticipants.hiddenAt),
+          ),
         ),
       );
 
     if (rows.length === 0) return [];
 
     const ids = rows.map((r) => r.conversationId);
+    const hiddenAtByConv = new Map<string, Date | null>();
+    for (const r of rows) {
+      hiddenAtByConv.set(r.conversationId, r.hiddenAt);
+    }
 
     const convs = await db
       .select()
@@ -5109,7 +5124,7 @@ export class ConversationDatabaseAdapter {
       participantsByConv.set(p.conversationId, list);
     }
 
-    // Fetch last message per conversation
+    // Fetch last message per conversation (respecting hiddenAt — only show messages after hide)
     const allMessages = ids.length > 0
       ? await db
           .select()
@@ -5120,13 +5135,15 @@ export class ConversationDatabaseAdapter {
 
     const lastMessageByConv = new Map<string, { parts: unknown[]; senderId: string; createdAt: Date }>();
     for (const m of allMessages) {
-      if (!lastMessageByConv.has(m.conversationId)) {
-        lastMessageByConv.set(m.conversationId, {
-          parts: m.parts as unknown[],
-          senderId: m.senderId,
-          createdAt: m.createdAt,
-        });
-      }
+      if (lastMessageByConv.has(m.conversationId)) continue;
+      // Skip messages from before hiddenAt so sidebar preview shows only new messages
+      const hiddenAt = hiddenAtByConv.get(m.conversationId);
+      if (hiddenAt && m.createdAt <= hiddenAt) continue;
+      lastMessageByConv.set(m.conversationId, {
+        parts: m.parts as unknown[],
+        senderId: m.senderId,
+        createdAt: m.createdAt,
+      });
     }
 
     // Fetch metadata per conversation
@@ -5235,7 +5252,7 @@ export class ConversationDatabaseAdapter {
 
     await this.updateLastMessageAt(data.conversationId);
 
-    // Clear hiddenAt so conversation reappears in sender's list
+    // Clear hiddenAt for the sender so conversation reappears in their list
     await db
       .update(schema.conversationParticipants)
       .set({ hiddenAt: null })

@@ -2,6 +2,7 @@ import { AuthGuard, type AuthenticatedUser } from '../guards/auth.guard';
 import { Controller, Get, Post, Patch, Delete, UseGuards } from '../lib/router/router.decorators';
 import { ConversationService } from '../services/conversation.service';
 import { TaskService } from '../services/task.service';
+import { createRedisClient } from '../adapters/cache.adapter';
 import { log } from '../lib/log';
 
 type RouteParams = Record<string, string>;
@@ -332,17 +333,17 @@ export class ConversationController {
     const channel = `conversations:user:${user.id}`;
 
     // Dedicated Redis subscriber (pub/sub requires its own connection)
-    const Redis = (await import('ioredis')).default;
-    const sub = new Redis(process.env.REDIS_URL || 'redis://localhost:6379');
+    const sub = createRedisClient();
 
     let cancelled = false;
     let keepaliveInterval: ReturnType<typeof setInterval> | null = null;
 
     const readableStream = new ReadableStream({
-      async start(controller) {
+      start(controller) {
+        // Send initial connected event immediately
         controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'connected', userId: user.id })}\n\n`));
 
-        await sub.subscribe(channel);
+        // Register message handler BEFORE subscribing to avoid race conditions
         sub.on('message', (_ch: string, data: string) => {
           if (cancelled) return;
           try {
@@ -350,6 +351,12 @@ export class ConversationController {
           } catch { /* stream closed */ }
         });
 
+        // Fire-and-forget subscribe — handler is already registered
+        sub.subscribe(channel).catch((err) => {
+          logger.error('[stream] Redis subscribe failed', { userId: user.id, error: err instanceof Error ? err.message : String(err) });
+        });
+
+        // Keepalive every 15s
         keepaliveInterval = setInterval(() => {
           if (cancelled) { clearInterval(keepaliveInterval!); return; }
           try { controller.enqueue(encoder.encode(': keepalive\n\n')); } catch { clearInterval(keepaliveInterval!); }
