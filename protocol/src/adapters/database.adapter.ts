@@ -11,6 +11,7 @@ import type { User, NotificationPreferences, OnboardingState } from '../schemas/
 import type { Id } from '../types/common.types';
 import { log } from '../lib/log';
 import { IndexMembershipEvents } from '../events/index_membership.event';
+import { getRedisClient } from './cache.adapter';
 
 const logger = log.lib.from('database.adapter');
 
@@ -5242,6 +5243,31 @@ export class ConversationDatabaseAdapter {
         eq(schema.conversationParticipants.conversationId, data.conversationId),
         eq(schema.conversationParticipants.participantId, data.senderId),
       ));
+
+    // Publish to all participants' SSE channels via Redis pub/sub
+    try {
+      const participants = await db
+        .select({ participantId: schema.conversationParticipants.participantId })
+        .from(schema.conversationParticipants)
+        .where(eq(schema.conversationParticipants.conversationId, data.conversationId));
+
+      const event = JSON.stringify({
+        type: 'message',
+        conversationId: data.conversationId,
+        message: msg,
+      });
+
+      const pubClient = getRedisClient();
+      for (const p of participants) {
+        await pubClient.publish(`conversations:user:${p.participantId}`, event);
+      }
+    } catch (err) {
+      // Non-fatal: message is persisted, real-time delivery is best-effort
+      logger.error('[createMessage] Failed to publish SSE event', {
+        conversationId: data.conversationId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
 
     return msg;
   }

@@ -319,8 +319,7 @@ export class ConversationController {
 
   /**
    * GET /conversations/stream — SSE endpoint for real-time conversation events.
-   * Sends an initial connected event and keepalive pings every 15 seconds.
-   * Real Redis pub/sub integration will replace this placeholder later.
+   * Subscribes to the user's Redis pub/sub channel and forwards events to the SSE stream.
    *
    * @param _req - The HTTP request object (unused)
    * @param user - Authenticated user from AuthGuard
@@ -330,17 +329,39 @@ export class ConversationController {
   @UseGuards(AuthGuard)
   async stream(_req: Request, user: AuthenticatedUser) {
     const encoder = new TextEncoder();
+    const channel = `conversations:user:${user.id}`;
+
+    // Dedicated Redis subscriber (pub/sub requires its own connection)
+    const Redis = (await import('ioredis')).default;
+    const sub = new Redis(process.env.REDIS_URL || 'redis://localhost:6379');
+
+    let cancelled = false;
+    let keepaliveInterval: ReturnType<typeof setInterval> | null = null;
+
     const readableStream = new ReadableStream({
-      start(controller) {
-        // Send initial identity event
+      async start(controller) {
         controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'connected', userId: user.id })}\n\n`));
-        // Keepalive every 15s
-        const interval = setInterval(() => {
-          try { controller.enqueue(encoder.encode(': keepalive\n\n')); } catch { clearInterval(interval); }
+
+        await sub.subscribe(channel);
+        sub.on('message', (_ch: string, data: string) => {
+          if (cancelled) return;
+          try {
+            controller.enqueue(encoder.encode(`data: ${data}\n\n`));
+          } catch { /* stream closed */ }
+        });
+
+        keepaliveInterval = setInterval(() => {
+          if (cancelled) { clearInterval(keepaliveInterval!); return; }
+          try { controller.enqueue(encoder.encode(': keepalive\n\n')); } catch { clearInterval(keepaliveInterval!); }
         }, 15000);
       },
-      cancel() { /* cleanup handled by interval closure */ },
+      cancel() {
+        cancelled = true;
+        if (keepaliveInterval) clearInterval(keepaliveInterval);
+        sub.unsubscribe(channel).then(() => sub.disconnect()).catch(() => {});
+      },
     });
+
     return new Response(readableStream, {
       headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache, no-transform', Connection: 'keep-alive' },
     });
