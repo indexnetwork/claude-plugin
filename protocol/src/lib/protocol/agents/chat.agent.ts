@@ -375,6 +375,10 @@ export class ChatAgent {
     ) {
       return null;
     }
+    // Never auto-create intents during introducer flows — signals are personal
+    if ((originalArgs as { introTargetUserId?: string }).introTargetUserId) {
+      return null;
+    }
     const createIntentTool = this.toolsByName.get("create_intent");
     const createOpportunitiesTool = this.toolsByName.get("create_opportunities");
     if (!createIntentTool || !createOpportunitiesTool) return null;

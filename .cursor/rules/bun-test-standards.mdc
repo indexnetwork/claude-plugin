@@ -1,6 +1,6 @@
 ---
 description: Bun test style — env, structure, timeouts, mocks, cleanup
-globs: "**/*.spec.ts"
+globs: "{protocol/**/*.{spec,test}.ts,frontend/tests/**/*.test.{ts,tsx}}"
 alwaysApply: false
 ---
 

@@ -28,5 +28,5 @@ alwaysApply: false
 
 ## Database
 
-- Schema: **`src/schemas/database.schema.ts`** (not `lib/schema`).
+- Schema: **`protocol/src/schemas/database.schema.ts`** (not `lib/schema`).
 - Drizzle query builder; **relations** for joins; **indexes** for hot paths; **vector** similarity for semantic search; prefer **soft deletes** (`deletedAt`).

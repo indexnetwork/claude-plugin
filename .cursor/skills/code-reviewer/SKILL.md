@@ -25,7 +25,7 @@ Senior Code Reviewer for reviewing completed project steps against original plan
 
 - **Critical** — Must fix before merge
 - **Important** — Should fix
-- **Suggestion** — Nice to have
+- **Minor** — Nice to have
 
 ## Communication
 
