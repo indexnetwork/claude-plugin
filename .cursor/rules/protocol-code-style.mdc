@@ -1,52 +1,32 @@
 ---
-description: TypeScript, agents, services, controllers, API routes, and database code conventions
-globs: "protocol/**/*.ts"
+description: TypeScript strictness, agents, services, controllers, and database conventions (protocol)
+globs: protocol/**/*.ts
 alwaysApply: false
 ---
 
-# Protocol Code Style
+# Protocol code style
 
 ## TypeScript
 
-- Strict mode enabled
-- **Do not use `any`** — use proper types or `unknown` and narrow as needed. ESLint enforces `@typescript-eslint/no-explicit-any`.
-- All agents use Zod schemas for validation
-- Prefer type inference from Drizzle schema over manual types
-- Use `Id<'tableName'>` type from `_generated/dataModel` for document IDs
+- Strict mode; **no `any`** — use `unknown` and narrow. ESLint enforces `@typescript-eslint/no-explicit-any`.
+- Agents: validate with **Zod**; prefer **Drizzle-inferred** types over hand-rolled models; use **`Id<'tableName'>`** from `_generated/dataModel` for document IDs.
 
 ## Agents
 
-- Extend `BaseLangChainAgent` for consistency
-- Define input/output as Zod schemas
-- Set appropriate temperature per agent type
-- Use Langfuse middleware for tracing
-- Keep agents pure (no direct DB access) — let services handle persistence
+- Configure LLMs with **`createModel()`** from `model.config.ts`; set **temperature** and **maxTokens** in `model.config.ts`, not ad hoc in each agent.
+- Define **input/output as Zod schemas**; keep agents **pure** (no DB) — services persist.
 
 ## Services
 
-- Encapsulate business logic; handle database transactions
-- Emit events after successful operations; return typed results
-- Use Drizzle for type-safe queries
-- **Must not import other services** — use events, queues, or shared lib for cross-service orchestration
+- Encapsulate business logic; **transactions**, **events**, **typed** return values; use **Drizzle**.
+- **Do not import other services** — orchestrate via events, queues, or shared `lib`/graphs.
 
 ## Controllers
 
-- Handle HTTP (request/response) and delegate business logic to services or protocol graph factories
-- May accept adapters (database, queue) via constructor injection for testability
-- **Must not import adapters directly** — only services may import adapters
-
-## API Routes
-
-- Use guard functions for authentication (e.g. `AuthGuard`)
-- Validate input with Zod schemas where needed
-- Handle errors with try/catch and proper HTTP status codes
-- Return consistent JSON responses or Response objects
+- HTTP only: **guards** (e.g. auth), **Zod** validation, delegate to **services** or **graphs**.
+- **Do not import adapters** — only services import adapter implementations.
 
 ## Database
 
-- Canonical schema and table definitions live in `src/schemas/database.schema.ts`; import from there (not from `lib/schema`)
-- Use Drizzle's query builder for type safety
-- Define relations in schema for automatic joins
-- Create indexes for frequently queried columns
-- Use vector similarity for semantic search
-- Prefer soft deletes (deletedAt) over hard deletes
+- Schema: **`protocol/src/schemas/database.schema.ts`** (not `lib/schema`).
+- Drizzle query builder; **relations** for joins; **indexes** for hot paths; **vector** similarity for semantic search; prefer **soft deletes** (`deletedAt`).

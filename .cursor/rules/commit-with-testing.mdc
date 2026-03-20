@@ -1,5 +1,5 @@
 ---
-description: Never commit without automated tests and a smoke test
+description: Require automated tests and a smoke check before committing
 alwaysApply: true
 ---
 
