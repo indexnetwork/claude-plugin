@@ -973,14 +973,17 @@ export class ChatDatabaseAdapter {
           ),
         )
         .limit(1);
-      senderId = participant?.participantId ?? 'unknown';
+      if (!participant?.participantId) {
+        throw new Error(`Conversation participant not found for session ${data.sessionId}`);
+      }
+      senderId = participant.participantId;
     }
 
     // Build metadata from non-null optional fields
     const msgMeta: ChatMessageMeta = {};
     if (data.routingDecision) msgMeta.routingDecision = data.routingDecision;
     if (data.subgraphResults) msgMeta.subgraphResults = data.subgraphResults;
-    if (data.tokenCount) msgMeta.tokenCount = data.tokenCount;
+    if (data.tokenCount !== undefined) msgMeta.tokenCount = data.tokenCount;
 
     await db.insert(schema.messages).values({
       id: data.id,
@@ -5435,7 +5438,10 @@ export class ConversationDatabaseAdapter {
       const [ref] = await db
         .select({ createdAt: schema.messages.createdAt })
         .from(schema.messages)
-        .where(eq(schema.messages.id, opts.before))
+        .where(and(
+          eq(schema.messages.id, opts.before),
+          eq(schema.messages.conversationId, conversationId),
+        ))
         .limit(1);
 
       if (ref) {

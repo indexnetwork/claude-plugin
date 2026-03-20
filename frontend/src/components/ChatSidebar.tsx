@@ -53,9 +53,10 @@ export default function ChatSidebar() {
   }, [user?.id, refreshConversations]);
 
   // Only show human-to-human DMs (no agent participants); agent chats appear in History sidebar
-  const dmConversations = conversations.filter((conv) =>
-    (conv.participants ?? []).every((p) => p.participantType === 'user')
-  );
+  const dmConversations = conversations.filter((conv) => {
+    const participants = conv.participants ?? [];
+    return participants.length === 2 && participants.every((p) => p.participantType === 'user');
+  });
   const recentChats: RecentChat[] = dmConversations.map((conv) => {
     const peer = (conv.participants ?? []).find((p) => p.participantId !== user?.id && p.participantType === 'user');
     const lastText = (conv.lastMessage?.parts as { text?: string }[] | undefined)?.find(p => p.text)?.text ?? '';

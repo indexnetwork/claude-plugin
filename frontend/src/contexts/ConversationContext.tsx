@@ -72,12 +72,16 @@ export function ConversationProvider({ children }: { children: React.ReactNode }
   }, []);
 
   const sendMessage = useCallback(async (conversationId: string, parts: unknown[]): Promise<ConversationMessage | null> => {
+    if (!user?.id) {
+      console.error('[ConversationContext] Cannot send message: user not authenticated');
+      return null;
+    }
     // Optimistic update
     const optimisticId = crypto.randomUUID();
     const optimistic: ConversationMessage = {
       id: optimisticId,
       conversationId,
-      senderId: user?.id ?? '',
+      senderId: user.id,
       role: 'user',
       parts,
       createdAt: new Date().toISOString(),
@@ -96,7 +100,7 @@ export function ConversationProvider({ children }: { children: React.ReactNode }
         c.id === conversationId
           ? {
               ...c,
-              lastMessage: { parts, senderId: user?.id ?? '', createdAt: optimistic.createdAt },
+              lastMessage: { parts, senderId: user.id, createdAt: optimistic.createdAt },
               lastMessageAt: optimistic.createdAt,
             }
           : c
