@@ -401,12 +401,14 @@ export class ProfileGraphFactory {
           try {
             const enrichment = await enrichUserProfile(request);
 
-            const hasMeaningfulEnrichment = !!enrichment && (
-              enrichment.identity.bio.trim().length > 0 ||
-              enrichment.narrative.context.trim().length > 0 ||
-              enrichment.attributes.skills.length > 0 ||
-              enrichment.attributes.interests.length > 0
-            );
+            const hasMeaningfulEnrichment = !!enrichment &&
+              enrichment.confidentMatch &&
+              (
+                enrichment.identity.bio.trim().length > 0 ||
+                enrichment.narrative.context.trim().length > 0 ||
+                enrichment.attributes.skills.length > 0 ||
+                enrichment.attributes.interests.length > 0
+              );
 
             if (hasMeaningfulEnrichment) {
               logger.verbose("Chat API enrichment succeeded", {

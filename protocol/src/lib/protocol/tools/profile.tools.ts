@@ -21,12 +21,14 @@ async function enrichFromUserRecord(user: { name?: string | null; email?: string
 }
 
 function isMeaningfulEnrichment(enrichment: Awaited<ReturnType<typeof enrichUserProfile>>): enrichment is NonNullable<typeof enrichment> {
-  return !!enrichment && (
-    enrichment.identity.bio.trim().length > 0 ||
-    enrichment.narrative.context.trim().length > 0 ||
-    enrichment.attributes.skills.length > 0 ||
-    enrichment.attributes.interests.length > 0
-  );
+  return !!enrichment &&
+    enrichment.confidentMatch &&
+    (
+      enrichment.identity.bio.trim().length > 0 ||
+      enrichment.narrative.context.trim().length > 0 ||
+      enrichment.attributes.skills.length > 0 ||
+      enrichment.attributes.interests.length > 0
+    );
 }
 
 export function createProfileTools(defineTool: DefineTool, deps: ToolDeps) {

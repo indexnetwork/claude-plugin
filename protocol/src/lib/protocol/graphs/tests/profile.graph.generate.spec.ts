@@ -76,6 +76,7 @@ describe('ProfileGraph - Generate Mode', () => {
       narrative: { context: 'Jane is a seasoned software engineer with 10 years of experience.' },
       attributes: { skills: ['TypeScript', 'React', 'Node.js'], interests: ['AI', 'Open Source'] },
       socials: { linkedin: 'janedoe', twitter: 'janedoe', github: 'janedoe', websites: [] },
+      confidentMatch: true,
     };
 
     it('should use pre-populated profile, skipping LLM generation', async () => {
@@ -161,6 +162,7 @@ describe('ProfileGraph - Generate Mode', () => {
         narrative: { context: '' },
         attributes: { skills: [], interests: [] },
         socials: {},
+        confidentMatch: true,
       });
 
       const graph = buildGraph();
@@ -172,6 +174,38 @@ describe('ProfileGraph - Generate Mode', () => {
       expect(result.error).toBeUndefined();
       expect(result.profile).toBeDefined();
       expect(result.profile!.identity.name).toBeTruthy();
+      expect(mockDatabase.saveProfile).toHaveBeenCalled();
+    }, 120_000);
+  });
+
+  describe('when enrichUserProfile returns confidentMatch: false', () => {
+    const user = {
+      id: 'user-not-confident',
+      name: 'Alex Unknown',
+      email: 'alex@unknown.io',
+      socials: null,
+      location: null,
+      intro: null,
+    };
+
+    it('should fall back to LLM generation despite rich payload', async () => {
+      (mockDatabase.getUser as any).mockResolvedValue(user);
+      mockEnrichUserProfile.mockResolvedValue({
+        identity: { name: 'Alex Unknown', bio: 'Possibly a developer.', location: 'Remote' },
+        narrative: { context: 'May work in tech.' },
+        attributes: { skills: ['JavaScript'], interests: ['Web'] },
+        socials: {},
+        confidentMatch: false,
+      });
+
+      const graph = buildGraph();
+      const result = await graph.invoke({
+        userId: user.id,
+        operationMode: 'generate',
+      });
+
+      expect(result.error).toBeUndefined();
+      expect(result.profile).toBeDefined();
       expect(mockDatabase.saveProfile).toHaveBeenCalled();
     }, 120_000);
   });

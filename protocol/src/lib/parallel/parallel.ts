@@ -333,6 +333,7 @@ const enrichmentResultSchema = z.object({
     github: z.string().optional(),
     websites: z.array(z.string()).optional(),
   }),
+  confidentMatch: z.boolean(),
 });
 
 /** Structured profile enrichment result from Parallel Chat API. */
@@ -388,7 +389,11 @@ const profileEnrichmentSchema = {
           },
         },
       },
-      required: ["identity", "narrative", "attributes", "socials"],
+        confidentMatch: {
+          type: "boolean",
+          description: "true when public sources clearly identify this person and the profile data is reliable; false when the person could not be found or data is too thin/ambiguous.",
+        },
+      required: ["identity", "narrative", "attributes", "socials", "confidentMatch"],
     },
   },
 };
@@ -483,7 +488,7 @@ export async function enrichUserProfile(request: ParallelSearchRequestStruct): P
           {
             role: 'system',
             content:
-              'You are an expert profiler. Your task is to research and synthesize a structured User Profile from public information about a person. Extract their professional background, skills, interests, and social links. Be thorough but concise.\n\nIMPORTANT: Only use data the person explicitly published on their profile (headline, about, experience, education, skills). Do NOT infer roles, programs, affiliations, or biographical facts from LinkedIn reactions, likes, comments, reposts, or engagement signals. Activity signals indicate interest, not participation.\n\nPRIVACY: identity.bio and narrative.context are shown as a public profile summary. Never include email addresses, phone numbers, physical addresses, government IDs, or other direct contact or identifier details — even when they appear in search results or source text. Social links belong in the socials fields only (handles/URLs as structured data), not quoted as contact instructions inside bio or narrative.',
+              'You are an expert profiler. Your task is to research and synthesize a structured User Profile from public information about a person. Extract their professional background, skills, interests, and social links. Be thorough but concise.\n\nIMPORTANT: Only use data the person explicitly published on their profile (headline, about, experience, education, skills). Do NOT infer roles, programs, affiliations, or biographical facts from LinkedIn reactions, likes, comments, reposts, or engagement signals. Activity signals indicate interest, not participation.\n\nPRIVACY: identity.bio and narrative.context are shown as a public profile summary. Never include email addresses, phone numbers, physical addresses, government IDs, or other direct contact or identifier details — even when they appear in search results or source text. Social links belong in the socials fields only (handles/URLs as structured data), not quoted as contact instructions inside bio or narrative.\n\nCONFIDENCE: Set confidentMatch to true only when you can clearly identify the person from public sources and the profile data is reliable. Set it to false when the person cannot be found, the match is ambiguous, or data is too thin to produce a meaningful profile.',
           },
           { role: 'user', content: userMessage },
         ],
