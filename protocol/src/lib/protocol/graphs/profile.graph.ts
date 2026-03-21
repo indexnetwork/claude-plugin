@@ -6,6 +6,7 @@ import { ProfileGraphDatabase } from "../interfaces/database.interface";
 import { Embedder } from "../interfaces/embedder.interface";
 import { Scraper } from "../interfaces/scraper.interface";
 import { enrichUserProfile } from "../../../lib/parallel/parallel";
+import { shouldEnrichGhostDisplayNameFromParallel } from "../support/profile.enrichment-display-name";
 import { protocolLogger } from "../support/protocol.logger";
 import { timed } from "../../performance";
 import { requestContext } from "../../request-context";
@@ -416,7 +417,17 @@ export class ProfileGraphFactory {
               });
 
               // Update user record with enriched data
-              const updatePayload: { intro?: string; location?: string; socials?: { x?: string; linkedin?: string; github?: string; websites?: string[] } } = {};
+              const updatePayload: {
+                name?: string;
+                intro?: string;
+                location?: string;
+                socials?: { x?: string; linkedin?: string; github?: string; websites?: string[] };
+              } = {};
+              if (
+                shouldEnrichGhostDisplayNameFromParallel(user, enrichment!.identity.name ?? "")
+              ) {
+                updatePayload.name = enrichment!.identity.name.trim();
+              }
               if (enrichment!.identity.bio?.trim()) updatePayload.intro = enrichment!.identity.bio.trim();
               if (enrichment!.identity.location?.trim()) updatePayload.location = enrichment!.identity.location.trim();
 

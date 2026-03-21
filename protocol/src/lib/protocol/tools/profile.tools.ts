@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import { requestContext } from "../../request-context";
 import { enrichUserProfile } from "../../../lib/parallel/parallel";
+import { shouldEnrichGhostDisplayNameFromParallel } from "../support/profile.enrichment-display-name";
 
 import type { DefineTool, ToolDeps } from "./tool.helpers";
 import { success, error, needsClarification, UUID_REGEX } from "./tool.helpers";
@@ -297,7 +298,18 @@ export function createProfileTools(defineTool: DefineTool, deps: ToolDeps) {
 
             if (isMeaningfulEnrichment(enrichment)) {
               // Persist enrichment data to user record so confirm path has it
-              const updatePayload: { intro?: string; location?: string; socials?: { x?: string; linkedin?: string; github?: string; websites?: string[] } } = {};
+              const updatePayload: {
+                name?: string;
+                intro?: string;
+                location?: string;
+                socials?: { x?: string; linkedin?: string; github?: string; websites?: string[] };
+              } = {};
+              if (
+                user &&
+                shouldEnrichGhostDisplayNameFromParallel(user, enrichment.identity.name ?? "")
+              ) {
+                updatePayload.name = enrichment.identity.name.trim();
+              }
               if (enrichment.identity.bio?.trim()) updatePayload.intro = enrichment.identity.bio.trim();
               if (enrichment.identity.location?.trim()) updatePayload.location = enrichment.identity.location.trim();
               const socials: { x?: string; linkedin?: string; github?: string; websites?: string[] } = {};
