@@ -2,7 +2,6 @@ import { z } from "zod";
 
 import { requestContext } from "../../request-context";
 import { enrichUserProfile } from "../../../lib/parallel/parallel";
-import { shouldEnrichGhostDisplayNameFromParallel } from "../support/profile.enrichment-display-name";
 
 import type { DefineTool, ToolDeps } from "./tool.helpers";
 import { success, error, needsClarification, UUID_REGEX } from "./tool.helpers";
@@ -304,10 +303,7 @@ export function createProfileTools(defineTool: DefineTool, deps: ToolDeps) {
                 location?: string;
                 socials?: { x?: string; linkedin?: string; github?: string; websites?: string[] };
               } = {};
-              if (
-                user &&
-                shouldEnrichGhostDisplayNameFromParallel(user, enrichment.identity.name ?? "")
-              ) {
+              if (enrichment.identity.name?.trim()) {
                 updatePayload.name = enrichment.identity.name.trim();
               }
               if (enrichment.identity.bio?.trim()) updatePayload.intro = enrichment.identity.bio.trim();
