@@ -62,7 +62,7 @@ export function buildMinimalOpportunityCard(
   primaryActionLabel: string;
   secondaryActionLabel: string;
   mutualIntentsLabel: string;
-  narratorChip: { name: string; text: string; avatar?: string | null; userId?: string };
+  narratorChip?: { name: string; text: string; avatar?: string | null; userId?: string };
   viewerRole: string;
   score: number | undefined;
   status: string;
@@ -88,9 +88,22 @@ export function buildMinimalOpportunityCard(
     typeof opp.interpretation?.confidence === "number"
       ? opp.interpretation.confidence
       : undefined;
-  const narratorName = viewerIsIntroducer
-    ? "You"
-    : introducerName ?? (introducerActor ? "Someone" : "Index");
+  const hasHumanIntroducer = viewerIsIntroducer || !!introducerActor;
+  let narratorChip: { name: string; text: string; avatar?: string | null; userId?: string } | undefined;
+  if (hasHumanIntroducer) {
+    const narratorName = viewerIsIntroducer
+      ? "You"
+      : introducerName ?? (introducerActor ? "Someone" : "Index");
+    narratorChip = {
+      name: narratorName,
+      text: narratorRemarkFromReasoning(reasoning, counterpartName, viewerName),
+      ...(viewerIsIntroducer
+        ? { userId: viewerId, avatar: null }
+        : introducerActor
+          ? { userId: introducerActor.userId, avatar: introducerAvatar ?? null }
+          : {}),
+    };
+  }
   const primaryActionLabel =
     viewerRole === "introducer"
       ? "Introduce Them"
@@ -108,15 +121,7 @@ export function buildMinimalOpportunityCard(
     primaryActionLabel,
     secondaryActionLabel: "Skip",
     mutualIntentsLabel: "Suggested connection",
-    narratorChip: {
-      name: narratorName,
-      text: narratorRemarkFromReasoning(reasoning, counterpartName, viewerName),
-      ...(viewerIsIntroducer
-        ? { userId: viewerId, avatar: null }
-        : introducerActor
-          ? { userId: introducerActor.userId, avatar: introducerAvatar ?? null }
-          : {}),
-    },
+    ...(narratorChip ? { narratorChip } : {}),
     viewerRole,
     score,
     status: opp.status ?? "latent",
@@ -422,10 +427,7 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
           ? (isCounterpartGhost ? "Invite to chat" : "Start Chat")
           : "Introduce Them";
         const narratorChip = viewerIsParty
-          ? {
-              name: "Index",
-              text: narratorRemarkFromReasoning(reasoning, counterpartName, introducerUser?.name ?? undefined),
-            }
+          ? undefined
           : {
               name: "You",
               text: narratorRemarkFromReasoning(reasoning, counterpartName, introducerUser?.name ?? undefined),
@@ -458,7 +460,7 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
           primaryActionLabel,
           secondaryActionLabel: "Skip",
           mutualIntentsLabel: "Suggested connection",
-          narratorChip,
+          ...(narratorChip ? { narratorChip } : {}),
           viewerRole,
           isGhost: isCounterpartGhost,
           score: confidence,
