@@ -5,7 +5,7 @@ config({ path: ".env.test" });
 import { describe, test, expect } from "bun:test";
 import { AIMessage, HumanMessage, ToolMessage } from "@langchain/core/messages";
 
-import { extractRecentToolCalls } from "./chat.prompt.modules";
+import { extractRecentToolCalls, resolveModules, type IterationContext } from "./chat.prompt.modules";
 
 describe("extractRecentToolCalls", () => {
   test("returns empty array when no tool calls in messages", () => {
@@ -94,5 +94,46 @@ describe("extractRecentToolCalls", () => {
     expect(result).toHaveLength(3);
     expect(result[0]).toEqual({ name: "read_user_profiles", args: { userId: "alice" } });
     expect(result[2]).toEqual({ name: "read_index_memberships", args: { userId: "alice" } });
+  });
+});
+
+// Minimal mock for ResolvedToolContext — only fields needed by resolution logic
+function mockCtx(overrides: Partial<{ indexId: string; isOwner: boolean; isOnboarding: boolean }> = {}): IterationContext["ctx"] {
+  return {
+    userId: "test-user",
+    userEmail: "test@example.com",
+    userName: "Test User",
+    user: {},
+    userProfile: {},
+    userIndexes: [],
+    scopedIndex: null,
+    scopedMembershipRole: null,
+    indexId: overrides.indexId ?? null,
+    indexName: null,
+    isOwner: overrides.isOwner ?? false,
+    isOnboarding: overrides.isOnboarding ?? false,
+    hasName: true,
+  } as unknown as IterationContext["ctx"];
+}
+
+describe("resolveModules", () => {
+  test("returns empty string when no tools, no regex match, no context match", () => {
+    const iterCtx: IterationContext = {
+      recentTools: [],
+      currentMessage: "hello",
+      ctx: mockCtx(),
+    };
+    const result = resolveModules(iterCtx);
+    expect(result).toBe("");
+  });
+
+  test("returns empty string when isOnboarding is true (modules skipped)", () => {
+    const iterCtx: IterationContext = {
+      recentTools: [{ name: "create_opportunities", args: {} }],
+      currentMessage: undefined,
+      ctx: mockCtx({ isOnboarding: true }),
+    };
+    const result = resolveModules(iterCtx);
+    expect(result).toBe("");
   });
 });
