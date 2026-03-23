@@ -1876,5 +1876,20 @@ describe('Opportunity Graph', () => {
       // No shared indexes → 0 candidates
       expect(result.candidates.length).toBe(0);
     });
+
+    test('self-target (targetUserId === discoveryUserId) returns empty candidates', async () => {
+      const { compiledGraph } = createMockGraphWithFnOverrides({
+        evaluatorResult: [],
+      });
+
+      const result = (await compiledGraph.invoke({
+        userId: discovererId,
+        targetUserId: discovererId, // Self-target
+        searchQuery: 'What can I do with myself?',
+        options: {},
+      } as OpportunityGraphInvokeInput)) as OpportunityGraphInvokeResult;
+
+      expect(result.candidates.length).toBe(0);
+    });
   });
 });

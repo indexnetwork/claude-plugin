@@ -489,6 +489,19 @@ export class OpportunityGraphFactory {
           // When targetUserId is set (user @-mentioned someone), bypass vector search
           // and construct candidates directly from shared indexes.
           if (state.targetUserId) {
+            if (state.targetUserId === discoveryUserId) {
+              logger.warn('[Graph:Discovery] Direct-connection target matches discoverer; skipping self-match', {
+                targetUserId: state.targetUserId,
+              });
+              return {
+                candidates: [],
+                trace: [{
+                  node: "discovery",
+                  detail: "Direct connection skipped: target user is discoverer",
+                  data: { targetUserId: state.targetUserId },
+                }],
+              };
+            }
             logger.verbose('[Graph:Discovery] Direct-connection mode — bypassing vector search', {
               targetUserId: state.targetUserId,
             });

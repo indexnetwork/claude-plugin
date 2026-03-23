@@ -1,9 +1,10 @@
 /**
- * Smartest test: direct-connection (targetUserId) opportunity discovery.
+ * Smartest test: evaluator behavior for direct-connection candidates.
  *
- * Verifies that when a user explicitly @-mentions a target user, the system
- * evaluates them directly (bypassing HyDE vector search) and produces a
- * meaningful opportunity when their profiles/intents are genuinely aligned.
+ * Validates that the OpportunityEvaluator produces a meaningful opportunity
+ * when given candidates shaped like the direct-connection fast path
+ * (explicit_mention lens, ragScore=100). The graph-level direct-connection
+ * logic (bypassing vector search) is tested in opportunity.graph.spec.ts.
  */
 /** Config */
 import { config } from "dotenv";
@@ -61,7 +62,7 @@ const resultSchema = z.object({
   opportunities: z.array(z.object({
     reasoning: z.string(),
     score: z.number(),
-    candidateUserId: z.string(),
+    candidateUserId: z.string().min(1),
   })),
   durationMs: z.number(),
 });
@@ -89,10 +90,13 @@ async function runDirectConnectionEval(): Promise<{ opportunities: Array<{ reaso
     const raw = await evaluator.invokeEntityBundle(input, { minScore: 0, returnAll: true });
     const durationMs = Date.now() - start;
     totalDurationMs += durationMs;
-    const opportunities = raw.map(op => {
-      const candidate = op.actors.find(a => a.userId !== DISCOVERER_ID);
-      return { reasoning: op.reasoning, score: op.score, candidateUserId: candidate?.userId ?? '' };
-    });
+    const opportunities = raw
+      .map(op => {
+        const candidate = op.actors.find(a => a.userId !== DISCOVERER_ID);
+        if (!candidate?.userId) return null;
+        return { reasoning: op.reasoning, score: op.score, candidateUserId: candidate.userId };
+      })
+      .filter((op): op is { reasoning: string; score: number; candidateUserId: string } => op !== null);
     if (opportunities.length > 0 || attempt === MAX_ATTEMPTS) {
       return { opportunities, durationMs: totalDurationMs };
     }
@@ -101,8 +105,8 @@ async function runDirectConnectionEval(): Promise<{ opportunities: Array<{ reaso
   return { opportunities: [], durationMs: totalDurationMs };
 }
 
-describe('OpportunityGraph: direct-connection discovery (Smartest)', () => {
-  it('produces an opportunity when two explicitly-connected users have genuine alignment', async () => {
+describe('OpportunityEvaluator: direct-connection candidates (Smartest)', () => {
+  it('produces an opportunity when evaluating explicitly-mentioned users with genuine alignment', async () => {
     const { opportunities, durationMs } = await runDirectConnectionEval();
 
     console.log(`\n[Direct Connection] duration=${durationMs}ms, results=${opportunities.length}`);
