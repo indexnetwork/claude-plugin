@@ -24,7 +24,7 @@ import {
 } from '../states/home.state';
 import { OpportunityPresenter, gatherPresenterContext, type PresenterDatabase } from '../agents/opportunity.presenter';
 import { HomeCategorizerAgent } from '../agents/home.categorizer';
-import { canUserSeeOpportunity, isActionableForViewer, selectByComposition } from '../support/opportunity.utils';
+import { canUserSeeOpportunity, isActionableForViewer } from '../support/opportunity.utils';
 import { resolveHomeSectionIcon, DEFAULT_HOME_SECTION_ICON } from '../support/lucide.icon-catalog';
 import { protocolLogger } from '../support/protocol.logger';
 import { timed } from '../../performance';
@@ -233,18 +233,7 @@ export class HomeGraphFactory {
             for (const id of counterpartIds) seenUserIds.add(id);
             return true;
           });
-          const expiredSorted = [...expired]
-            .filter((opp) => {
-              const counterpartIds = getUniqueCounterpartUserIds(opp, state.userId);
-              return ![...counterpartIds].some((id) => seenUserIds.has(id));
-            })
-            .sort((a, b) => {
-              const aTime = safeParseDate(a.updatedAt);
-              const bTime = safeParseDate(b.updatedAt);
-              return bTime - aTime;
-            });
-          const composed = selectByComposition([...deduped, ...expiredSorted], state.userId);
-          const opportunities = composed.slice(0, state.limit);
+          const opportunities = deduped.slice(0, state.limit);
           return { opportunities, expired };
         } catch (e) {
           logger.error('HomeGraph loadOpportunities failed', { error: e });
@@ -395,9 +384,10 @@ export class HomeGraphFactory {
               cta: isIntroducer
                 ? 'Share this introduction to get things started.'
                 : 'Take a look and decide whether to reach out.',
-              primaryActionLabel: isIntroducer ? 'Good match' : (isCounterpartGhost ? 'Invite to chat' : 'Start Chat'),
-              secondaryActionLabel: isIntroducer ? 'Pass' : 'Skip',
+              primaryActionLabel: isIntroducer ? 'Good match' : 'Start Chat',
+              secondaryActionLabel: 'Skip',
               mutualIntentsLabel: isIntroducer ? 'Connector match' : 'Shared interests',
+              narratorChip: { name: 'Index', text: 'Worth a look.' },
               viewerRole,
               isGhost: isCounterpartGhost,
               _cardIndex: cardIndex,
@@ -437,7 +427,7 @@ export class HomeGraphFactory {
                   userId: introducer.userId,
                 };
               } else {
-                narratorChip = undefined;
+                narratorChip = { name: 'Index', text: presentation.narratorRemark };
               }
               return {
                 opportunityId: opportunity.id,
@@ -447,7 +437,7 @@ export class HomeGraphFactory {
                 mainText: presentation.personalizedSummary,
                 cta: presentation.suggestedAction,
                 headline: presentation.headline,
-                primaryActionLabel: isCounterpartGhost && !isIntroducer ? 'Invite to chat' : presentation.primaryActionLabel,
+                primaryActionLabel: presentation.primaryActionLabel,
                 secondaryActionLabel: presentation.secondaryActionLabel,
                 mutualIntentsLabel: presentation.mutualIntentsLabel,
                 narratorChip,
@@ -565,11 +555,11 @@ export class HomeGraphFactory {
           mainText: c.mainText,
           name: c.name,
           viewerRole:
-            c.primaryActionLabel === 'Good match' && c.secondaryActionLabel === 'Pass'
+            c.primaryActionLabel === 'Good match'
               ? 'introducer'
               : undefined,
           opportunityStatus:
-            c.primaryActionLabel === 'Good match' && c.secondaryActionLabel === 'Pass'
+            c.primaryActionLabel === 'Good match'
               ? 'pending'
               : undefined,
         }));

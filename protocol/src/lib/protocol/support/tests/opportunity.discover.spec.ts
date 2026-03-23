@@ -440,7 +440,8 @@ describe("opportunity.discover", () => {
 
       expect(result.found).toBe(true);
       const card = result.opportunities![0];
-      expect(card.narratorChip).toBeUndefined();
+      expect(card.narratorChip?.name).toBe("Index");
+      expect(card.narratorChip?.userId).toBeUndefined();
       expect(card.homeCardPresentation?.primaryActionLabel).toBe("Start Chat");
       expect(card.homeCardPresentation?.headline).toContain("Connection with");
     });
@@ -511,7 +512,7 @@ describe("opportunity.discover", () => {
       expect(deletedMatch).toBeUndefined();
     });
 
-    test("ghost counterpart gets 'Invite to chat' primaryActionLabel in minimalForChat path (IND-161)", async () => {
+    test("ghost counterpart gets 'Start Chat' primaryActionLabel in minimalForChat path (IND-161)", async () => {
       const ghostId = "ghost-user-1";
       const mockGraph = {
         invoke: async () => ({
@@ -552,7 +553,7 @@ describe("opportunity.discover", () => {
       expect(result.found).toBe(true);
       const card = result.opportunities![0];
       expect(card.isGhost).toBe(true);
-      expect(card.homeCardPresentation?.primaryActionLabel).toBe("Invite to chat");
+      expect(card.homeCardPresentation?.primaryActionLabel).toBe("Start Chat");
     });
 
     test("non-ghost counterpart keeps 'Start Chat' primaryActionLabel in minimalForChat path (IND-161)", async () => {
