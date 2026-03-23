@@ -125,3 +125,31 @@ export function isActionableForViewer(
     }
   });
 }
+
+/** Feed category for home composition. */
+export type FeedCategory = 'connection' | 'connector-flow' | 'expired';
+
+/** Soft targets for home feed composition. */
+export const FEED_SOFT_TARGETS = {
+  connection: 3,
+  connectorFlow: 2,
+  expired: 2,
+} as const;
+
+/**
+ * Classify an actionable opportunity into a feed category.
+ * Assumes the opportunity already passed isActionableForViewer or is expired.
+ *
+ * @param opp - Opportunity with actors and status
+ * @param viewerId - The viewing user's ID
+ * @returns Feed category
+ */
+export function classifyOpportunity(
+  opp: { actors: Array<{ userId: string; role: string }>; status: string },
+  viewerId: string
+): FeedCategory {
+  if (opp.status === 'expired') return 'expired';
+  const hasIntroducer = opp.actors.some((a) => a.role === 'introducer');
+  if (hasIntroducer) return 'connector-flow';
+  return 'connection';
+}
