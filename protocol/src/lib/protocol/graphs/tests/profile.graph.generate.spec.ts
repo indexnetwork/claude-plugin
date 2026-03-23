@@ -207,6 +207,7 @@ describe('ProfileGraph - Generate Mode', () => {
       expect(result.error).toBeUndefined();
       expect(result.profile).toBeDefined();
       expect(mockDatabase.saveProfile).toHaveBeenCalled();
+      expect(mockDatabase.updateUser).not.toHaveBeenCalled();
     }, 120_000);
   });
 
