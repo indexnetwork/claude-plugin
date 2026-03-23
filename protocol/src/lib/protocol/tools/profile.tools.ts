@@ -305,6 +305,8 @@ export function createProfileTools(defineTool: DefineTool, deps: ToolDeps) {
                 location?: string;
                 socials?: { x?: string; linkedin?: string; github?: string; websites?: string[] };
               } = {};
+              // No ghost guard needed: onboarding users are active (non-ghost) and
+              // haven't confirmed a name yet — the enriched name is a preview they accept or edit.
               if (enrichment.identity.name?.trim()) {
                 updatePayload.name = enrichment.identity.name.trim();
               }
