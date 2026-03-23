@@ -233,7 +233,12 @@ export class HomeGraphFactory {
             for (const id of counterpartIds) seenUserIds.add(id);
             return true;
           });
-          const composed = selectByComposition(deduped, state.userId);
+          const expiredSorted = [...expired].sort((a, b) => {
+            const aTime = safeParseDate(a.updatedAt);
+            const bTime = safeParseDate(b.updatedAt);
+            return bTime - aTime;
+          });
+          const composed = selectByComposition([...deduped, ...expiredSorted], state.userId);
           const opportunities = composed.slice(0, state.limit);
           return { opportunities, expired };
         } catch (e) {

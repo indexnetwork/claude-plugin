@@ -61,8 +61,11 @@ export class MaintenanceGraphFactory {
         let lastRediscoveryAt: number | null = null;
         try {
           const cached = await this.cache.get<{ triggeredAt: string }>(`rediscovery:lastRun:${state.userId}`);
-          if (cached?.triggeredAt) {
-            lastRediscoveryAt = new Date(cached.triggeredAt).getTime();
+          if (typeof cached?.triggeredAt === 'string') {
+            const parsed = Date.parse(cached.triggeredAt);
+            if (Number.isFinite(parsed)) {
+              lastRediscoveryAt = parsed;
+            }
           }
         } catch {
           // Cache unavailable — treat as no data
@@ -81,33 +84,39 @@ export class MaintenanceGraphFactory {
     };
 
     const scoreFeedHealthNode = async (state: typeof MaintenanceGraphState.State) => {
-      const opps = state.currentOpportunities;
-      let connectionCount = 0;
-      let connectorFlowCount = 0;
+      if (state.error) return {};
+      try {
+        const opps = state.currentOpportunities ?? [];
+        let connectionCount = 0;
+        let connectorFlowCount = 0;
 
-      for (const opp of opps) {
-        const category = classifyOpportunity(opp, state.userId);
-        if (category === 'connection') connectionCount++;
-        else if (category === 'connector-flow') connectorFlowCount++;
+        for (const opp of opps) {
+          const category = classifyOpportunity(opp, state.userId);
+          if (category === 'connection') connectionCount++;
+          else if (category === 'connector-flow') connectorFlowCount++;
+        }
+
+        const healthResult = computeFeedHealth({
+          connectionCount,
+          connectorFlowCount,
+          expiredCount: state.expiredCount,
+          totalActionable: opps.length,
+          lastRediscoveryAt: state.lastRediscoveryAt,
+          freshnessWindowMs: FRESHNESS_WINDOW_MS,
+        });
+
+        logger.verbose('[MaintenanceGraph] Feed health scored', {
+          userId: state.userId,
+          score: healthResult.score,
+          breakdown: healthResult.breakdown,
+          shouldMaintain: healthResult.shouldMaintain,
+        });
+
+        return { healthResult };
+      } catch (e) {
+        logger.error('MaintenanceGraph scoreFeedHealth failed', { error: e });
+        return { error: 'Failed to score feed health' };
       }
-
-      const healthResult = computeFeedHealth({
-        connectionCount,
-        connectorFlowCount,
-        expiredCount: state.expiredCount,
-        totalActionable: opps.length,
-        lastRediscoveryAt: state.lastRediscoveryAt,
-        freshnessWindowMs: FRESHNESS_WINDOW_MS,
-      });
-
-      logger.verbose('[MaintenanceGraph] Feed health scored', {
-        userId: state.userId,
-        score: healthResult.score,
-        breakdown: healthResult.breakdown,
-        shouldMaintain: healthResult.shouldMaintain,
-      });
-
-      return { healthResult };
     };
 
     const shouldRediscover = (state: typeof MaintenanceGraphState.State): string => {
@@ -126,7 +135,7 @@ export class MaintenanceGraphFactory {
         state.activeIntents.map((intent) =>
           this.queue.addJob(
             { intentId: intent.id, userId: state.userId },
-            { priority: 10, jobId: `maintenance:${state.userId}:${intent.id}:${bucket}` },
+            { priority: 10, jobId: `rediscovery:${state.userId}:${intent.id}:${bucket}` },
           )
         )
       );
@@ -166,7 +175,10 @@ export class MaintenanceGraphFactory {
       .addNode('rediscover', rediscoverNode)
       .addNode('logMaintenance', logMaintenanceNode)
       .addEdge(START, 'loadCurrentFeed')
-      .addEdge('loadCurrentFeed', 'scoreFeedHealth')
+      .addConditionalEdges('loadCurrentFeed', (state) => (state.error ? 'end' : 'scoreFeedHealth'), {
+        scoreFeedHealth: 'scoreFeedHealth',
+        end: END,
+      })
       .addConditionalEdges('scoreFeedHealth', shouldRediscover, {
         rediscover: 'rediscover',
         end: END,

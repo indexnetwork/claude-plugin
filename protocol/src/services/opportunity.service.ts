@@ -693,7 +693,16 @@ export class OpportunityService {
       opportunityQueue as unknown as MaintenanceGraphQueue,
     );
     const graph = factory.createGraph();
-    await graph.invoke({ userId });
+    const result = await graph.invoke({ userId });
+
+    // Only arm the 6-hour throttle when maintenance actually succeeded.
+    // A failed pass (error set) or a needed-but-enqueued-nothing pass should retry next time.
+    const failed = !!result.error;
+    const neededButEmpty =
+      result.healthResult?.shouldMaintain &&
+      (result.activeIntents?.length ?? 0) > 0 &&
+      result.rediscoveryJobsEnqueued === 0;
+    if (failed || neededButEmpty) return;
 
     try {
       await this.cache.set(cacheKey, { triggeredAt: new Date().toISOString() }, { ttl: 6 * 60 * 60 });
