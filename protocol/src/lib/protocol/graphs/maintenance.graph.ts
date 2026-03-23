@@ -8,7 +8,7 @@ import { StateGraph, START, END } from '@langchain/langgraph';
 
 import { MaintenanceGraphState } from '../states/maintenance.state';
 import { computeFeedHealth } from '../support/feed.health';
-import { classifyOpportunity, isActionableForViewer } from '../support/opportunity.utils';
+import { canUserSeeOpportunity, classifyOpportunity, isActionableForViewer } from '../support/opportunity.utils';
 import { protocolLogger } from '../support/protocol.logger';
 
 const logger = protocolLogger('MaintenanceGraph');
@@ -54,7 +54,9 @@ export class MaintenanceGraphFactory {
         const actionable = raw.filter((opp) =>
           isActionableForViewer(opp.actors, opp.status, state.userId)
         );
-        const expired = raw.filter((opp) => opp.status === 'expired');
+        const expired = raw.filter((opp) =>
+          opp.status === 'expired' && canUserSeeOpportunity(opp.actors, opp.status, state.userId)
+        );
         const activeIntents = await this.database.getActiveIntents(state.userId);
 
         // Read last rediscovery timestamp from cache
@@ -128,34 +130,39 @@ export class MaintenanceGraphFactory {
     };
 
     const rediscoverNode = async (state: typeof MaintenanceGraphState.State) => {
-      const bucket = Math.floor(Date.now() / (6 * 60 * 60 * 1000));
-      let enqueued = 0;
+      try {
+        const bucket = Math.floor(Date.now() / (6 * 60 * 60 * 1000));
+        let enqueued = 0;
 
-      const results = await Promise.allSettled(
-        state.activeIntents.map((intent) =>
-          this.queue.addJob(
-            { intentId: intent.id, userId: state.userId },
-            { priority: 10, jobId: `rediscovery:${state.userId}:${intent.id}:${bucket}` },
+        const results = await Promise.allSettled(
+          state.activeIntents.map((intent) =>
+            this.queue.addJob(
+              { intentId: intent.id, userId: state.userId },
+              { priority: 10, jobId: `rediscovery:${state.userId}:${intent.id}:${bucket}` },
+            )
           )
-        )
-      );
+        );
 
-      enqueued = results.filter((r) => r.status === 'fulfilled').length;
+        enqueued = results.filter((r) => r.status === 'fulfilled').length;
 
-      // Record last run timestamp
-      if (enqueued > 0) {
-        try {
-          await this.cache.set(
-            `rediscovery:lastRun:${state.userId}`,
-            { triggeredAt: new Date().toISOString() },
-            { ttl: 24 * 60 * 60 },
-          );
-        } catch {
-          // Cache write failure is non-fatal
+        // Record last run timestamp
+        if (enqueued > 0) {
+          try {
+            await this.cache.set(
+              `rediscovery:lastRun:${state.userId}`,
+              { triggeredAt: new Date().toISOString() },
+              { ttl: 24 * 60 * 60 },
+            );
+          } catch {
+            // Cache write failure is non-fatal
+          }
         }
-      }
 
-      return { rediscoveryJobsEnqueued: enqueued };
+        return { rediscoveryJobsEnqueued: enqueued };
+      } catch (e) {
+        logger.error('MaintenanceGraph rediscover failed', { error: e });
+        return { error: 'Failed to enqueue rediscovery jobs' };
+      }
     };
 
     const logMaintenanceNode = async (state: typeof MaintenanceGraphState.State) => {
