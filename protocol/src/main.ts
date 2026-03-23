@@ -52,6 +52,22 @@ IndexMembershipEvents.onMemberAdded = (userId: string) => {
   });
 };
 
+IntentEvents.onCreated = (intentId: string, userId: string) => {
+  log.job.from('IntentEvents').verbose('Intent created, triggering maintenance', { intentId, userId });
+  opportunityQueue.addJob(
+    { intentId, userId },
+    { priority: 10, jobId: `intent-maintenance:${userId}:${intentId}:${Math.floor(Date.now() / (6 * 60 * 60 * 1000))}` },
+  ).catch((err) => log.job.from('IntentEvents').error('Failed to enqueue maintenance on create', { intentId, userId, error: err }));
+};
+
+IntentEvents.onUpdated = (intentId: string, userId: string) => {
+  log.job.from('IntentEvents').verbose('Intent updated, triggering maintenance', { intentId, userId });
+  opportunityQueue.addJob(
+    { intentId, userId },
+    { priority: 10, jobId: `intent-maintenance:${userId}:${intentId}:${Math.floor(Date.now() / (6 * 60 * 60 * 1000))}` },
+  ).catch((err) => log.job.from('IntentEvents').error('Failed to enqueue maintenance on update', { intentId, userId, error: err }));
+};
+
 IntentEvents.onArchived = (intentId: string, userId: string) => {
   log.job.from('IntentEvents').verbose('Intent archived', { intentId, userId });
 };
