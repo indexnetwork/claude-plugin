@@ -402,8 +402,8 @@ describe("buildSystemContent snapshot identity", () => {
     // Onboarding section must NOT be present
     expect(output).not.toContain("## ONBOARDING MODE");
 
-    // Snapshot output length as canary for unintended changes
-    expect(output.length).toMatchSnapshot();
+    // Snapshot full content to catch any unintended changes
+    expect(output).toMatchSnapshot();
   });
 
   test("scoped chat (index scope, owner) produces stable output", () => {
@@ -420,7 +420,7 @@ describe("buildSystemContent snapshot identity", () => {
     expect(output).toContain("You are the **owner** of this index");
     expect(output).toContain("scoped to current index");
 
-    expect(output.length).toMatchSnapshot();
+    expect(output).toMatchSnapshot();
   });
 
   test("onboarding mode produces stable output", () => {
@@ -431,7 +431,7 @@ describe("buildSystemContent snapshot identity", () => {
     expect(output).toContain("### Onboarding Flow");
     expect(output).toContain("complete_onboarding()");
 
-    expect(output.length).toMatchSnapshot();
+    expect(output).toMatchSnapshot();
   });
 
   test("onboarding without name produces stable output", () => {
@@ -441,7 +441,7 @@ describe("buildSystemContent snapshot identity", () => {
     expect(output).toContain("**User has no name on file.**");
     expect(output).not.toContain("You're Alice Test, right?");
 
-    expect(output.length).toMatchSnapshot();
+    expect(output).toMatchSnapshot();
   });
 
   test("without iterCtx, modules section is empty; with empty iterCtx, result matches", () => {
