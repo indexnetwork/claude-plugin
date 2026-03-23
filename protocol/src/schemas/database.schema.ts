@@ -271,6 +271,15 @@ export const personalIndexes = pgTable('personal_indexes', {
   indexUnique: uniqueIndex('personal_indexes_index_id_unique').on(t.indexId),
 }));
 
+export const indexIntegrations = pgTable('index_integrations', {
+  indexId: text('index_id').notNull().references(() => indexes.id),
+  toolkit: text('toolkit').notNull(),
+  connectedAccountId: text('connected_account_id').notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (table) => ({
+  pk: primaryKey({ columns: [table.indexId, table.toolkit] }),
+}));
+
 export const files = pgTable('files', {
   id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
   name: text('name').notNull(),

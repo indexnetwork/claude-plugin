@@ -9,6 +9,8 @@ import { describe, test, expect } from "bun:test";
 import { IntegrationController } from "../integration.controller";
 import type { AuthenticatedUser } from "../../guards/auth.guard";
 import type { IntegrationAdapter, IntegrationConnection, IntegrationSession } from "../../lib/protocol/interfaces/integration.interface";
+import { IntegrationService } from "../../services/integration.service";
+import type { ChatDatabaseAdapter } from "../../adapters/database.adapter";
 
 const USER_A: AuthenticatedUser = { id: "user-a", email: "a@test.com", name: "User A" };
 const USER_B: AuthenticatedUser = { id: "user-b", email: "b@test.com", name: "User B" };
@@ -44,8 +46,15 @@ const mockAdapter: IntegrationAdapter = {
   },
 };
 
+const mockDb = {
+  deleteIndexIntegrationsByConnectedAccount: async () => {},
+  getIndexIntegrations: async () => [],
+  insertIndexIntegration: async () => {},
+  deleteIndexIntegration: async () => {},
+} as unknown as ChatDatabaseAdapter;
+
 describe("IntegrationController", () => {
-  const controller = new IntegrationController(mockAdapter);
+  const controller = new IntegrationController(mockAdapter, new IntegrationService(mockAdapter, mockDb));
 
   describe("GET / (list)", () => {
     test("should return connections for the authenticated user", async () => {
