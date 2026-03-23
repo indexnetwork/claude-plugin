@@ -40,6 +40,7 @@ import { IntentEvents } from './events/intent.event';
 
 intentQueue.startWorker();
 opportunityQueue.startWorker();
+opportunityQueue.startCrons();
 notificationQueue.startWorker();
 profileQueue.startWorker();
 hydeQueue.startCrons();
