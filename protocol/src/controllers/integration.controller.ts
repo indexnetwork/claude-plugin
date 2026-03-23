@@ -39,7 +39,7 @@ export class IntegrationController {
     const connections = await this.adapter.listConnections(user.id);
 
     if (indexId) {
-      const linked = await this.integrationService.getLinkedIntegrations(indexId);
+      const linked = await this.integrationService.getLinkedIntegrations(user.id, indexId);
       const linkedToolkits = new Set(linked.map(l => l.toolkit));
       return {
         connections: connections.filter(c => linkedToolkits.has(c.toolkit)),
@@ -148,8 +148,8 @@ export class IntegrationController {
     if (!conn) {
       return new Response(JSON.stringify({ error: 'Connection not found' }), { status: 404 });
     }
-    await this.integrationService.cleanupConnectionLinks(params.id);
-    const result = await this.adapter.disconnect(params.id);
+    await this.integrationService.cleanupConnectionLinks(conn.id);
+    const result = await this.adapter.disconnect(conn.id);
     return result;
   }
 }

@@ -198,13 +198,14 @@ export class ContactService {
     const emails = validContacts.map(c => c.email);
     const existingUsers = await this.db.getUsersByEmails(emails);
     const emailToUser = new Map(existingUsers.map(u => [u.email, u]));
+    const existingEmails = new Set(existingUsers.map(u => u.email));
 
     const newContactData = validContacts.filter(c => !emailToUser.has(c.email));
     const createdGhosts = await this.db.createGhostUsersBulk(newContactData);
-    const newGhostIds: string[] = [];
+    const newGhostIds = new Set<string>();
     for (const ghost of createdGhosts) {
-      if (!existingUsers.some(u => u.email === ghost.email)) {
-        newGhostIds.push(ghost.id);
+      if (!existingEmails.has(ghost.email)) {
+        newGhostIds.add(ghost.id);
       }
       emailToUser.set(ghost.email, { ...ghost, isGhost: true });
     }
@@ -215,18 +216,19 @@ export class ContactService {
       const user = emailToUser.get(vc.email);
       if (user) {
         userIds.push(user.id);
-        details.push({ email: vc.email, userId: user.id, isNew: newGhostIds.includes(user.id) });
+        details.push({ email: vc.email, userId: user.id, isNew: newGhostIds.has(user.id) });
       } else {
         skipped++;
       }
     }
 
-    if (newGhostIds.length > 0) {
-      await profileQueue.addEnrichUserJobBulk(newGhostIds.map(id => ({ userId: id })));
-      logger.info('[ContactService] Enrichment jobs enqueued for new ghosts', { count: newGhostIds.length });
+    const newGhostIdsArray = [...newGhostIds];
+    if (newGhostIdsArray.length > 0) {
+      await profileQueue.addEnrichUserJobBulk(newGhostIdsArray.map(id => ({ userId: id })));
+      logger.info('[ContactService] Enrichment jobs enqueued for new ghosts', { count: newGhostIdsArray.length });
     }
 
-    return { userIds, newGhostIds, skipped, details };
+    return { userIds, newGhostIds: newGhostIdsArray, skipped, details };
   }
 
   /**

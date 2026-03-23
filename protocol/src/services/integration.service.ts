@@ -1,6 +1,7 @@
 import { log } from '../lib/log';
 import type { IntegrationAdapter } from '../lib/protocol/interfaces/integration.interface';
 import { ChatDatabaseAdapter } from '../adapters/database.adapter';
+
 import { contactService, type ImportResult } from './contact.service';
 
 const logger = log.service.from('IntegrationService');
@@ -133,10 +134,12 @@ export class IntegrationService {
   /**
    * List all linked integrations for an index.
    *
+   * @param userId - Authenticated user ID (must be index owner)
    * @param indexId - The index to query
    * @returns Array of toolkit/connectedAccountId pairs
    */
-  async getLinkedIntegrations(indexId: string): Promise<Array<{ toolkit: string; connectedAccountId: string }>> {
+  async getLinkedIntegrations(userId: string, indexId: string): Promise<Array<{ toolkit: string; connectedAccountId: string }>> {
+    await this.assertIndexOwner(indexId, userId);
     return this.db.getIndexIntegrations(indexId);
   }
 
