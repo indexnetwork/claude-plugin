@@ -98,6 +98,47 @@ describe('ProfileGraph - Generate Mode', () => {
       expect(mockDatabase.updateUser).toHaveBeenCalled();
     }, 60_000);
 
+    it('should update ghost user display name from enrichment when placeholder', async () => {
+      const ghost = {
+        id: 'ghost-enriched',
+        name: 'jane',
+        email: 'jane@example.com',
+        isGhost: true,
+        socials: null,
+        location: null,
+        intro: null,
+      };
+      (mockDatabase.getUser as any).mockResolvedValue(ghost);
+      mockEnrichUserProfile.mockResolvedValue(enrichmentResult);
+
+      const graph = buildGraph();
+      const result = await graph.invoke({
+        userId: ghost.id,
+        operationMode: 'generate',
+      });
+
+      expect(result.error).toBeUndefined();
+      expect(result.profile).toBeDefined();
+      expect(mockDatabase.updateUser).toHaveBeenCalledWith(
+        ghost.id,
+        expect.objectContaining({ name: 'Jane Doe' }),
+      );
+    }, 60_000);
+
+    it('should not overwrite non-ghost user display name from enrichment', async () => {
+      (mockDatabase.getUser as any).mockResolvedValue(user);
+      mockEnrichUserProfile.mockResolvedValue(enrichmentResult);
+
+      const graph = buildGraph();
+      await graph.invoke({
+        userId: user.id,
+        operationMode: 'generate',
+      });
+
+      const updateCall = (mockDatabase.updateUser as any).mock.calls[0];
+      expect(updateCall[1]).not.toHaveProperty('name');
+    }, 60_000);
+
     it('should generate HyDE document after enrichment', async () => {
       (mockDatabase.getUser as any).mockResolvedValue(user);
       mockEnrichUserProfile.mockResolvedValue(enrichmentResult);
