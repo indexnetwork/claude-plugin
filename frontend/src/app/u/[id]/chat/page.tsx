@@ -12,10 +12,14 @@ export default function ChatPage() {
   const [searchParams] = useSearchParams();
   const location = useLocation();
   const initialGroupId = searchParams.get('groupId') ?? undefined;
-  const locationState = location.state as { prefill?: string; autoSend?: boolean; opportunityId?: string } | null;
-  const prefillMessage = locationState?.prefill ?? undefined;
-  const autoSend = locationState?.autoSend ?? false;
-  const pendingOpportunityId = locationState?.opportunityId ?? undefined;
+  const [initialState] = useState(() => {
+    const s = location.state as { prefill?: string; autoSend?: boolean; opportunityId?: string } | null;
+    if (s) window.history.replaceState({}, '');
+    return s;
+  });
+  const prefillMessage = initialState?.prefill ?? undefined;
+  const autoSend = initialState?.autoSend ?? false;
+  const pendingOpportunityId = initialState?.opportunityId ?? undefined;
   const { isAuthenticated, isLoading: authLoading } = useAuthContext();
   const usersService = useUsers();
   const opportunitiesService = useOpportunities();
@@ -97,7 +101,6 @@ export default function ChatPage() {
       userId={profileData.id}
       userName={profileData.name}
       userAvatar={profileData.avatar || undefined}
-      userTitle={profileData.location || undefined}
       initialGroupId={initialGroupId}
       initialMessage={prefillMessage}
       autoSend={autoSend}
