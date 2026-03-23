@@ -685,7 +685,7 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
         });
 
         if (finalMessage === null) {
-          throw new Error("user_cancelled");
+          return;
         }
 
         setOpportunityActionLoading((prev) => ({ ...prev, [opportunityId]: true }));
