@@ -372,6 +372,7 @@ export const intentsRelations = relations(intents, ({ one, many }) => ({
 export const indexesRelations = relations(indexes, ({ many }) => ({
   members: many(indexMembers),
   intents: many(intentIndexes),
+  integrations: many(indexIntegrations),
 }));
 
 export const indexMembersRelations = relations(indexMembers, ({ one }) => ({
@@ -392,6 +393,13 @@ export const personalIndexesRelations = relations(personalIndexes, ({ one }) => 
   }),
   index: one(indexes, {
     fields: [personalIndexes.indexId],
+    references: [indexes.id],
+  }),
+}));
+
+export const indexIntegrationsRelations = relations(indexIntegrations, ({ one }) => ({
+  index: one(indexes, {
+    fields: [indexIntegrations.indexId],
     references: [indexes.id],
   }),
 }));
@@ -431,5 +439,7 @@ export type Opportunity = typeof opportunities.$inferSelect;
 export type NewOpportunity = typeof opportunities.$inferInsert;
 export type PersonalIndex = typeof personalIndexes.$inferSelect;
 export type NewPersonalIndex = typeof personalIndexes.$inferInsert;
+export type IndexIntegration = typeof indexIntegrations.$inferSelect;
+export type NewIndexIntegration = typeof indexIntegrations.$inferInsert;
 
 export * from './conversation.schema';

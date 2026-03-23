@@ -96,7 +96,7 @@ export class IntegrationController {
    */
   @Delete('/:toolkit/link')
   @UseGuards(AuthGuard)
-  async unlink(req: Request, _user: AuthenticatedUser, params: { toolkit: string }) {
+  async unlink(req: Request, user: AuthenticatedUser, params: { toolkit: string }) {
     if (!isAllowedToolkit(params.toolkit)) {
       return new Response(JSON.stringify({ error: 'Unsupported toolkit' }), { status: 400 });
     }
@@ -105,8 +105,12 @@ export class IntegrationController {
     if (!indexId) {
       return new Response(JSON.stringify({ error: 'indexId query param is required' }), { status: 400 });
     }
-    await this.integrationService.unlinkFromIndex(params.toolkit, indexId);
-    return { success: true };
+    try {
+      await this.integrationService.unlinkFromIndex(user.id, params.toolkit, indexId);
+      return { success: true };
+    } catch (err) {
+      return new Response(JSON.stringify({ error: err instanceof Error ? err.message : 'Unlink failed' }), { status: 400 });
+    }
   }
 
   /**
@@ -123,8 +127,12 @@ export class IntegrationController {
     }
     const body = await req.json().catch(() => ({})) as Record<string, unknown>;
     const indexId = typeof body.indexId === 'string' ? body.indexId : undefined;
-    const result = await this.integrationService.importContacts(user.id, params.toolkit, indexId);
-    return result;
+    try {
+      const result = await this.integrationService.importContacts(user.id, params.toolkit, indexId);
+      return result;
+    } catch (err) {
+      return new Response(JSON.stringify({ error: err instanceof Error ? err.message : 'Import failed' }), { status: 400 });
+    }
   }
 
   /**

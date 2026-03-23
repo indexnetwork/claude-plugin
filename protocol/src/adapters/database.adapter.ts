@@ -3306,7 +3306,7 @@ export class ChatDatabaseAdapter {
       userId,
       permissions: ['member'],
       prompt: memberPrompt,
-      autoAssign: true,
+      autoAssign: false,
     }));
     await db.insert(schema.indexMembers).values(values).onConflictDoNothing();
   }

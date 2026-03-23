@@ -37,6 +37,17 @@ export class IntegrationService {
   }
 
   /**
+   * Verify the user is an owner of the given index.
+   * @throws If the user is not an owner
+   */
+  private async assertIndexOwner(indexId: string, userId: string): Promise<void> {
+    const isOwner = await this.db.isIndexOwner(indexId, userId);
+    if (!isOwner) {
+      throw new Error('Access denied: you must be an owner of this index');
+    }
+  }
+
+  /**
    * Fetch contacts from the given toolkit and import them into an index.
    * Personal indexes get contacts with 'contact' permission; non-personal
    * indexes get members with 'member' permission.
@@ -47,6 +58,15 @@ export class IntegrationService {
    * @returns Bulk import statistics
    */
   async importContacts(userId: string, toolkit: Toolkit, indexId?: string): Promise<ImportResult> {
+    const isPersonal = !indexId || await this.db.isPersonalIndex(indexId);
+
+    if (!isPersonal) {
+      if (!indexId) {
+        throw new Error('indexId is required for non-personal import');
+      }
+      await this.assertIndexOwner(indexId, userId);
+    }
+
     const contacts = toolkit === 'gmail'
       ? await this.fetchGmailContacts(userId)
       : await this.fetchSlackMembers(userId);
@@ -55,8 +75,6 @@ export class IntegrationService {
 
     const empty: ImportResult = { imported: 0, skipped: 0, newContacts: 0, existingContacts: 0, details: [] };
     if (contacts.length === 0) return empty;
-
-    const isPersonal = !indexId || await this.db.isPersonalIndex(indexId);
 
     if (isPersonal) {
       return contactService.importContacts(userId, contacts);
@@ -89,6 +107,7 @@ export class IntegrationService {
    * @throws If the user has no Composio connection for the toolkit
    */
   async linkToIndex(userId: string, toolkit: string, indexId: string): Promise<void> {
+    await this.assertIndexOwner(indexId, userId);
     const connections = await this.adapter.listConnections(userId);
     const conn = connections.find(c => c.toolkit === toolkit);
     if (!conn) {
@@ -105,7 +124,8 @@ export class IntegrationService {
    * @param toolkit - Toolkit slug
    * @param indexId - Index to unlink from
    */
-  async unlinkFromIndex(toolkit: string, indexId: string): Promise<void> {
+  async unlinkFromIndex(userId: string, toolkit: string, indexId: string): Promise<void> {
+    await this.assertIndexOwner(indexId, userId);
     await this.db.deleteIndexIntegration(indexId, toolkit);
     logger.info('Unlinked integration from index', { toolkit, indexId });
   }
