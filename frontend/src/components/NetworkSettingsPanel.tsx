@@ -16,6 +16,9 @@ import { validateFiles } from '@/lib/file-validation';
 
 /** Toolkits available for connection. Add entries here when enabling new Composio integrations. */
 const AVAILABLE_TOOLKITS = ['gmail', 'slack'] as const;
+
+const TOOLKIT_LABELS: Record<string, string> = { gmail: 'Gmail', slack: 'Slack' };
+const toolkitLabel = (t: string) => TOOLKIT_LABELS[t] ?? t;
 import IndexAvatar, { resolveIndexImageSrc } from '@/components/IndexAvatar';
 import UserAvatar from '@/components/UserAvatar';
 import GhostBadge from '@/components/GhostBadge';
@@ -314,13 +317,13 @@ export default function NetworkSettingsPanel({ index, onDeleted, activeTab }: Ne
 
   const autoImportContacts = async (toolkit: string) => {
     const svc = createIntegrationsService(api);
-    info(`Importing contacts from ${toolkit}...`, undefined, 30000);
+    info(`Importing contacts from ${toolkitLabel(toolkit)}...`, undefined, 30000);
     try {
       const result = await svc.importContacts(toolkit, index.id);
       const label = index.isPersonal ? 'contacts' : 'members';
       success(`Imported ${result.imported} ${label}`, `${result.newContacts} new, ${result.existingContacts} already in your network`);
     } catch {
-      error(`Failed to import ${toolkit} contacts`);
+      error(`Failed to import ${toolkitLabel(toolkit)} contacts`);
     }
   };
 
@@ -331,7 +334,7 @@ export default function NetworkSettingsPanel({ index, onDeleted, activeTab }: Ne
       await loadConnections();
       autoImportContacts(toolkit);
     } catch {
-      error(`Failed to link ${toolkit} to this index`);
+      error(`Failed to link ${toolkitLabel(toolkit)} to this index`);
     }
   };
 
@@ -345,7 +348,7 @@ export default function NetworkSettingsPanel({ index, onDeleted, activeTab }: Ne
       const existingConn = allConns.connections.find(c => c.toolkit === toolkit);
       if (existingConn) {
         // Already OAuth'd -- just link to this index
-        success(`${toolkit} connected`);
+        success(`${toolkitLabel(toolkit)} connected`);
         await linkAndImport(toolkit);
         setPendingToolkit(null);
         return;
@@ -375,13 +378,13 @@ export default function NetworkSettingsPanel({ index, onDeleted, activeTab }: Ne
           oauthSucceeded = true;
           window.removeEventListener('message', onMessage);
           popup?.close();
-          success(`${toolkit} connected`);
+          success(`${toolkitLabel(toolkit)} connected`);
           setPendingToolkit(null);
           linkAndImport(toolkit);
         } else if (event.data?.type === 'oauth_callback') {
           window.removeEventListener('message', onMessage);
           popup?.close();
-          error(`Failed to connect ${toolkit}`);
+          error(`Failed to connect ${toolkitLabel(toolkit)}`);
           setPendingToolkit(null);
         }
       };
@@ -398,7 +401,7 @@ export default function NetworkSettingsPanel({ index, onDeleted, activeTab }: Ne
         }
       }, 1000);
     } catch {
-      error(`Failed to connect ${toolkit}`);
+      error(`Failed to connect ${toolkitLabel(toolkit)}`);
       setPendingToolkit(null);
     }
   };
@@ -408,10 +411,10 @@ export default function NetworkSettingsPanel({ index, onDeleted, activeTab }: Ne
     setPendingToolkit(toolkit);
     try {
       await integrationsService.unlinkIntegration(toolkit, index.id);
-      success(`${toolkit} removed from this index`);
+      success(`${toolkitLabel(toolkit)} removed from this index`);
       await loadConnections();
     } catch {
-      error(`Failed to remove ${toolkit}`);
+      error(`Failed to remove ${toolkitLabel(toolkit)}`);
     } finally {
       setPendingToolkit(null);
     }
@@ -673,9 +676,14 @@ export default function NetworkSettingsPanel({ index, onDeleted, activeTab }: Ne
                     </span>
                   )}
                   {!member.permissions.includes('owner') && (
-                    <button onClick={() => handleRemoveMember(member.id)} className="opacity-0 group-hover:opacity-100 p-1 text-gray-300 hover:text-red-500 transition-colors flex-shrink-0">
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
+                    <>
+                      <span className="group-hover:hidden text-xs px-1.5 py-0.5 rounded-sm font-medium flex-shrink-0 bg-gray-200 text-gray-700">
+                        {member.permissions.includes('member') ? 'Member' : 'Contact'}
+                      </span>
+                      <button onClick={() => handleRemoveMember(member.id)} className="hidden group-hover:block p-1 text-gray-300 hover:text-red-500 transition-colors flex-shrink-0">
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </>
                   )}
                 </div>
               ))}
