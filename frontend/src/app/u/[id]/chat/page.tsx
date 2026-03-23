@@ -68,7 +68,7 @@ export default function ChatPage() {
   };
 
   const handleBack = () => {
-    navigate('/chat');
+    navigate(-1);
   };
 
   if (authLoading || isLoading) {
