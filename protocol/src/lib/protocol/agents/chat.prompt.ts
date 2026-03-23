@@ -1,5 +1,8 @@
 import type { ResolvedToolContext } from "../tools";
 
+import { resolveModules } from "./chat.prompt.modules";
+import type { IterationContext } from "./chat.prompt.modules";
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // PROTOCOL SYSTEM PROMPT — DUMB TOOLS + SMART ORCHESTRATOR
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -9,53 +12,23 @@ import type { ResolvedToolContext } from "../tools";
  */
 export const ITERATION_NUDGE = `[System Note: You've made several tool calls. Please provide a final response to the user now, summarizing what you've accomplished or found. If you need more information from the user, ask for it in your response.]`;
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// INTERNAL SECTION BUILDERS
+// ═══════════════════════════════════════════════════════════════════════════════
+
 /**
- * Builds the full system prompt for the chat agent.
- * Single unified prompt — the thinking model composes dumb primitive tools.
+ * Mission statement, voice/constraints, banned vocabulary, and session header.
+ * Corresponds to the opening of the system prompt through the Session section.
  */
-export function buildSystemContent(ctx: ResolvedToolContext): string {
+function buildCoreHead(ctx: ResolvedToolContext): string {
   const roleLabel = !ctx.indexId
     ? "general"
     : (ctx.scopedMembershipRole ?? (ctx.isOwner ? "owner" : "member"));
   const indexScope = ctx.indexId
     ? `index "${ctx.indexName ?? "Unknown"}" (id: ${ctx.indexId}), role: ${roleLabel}`
     : "no index scope (general chat)";
-  const userContext = JSON.stringify(ctx.user, null, 2);
-  const profileContext = ctx.userProfile
-    ? JSON.stringify(ctx.userProfile, null, 2)
-    : "null";
 
-  // When scoped to an index, only include that index in memberships context
-  // When not scoped (general chat), include all indexes
-  const relevantIndexes = ctx.indexId
-    ? ctx.userIndexes.filter((m) => m.indexId === ctx.indexId)
-    : ctx.userIndexes;
-  const indexesContext = JSON.stringify(
-    relevantIndexes.map((membership) => ({
-      indexId: membership.indexId,
-      indexTitle: membership.indexTitle,
-      indexPrompt: membership.indexPrompt,
-      permissions: membership.permissions,
-      memberPrompt: membership.memberPrompt,
-      autoAssign: membership.autoAssign,
-      isPersonal: membership.isPersonal,
-      joinedAt: membership.joinedAt,
-    })),
-    null,
-    2,
-  );
-  const scopedIndexContext = ctx.scopedIndex
-    ? JSON.stringify(
-        {
-          ...ctx.scopedIndex,
-          membershipRole: ctx.scopedMembershipRole,
-        },
-        null,
-        2,
-      )
-    : "null";
-
-  const prompt = `You are Index. You help the right people find the user and help the user find them.
+  return `You are Index. You help the right people find the user and help the user find them.
 Here's what you can do:
 Get to know the user: what they're building, what they care about, and what they're open to right now. They can tell you directly, or you can learn quietly from places like GitHub or LinkedIn.
 Find the right connections: when the user asks, you look across their networks for overlap and relevance. When you find a meaningful connection — a person, a conversation, or an opportunity — you surface it with context so the user understands why it matters and what could happen. New matches also appear on their home page as the system discovers them.
@@ -91,7 +64,16 @@ Other banned words: leverage, unlock, optimize, scale, disrupt, revolutionary, A
 ## Session
 - User: ${ctx.userName} (${ctx.userEmail}), id: ${ctx.userId}
 - Scope: ${indexScope}
-${ctx.isOnboarding ? `
+`;
+}
+
+/**
+ * Onboarding flow instructions. Returns content when ctx.isOnboarding is true,
+ * empty string otherwise.
+ */
+function buildOnboarding(ctx: ResolvedToolContext): string {
+  if (!ctx.isOnboarding) return "";
+  return `
 ## ONBOARDING MODE (ACTIVE)
 
 This is the user's first conversation. They just signed up. Guide them through setup — do NOT skip steps or rush.
@@ -174,7 +156,50 @@ When the user says "yes", "looks good", "that's right", "correct", or any affirm
 - When presenting communities, tailor relevance notes to the user's profile (bio, skills, interests)
 - If the user tries to do something else mid-onboarding, gently redirect: "Let's finish setting you up first, then we can dive into that."
 - Keep your tone warm and welcoming — this is their first impression
-` : ""}
+`;
+}
+
+/**
+ * Preloaded context (user, profile, memberships, scoped index), preloaded context
+ * policy, architecture philosophy, entity model, and tools reference table.
+ */
+function buildCoreBody(ctx: ResolvedToolContext): string {
+  const userContext = JSON.stringify(ctx.user, null, 2);
+  const profileContext = ctx.userProfile
+    ? JSON.stringify(ctx.userProfile, null, 2)
+    : "null";
+
+  // When scoped to an index, only include that index in memberships context
+  // When not scoped (general chat), include all indexes
+  const relevantIndexes = ctx.indexId
+    ? ctx.userIndexes.filter((m) => m.indexId === ctx.indexId)
+    : ctx.userIndexes;
+  const indexesContext = JSON.stringify(
+    relevantIndexes.map((membership) => ({
+      indexId: membership.indexId,
+      indexTitle: membership.indexTitle,
+      indexPrompt: membership.indexPrompt,
+      permissions: membership.permissions,
+      memberPrompt: membership.memberPrompt,
+      autoAssign: membership.autoAssign,
+      isPersonal: membership.isPersonal,
+      joinedAt: membership.joinedAt,
+    })),
+    null,
+    2,
+  );
+  const scopedIndexContext = ctx.scopedIndex
+    ? JSON.stringify(
+        {
+          ...ctx.scopedIndex,
+          membershipRole: ctx.scopedMembershipRole,
+        },
+        null,
+        2,
+      )
+    : "null";
+
+  return `
 ### Current User (preloaded context)
 \`\`\`json
 ${userContext}
@@ -259,7 +284,16 @@ All tools are simple read/write operations. No hidden logic.
 | **list_contacts** | limit? | List user's network contacts |
 | **add_contact** | email, name? | Manually add single contact to network |
 | **remove_contact** | contactId | Remove contact from network |
+`;
+}
 
+/**
+ * Orchestration patterns (0–10) and pattern-specific behavioral rules
+ * (community mention, discovery-first, @mentions).
+ * This section will shrink as patterns are extracted into prompt modules.
+ */
+function buildPatterns(_ctx: ResolvedToolContext): string {
+  return `
 ## Orchestration Patterns
 
 You compose these primitives. Here's how to handle key scenarios:
@@ -455,7 +489,15 @@ Index and community membership is background: handle it without talking about in
 
 ### @Mentions
 - Messages may contain \`@[Display Name](userId)\` markup. The value in parentheses is the userId.
+`;
+}
 
+/**
+ * Index scope block. Returns scoped variant when ctx.indexId is set,
+ * scopeless variant otherwise. Includes owner line.
+ */
+function buildScoping(ctx: ResolvedToolContext): string {
+  return `
 ### Index Scope
 ${
   ctx.indexId
@@ -468,7 +510,15 @@ ${
 - To find shared context with another user, use read_index_memberships to intersect.`
 }
 ${ctx.isOwner ? `- You are the **owner** of this index. You can update settings, add members, delete it.` : ""}
+`;
+}
 
+/**
+ * Tail section of core: URLs, internal errors, narration style, output format,
+ * and general rules.
+ */
+function buildCoreTail(_ctx: ResolvedToolContext): string {
+  return `
 ### URLs
 - Always scrape URLs with scrape_url before using their content (except for create_user_profile which handles URLs directly).
 
@@ -543,5 +593,32 @@ What NOT to narrate (group silently with the main action):
 - Don't call tools unnecessarily.
 - Check tool results before confirming success.
 - Keep iterating until you have a good answer. Don't give up after one call.`;
-  return prompt;
 }
+
+/**
+ * Convenience wrapper: all non-conditional core sections concatenated.
+ * Used for reference; individual segments are composed in buildSystemContent.
+ */
+function buildCore(ctx: ResolvedToolContext): string {
+  return buildCoreHead(ctx) + buildCoreBody(ctx) + buildCoreTail(ctx);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// PUBLIC API
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Builds the full system prompt for the chat agent.
+ * Composes core, onboarding, patterns, scoping, and dynamic modules into a
+ * single prompt string. Without iterCtx the output is identical to the
+ * original monolithic prompt.
+ *
+ * @param ctx - Resolved tool context for the current session
+ * @param iterCtx - Optional iteration context for dynamic module resolution
+ * @returns The complete system prompt string
+ */
+export function buildSystemContent(ctx: ResolvedToolContext, iterCtx?: IterationContext): string {
+  const modules = iterCtx ? resolveModules(iterCtx) : "";
+  return buildCoreHead(ctx) + buildOnboarding(ctx) + buildCoreBody(ctx) + modules + buildPatterns(ctx) + buildScoping(ctx) + buildCoreTail(ctx);
+}
+

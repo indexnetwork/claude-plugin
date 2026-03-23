@@ -5,6 +5,9 @@ config({ path: ".env.test" });
 import { describe, test, expect } from "bun:test";
 import { AIMessage, HumanMessage, ToolMessage } from "@langchain/core/messages";
 
+import type { ResolvedToolContext } from "../tools";
+
+import { buildSystemContent } from "./chat.prompt";
 import { extractRecentToolCalls, resolveModules, type IterationContext } from "./chat.prompt.modules";
 
 describe("extractRecentToolCalls", () => {
@@ -135,5 +138,139 @@ describe("resolveModules", () => {
     };
     const result = resolveModules(iterCtx);
     expect(result).toBe("");
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// buildSystemContent snapshot identity tests
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function makeCtx(overrides: Partial<ResolvedToolContext> = {}): ResolvedToolContext {
+  return {
+    userId: "user-1",
+    userName: "Alice Test",
+    userEmail: "alice@example.com",
+    user: { id: "user-1", name: "Alice Test", email: "alice@example.com" } as unknown as ResolvedToolContext["user"],
+    userProfile: {
+      bio: "Builder of things",
+      skills: ["typescript"],
+      interests: ["AI"],
+    } as unknown as ResolvedToolContext["userProfile"],
+    userIndexes: [
+      {
+        indexId: "idx-personal",
+        indexTitle: "My Network",
+        indexPrompt: null,
+        permissions: ["owner"],
+        memberPrompt: null,
+        autoAssign: false,
+        isPersonal: true,
+        joinedAt: "2024-01-01T00:00:00Z",
+      },
+      {
+        indexId: "idx-community",
+        indexTitle: "AI Builders",
+        indexPrompt: "AI enthusiasts",
+        permissions: ["member"],
+        memberPrompt: null,
+        autoAssign: true,
+        isPersonal: false,
+        joinedAt: "2024-02-01T00:00:00Z",
+      },
+    ] as unknown as ResolvedToolContext["userIndexes"],
+    isOnboarding: false,
+    hasName: true,
+    ...overrides,
+  };
+}
+
+describe("buildSystemContent snapshot identity", () => {
+  test("general chat (no index scope, no onboarding) — section order is correct", () => {
+    const ctx = makeCtx();
+    const output = buildSystemContent(ctx);
+
+    // Verify key sections are present in the correct order
+    const missionIdx = output.indexOf("You are Index.");
+    const voiceIdx = output.indexOf("## Voice and constraints");
+    const sessionIdx = output.indexOf("## Session");
+    const preloadedIdx = output.indexOf("### Current User (preloaded context)");
+    const architectureIdx = output.indexOf("## Architecture Philosophy");
+    const toolsIdx = output.indexOf("## Tools Reference");
+    const patternsIdx = output.indexOf("## Orchestration Patterns");
+    const behavioralIdx = output.indexOf("## Behavioral Rules");
+    const scopingIdx = output.indexOf("### Index Scope");
+    const urlsIdx = output.indexOf("### URLs");
+    const narrationIdx = output.indexOf("### Narration Style");
+    const outputFmtIdx = output.indexOf("### Output Format");
+    const generalIdx = output.indexOf("### General");
+
+    expect(missionIdx).toBeGreaterThanOrEqual(0);
+    expect(voiceIdx).toBeGreaterThan(missionIdx);
+    expect(sessionIdx).toBeGreaterThan(voiceIdx);
+    expect(preloadedIdx).toBeGreaterThan(sessionIdx);
+    expect(architectureIdx).toBeGreaterThan(preloadedIdx);
+    expect(toolsIdx).toBeGreaterThan(architectureIdx);
+    expect(patternsIdx).toBeGreaterThan(toolsIdx);
+    expect(behavioralIdx).toBeGreaterThan(patternsIdx);
+    expect(scopingIdx).toBeGreaterThan(behavioralIdx);
+    expect(urlsIdx).toBeGreaterThan(scopingIdx);
+    expect(narrationIdx).toBeGreaterThan(urlsIdx);
+    expect(outputFmtIdx).toBeGreaterThan(narrationIdx);
+    expect(generalIdx).toBeGreaterThan(outputFmtIdx);
+
+    // Onboarding section must NOT be present
+    expect(output).not.toContain("## ONBOARDING MODE");
+
+    // Snapshot output length as canary for unintended changes
+    expect(output.length).toMatchSnapshot();
+  });
+
+  test("scoped chat (index scope, owner) produces stable output", () => {
+    const ctx = makeCtx({
+      indexId: "idx-community",
+      indexName: "AI Builders",
+      isOwner: true,
+      scopedIndex: { id: "idx-community", title: "AI Builders", prompt: "AI enthusiasts" },
+      scopedMembershipRole: "owner",
+    });
+    const output = buildSystemContent(ctx);
+
+    expect(output).toContain('This chat is scoped to index "AI Builders"');
+    expect(output).toContain("You are the **owner** of this index");
+    expect(output).toContain("scoped to current index");
+
+    expect(output.length).toMatchSnapshot();
+  });
+
+  test("onboarding mode produces stable output", () => {
+    const ctx = makeCtx({ isOnboarding: true, hasName: true });
+    const output = buildSystemContent(ctx);
+
+    expect(output).toContain("## ONBOARDING MODE (ACTIVE)");
+    expect(output).toContain("### Onboarding Flow");
+    expect(output).toContain("complete_onboarding()");
+
+    expect(output.length).toMatchSnapshot();
+  });
+
+  test("onboarding without name produces stable output", () => {
+    const ctx = makeCtx({ isOnboarding: true, hasName: false });
+    const output = buildSystemContent(ctx);
+
+    expect(output).toContain("**User has no name on file.**");
+    expect(output).not.toContain("You're Alice Test, right?");
+
+    expect(output.length).toMatchSnapshot();
+  });
+
+  test("without iterCtx, modules section is empty and result matches empty-tools call", () => {
+    const ctx = makeCtx();
+    const withoutIter = buildSystemContent(ctx);
+    const withEmptyIter = buildSystemContent(ctx, {
+      recentTools: [],
+      ctx,
+    });
+    // With no modules registered and no tools called, result should be identical
+    expect(withEmptyIter).toBe(withoutIter);
   });
 });
