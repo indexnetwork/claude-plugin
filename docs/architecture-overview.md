@@ -195,6 +195,7 @@ Graphs are LangGraph state machines. Each graph is created by a factory class th
 | Index | Manage index CRUD |
 | Index Membership | Manage index member join/leave |
 | Intent Index | Evaluate and assign/unassign intents to indexes |
+| Home | Categorize and curate home feed content |
 | Maintenance | Periodic maintenance tasks |
 | Negotiation | Multi-turn negotiation flows |
 
