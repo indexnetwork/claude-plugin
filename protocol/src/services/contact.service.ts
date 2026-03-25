@@ -54,6 +54,38 @@ export function isHumanContact(email: string, name: string): boolean {
   return true;
 }
 
+/**
+ * Deduplicates resolved contact details by name (case-insensitive, exact match).
+ * Keeps the first userId per unique normalized name so that the same person
+ * imported with multiple emails only gets one contact membership.
+ *
+ * @param contacts - Original import input (provides name-to-email mapping)
+ * @param details - Resolved details from resolveUsers (email, userId, isNew)
+ * @returns Filtered details with at most one entry per unique name
+ */
+export function deduplicateByName(
+  contacts: ContactInput[],
+  details: Array<{ email: string; userId: string; isNew: boolean }>,
+): Array<{ email: string; userId: string; isNew: boolean }> {
+  const emailToName = new Map<string, string>();
+  for (const c of contacts) {
+    const email = c.email.toLowerCase().trim();
+    if (!emailToName.has(email)) {
+      emailToName.set(email, (c.name?.trim() || email.split('@')[0]).toLowerCase());
+    }
+  }
+
+  const seenNames = new Set<string>();
+  const result: typeof details = [];
+  for (const d of details) {
+    const name = emailToName.get(d.email) ?? d.email.split('@')[0].toLowerCase();
+    if (seenNames.has(name)) continue;
+    seenNames.add(name);
+    result.push(d);
+  }
+  return result;
+}
+
 /** Input for importing a single contact. */
 export interface ContactInput {
   name: string;
@@ -252,16 +284,20 @@ export class ContactService {
       return { imported: 0, skipped: resolved.skipped, newContacts: 0, existingContacts: 0, details: [] };
     }
 
-    await this.db.upsertContactMembershipBulk(ownerId, resolved.userIds);
-    await this.db.clearReverseOptOutBulk(ownerId, resolved.userIds);
+    const dedupedDetails = deduplicateByName(contacts, resolved.details);
+    const dedupedUserIds = dedupedDetails.map(d => d.userId);
+    const nameSkipped = resolved.details.length - dedupedDetails.length;
 
-    const newCount = resolved.details.filter(d => d.isNew).length;
+    await this.db.upsertContactMembershipBulk(ownerId, dedupedUserIds);
+    await this.db.clearReverseOptOutBulk(ownerId, dedupedUserIds);
+
+    const newCount = dedupedDetails.filter(d => d.isNew).length;
     const result: ImportResult = {
-      imported: resolved.userIds.length,
-      skipped: resolved.skipped,
+      imported: dedupedUserIds.length,
+      skipped: resolved.skipped + nameSkipped,
       newContacts: newCount,
-      existingContacts: resolved.userIds.length - newCount,
-      details: resolved.details,
+      existingContacts: dedupedUserIds.length - newCount,
+      details: dedupedDetails,
     };
 
     logger.info('[ContactService] Import completed', {

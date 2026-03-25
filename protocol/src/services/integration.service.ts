@@ -2,7 +2,7 @@ import { log } from '../lib/log';
 import type { IntegrationAdapter } from '../lib/protocol/interfaces/integration.interface';
 import { ChatDatabaseAdapter } from '../adapters/database.adapter';
 
-import { contactService, type ImportResult } from './contact.service';
+import { contactService, deduplicateByName, type ImportResult } from './contact.service';
 
 const logger = log.service.from('IntegrationService');
 
@@ -86,15 +86,19 @@ export class IntegrationService {
       return { ...empty, skipped: resolved.skipped };
     }
 
-    await this.db.addMembersBulkToIndex(indexId, resolved.userIds);
+    const dedupedDetails = deduplicateByName(contacts, resolved.details);
+    const dedupedUserIds = dedupedDetails.map(d => d.userId);
+    const nameSkipped = resolved.details.length - dedupedDetails.length;
 
-    const newCount = resolved.details.filter(d => d.isNew).length;
+    await this.db.addMembersBulkToIndex(indexId, dedupedUserIds);
+
+    const newCount = dedupedDetails.filter(d => d.isNew).length;
     return {
-      imported: resolved.userIds.length,
-      skipped: resolved.skipped,
+      imported: dedupedUserIds.length,
+      skipped: resolved.skipped + nameSkipped,
       newContacts: newCount,
-      existingContacts: resolved.userIds.length - newCount,
-      details: resolved.details,
+      existingContacts: dedupedUserIds.length - newCount,
+      details: dedupedDetails,
     };
   }
 
