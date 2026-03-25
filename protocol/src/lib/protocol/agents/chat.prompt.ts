@@ -287,9 +287,6 @@ All tools are simple read/write operations. No hidden logic.
 `;
 }
 
-// buildPatterns has been removed — all pattern content now lives in prompt
-// modules defined in chat.prompt.modules.ts and injected via resolveModules().
-
 /**
  * Index scope block. Returns scoped variant when ctx.indexId is set,
  * scopeless variant otherwise. Includes owner line.

@@ -20,8 +20,6 @@ export interface PromptModule {
   triggerFilter?: (iterCtx: IterationContext) => boolean;
   /** User message pattern that activates this module (secondary trigger). */
   regex?: RegExp;
-  /** Context predicate that activates this module (tertiary trigger). */
-  context?: (ctx: ResolvedToolContext) => boolean;
   /** Returns the prompt text to inject. */
   content: (ctx: ResolvedToolContext) => string;
 }
@@ -108,6 +106,7 @@ function hasIntroductionArgs(recentTools: IterationContext["recentTools"]): bool
 const discoveryModule: PromptModule = {
   id: "discovery",
   triggers: ["create_opportunities", "update_opportunity"],
+  triggerFilter: (iterCtx) => !hasIntroductionArgs(iterCtx.recentTools),
   content: () => `
 ### 1. User wants to find connections or discover (default for connection-seeking)
 
@@ -383,22 +382,22 @@ export const PROMPT_MODULES: PromptModule[] = [
 /**
  * Resolves which prompt modules should be injected for the current iteration.
  *
- * Phase 1: Collect candidate modules by checking triggers, regex, and context.
- * Phase 2: Apply exclusions (unidirectional — the excluding module stays).
- * Phase 3: Skip all modules when onboarding is active.
+ * Phase 1: Skip all modules when onboarding is active (early exit).
+ * Phase 2: Collect candidate modules by checking triggers and regex.
+ * Phase 3: Apply exclusions (unidirectional — the excluding module stays).
  *
  * @param iterCtx - Current iteration context (tool history, user message, resolved context)
  * @returns Concatenated prompt text from all matched modules
  */
 export function resolveModules(iterCtx: IterationContext): string {
-  // Phase 3 (early exit): Skip all modules during onboarding
+  // Phase 1 (early exit): Skip all modules during onboarding
   if (iterCtx.ctx.isOnboarding) {
     return "";
   }
 
   const toolNames = new Set(iterCtx.recentTools.map((t) => t.name));
 
-  // Phase 1: Collect candidates
+  // Phase 2: Collect candidates
   const candidates = new Map<string, PromptModule>();
 
   for (const mod of PROMPT_MODULES) {
@@ -414,21 +413,18 @@ export function resolveModules(iterCtx: IterationContext): string {
       matched = true;
     }
 
-    // Check context predicate
-    if (!matched && mod.context && mod.context(iterCtx.ctx)) {
-      matched = true;
-    }
-
     if (matched) {
       candidates.set(mod.id, mod);
     }
   }
 
-  // Phase 2: Apply exclusions
+  // Phase 3: Apply exclusions (skip self-exclusion)
   for (const mod of candidates.values()) {
     if (mod.excludes) {
       for (const excludedId of mod.excludes) {
-        candidates.delete(excludedId);
+        if (excludedId !== mod.id) {
+          candidates.delete(excludedId);
+        }
       }
     }
   }
