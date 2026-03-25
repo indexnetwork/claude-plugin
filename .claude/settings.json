@@ -1,6 +1,7 @@
 {
   "permissions": {
     "allow": [
+      "Read",
       "Bash(git check-ignore:*)",
       "Bash(git branch:*)",
       "Bash(git log:*)",
