@@ -24,8 +24,9 @@ import {
 } from '../states/home.state';
 import { OpportunityPresenter, gatherPresenterContext, type PresenterDatabase } from '../agents/opportunity.presenter';
 import { HomeCategorizerAgent } from '../agents/home.categorizer';
-import { canUserSeeOpportunity, isActionableForViewer, selectByComposition } from '../support/opportunity.utils';
+import { canUserSeeOpportunity, isActionableForViewer } from '../support/opportunity.utils';
 import { resolveHomeSectionIcon, DEFAULT_HOME_SECTION_ICON } from '../support/lucide.icon-catalog';
+import { getPrimaryActionLabel, SECONDARY_ACTION_LABEL } from '../support/opportunity.constants';
 import { protocolLogger } from '../support/protocol.logger';
 import { timed } from '../../performance';
 import { requestContext } from '../../request-context';
@@ -172,10 +173,6 @@ export class HomeGraphFactory {
           const visibleForFeed = visible.filter((opp) =>
             isActionableForViewer(opp.actors, opp.status, state.userId)
           );
-          const expired = raw.filter(
-            (opp) =>
-              opp.status === 'expired' && canUserSeeOpportunity(opp.actors, opp.status, state.userId)
-          );
           const sorted = [...visibleForFeed].sort((a, b) => {
             const confA = getConfidence(a);
             const confB = getConfidence(b);
@@ -192,22 +189,11 @@ export class HomeGraphFactory {
             for (const id of counterpartIds) seenUserIds.add(id);
             return true;
           });
-          const expiredSorted = [...expired]
-            .filter((opp) => {
-              const counterpartIds = getUniqueCounterpartUserIds(opp, state.userId);
-              return ![...counterpartIds].some((id) => seenUserIds.has(id));
-            })
-            .sort((a, b) => {
-              const aTime = safeParseDate(a.updatedAt);
-              const bTime = safeParseDate(b.updatedAt);
-              return bTime - aTime;
-            });
-          const composed = selectByComposition([...deduped, ...expiredSorted], state.userId);
-          const opportunities = composed.slice(0, state.limit);
-          return { opportunities, expired };
+          const opportunities = deduped.slice(0, state.limit);
+          return { opportunities };
         } catch (e) {
           logger.error('HomeGraph loadOpportunities failed', { error: e });
-          return { error: 'Failed to load opportunities', opportunities: [], expired: [] };
+          return { error: 'Failed to load opportunities', opportunities: [] };
         }
       });
     };
@@ -354,9 +340,12 @@ export class HomeGraphFactory {
               cta: isIntroducer
                 ? 'Share this introduction to get things started.'
                 : 'Take a look and decide whether to reach out.',
-              primaryActionLabel: isIntroducer ? 'Good match' : (isCounterpartGhost ? 'Invite to chat' : 'Start Chat'),
-              secondaryActionLabel: isIntroducer ? 'Pass' : 'Skip',
+              primaryActionLabel: getPrimaryActionLabel(viewerRole),
+              secondaryActionLabel: SECONDARY_ACTION_LABEL,
               mutualIntentsLabel: isIntroducer ? 'Connector match' : 'Shared interests',
+              narratorChip: isIntroducer
+                ? { name: 'You', text: 'Worth a look.', userId: state.userId }
+                : { name: 'Index', text: 'Worth a look.' },
               viewerRole,
               isGhost: isCounterpartGhost,
               _cardIndex: cardIndex,
@@ -394,8 +383,10 @@ export class HomeGraphFactory {
                   avatar: introUser?.avatar ?? null,
                   userId: introducer.userId,
                 };
+              } else if (introducer?.userId === state.userId) {
+                narratorChip = { name: 'You', text: presentation.narratorRemark, userId: state.userId };
               } else {
-                narratorChip = undefined;
+                narratorChip = { name: 'Index', text: presentation.narratorRemark };
               }
               return {
                 opportunityId: opportunity.id,
@@ -405,8 +396,8 @@ export class HomeGraphFactory {
                 mainText: presentation.personalizedSummary,
                 cta: presentation.suggestedAction,
                 headline: presentation.headline,
-                primaryActionLabel: isCounterpartGhost && !isIntroducer ? 'Invite to chat' : presentation.primaryActionLabel,
-                secondaryActionLabel: presentation.secondaryActionLabel,
+                primaryActionLabel: getPrimaryActionLabel(viewerRole),
+                secondaryActionLabel: SECONDARY_ACTION_LABEL,
                 mutualIntentsLabel: presentation.mutualIntentsLabel,
                 narratorChip,
                 viewerRole,
@@ -522,14 +513,8 @@ export class HomeGraphFactory {
           headline: c.headline,
           mainText: c.mainText,
           name: c.name,
-          viewerRole:
-            c.primaryActionLabel === 'Good match' && c.secondaryActionLabel === 'Pass'
-              ? 'introducer'
-              : undefined,
-          opportunityStatus:
-            c.primaryActionLabel === 'Good match' && c.secondaryActionLabel === 'Pass'
-              ? 'pending'
-              : undefined,
+          viewerRole: c.viewerRole === 'introducer' ? 'introducer' : undefined,
+          opportunityStatus: c.viewerRole === 'introducer' ? 'pending' : undefined,
         }));
         const _traceEmitterCategorizer = requestContext.getStore()?.traceEmitter;
         const categorizerStart = Date.now();
