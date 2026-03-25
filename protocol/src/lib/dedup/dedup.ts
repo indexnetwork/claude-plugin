@@ -50,3 +50,51 @@ export function jaroWinkler(s1: string, s2: string): number {
 
   return jaro + prefix * 0.1 * (1 - jaro);
 }
+
+/** Common email providers where domain match is meaningless. */
+const COMMON_PROVIDERS = new Set([
+  'gmail.com', 'googlemail.com',
+  'outlook.com', 'hotmail.com', 'live.com', 'msn.com',
+  'yahoo.com', 'ymail.com',
+  'icloud.com', 'me.com', 'mac.com',
+  'aol.com',
+  'proton.me', 'protonmail.com',
+  'zoho.com',
+  'mail.com',
+  'gmx.com', 'gmx.net',
+  'fastmail.com',
+  'tutanota.com', 'tuta.io',
+  'yandex.com', 'yandex.ru',
+]);
+
+/**
+ * Checks if an email domain is a common provider (domain match is meaningless).
+ *
+ * @param domain - Lowercase email domain
+ * @returns True if the domain is a common email provider
+ */
+export function isCommonProvider(domain: string): boolean {
+  return COMMON_PROVIDERS.has(domain);
+}
+
+/**
+ * Computes email similarity by comparing local-parts with Jaro-Winkler,
+ * then adding a domain bonus for matching custom domains.
+ *
+ * @param email1 - First email (lowercase)
+ * @param email2 - Second email (lowercase)
+ * @param domainBonus - Bonus to add when custom domains match
+ * @returns Similarity score between 0.0 and 1.0
+ */
+export function emailSimilarity(email1: string, email2: string, domainBonus: number): number {
+  const [local1, domain1] = email1.split('@');
+  const [local2, domain2] = email2.split('@');
+
+  const localScore = jaroWinkler(local1, local2);
+
+  const bothCommon = isCommonProvider(domain1) && isCommonProvider(domain2);
+  const customMatch = !bothCommon && !isCommonProvider(domain1) && !isCommonProvider(domain2) && domain1 === domain2;
+
+  const bonus = customMatch ? domainBonus : 0;
+  return Math.min(1.0, localScore + bonus);
+}
