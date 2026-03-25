@@ -213,7 +213,7 @@ export default function NetworkDetailPage({ networkIdOverride, basePath }: Netwo
               {isOwner ? (
                 <Tabs.Root value={activeTab} onValueChange={handleTabChange}>
                   <Tabs.List className="flex border-b border-gray-200 mb-8">
-                    {(['overview', 'settings', 'access', ...(network?.isPersonal ? ['integrations'] : [])] as const).map((tab) => (
+                    {(['overview', 'settings', 'access', 'integrations'] as const).map((tab) => (
                       <Tabs.Trigger
                         key={tab}
                         value={tab}

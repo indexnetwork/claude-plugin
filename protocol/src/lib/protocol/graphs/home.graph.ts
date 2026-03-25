@@ -24,7 +24,7 @@ import {
 } from '../states/home.state';
 import { OpportunityPresenter, gatherPresenterContext, type PresenterDatabase } from '../agents/opportunity.presenter';
 import { HomeCategorizerAgent } from '../agents/home.categorizer';
-import { canUserSeeOpportunity, isActionableForViewer } from '../support/opportunity.utils';
+import { canUserSeeOpportunity, isActionableForViewer, selectByComposition } from '../support/opportunity.utils';
 import { resolveHomeSectionIcon, DEFAULT_HOME_SECTION_ICON } from '../support/lucide.icon-catalog';
 import { protocolLogger } from '../support/protocol.logger';
 import { timed } from '../../performance';
@@ -71,47 +71,6 @@ export function stripLeadingNarratorName(remark: string, narratorName: string): 
   }
   return t;
 }
-
-const toIntentArray = (value: unknown): unknown[] => (Array.isArray(value) ? value : []);
-
-const toIntentKey = (intent: unknown): string | null => {
-  if (typeof intent === 'string' || typeof intent === 'number') {
-    return String(intent);
-  }
-  if (!intent || typeof intent !== 'object') {
-    return null;
-  }
-
-  const record = intent as Record<string, unknown>;
-  const candidate =
-    record.intentId ?? record.id ?? record.payload ?? record.summary ?? record.title ?? record.name;
-
-  if (typeof candidate === 'string' || typeof candidate === 'number') {
-    return String(candidate);
-  }
-  return null;
-};
-
-const computeMutualIntentCount = (ctx: Record<string, unknown>): number => {
-  const actorIntents = toIntentArray(ctx.intents ?? ctx.viewerIntents ?? ctx.actorIntents);
-  const partnerIntents = toIntentArray(ctx.otherIntents ?? ctx.partnerIntents ?? ctx.otherPartyIntents);
-
-  const actorIntentSet = new Set(
-    actorIntents.map((intent) => toIntentKey(intent)).filter((key): key is string => key !== null)
-  );
-  const partnerIntentSet = new Set(
-    partnerIntents.map((intent) => toIntentKey(intent)).filter((key): key is string => key !== null)
-  );
-
-  let overlap = 0;
-  for (const key of actorIntentSet) {
-    if (partnerIntentSet.has(key)) {
-      overlap += 1;
-    }
-  }
-
-  return overlap;
-};
 
 /** Normalize timestamp for sorting; returns numeric ms or 0 for invalid/missing. */
 const safeParseDate = (value: unknown): number => {
@@ -233,7 +192,18 @@ export class HomeGraphFactory {
             for (const id of counterpartIds) seenUserIds.add(id);
             return true;
           });
-          const opportunities = deduped.slice(0, state.limit);
+          const expiredSorted = [...expired]
+            .filter((opp) => {
+              const counterpartIds = getUniqueCounterpartUserIds(opp, state.userId);
+              return ![...counterpartIds].some((id) => seenUserIds.has(id));
+            })
+            .sort((a, b) => {
+              const aTime = safeParseDate(a.updatedAt);
+              const bTime = safeParseDate(b.updatedAt);
+              return bTime - aTime;
+            });
+          const composed = selectByComposition([...deduped, ...expiredSorted], state.userId);
+          const opportunities = composed.slice(0, state.limit);
           return { opportunities, expired };
         } catch (e) {
           logger.error('HomeGraph loadOpportunities failed', { error: e });
@@ -399,10 +369,9 @@ export class HomeGraphFactory {
                 state.userId,
                 otherActor?.userId,
               );
-              const mutualIntentCount = computeMutualIntentCount(ctx as unknown as Record<string, unknown>);
               const homeInput = {
                 ...ctx,
-                mutualIntentCount,
+                mutualIntentCount: undefined,
                 opportunityStatus: opportunity.status,
               };
               const _traceEmitterPresenter = requestContext.getStore()?.traceEmitter;
