@@ -60,7 +60,7 @@ The protocol backend enforces strict layering to maintain separation of concerns
 +------------------------------------------------------------------+
 |                                                                  |
 |   Adapters                                                       |
-|   Implementations of protocol interfaces                         |
+|   Own types that align with protocol interfaces                   |
 |   (database, embedder, cache, queue, scraper, storage)           |
 |   Named by concept, not technology                               |
 |                                                                  |
@@ -85,7 +85,7 @@ The **protocol layer** (`src/lib/protocol/`) sits alongside services. It contain
 |-------|---------------|------------|
 | **Controllers** | HTTP handling, input validation via Zod, response formatting | Services, guards, decorators |
 | **Services** | Business logic, DB transactions, event emission, typed results | Adapters, lib/protocol |
-| **Adapters** | Implement protocol interfaces, wrap infrastructure | Infrastructure libraries |
+| **Adapters** | Define own types aligned with protocol interfaces, wrap infrastructure | Infrastructure libraries (not lib/protocol/) |
 | **Protocol** | Graphs, agents, tools, state machines | Nothing external (all deps injected) |
 | **Infrastructure** | PostgreSQL, Redis, OpenRouter, S3 | N/A (external systems) |
 
@@ -106,7 +106,7 @@ Layering is enforced through strict import rules. Violations cause tight couplin
 - CANNOT import: other services (use events, queues, or shared lib for cross-service orchestration)
 
 **Adapters**
-- CAN import: protocol interfaces from `src/lib/protocol/interfaces/`, infrastructure libraries
+- CAN import: infrastructure libraries (must not import from `src/lib/protocol/interfaces/` — define own aligned types)
 - CANNOT import: services, controllers
 
 **Protocol layer (graphs, agents, tools)**

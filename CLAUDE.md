@@ -332,7 +332,7 @@ Each layer has a `*.template.md` with coding guidelines. Consult before adding o
 
 ### Adapter Pattern
 
-Protocol interfaces live in `src/lib/protocol/interfaces/` (e.g. `database.interface.ts`, `storage.interface.ts`). Implementations live in `src/adapters/` (auth, database, embedder, cache, integration, queue, scraper, storage). Controllers (e.g. opportunity, chat) receive database/queue abstractions via constructor injection so they can be tested with mocks.
+Protocol interfaces live in `src/lib/protocol/interfaces/` (e.g. `database.interface.ts`, `storage.interface.ts`). Adapters in `src/adapters/` (auth, database, embedder, cache, integration, queue, scraper, storage) must not import from `src/lib/protocol/interfaces/` — they define their own types that align with protocol interfaces. Controllers (e.g. opportunity, chat) receive database/queue abstractions via constructor injection so they can be tested with mocks.
 
 **Adapter file naming**: Use **conceptual** names (role/capability), not implementation technology. Pattern: `{concept}.adapter.ts`. Examples: `database.adapter.ts` (not `drizzle.adapter.ts`), `cache.adapter.ts` and `queue.adapter.ts` (not `redis.adapter.ts`), `storage.adapter.ts` (not `s3.adapter.ts`). Tests: `{concept}.adapter.spec.ts`.
 
