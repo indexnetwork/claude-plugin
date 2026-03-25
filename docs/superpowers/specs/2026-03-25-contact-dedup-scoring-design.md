@@ -36,7 +36,7 @@ The system computes a duplicate likelihood score between every pair of contacts 
 - **Local-part similarity:** Jaro-Winkler on the local-part
 - **Domain classification:** Check against hardcoded common-provider list (~20 entries: gmail, outlook, yahoo, hotmail, icloud, etc.)
   - **Common provider:** Domain match contributes 0 — only local-part matters
-  - **Custom domain, exact match:** Bonus added to email score (capped at 1.0)
+  - **Custom domain, exact match:** Amplified bonus added — `localScore + domainBonus × (2 − localScore)`, capped at 1.0. The multiplier gives a stronger boost when local-parts are less similar, reflecting the higher signal that a shared custom domain provides. Note: with the aggressive preset (`domainBonus=0.35`), any same-domain pair exceeds the email threshold regardless of local-part similarity.
   - **Custom domain, no match:** No bonus
 
 ### Empty/Missing Names
@@ -79,8 +79,8 @@ Special values:
 |--------|---------|--------|---------|----------|-----------|--------|
 | John Smith | john@gmail.com | John Smith | jsmith@work.com | 1.0 | 0.58 | **Keep both** (email too low) |
 | John Smith | john.smith@gmail.com | John Smith | johnsmith@yahoo.com | 1.0 | 0.91 | **Dedup** |
-| John Smith | john@smith.dev | J Smith | js@smith.dev | 0.82 | 0.41 + 0.25 = 0.66 | **Keep both** (name too low) |
-| Sarah Connor | sarah@connor.io | Sarah Connor | s.connor@connor.io | 1.0 | 0.62 + 0.25 = 0.87 | **Dedup** |
+| John Smith | john@smith.dev | J Smith | js@smith.dev | 0.82 | 0.41 + 0.40 = 0.81 | **Keep both** (name too low) |
+| Sarah Connor | sarah@connor.io | Sarah Connor | s.connor@connor.io | 1.0 | 0.50 + 0.38 = 0.87 | **Dedup** |
 
 ## Architecture
 

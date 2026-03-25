@@ -87,6 +87,8 @@ export function isCommonProvider(domain: string): boolean {
  * @returns Similarity score between 0.0 and 1.0
  */
 export function emailSimilarity(email1: string, email2: string, domainBonus: number): number {
+  if (!email1.includes('@') || !email2.includes('@')) return jaroWinkler(email1, email2);
+
   const [local1, domain1] = email1.split('@');
   const [local2, domain2] = email2.split('@');
 
