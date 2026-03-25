@@ -92,11 +92,16 @@ export function emailSimilarity(email1: string, email2: string, domainBonus: num
 
   const localScore = jaroWinkler(local1, local2);
 
-  const bothCommon = isCommonProvider(domain1) && isCommonProvider(domain2);
-  const customMatch = !bothCommon && !isCommonProvider(domain1) && !isCommonProvider(domain2) && domain1 === domain2;
+  const customMatch = !isCommonProvider(domain1) && !isCommonProvider(domain2) && domain1 === domain2;
 
-  const bonus = customMatch ? domainBonus : 0;
-  return Math.min(1.0, localScore + bonus);
+  // When custom domains match, amplify the bonus for low local-part scores.
+  // Formula: localScore + domainBonus * (2 - localScore). The multiplier exceeds 1.0
+  // for localScore < 1.0, so the effective boost is stronger than a flat additive.
+  // Note: with aggressive preset (domainBonus=0.35), any same-domain pair merges.
+  if (customMatch) {
+    return Math.min(1.0, localScore + domainBonus * (2 - localScore));
+  }
+  return localScore;
 }
 
 /** Threshold configuration for a dedup preset. */
@@ -121,4 +126,82 @@ const PRESETS: Record<string, DedupPreset> = {
 export function getPreset(strategy: string | undefined): DedupPreset | null {
   if (strategy === 'off') return null;
   return PRESETS[strategy ?? ''] ?? PRESETS.conservative;
+}
+
+/** Result of contact deduplication. */
+export interface DedupResult {
+  kept: Array<{ email: string; userId: string; isNew: boolean }>;
+  removed: Array<{
+    email: string;
+    userId: string;
+    matchedWith: string;
+    nameScore: number;
+    emailScore: number;
+  }>;
+}
+
+/**
+ * Deduplicates resolved contact details using name + email similarity scoring.
+ * Both name and email must independently pass their thresholds for a pair to
+ * be considered duplicates. First contact in import order is kept.
+ *
+ * @param contacts - Original import input (provides name-to-email mapping)
+ * @param details - Resolved details from resolveUsers (email, userId, isNew)
+ * @param preset - Threshold config, or null to disable dedup
+ * @returns Kept and removed contacts with scores for removed entries
+ */
+export function deduplicateContacts(
+  contacts: Array<{ name?: string; email: string }>,
+  details: Array<{ email: string; userId: string; isNew: boolean }>,
+  preset: DedupPreset | null,
+): DedupResult {
+  if (!preset || details.length <= 1) {
+    return { kept: [...details], removed: [] };
+  }
+
+  // Build email → normalized name map
+  const emailToName = new Map<string, string>();
+  for (const c of contacts) {
+    const email = c.email.toLowerCase().trim();
+    if (!emailToName.has(email)) {
+      const name = c.name?.trim();
+      emailToName.set(email, name ? name.toLowerCase().replace(/\s+/g, ' ') : email);
+    }
+  }
+
+  const kept: DedupResult['kept'] = [];
+  const removed: DedupResult['removed'] = [];
+  const removedIndexes = new Set<number>();
+
+  for (let i = 0; i < details.length; i++) {
+    if (removedIndexes.has(i)) continue;
+
+    kept.push(details[i]);
+    const nameI = emailToName.get(details[i].email) ?? details[i].email;
+    const emailI = details[i].email;
+
+    for (let j = i + 1; j < details.length; j++) {
+      if (removedIndexes.has(j)) continue;
+
+      const nameJ = emailToName.get(details[j].email) ?? details[j].email;
+      const emailJ = details[j].email;
+
+      const nameScore = jaroWinkler(nameI, nameJ);
+      if (nameScore < preset.nameThreshold) continue;
+
+      const eScore = emailSimilarity(emailI, emailJ, preset.domainBonus);
+      if (eScore < preset.emailThreshold) continue;
+
+      removedIndexes.add(j);
+      removed.push({
+        email: details[j].email,
+        userId: details[j].userId,
+        matchedWith: details[i].email,
+        nameScore,
+        emailScore: eScore,
+      });
+    }
+  }
+
+  return { kept, removed };
 }

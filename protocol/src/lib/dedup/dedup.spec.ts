@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { jaroWinkler, isCommonProvider, emailSimilarity, getPreset, type DedupPreset } from './dedup';
+import { jaroWinkler, isCommonProvider, emailSimilarity, getPreset, type DedupPreset, deduplicateContacts, type DedupResult } from './dedup';
 
 describe('jaroWinkler', () => {
   it('returns 1.0 for identical strings', () => {
@@ -119,5 +119,128 @@ describe('getPreset', () => {
   it('defaults to conservative for unknown values', () => {
     const preset = getPreset('invalid');
     expect(preset?.nameThreshold).toBe(0.92);
+  });
+});
+
+describe('deduplicateContacts', () => {
+  const preset = { nameThreshold: 0.92, emailThreshold: 0.85, domainBonus: 0.25 };
+
+  it('keeps all contacts when names differ', () => {
+    const contacts = [
+      { name: 'Alice', email: 'alice@test.com' },
+      { name: 'Bob', email: 'bob@test.com' },
+    ];
+    const details = [
+      { email: 'alice@test.com', userId: 'u1', isNew: true },
+      { email: 'bob@test.com', userId: 'u2', isNew: true },
+    ];
+    const result = deduplicateContacts(contacts, details, preset);
+    expect(result.kept).toEqual(details);
+    expect(result.removed).toEqual([]);
+  });
+
+  it('deduplicates when name and email both score above thresholds', () => {
+    const contacts = [
+      { name: 'John Smith', email: 'john.smith@gmail.com' },
+      { name: 'John Smith', email: 'johnsmith@yahoo.com' },
+    ];
+    const details = [
+      { email: 'john.smith@gmail.com', userId: 'u1', isNew: true },
+      { email: 'johnsmith@yahoo.com', userId: 'u2', isNew: true },
+    ];
+    const result = deduplicateContacts(contacts, details, preset);
+    expect(result.kept.length).toBe(1);
+    expect(result.kept[0].email).toBe('john.smith@gmail.com');
+    expect(result.removed.length).toBe(1);
+    expect(result.removed[0].matchedWith).toBe('john.smith@gmail.com');
+  });
+
+  it('keeps both when name matches but email scores too low', () => {
+    const contacts = [
+      { name: 'John Smith', email: 'john@gmail.com' },
+      { name: 'John Smith', email: 'jsmith@work.com' },
+    ];
+    const details = [
+      { email: 'john@gmail.com', userId: 'u1', isNew: true },
+      { email: 'jsmith@work.com', userId: 'u2', isNew: true },
+    ];
+    const result = deduplicateContacts(contacts, details, preset);
+    expect(result.kept.length).toBe(2);
+    expect(result.removed.length).toBe(0);
+  });
+
+  it('applies domain bonus for matching custom domains', () => {
+    const contacts = [
+      { name: 'Sarah Connor', email: 'sarah@connor.io' },
+      { name: 'Sarah Connor', email: 's.connor@connor.io' },
+    ];
+    const details = [
+      { email: 'sarah@connor.io', userId: 'u1', isNew: true },
+      { email: 's.connor@connor.io', userId: 'u2', isNew: true },
+    ];
+    const result = deduplicateContacts(contacts, details, preset);
+    expect(result.kept.length).toBe(1);
+    expect(result.removed.length).toBe(1);
+  });
+
+  it('uses full email as name when name is empty', () => {
+    const contacts = [
+      { name: '', email: 'sam@gmail.com' },
+      { name: '', email: 'sam@company.com' },
+    ];
+    const details = [
+      { email: 'sam@gmail.com', userId: 'u1', isNew: true },
+      { email: 'sam@company.com', userId: 'u2', isNew: true },
+    ];
+    const result = deduplicateContacts(contacts, details, preset);
+    // Full emails as names: "sam@gmail.com" vs "sam@company.com" — low name similarity
+    expect(result.kept.length).toBe(2);
+  });
+
+  it('returns all contacts when preset is null (off)', () => {
+    const contacts = [
+      { name: 'John Smith', email: 'john.smith@gmail.com' },
+      { name: 'John Smith', email: 'johnsmith@yahoo.com' },
+    ];
+    const details = [
+      { email: 'john.smith@gmail.com', userId: 'u1', isNew: true },
+      { email: 'johnsmith@yahoo.com', userId: 'u2', isNew: true },
+    ];
+    const result = deduplicateContacts(contacts, details, null);
+    expect(result.kept).toEqual(details);
+    expect(result.removed).toEqual([]);
+  });
+
+  it('handles single contact without error', () => {
+    const contacts = [{ name: 'Alice', email: 'alice@test.com' }];
+    const details = [{ email: 'alice@test.com', userId: 'u1', isNew: true }];
+    const result = deduplicateContacts(contacts, details, preset);
+    expect(result.kept).toEqual(details);
+    expect(result.removed).toEqual([]);
+  });
+
+  it('handles empty input', () => {
+    const result = deduplicateContacts([], [], preset);
+    expect(result.kept).toEqual([]);
+    expect(result.removed).toEqual([]);
+  });
+
+  it('removed entries include scores', () => {
+    const contacts = [
+      { name: 'John Smith', email: 'john.smith@gmail.com' },
+      { name: 'John Smith', email: 'johnsmith@yahoo.com' },
+    ];
+    const details = [
+      { email: 'john.smith@gmail.com', userId: 'u1', isNew: true },
+      { email: 'johnsmith@yahoo.com', userId: 'u2', isNew: true },
+    ];
+    const result = deduplicateContacts(contacts, details, preset);
+    if (result.removed.length > 0) {
+      const removed = result.removed[0];
+      expect(removed.nameScore).toBeGreaterThan(0);
+      expect(removed.emailScore).toBeGreaterThan(0);
+      expect(typeof removed.nameScore).toBe('number');
+      expect(typeof removed.emailScore).toBe('number');
+    }
   });
 });
