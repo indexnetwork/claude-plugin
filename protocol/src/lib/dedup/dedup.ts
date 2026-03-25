@@ -98,3 +98,27 @@ export function emailSimilarity(email1: string, email2: string, domainBonus: num
   const bonus = customMatch ? domainBonus : 0;
   return Math.min(1.0, localScore + bonus);
 }
+
+/** Threshold configuration for a dedup preset. */
+export interface DedupPreset {
+  nameThreshold: number;
+  emailThreshold: number;
+  domainBonus: number;
+}
+
+const PRESETS: Record<string, DedupPreset> = {
+  conservative: { nameThreshold: 0.92, emailThreshold: 0.85, domainBonus: 0.25 },
+  balanced:     { nameThreshold: 0.85, emailThreshold: 0.75, domainBonus: 0.30 },
+  aggressive:   { nameThreshold: 0.78, emailThreshold: 0.65, domainBonus: 0.35 },
+};
+
+/**
+ * Resolves a strategy string to a preset, or null if dedup is disabled.
+ *
+ * @param strategy - Environment variable value (conservative|balanced|aggressive|off)
+ * @returns Preset thresholds, or null if strategy is "off"
+ */
+export function getPreset(strategy: string | undefined): DedupPreset | null {
+  if (strategy === 'off') return null;
+  return PRESETS[strategy ?? ''] ?? PRESETS.conservative;
+}

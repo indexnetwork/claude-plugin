@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { jaroWinkler, isCommonProvider, emailSimilarity } from './dedup';
+import { jaroWinkler, isCommonProvider, emailSimilarity, getPreset, type DedupPreset } from './dedup';
 
 describe('jaroWinkler', () => {
   it('returns 1.0 for identical strings', () => {
@@ -80,5 +80,44 @@ describe('emailSimilarity', () => {
     // Same local-part, different custom domains — no bonus
     const localOnly = emailSimilarity('john@gmail.com', 'john@yahoo.com', 0.25);
     expect(score).toBeCloseTo(localOnly, 2);
+  });
+});
+
+describe('getPreset', () => {
+  it('returns conservative thresholds by default', () => {
+    const preset = getPreset(undefined);
+    expect(preset).toEqual({
+      nameThreshold: 0.92,
+      emailThreshold: 0.85,
+      domainBonus: 0.25,
+    });
+  });
+
+  it('returns null for "off"', () => {
+    expect(getPreset('off')).toBeNull();
+  });
+
+  it('returns conservative preset', () => {
+    const preset = getPreset('conservative');
+    expect(preset?.nameThreshold).toBe(0.92);
+  });
+
+  it('returns balanced preset', () => {
+    const preset = getPreset('balanced');
+    expect(preset?.nameThreshold).toBe(0.85);
+    expect(preset?.emailThreshold).toBe(0.75);
+    expect(preset?.domainBonus).toBe(0.30);
+  });
+
+  it('returns aggressive preset', () => {
+    const preset = getPreset('aggressive');
+    expect(preset?.nameThreshold).toBe(0.78);
+    expect(preset?.emailThreshold).toBe(0.65);
+    expect(preset?.domainBonus).toBe(0.35);
+  });
+
+  it('defaults to conservative for unknown values', () => {
+    const preset = getPreset('invalid');
+    expect(preset?.nameThreshold).toBe(0.92);
   });
 });
