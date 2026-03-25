@@ -384,7 +384,9 @@ export class HomeGraphFactory {
               primaryActionLabel: getPrimaryActionLabel(viewerRole),
               secondaryActionLabel: SECONDARY_ACTION_LABEL,
               mutualIntentsLabel: isIntroducer ? 'Connector match' : 'Shared interests',
-              narratorChip: { name: 'Index', text: 'Worth a look.' },
+              narratorChip: isIntroducer
+                ? { name: 'You', text: 'Worth a look.', userId: state.userId }
+                : { name: 'Index', text: 'Worth a look.' },
               viewerRole,
               isGhost: isCounterpartGhost,
               _cardIndex: cardIndex,
@@ -423,6 +425,8 @@ export class HomeGraphFactory {
                   avatar: introUser?.avatar ?? null,
                   userId: introducer.userId,
                 };
+              } else if (introducer?.userId === state.userId) {
+                narratorChip = { name: 'You', text: presentation.narratorRemark, userId: state.userId };
               } else {
                 narratorChip = { name: 'Index', text: presentation.narratorRemark };
               }

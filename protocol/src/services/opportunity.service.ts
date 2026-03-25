@@ -15,6 +15,7 @@ import { RedisCacheAdapter } from '../adapters/cache.adapter';
 import { presentOpportunity, type UserInfo } from '../lib/protocol/support/opportunity.presentation';
 import { canUserSeeOpportunity, validateOpportunityActors } from '../lib/protocol/support/opportunity.utils';
 import { persistOpportunities } from '../lib/protocol/support/opportunity.persist';
+import { getPrimaryActionLabel } from '../lib/protocol/support/opportunity.constants';
 import { OpportunityPresenter, gatherPresenterContext, type PresenterDatabase } from '../lib/protocol/agents/opportunity.presenter';
 import { stripUuids, stripIntroducerMentions } from '../lib/protocol/support/opportunity.sanitize';
 import { opportunityQueue } from '../queues/opportunity.queue';
@@ -251,7 +252,7 @@ export class OpportunityService {
       index: indexRecord ? { id: indexRecord.id, title: indexRecord.title } : (indexIdForDisplay ? { id: indexIdForDisplay, title: '' } : { id: '', title: '' }),
       status: opp.status,
       isGhost: isCounterpartGhost,
-      primaryActionLabel: 'Start Chat',
+      primaryActionLabel: getPrimaryActionLabel(myActor.role),
       createdAt: opp.createdAt instanceof Date ? opp.createdAt.toISOString() : opp.createdAt,
       expiresAt: opp.expiresAt ? (opp.expiresAt instanceof Date ? opp.expiresAt.toISOString() : opp.expiresAt) : undefined,
     };
