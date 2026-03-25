@@ -105,6 +105,7 @@ export class NegotiationGraphFactory {
 
         // First turn must be "propose"
         if (state.turnCount === 0 && turn.action !== "propose") {
+          console.warn(`[NegotiationGraph] Proposer returned "${turn.action}" on turn 0, forcing to "propose"`);
           turn.action = "propose";
         }
 
@@ -117,8 +118,7 @@ export class NegotiationGraphFactory {
           { taskId: state.taskId },
         );
 
-        const taskState = state.turnCount === 0 ? "working" : "input_required";
-        await taskService.updateState(state.taskId, taskState);
+        await taskService.updateState(state.taskId, "working");
 
         return {
           messages: [{
@@ -188,7 +188,7 @@ export class NegotiationGraphFactory {
         consensus,
         finalScore: consensus ? avgScore : 0,
         agreedRoles,
-        reasoning: history.map((t) => t.assessment.reasoning).join(" | "),
+        reasoning: lastTurn?.assessment.reasoning ?? "",
         turnCount: state.turnCount,
         ...(atCap && { reason: "turn_cap" }),
       };
@@ -215,15 +215,17 @@ export class NegotiationGraphFactory {
         turn: "turn",
         finalize: "finalize",
       })
+      .addConditionalEdges("init", (state: typeof NegotiationGraphState.State) => {
+        return state.error ? "finalize" : "turn";
+      }, { turn: "turn", finalize: "finalize" })
       .addEdge("__start__", "init")
-      .addEdge("init", "turn")
       .addEdge("finalize", "__end__");
 
     return workflow.compile();
   }
 }
 
-interface NegotiationCandidate {
+export interface NegotiationCandidate {
   userId: string;
   score: number;
   reasoning: string;
@@ -231,7 +233,7 @@ interface NegotiationCandidate {
   candidateUser: UserNegotiationContext;
 }
 
-interface NegotiationResult {
+export interface NegotiationResult {
   userId: string;
   negotiationScore: number;
   agreedRoles: NegotiationOutcome["agreedRoles"];
@@ -239,19 +241,31 @@ interface NegotiationResult {
   turnCount: number;
 }
 
+type TraceEmitter = (event: { type: "graph_start" | "graph_end" | "agent_start" | "agent_end"; name: string; durationMs?: number; summary?: string }) => void;
+
 /**
  * Runs bilateral negotiation for each candidate in parallel.
- * Returns only candidates that achieved consensus.
+ * @param negotiationGraph - Compiled negotiation graph
+ * @param sourceUser - Source user context
+ * @param candidates - Evaluated candidates to negotiate with
+ * @param indexContext - Index context for the negotiation
+ * @param opts - Optional maxTurns and traceEmitter
+ * @returns Only candidates that achieved consensus
  */
 export async function negotiateCandidates(
   negotiationGraph: NegotiationGraphLike,
   sourceUser: UserNegotiationContext,
   candidates: NegotiationCandidate[],
   indexContext: { indexId: string; prompt: string },
-  maxTurns?: number,
+  opts?: { maxTurns?: number; traceEmitter?: TraceEmitter },
 ): Promise<NegotiationResult[]> {
+  const { maxTurns, traceEmitter } = opts ?? {};
+
   const results = await Promise.all(
     candidates.map(async (candidate) => {
+      const start = Date.now();
+      traceEmitter?.({ type: "agent_start", name: "negotiation" });
+
       try {
         const result = await negotiationGraph.invoke({
           sourceUser,
@@ -265,17 +279,37 @@ export async function negotiateCandidates(
           ...(maxTurns !== undefined && { maxTurns }),
         });
 
-        if (result.outcome?.consensus) {
+        const durationMs = Date.now() - start;
+        const outcome = result.outcome;
+        const consensus = outcome?.consensus === true;
+
+        // Build inline turn flow: "propose:85 → counter:70 → accept:78"
+        const turnFlow = (result.messages ?? [])
+          .map((m) => {
+            const dataPart = (m.parts as Array<{ kind?: string; data?: Record<string, unknown> }>)?.find((p) => p.kind === "data");
+            if (!dataPart?.data) return null;
+            const turn = dataPart.data as { action?: string; assessment?: { fitScore?: number } };
+            return `${turn.action ?? "unknown"}:${turn.assessment?.fitScore ?? "?"}`;
+          })
+          .filter(Boolean)
+          .join(" → ");
+
+        const statusTag = consensus ? "✓ consensus" : "✗ rejected";
+        traceEmitter?.({ type: "agent_end", name: "negotiation", durationMs, summary: `${candidate.userId}: ${turnFlow} ${statusTag}` });
+
+        if (consensus && outcome) {
           return {
             userId: candidate.userId,
-            negotiationScore: result.outcome.finalScore,
-            agreedRoles: result.outcome.agreedRoles,
-            reasoning: result.outcome.reasoning,
-            turnCount: result.outcome.turnCount,
+            negotiationScore: outcome.finalScore,
+            agreedRoles: outcome.agreedRoles,
+            reasoning: outcome.reasoning,
+            turnCount: outcome.turnCount,
           };
         }
         return null;
       } catch (err) {
+        const durationMs = Date.now() - start;
+        traceEmitter?.({ type: "agent_end", name: "negotiation", durationMs, summary: `${candidate.userId}: error` });
         console.error(`[negotiateCandidates] Negotiation failed for candidate ${candidate.userId}:`, err);
         return null;
       }
@@ -283,24 +317,4 @@ export async function negotiateCandidates(
   );
 
   return results.filter((r): r is NegotiationResult => r !== null);
-}
-
-/**
- * Creates a default negotiation graph with real services and agents.
- * Used as the default parameter for OpportunityGraphFactory.
- */
-export function createDefaultNegotiationGraph() {
-  // Lazy imports to avoid circular dependencies
-  const { ConversationService } = require("../../../services/conversation.service");
-  const { TaskService } = require("../../../services/task.service");
-  const { NegotiationProposer } = require("../agents/negotiation.proposer");
-  const { NegotiationResponder } = require("../agents/negotiation.responder");
-
-  const factory = new NegotiationGraphFactory(
-    new ConversationService(),
-    new TaskService(),
-    new NegotiationProposer(),
-    new NegotiationResponder(),
-  );
-  return factory.createGraph();
 }

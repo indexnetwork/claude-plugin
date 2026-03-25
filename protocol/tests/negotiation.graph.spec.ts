@@ -3,7 +3,7 @@ config({ path: ".env.development" });
 
 import { describe, it, expect, mock } from "bun:test";
 import { NegotiationGraphFactory } from "../src/lib/protocol/graphs/negotiation.graph";
-import type { UserNegotiationContext, SeedAssessment } from "../src/lib/protocol/states/negotiation.state";
+import type { UserNegotiationContext, SeedAssessment, NegotiationMessage } from "../src/lib/protocol/states/negotiation.state";
 
 const sourceUser: UserNegotiationContext = {
   id: "user-source",
@@ -21,44 +21,39 @@ const candidateUser: UserNegotiationContext = {
 
 const seed: SeedAssessment = { score: 78, reasoning: "Complementary skills", valencyRole: "Peer" };
 
-function createMockDeps(proposerAction = "propose", responderAction = "accept") {
-  return {
-    conversationService: {
-      createConversation: mock(() => Promise.resolve({ id: "conv-1" })),
-      sendMessage: mock(() => Promise.resolve({ id: "msg-1", senderId: "agent", role: "agent", parts: [], createdAt: new Date() })),
-    },
-    taskService: {
-      createTask: mock(() => Promise.resolve({ id: "task-1", conversationId: "conv-1", state: "submitted" })),
-      updateState: mock(() => Promise.resolve({})),
-      createArtifact: mock(() => Promise.resolve({ id: "art-1" })),
-    },
-    proposer: {
-      invoke: mock(() => {
-        return Promise.resolve({
-          action: proposerAction,
-          assessment: { fitScore: 80, reasoning: "Good match", suggestedRoles: { ownUser: "peer", otherUser: "peer" } },
-        });
-      }),
-    },
-    responder: {
-      invoke: mock(() => {
-        return Promise.resolve({
-          action: responderAction,
-          assessment: { fitScore: 75, reasoning: "Agreed, good fit", suggestedRoles: { ownUser: "peer", otherUser: "peer" } },
-        });
-      }),
-    },
+function createMockDeps(proposerAction = "propose" as const, responderAction = "accept" as const) {
+  const conversationService: ConstructorParameters<typeof NegotiationGraphFactory>[0] = {
+    createConversation: mock(() => Promise.resolve({ id: "conv-1" })),
+    sendMessage: mock(() => Promise.resolve({ id: "msg-1", senderId: "agent", role: "agent", parts: [], createdAt: new Date() })),
   };
+  const taskService: ConstructorParameters<typeof NegotiationGraphFactory>[1] = {
+    createTask: mock(() => Promise.resolve({ id: "task-1", conversationId: "conv-1", state: "submitted" })),
+    updateState: mock(() => Promise.resolve({})),
+    createArtifact: mock(() => Promise.resolve({ id: "art-1" })),
+  };
+  const proposer: ConstructorParameters<typeof NegotiationGraphFactory>[2] = {
+    invoke: mock(() => Promise.resolve({
+      action: proposerAction,
+      assessment: { fitScore: 80, reasoning: "Good match", suggestedRoles: { ownUser: "peer" as const, otherUser: "peer" as const } },
+    })),
+  };
+  const responder: ConstructorParameters<typeof NegotiationGraphFactory>[3] = {
+    invoke: mock(() => Promise.resolve({
+      action: responderAction,
+      assessment: { fitScore: 75, reasoning: "Agreed, good fit", suggestedRoles: { ownUser: "peer" as const, otherUser: "peer" as const } },
+    })),
+  };
+  return { conversationService, taskService, proposer, responder };
 }
 
 describe("NegotiationGraph", () => {
   it("reaches consensus when responder accepts", async () => {
     const deps = createMockDeps("propose", "accept");
     const factory = new NegotiationGraphFactory(
-      deps.conversationService as any,
-      deps.taskService as any,
-      deps.proposer as any,
-      deps.responder as any,
+      deps.conversationService,
+      deps.taskService,
+      deps.proposer,
+      deps.responder,
     );
     const graph = factory.createGraph();
     const result = await graph.invoke({
@@ -77,10 +72,10 @@ describe("NegotiationGraph", () => {
   it("rejects when responder rejects", async () => {
     const deps = createMockDeps("propose", "reject");
     const factory = new NegotiationGraphFactory(
-      deps.conversationService as any,
-      deps.taskService as any,
-      deps.proposer as any,
-      deps.responder as any,
+      deps.conversationService,
+      deps.taskService,
+      deps.proposer,
+      deps.responder,
     );
     const graph = factory.createGraph();
     const result = await graph.invoke({
@@ -97,10 +92,10 @@ describe("NegotiationGraph", () => {
   it("rejects when turn cap is exceeded", async () => {
     const deps = createMockDeps("counter", "counter");
     const factory = new NegotiationGraphFactory(
-      deps.conversationService as any,
-      deps.taskService as any,
-      deps.proposer as any,
-      deps.responder as any,
+      deps.conversationService,
+      deps.taskService,
+      deps.proposer,
+      deps.responder,
     );
     const graph = factory.createGraph();
     const result = await graph.invoke({
