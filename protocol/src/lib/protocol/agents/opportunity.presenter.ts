@@ -64,8 +64,8 @@ export interface HomeCardPresenterInput extends PresenterInput {
   mutualIntentCount?: number;
 }
 
-/** LLM-generated fields for home-card presentation (buttons are hardcoded, not LLM-generated). */
-const HomeCardLLMSchema = z.object({
+/** LLM-generated fields for home-card presentation (buttons are hardcoded by callers, not LLM-generated). */
+export const HomeCardLLMSchema = z.object({
   headline: z
     .string()
     .describe("Short, compelling headline for this opportunity"),
@@ -91,19 +91,18 @@ const HomeCardLLMSchema = z.object({
     ),
 });
 
-/** Full home-card display contract returned by presentHomeCard (includes hardcoded button labels). */
-export const HomeCardPresentationSchema = HomeCardLLMSchema.extend({
-  primaryActionLabel: z.string(),
-  secondaryActionLabel: z.string(),
-});
+/** LLM-generated result from presentHomeCard (callers append button labels from opportunity.constants). */
+export type HomeCardLLMResult = z.infer<typeof HomeCardLLMSchema>;
+
+/** Full home-card display contract including hardcoded button labels (assembled by callers). */
+export type HomeCardPresentationResult = HomeCardLLMResult & {
+  primaryActionLabel: string;
+  secondaryActionLabel: string;
+};
 
 const homeCardResponseFormat = z.object({
   presentation: HomeCardLLMSchema,
 });
-
-export type HomeCardPresentationResult = z.infer<
-  typeof HomeCardPresentationSchema
->;
 
 /** Input for a single presenter call (all context pre-assembled). */
 export interface PresenterInput {
@@ -328,12 +327,13 @@ Produce headline, personalizedSummary (2-3 sentences in "you" language), and sug
   }
 
   /**
-   * Generate full home-card display contract (headline, body, narrator remark, action labels, mutual-intent label).
+   * Generate LLM-powered home-card content (headline, body, narrator remark, mutual-intent label).
+   * Callers append button labels from opportunity.constants.
    */
   @Timed()
   public async presentHomeCard(
     input: HomeCardPresenterInput,
-  ): Promise<HomeCardPresentationResult> {
+  ): Promise<HomeCardLLMResult> {
     const mutualHint =
       input.mutualIntentCount != null
         ? `There are ${input.mutualIntentCount} overlapping intent(s) between viewer and other party.`
@@ -363,8 +363,6 @@ Produce headline, personalizedSummary, suggestedAction, narratorRemark, and mutu
 `;
 
     const isIntroducer = input.viewerRole === "introducer";
-    const primaryActionLabel = isIntroducer ? "Good match" : "Start Chat";
-    const secondaryActionLabel = "Skip";
 
     try {
       const messages = [
@@ -381,11 +379,7 @@ Produce headline, personalizedSummary, suggestedAction, narratorRemark, and mutu
           input.introducerName,
         );
       }
-      return {
-        ...parsed.presentation,
-        primaryActionLabel,
-        secondaryActionLabel,
-      };
+      return parsed.presentation;
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       const timeoutReason = message.includes("timed out") ? message : undefined;
@@ -407,8 +401,6 @@ Produce headline, personalizedSummary, suggestedAction, narratorRemark, and mutu
           ? "Share this introduction to get things started."
           : "Take a look and decide whether to reach out.",
         narratorRemark: "Worth a look.",
-        primaryActionLabel,
-        secondaryActionLabel,
         mutualIntentsLabel: isIntroducer
           ? "Connector match"
           : input.mutualIntentCount != null
@@ -446,9 +438,9 @@ Produce headline, personalizedSummary, suggestedAction, narratorRemark, and mutu
   public async presentHomeCardBatch(
     inputs: HomeCardPresenterInput[],
     options?: { concurrency?: number },
-  ): Promise<HomeCardPresentationResult[]> {
+  ): Promise<HomeCardLLMResult[]> {
     const concurrency = options?.concurrency ?? 5;
-    const results: HomeCardPresentationResult[] = [];
+    const results: HomeCardLLMResult[] = [];
     for (let i = 0; i < inputs.length; i += concurrency) {
       const chunk = inputs.slice(i, i + concurrency);
       const chunkResults = await Promise.all(

@@ -17,9 +17,10 @@ import {
   gatherPresenterContext,
   type OpportunityPresentationResult,
   type HomeCardPresentationResult,
+  type HomeCardLLMResult,
   type HomeCardPresenterInput,
 } from "../agents/opportunity.presenter";
-import { MINIMAL_MAIN_TEXT_MAX_CHARS } from "./opportunity.constants";
+import { MINIMAL_MAIN_TEXT_MAX_CHARS, getPrimaryActionLabel, SECONDARY_ACTION_LABEL } from "./opportunity.constants";
 import { viewerCentricCardSummary, narratorRemarkFromReasoning } from "./opportunity.card-text";
 import { protocolLogger, withCallLogging } from "./protocol.logger";
 
@@ -322,8 +323,8 @@ async function enrichOpportunities(
           ),
         suggestedAction: "Start a conversation to connect.",
         narratorRemark: narratorRemarkFromReasoning(reasoning, name, viewerName),
-        primaryActionLabel: viewerIsIntroducer ? "Good match" : "Start Chat",
-        secondaryActionLabel: "Skip",
+        primaryActionLabel: getPrimaryActionLabel(viewerIsIntroducer ? "introducer" : "party"),
+        secondaryActionLabel: SECONDARY_ACTION_LABEL,
         mutualIntentsLabel: "Suggested connection",
       };
     });
@@ -350,10 +351,16 @@ async function enrichOpportunities(
             opportunityStatus: baseEnriched[idx].opportunity.status,
           }),
         );
-        homeCardPresentations = await presenter.presentHomeCardBatch(
+        const llmResults = await presenter.presentHomeCardBatch(
           homeCardInputs,
           { concurrency: 5 },
         );
+        // Append hardcoded button labels to LLM results
+        homeCardPresentations = llmResults.map((llm, idx) => ({
+          ...llm,
+          primaryActionLabel: getPrimaryActionLabel(baseEnriched[idx].viewerRole),
+          secondaryActionLabel: SECONDARY_ACTION_LABEL,
+        }));
       } else {
         // Use basic presentation format
         presentations = await presenter.presentBatch(

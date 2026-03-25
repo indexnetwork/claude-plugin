@@ -122,7 +122,7 @@ describe('buildMinimalOpportunityCard - ghost user CTA (IND-161)', () => {
     expect(card.isGhost).toBe(false);
   });
 
-  it('uses "Introduce Them" when viewer is the introducer, even for ghost counterpart', () => {
+  it('uses "Good match" when viewer is the introducer, even for ghost counterpart', () => {
     const introOpp = {
       ...baseOpp,
       actors: [
@@ -135,7 +135,7 @@ describe('buildMinimalOpportunityCard - ghost user CTA (IND-161)', () => {
       introOpp, 'introducer-1', 'ghost-user', 'Ghost User', null,
       undefined, null, undefined, undefined, true,
     );
-    expect(card.primaryActionLabel).toBe('Introduce Them');
+    expect(card.primaryActionLabel).toBe('Good match');
   });
 });
 
@@ -168,7 +168,7 @@ describe('buildMinimalOpportunityCard - introducer discovery (IND-140)', () => {
       'Bob',
     );
     expect(card.viewerRole).toBe('introducer');
-    expect(card.primaryActionLabel).toBe('Introduce Them');
+    expect(card.primaryActionLabel).toBe('Good match');
     expect(card.headline).toBe('Target User → Bob');
   });
 });
