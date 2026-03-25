@@ -79,34 +79,60 @@ describe("OpportunityPresenter – zero mutual intents label", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Regex safety net – catches "0 mutual intents" from LLM output
+// Regex safety net – exercises presentHomeCard() with mocked LLM success path
 // ---------------------------------------------------------------------------
 
-describe("OpportunityPresenter – regex safety net for LLM output", () => {
-  const regex = /^0\s+(mutual|overlapping)\s+intent/i;
+describe("OpportunityPresenter – sanitizer rewrites zero-count LLM output", () => {
+  const baseInput: HomeCardPresenterInput = {
+    viewerContext: "Name: Alice\nBio: Engineer",
+    otherPartyContext: "Name: Bob\nBio: Designer",
+    matchReasoning: "Both interested in AI tooling and design systems.",
+    category: "collaboration",
+    confidence: 0.8,
+    signalsSummary: "Complementary skills",
+    indexName: "Test Index",
+    viewerRole: "party",
+    opportunityStatus: "pending",
+  };
 
-  it("should match '0 mutual intents'", () => {
-    expect(regex.test("0 mutual intents")).toBe(true);
+  function createLlmMockPresenter(mutualIntentsLabel: string): OpportunityPresenter {
+    const p = new OpportunityPresenter();
+    (p as any).invokeWithTimeout = mock(() => ({
+      presentation: {
+        headline: "A great match",
+        personalizedSummary: "You both care about design systems.",
+        suggestedAction: "Reach out to Bob.",
+        narratorRemark: "Worth a look.",
+        primaryActionLabel: "Start Chat",
+        secondaryActionLabel: "Skip",
+        mutualIntentsLabel,
+      },
+    }));
+    return p;
+  }
+
+  it("should rewrite '0 mutual intents' to 'Shared interests'", async () => {
+    const presenter = createLlmMockPresenter("0 mutual intents");
+    const result = await presenter.presentHomeCard(baseInput);
+    expect(result.mutualIntentsLabel).toBe("Shared interests");
   });
 
-  it("should match '0 overlapping intents'", () => {
-    expect(regex.test("0 overlapping intents")).toBe(true);
+  it("should rewrite '0 overlapping intents' to 'Shared interests'", async () => {
+    const presenter = createLlmMockPresenter("0 overlapping intents");
+    const result = await presenter.presentHomeCard(baseInput);
+    expect(result.mutualIntentsLabel).toBe("Shared interests");
   });
 
-  it("should match '0 mutual intent' (singular)", () => {
-    expect(regex.test("0 mutual intent")).toBe(true);
+  it("should NOT rewrite '3 mutual intents'", async () => {
+    const presenter = createLlmMockPresenter("3 mutual intents");
+    const result = await presenter.presentHomeCard(baseInput);
+    expect(result.mutualIntentsLabel).toBe("3 mutual intents");
   });
 
-  it("should match '0  mutual intents' (extra whitespace)", () => {
-    expect(regex.test("0  mutual intents")).toBe(true);
-  });
-
-  it("should NOT match '2 mutual intents'", () => {
-    expect(regex.test("2 mutual intents")).toBe(false);
-  });
-
-  it("should NOT match 'Shared interests'", () => {
-    expect(regex.test("Shared interests")).toBe(false);
+  it("should NOT rewrite 'Shared interests'", async () => {
+    const presenter = createLlmMockPresenter("Shared interests");
+    const result = await presenter.presentHomeCard(baseInput);
+    expect(result.mutualIntentsLabel).toBe("Shared interests");
   });
 });
 
