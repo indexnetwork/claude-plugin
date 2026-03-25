@@ -2,18 +2,19 @@ import { config } from "dotenv";
 config({ path: ".env.development" });
 
 import { describe, it, expect, mock } from "bun:test";
+import type { NegotiationGraphLike } from "../src/lib/protocol/states/negotiation.state";
 
 describe("Opportunity Graph — Negotiation Integration", () => {
   it("negotiateNode filters candidates by negotiation consensus", async () => {
-    const mockNegotiationGraph = {
-      invoke: mock((input: any) => {
+    const mockNegotiationGraph: NegotiationGraphLike = {
+      invoke: mock((input) => {
         const isFirstCandidate = input.candidateUser.id === "candidate-1";
         return Promise.resolve({
           outcome: {
             consensus: isFirstCandidate,
             finalScore: isFirstCandidate ? 82 : 0,
             agreedRoles: isFirstCandidate
-              ? [{ userId: "source", role: "peer" }, { userId: "candidate-1", role: "peer" }]
+              ? [{ userId: "source", role: "peer" as const }, { userId: "candidate-1", role: "peer" as const }]
               : [],
             reasoning: isFirstCandidate ? "Good match" : "No fit",
             turnCount: 2,
@@ -37,7 +38,7 @@ describe("Opportunity Graph — Negotiation Integration", () => {
     };
 
     const results = await negotiateCandidates(
-      mockNegotiationGraph as any,
+      mockNegotiationGraph,
       sourceUser,
       candidates.map((c) => ({
         ...c,
