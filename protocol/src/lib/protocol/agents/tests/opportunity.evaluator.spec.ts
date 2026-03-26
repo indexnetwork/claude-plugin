@@ -89,6 +89,47 @@ describe('OpportunityEvaluator', () => {
       expect(result).toHaveLength(0);
     });
 
+    it('includes same-side matching rule in entity bundle prompt', async () => {
+      let capturedMessages: unknown[] = [];
+      const mockEntityBundleModel = {
+        invoke: async (messages: unknown[]) => {
+          capturedMessages = messages;
+          return { opportunities: [] };
+        },
+      } as unknown as Runnable;
+
+      const evaluatorWithMock = new OpportunityEvaluator({ entityBundleModel: mockEntityBundleModel });
+
+      const input: EvaluatorInput = {
+        discovererId: 'user-1',
+        entities: [
+          {
+            userId: 'user-1',
+            profile: { name: 'Alice', bio: 'Founder raising capital' },
+            intents: [{ intentId: 'i1', payload: 'Looking for investors' }],
+            indexId: 'idx-1',
+          },
+          {
+            userId: 'user-2',
+            profile: { name: 'Bob', bio: 'Founder raising capital' },
+            intents: [{ intentId: 'i2', payload: 'Seeking investors for my startup' }],
+            indexId: 'idx-1',
+          },
+        ],
+        discoveryQuery: 'find me investors',
+      };
+
+      await evaluatorWithMock.invokeEntityBundle(input, { minScore: 30 });
+
+      // Verify the system prompt contains same-side matching rule
+      const systemMsg = capturedMessages[0] as { content: string };
+      expect(systemMsg.content).toContain('SAME-SIDE MATCHING');
+
+      // Verify the human message contains same-side check in discovery query rules
+      const humanMsg = capturedMessages[1] as { content: string };
+      expect(humanMsg.content).toContain('SAME-SIDE CHECK');
+    }, 10000);
+
     it.skip('returns no opportunity when entities clearly already know each other (e.g. co-founders) [integration: live LLM]', async () => {
       const input: EvaluatorInput = {
         discovererId: 'discoverer-1',
@@ -115,6 +156,101 @@ describe('OpportunityEvaluator', () => {
       };
       const result = await evaluator.invokeEntityBundle(input, { minScore: 70 });
       expect(result).toHaveLength(0);
+    }, 30000);
+
+    it('penalizes candidates with known location mismatch when discoveryQuery mentions location', async () => {
+      const mockEntityBundleModel = {
+        invoke: async () => ({
+          opportunities: [
+            {
+              reasoning: 'NY-based investor matches investor criteria but is in wrong city.',
+              score: 35,
+              actors: [
+                { userId: 'discoverer-1', role: 'patient', intentId: null },
+                { userId: 'candidate-ny', role: 'agent', intentId: null },
+              ],
+            },
+          ],
+        }),
+      } as unknown as Runnable;
+      const evaluatorWithMock = new OpportunityEvaluator({
+        entityBundleModel: mockEntityBundleModel,
+      });
+      const input: EvaluatorInput = {
+        discovererId: 'discoverer-1',
+        entities: [
+          {
+            userId: 'discoverer-1',
+            profile: {
+              name: 'Alice',
+              bio: 'Founder building an AI startup.',
+              location: 'San Francisco',
+            },
+            indexId: 'index-1',
+          },
+          {
+            userId: 'candidate-ny',
+            profile: {
+              name: 'Bob',
+              bio: 'VC partner at TechFund.',
+              location: 'New York',
+            },
+            indexId: 'index-1',
+            ragScore: 85,
+          },
+        ],
+        discoveryQuery: 'investors in San Francisco',
+      };
+      const results = await evaluatorWithMock.invokeEntityBundle(input, { minScore: 50 });
+      // Mock returns score 35, which is below minScore 50 — should be filtered
+      expect(results.length).toBe(0);
+    }, 30000);
+
+    it('does not penalize candidates with unknown location when discoveryQuery mentions location', async () => {
+      const mockEntityBundleModel = {
+        invoke: async () => ({
+          opportunities: [
+            {
+              reasoning: 'Candidate matches investor criteria; location unverified.',
+              score: 80,
+              actors: [
+                { userId: 'discoverer-1', role: 'patient', intentId: null },
+                { userId: 'candidate-unknown', role: 'agent', intentId: null },
+              ],
+            },
+          ],
+        }),
+      } as unknown as Runnable;
+      const evaluatorWithMock = new OpportunityEvaluator({
+        entityBundleModel: mockEntityBundleModel,
+      });
+      const input: EvaluatorInput = {
+        discovererId: 'discoverer-1',
+        entities: [
+          {
+            userId: 'discoverer-1',
+            profile: {
+              name: 'Alice',
+              bio: 'Founder building an AI startup.',
+              location: 'San Francisco',
+            },
+            indexId: 'index-1',
+          },
+          {
+            userId: 'candidate-unknown',
+            profile: {
+              name: 'Charlie',
+              bio: 'Angel investor in deep tech.',
+            },
+            indexId: 'index-1',
+            ragScore: 75,
+          },
+        ],
+        discoveryQuery: 'investors in San Francisco',
+      };
+      const results = await evaluatorWithMock.invokeEntityBundle(input, { minScore: 50 });
+      expect(results.length).toBe(1);
+      expect(results[0].score).toBeGreaterThanOrEqual(50);
     }, 30000);
   });
 });

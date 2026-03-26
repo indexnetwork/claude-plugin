@@ -19,6 +19,8 @@ export interface UserRecord {
   location?: string | null;
   socials?: UserSocials | null;
   onboarding?: OnboardingState | null;
+  isGhost?: boolean;
+  deletedAt?: Date | null;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -188,6 +190,8 @@ export interface IndexMembership {
   memberPrompt: string | null;
   /** Whether new intents are auto-assigned to this index */
   autoAssign: boolean;
+  /** Whether this is the user's personal index ("My Network") */
+  isPersonal: boolean;
   /** When the user joined the index */
   joinedAt: Date;
 }
@@ -206,18 +210,28 @@ export interface OwnedIndex {
   title: string;
   /** Index purpose/scope prompt */
   prompt: string | null;
+  /** Cover image URL */
+  imageUrl: string | null;
   /** Permission settings */
   permissions: {
     joinPolicy: 'anyone' | 'invite_only';
     allowGuestVibeCheck: boolean;
     invitationLink: { code: string } | null;
   };
+  /** Whether this is a personal index */
+  isPersonal: boolean;
   /** When the index was created */
   createdAt: Date;
+  /** When the index was last updated */
+  updatedAt: Date;
   /** Member count */
   memberCount: number;
   /** Total intents indexed */
   intentCount: number;
+  /** Owner summary */
+  user: { id: string; name: string; avatar: string | null };
+  /** Aggregate counts for frontend compatibility */
+  _count: { members: number };
 }
 
 /**
@@ -242,6 +256,8 @@ export interface IndexMemberDetails {
   joinedAt: Date;
   /** Count of their intents in this index */
   intentCount: number;
+  /** Whether this user is a ghost (not yet onboarded) */
+  isGhost?: boolean;
 }
 
 /**
@@ -401,7 +417,7 @@ export interface Database {
    * @param data - Partial user fields to update
    * @returns The updated user record or null if not found
    */
-  updateUser(userId: string, data: { name?: string; location?: string; socials?: UserSocials; onboarding?: OnboardingState }): Promise<UserRecord | null>;
+  updateUser(userId: string, data: { name?: string; intro?: string; location?: string; socials?: UserSocials; onboarding?: OnboardingState }): Promise<UserRecord | null>;
 
   // ─────────────────────────────────────────────────────────────────────────────
   // Pre-Graph Operations (State Population)
@@ -1143,26 +1159,23 @@ export interface Database {
   // Contact / My Network Operations
   // ─────────────────────────────────────────────────────────────────────────────
 
-  /** Get user IDs of all contacts owned by the given user. */
-  getContactUserIds(ownerId: string): Promise<string[]>;
-
   /** Create a ghost user (unregistered contact) with empty profile. */
   createGhostUser(data: { name: string; email: string }): Promise<{ id: string }>;
 
-  /** Upsert a contact (idempotent; unique constraint on ownerId+userId). */
-  upsertContact(data: { ownerId: string; userId: string; source: 'gmail' | 'google_calendar' | 'manual' }): Promise<void>;
+  /** Upsert a contact membership in the owner's personal index (index_members with permissions=['contact']). */
+  upsertContactMembership(ownerId: string, contactUserId: string, options?: { restore?: boolean }): Promise<void>;
 
-  /** Get all contacts for a user with their user details. */
-  getContacts(ownerId: string): Promise<Array<{
-    id: string;
+  /** Hard-delete a contact membership from the owner's personal index. */
+  hardDeleteContactMembership(ownerId: string, contactUserId: string): Promise<void>;
+
+  /** Get all contact members from the owner's personal index with user details. */
+  getContactMembers(ownerId: string): Promise<Array<{
     userId: string;
-    source: string;
-    importedAt: Date;
     user: { id: string; name: string; email: string; avatar: string | null; isGhost: boolean };
   }>>;
 
-  /** Soft-delete a contact. */
-  removeContact(ownerId: string, contactId: string): Promise<void>;
+  /** Clear a reverse opt-out (reactivate soft-deleted contact membership in another user's personal index). */
+  clearReverseOptOut(ownerId: string, otherUserId: string): Promise<void>;
 
   /**
    * Returns the IDs of personal indexes where the given user is a contact member.
@@ -1214,7 +1227,7 @@ export interface UserDatabase {
   getUser(): Promise<UserRecord | null>;
 
   /** Update the authenticated user's account fields. */
-  updateUser(data: { name?: string; location?: string; socials?: UserSocials; onboarding?: OnboardingState }): Promise<UserRecord | null>;
+  updateUser(data: { name?: string; intro?: string; location?: string; socials?: UserSocials; onboarding?: OnboardingState }): Promise<UserRecord | null>;
 
   // ─────────────────────────────────────────────────────────────────────────────
   // Intent Operations (own only, ALL intents - not index-scoped)
@@ -1584,8 +1597,6 @@ export type ChatGraphCompositeDatabase = Pick<
   | 'unassignIntentFromIndex'
   | 'getIndexIdsForIntent'
   | 'getIntentIndexScores'
-  // Contact Operations (for contacts-only discovery)
-  | 'getContactUserIds'
   // Personal index auto-assignment (used by intent graph executor)
   | 'getPersonalIndexesForContact'
   // Index Ownership Operations (owner-only)
@@ -1637,9 +1648,59 @@ export type OpportunityGraphDatabase = Pick<
   | 'getUser'
   // Load candidate intent payload/summary for evaluator
   | 'getIntent'
-  // Contacts-only discovery
-  | 'getContactUserIds'
 >;
+
+/**
+ * Database interface for the negotiation graph (A2A conversation/task/artifact persistence).
+ *
+ * Access layer: ConversationDatabaseAdapter
+ */
+export interface NegotiationDatabase {
+  /**
+   * Creates an A2A conversation between negotiation agents.
+   * @param participants - Agent participant descriptors
+   * @returns The created conversation with its id
+   */
+  createConversation(participants: { participantId: string; participantType: 'user' | 'agent' }[]): Promise<{ id: string }>;
+
+  /**
+   * Persists a negotiation turn message within a conversation.
+   * @param data - Message payload including conversation, sender, role, and structured parts
+   * @returns The persisted message record
+   */
+  createMessage(data: {
+    conversationId: string;
+    senderId: string;
+    role: 'user' | 'agent';
+    parts: unknown[];
+    taskId?: string;
+    metadata?: Record<string, unknown> | null;
+  }): Promise<{ id: string; senderId: string; role: 'user' | 'agent'; parts: unknown; createdAt: Date }>;
+
+  /**
+   * Creates a task to track the negotiation lifecycle within a conversation.
+   * @param conversationId - Parent conversation id
+   * @param metadata - Task metadata (type, sourceUserId, candidateUserId)
+   * @returns The created task with id, conversationId, and initial state
+   */
+  createTask(conversationId: string, metadata?: Record<string, unknown>): Promise<{ id: string; conversationId: string; state: string }>;
+
+  /**
+   * Transitions a task to a new state (e.g. working, completed, failed).
+   * @param taskId - Task to update
+   * @param state - Target state
+   * @param statusMessage - Optional status message or structured status
+   * @returns The updated task record
+   */
+  updateTaskState(taskId: string, state: string, statusMessage?: unknown): Promise<{ id: string; conversationId: string; state: string }>;
+
+  /**
+   * Persists a negotiation outcome artifact attached to a task.
+   * @param data - Artifact payload including task reference, name, structured parts, and metadata
+   * @returns The created artifact with its id
+   */
+  createArtifact(data: { taskId: string; name?: string; parts: unknown[]; metadata?: Record<string, unknown> | null }): Promise<{ id: string }>;
+}
 
 /**
  * Database interface for opportunity controller (API).
@@ -1665,7 +1726,7 @@ export type OpportunityControllerDatabase = Pick<
   | 'getIndexMemberships'
   | 'getProfile'
   | 'getActiveIntents'
-  | 'upsertContact'
+  | 'upsertContactMembership'
 >;
 
 /**

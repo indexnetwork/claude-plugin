@@ -28,6 +28,7 @@ export interface User {
   avatar: string | null;
   location?: string | null;
   timezone?: string | null;
+  isGhost?: boolean;
   socials?: UserSocials;
   notificationPreferences?: NotificationPreferences;
   onboarding?: OnboardingState;

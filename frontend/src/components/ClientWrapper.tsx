@@ -6,7 +6,7 @@ import Sidebar from "@/components/Sidebar";
 import ChatSidebar from "@/components/ChatSidebar";
 import { IndexFilterProvider } from "@/contexts/IndexFilterContext";
 import { IndexesProvider } from "@/contexts/IndexesContext";
-import { XMTPProvider } from "@/contexts/XMTPContext";
+import { ConversationProvider } from "@/contexts/ConversationContext";
 import { useAuthContext } from "@/contexts/AuthContext";
 
 export default function ClientWrapper({ children }: PropsWithChildren) {
@@ -14,7 +14,7 @@ export default function ClientWrapper({ children }: PropsWithChildren) {
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const { isAuthenticated } = useAuthContext();
 
-  const appRoutes = ['/', '/d', '/i', '/u', '/library', '/networks', '/chat', '/profile'];
+  const appRoutes = ['/', '/d', '/i', '/u', '/library', '/networks', '/mynetwork', '/chat', '/profile'];
   const publicRoutes = ['/l', '/index', '/blog', '/about'];
   const bareRoutes = ['/onboarding', '/oauth/callback'];
 
@@ -57,8 +57,8 @@ export default function ClientWrapper({ children }: PropsWithChildren) {
 
   return (
     <IndexesProvider>
+      <ConversationProvider>
       <IndexFilterProvider>
-        <XMTPProvider>
           <div className="backdrop relative min-h-screen bg-[#FDFDFD]">
             <style jsx>{`
               .backdrop:after {
@@ -164,8 +164,8 @@ export default function ClientWrapper({ children }: PropsWithChildren) {
               </>
             )}
           </div>
-        </XMTPProvider>
       </IndexFilterProvider>
+      </ConversationProvider>
     </IndexesProvider>
   );
 }

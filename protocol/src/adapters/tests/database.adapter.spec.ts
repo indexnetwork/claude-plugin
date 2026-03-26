@@ -18,7 +18,6 @@ import {
   intents,
   intentIndexes,
   opportunities,
-  userContacts,
   hydeDocuments,
 } from '../../schemas/database.schema';
 import {
@@ -345,6 +344,62 @@ describe('ChatDatabaseAdapter', () => {
     expect(await adapter.isIndexMember(fixture.indexId, uuidv4())).toBe(false);
   });
 
+  describe('getUserByEmail (IND-166)', () => {
+    const caseTestUserId = uuidv4();
+    const caseTestEmail = TEST_PREFIX + 'CaseSensitive@Test.COM';
+    const softDeleteUserId = uuidv4();
+    const softDeleteEmail = TEST_PREFIX + 'softdeleted@test.com';
+
+    it('setup: create test users for email lookup tests', async () => {
+      // User with mixed-case email stored as-is (simulating pre-normalization data)
+      await db.insert(users).values({
+        id: caseTestUserId,
+        email: caseTestEmail.toLowerCase(), // stored normalized
+        name: TEST_PREFIX + 'CaseUser',
+      });
+      // Soft-deleted user
+      await db.insert(users).values({
+        id: softDeleteUserId,
+        email: softDeleteEmail,
+        name: TEST_PREFIX + 'DeletedUser',
+        deletedAt: new Date(),
+      });
+    });
+
+    it('should find user with case-insensitive email lookup', async () => {
+      // Search with uppercase variant
+      const found = await adapter.getUserByEmail(caseTestEmail);
+      expect(found).not.toBeNull();
+      expect(found!.id).toBe(caseTestUserId);
+    });
+
+    it('should find user when searching with lowercase email', async () => {
+      const found = await adapter.getUserByEmail(caseTestEmail.toLowerCase());
+      expect(found).not.toBeNull();
+      expect(found!.id).toBe(caseTestUserId);
+    });
+
+    it('should find user when searching with all-uppercase email', async () => {
+      const found = await adapter.getUserByEmail(caseTestEmail.toUpperCase());
+      expect(found).not.toBeNull();
+      expect(found!.id).toBe(caseTestUserId);
+    });
+
+    it('should NOT find soft-deleted user', async () => {
+      const found = await adapter.getUserByEmail(softDeleteEmail);
+      expect(found).toBeNull();
+    });
+
+    it('should return null for non-existent email', async () => {
+      const found = await adapter.getUserByEmail('nonexistent-' + Date.now() + '@test.com');
+      expect(found).toBeNull();
+    });
+
+    it('cleanup: remove test users', async () => {
+      await db.delete(users).where(inArray(users.id, [caseTestUserId, softDeleteUserId]));
+    });
+  });
+
   it('should update index settings as owner', async () => {
     const updated = await adapter.updateIndexSettings(fixture.indexId, fixture.userAId, {
       title: TEST_PREFIX + 'Updated Title',
@@ -657,6 +712,101 @@ describe('OpportunityDatabaseAdapter', () => {
       expect(forConv2.some((o) => o.id === draft1.id)).toBe(false);
     });
   });
+
+  describe('expireStaleOpportunities', () => {
+    it('should expire opportunities past their expiresAt', async () => {
+      const past = new Date(Date.now() - 60_000);
+      const created = await adapter.createOpportunity({
+        detection: { source: 'opportunity_graph', createdBy: 'test', timestamp: new Date().toISOString() },
+        actors: [
+          { indexId: fixture.indexId, userId: fixture.userAId, role: 'agent', intent: fixture.intent1Id },
+          { indexId: fixture.indexId, userId: fixture.userBId, role: 'patient' },
+        ],
+        interpretation: { category: 'collaboration', reasoning: 'Stale opp', confidence: 0.8 },
+        context: { indexId: fixture.indexId },
+        confidence: '0.8',
+        expiresAt: past,
+      });
+      expect(created.status).toBe('pending');
+
+      const count = await adapter.expireStaleOpportunities();
+      expect(count).toBeGreaterThanOrEqual(1);
+
+      const refetched = await adapter.getOpportunity(created.id);
+      expect(refetched!.status).toBe('expired');
+    });
+
+    it('should not expire opportunities with future expiresAt', async () => {
+      const future = new Date(Date.now() + 3_600_000);
+      const created = await adapter.createOpportunity({
+        detection: { source: 'opportunity_graph', createdBy: 'test', timestamp: new Date().toISOString() },
+        actors: [
+          { indexId: fixture.indexId, userId: fixture.userAId, role: 'agent', intent: fixture.intent1Id },
+          { indexId: fixture.indexId, userId: fixture.userBId, role: 'patient' },
+        ],
+        interpretation: { category: 'collaboration', reasoning: 'Future opp', confidence: 0.8 },
+        context: { indexId: fixture.indexId },
+        confidence: '0.8',
+        expiresAt: future,
+      });
+
+      await adapter.expireStaleOpportunities();
+      const refetched = await adapter.getOpportunity(created.id);
+      expect(refetched!.status).toBe('pending');
+    });
+
+    it('should not expire accepted or rejected opportunities even if past expiresAt', async () => {
+      const past = new Date(Date.now() - 60_000);
+      const accepted = await adapter.createOpportunity({
+        detection: { source: 'opportunity_graph', createdBy: 'test', timestamp: new Date().toISOString() },
+        actors: [
+          { indexId: fixture.indexId, userId: fixture.userAId, role: 'agent', intent: fixture.intent1Id },
+          { indexId: fixture.indexId, userId: fixture.userBId, role: 'patient' },
+        ],
+        interpretation: { category: 'collaboration', reasoning: 'Accepted opp', confidence: 0.9 },
+        context: { indexId: fixture.indexId },
+        confidence: '0.9',
+        status: 'accepted',
+        expiresAt: past,
+      });
+      const rejected = await adapter.createOpportunity({
+        detection: { source: 'opportunity_graph', createdBy: 'test', timestamp: new Date().toISOString() },
+        actors: [
+          { indexId: fixture.indexId, userId: fixture.userAId, role: 'agent', intent: fixture.intent1Id },
+          { indexId: fixture.indexId, userId: fixture.userBId, role: 'patient' },
+        ],
+        interpretation: { category: 'collaboration', reasoning: 'Rejected opp', confidence: 0.7 },
+        context: { indexId: fixture.indexId },
+        confidence: '0.7',
+        status: 'rejected',
+        expiresAt: past,
+      });
+
+      await adapter.expireStaleOpportunities();
+
+      const refetchedAccepted = await adapter.getOpportunity(accepted.id);
+      const refetchedRejected = await adapter.getOpportunity(rejected.id);
+      expect(refetchedAccepted!.status).toBe('accepted');
+      expect(refetchedRejected!.status).toBe('rejected');
+    });
+
+    it('should not expire opportunities without expiresAt', async () => {
+      const created = await adapter.createOpportunity({
+        detection: { source: 'opportunity_graph', createdBy: 'test', timestamp: new Date().toISOString() },
+        actors: [
+          { indexId: fixture.indexId, userId: fixture.userAId, role: 'agent', intent: fixture.intent1Id },
+          { indexId: fixture.indexId, userId: fixture.userBId, role: 'patient' },
+        ],
+        interpretation: { category: 'collaboration', reasoning: 'No expiry opp', confidence: 0.8 },
+        context: { indexId: fixture.indexId },
+        confidence: '0.8',
+      });
+
+      await adapter.expireStaleOpportunities();
+      const refetched = await adapter.getOpportunity(created.id);
+      expect(refetched!.status).toBe('pending');
+    });
+  });
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -877,170 +1027,3 @@ describe('HydeDatabaseAdapter – deleteExpired and getStale', () => {
   });
 });
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// AuthDatabaseAdapter – prepareGhostClaim + claimGhostUser (two-phase)
-// ═══════════════════════════════════════════════════════════════════════════════
-describe('AuthDatabaseAdapter ghost claim', () => {
-  const adapter = new AuthDatabaseAdapter();
-  const ghostId = uuidv4();
-  const realUserId = uuidv4();
-  const ghostEmail = TEST_PREFIX + 'ghost_claim@test.com';
-  const claimIndexId = uuidv4();
-
-  beforeAll(async () => {
-    // Create ghost user with the email
-    await db.insert(users).values({
-      id: ghostId,
-      email: ghostEmail,
-      name: TEST_PREFIX + 'Ghost',
-      isGhost: true,
-    });
-    // Create ghost's profile
-    await db.insert(userProfiles).values({
-      userId: ghostId,
-      identity: { name: 'Ghost', bio: 'Ghost bio', location: '' },
-      narrative: { context: 'Ghost context' },
-      attributes: { interests: [], skills: [] },
-    });
-    // Create index + ghost membership
-    await db.insert(indexes).values({
-      id: claimIndexId,
-      title: TEST_PREFIX + 'Ghost Index',
-      prompt: 'test',
-    });
-    await db.insert(indexMembers).values({
-      indexId: claimIndexId,
-      userId: ghostId,
-      permissions: [],
-      autoAssign: false,
-    });
-    // Create ghost intent
-    await db.insert(intents).values({
-      id: uuidv4(),
-      userId: ghostId,
-      payload: TEST_PREFIX + 'Ghost intent',
-      summary: 'Ghost summary',
-      sourceType: 'discovery_form',
-      sourceId: ghostId,
-    });
-    // Create ghost HyDE document
-    const dummyEmbedding = Array.from({ length: 2000 }, () => 0.1);
-    await db.insert(hydeDocuments).values({
-      id: uuidv4(),
-      sourceType: 'profile',
-      sourceId: ghostId,
-      strategy: 'default',
-      targetCorpus: 'profile',
-      hydeText: 'Ghost HyDE text',
-      hydeEmbedding: dummyEmbedding,
-    });
-    // Create a contact record pointing at the ghost
-    await db.insert(userContacts).values({
-      ownerId: fixture.userAId,
-      userId: ghostId,
-      source: 'manual',
-    });
-  });
-
-  afterAll(async () => {
-    // Clean up: ghost should be deleted by claim, but clean remaining data defensively
-    await db.delete(userContacts).where(inArray(userContacts.userId, [realUserId, ghostId]));
-    await db.delete(hydeDocuments).where(inArray(hydeDocuments.sourceId, [realUserId, ghostId]));
-    await db.delete(intents).where(inArray(intents.userId, [realUserId, ghostId]));
-    await db.delete(indexMembers).where(eq(indexMembers.indexId, claimIndexId));
-    await db.delete(userProfiles).where(inArray(userProfiles.userId, [ghostId, realUserId]));
-    await db.delete(indexes).where(eq(indexes.id, claimIndexId));
-    await db.delete(users).where(inArray(users.id, [ghostId, realUserId]));
-  });
-
-  describe('prepareGhostClaim', () => {
-    it('should return null when no ghost exists for email', async () => {
-      const result = await adapter.prepareGhostClaim('nonexistent@test.com');
-      expect(result).toBeNull();
-    });
-
-    it('should return ghost ID and free the email', async () => {
-      const result = await adapter.prepareGhostClaim(ghostEmail);
-      expect(result).toBe(ghostId);
-
-      // Ghost email should be freed (changed to placeholder)
-      const ghost = await db.select({ email: users.email }).from(users).where(eq(users.id, ghostId)).limit(1);
-      expect(ghost[0].email).toBe(`__ghost_claimed_${ghostId}`);
-    });
-
-    it('should allow a new user to be created with the freed email', async () => {
-      // Simulates Better Auth inserting the real user after prepareGhostClaim freed the email
-      await db.insert(users).values({
-        id: realUserId,
-        email: ghostEmail,
-        name: TEST_PREFIX + 'RealUser',
-      });
-      const realUser = await db.select().from(users).where(eq(users.id, realUserId)).limit(1);
-      expect(realUser.length).toBe(1);
-      expect(realUser[0].email).toBe(ghostEmail);
-    });
-  });
-
-  describe('claimGhostUser', () => {
-    it('should transfer ghost profile to real user', async () => {
-      await adapter.claimGhostUser(realUserId, ghostId);
-
-      const profile = await db.select().from(userProfiles).where(eq(userProfiles.userId, realUserId)).limit(1);
-      expect(profile.length).toBe(1);
-      expect(profile[0].identity).toEqual({ name: 'Ghost', bio: 'Ghost bio', location: '' });
-    });
-
-    it('should transfer ghost intents to real user', async () => {
-      const realIntents = await db.select().from(intents).where(eq(intents.userId, realUserId));
-      expect(realIntents.length).toBeGreaterThanOrEqual(1);
-      expect(realIntents.some((i) => i.payload.includes('Ghost intent'))).toBe(true);
-    });
-
-    it('should transfer ghost index memberships to real user', async () => {
-      const memberships = await db.select().from(indexMembers).where(eq(indexMembers.userId, realUserId));
-      expect(memberships.some((m) => m.indexId === claimIndexId)).toBe(true);
-    });
-
-    it('should transfer ghost HyDE documents to real user', async () => {
-      const docs = await db.select().from(hydeDocuments).where(eq(hydeDocuments.sourceId, realUserId));
-      expect(docs.length).toBeGreaterThanOrEqual(1);
-    });
-
-    it('should transfer ghost contacts to real user', async () => {
-      const contacts = await db.select().from(userContacts).where(eq(userContacts.userId, realUserId));
-      expect(contacts.length).toBeGreaterThanOrEqual(1);
-    });
-
-    it('should delete the ghost user row', async () => {
-      const ghost = await db.select().from(users).where(eq(users.id, ghostId)).limit(1);
-      expect(ghost.length).toBe(0);
-    });
-  });
-});
-
-// AuthDatabaseAdapter – restoreGhostEmail
-describe('AuthDatabaseAdapter.restoreGhostEmail', () => {
-  const adapter = new AuthDatabaseAdapter();
-  const ghostId = crypto.randomUUID();
-  const originalEmail = `${TEST_PREFIX}restore-ghost@test.com`;
-
-  beforeAll(async () => {
-    // Create a ghost with placeholder email (simulating after prepareGhostClaim)
-    await db.insert(users).values({
-      id: ghostId,
-      name: TEST_PREFIX + 'RestoreGhost',
-      email: `__ghost_claimed_${ghostId}`,
-      isGhost: true,
-    });
-  });
-
-  afterAll(async () => {
-    await db.delete(users).where(eq(users.id, ghostId));
-  });
-
-  it('should restore the ghost email from placeholder', async () => {
-    await adapter.restoreGhostEmail(ghostId, originalEmail);
-    const row = await db.select({ email: users.email }).from(users).where(eq(users.id, ghostId)).limit(1);
-    expect(row[0].email).toBe(originalEmail);
-  });
-});

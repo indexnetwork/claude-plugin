@@ -1,4 +1,4 @@
-import { pgTable, pgEnum, text, timestamp, bigint, boolean, json, jsonb, varchar, integer, uniqueIndex, index, doublePrecision, numeric, primaryKey, unique } from 'drizzle-orm/pg-core';
+import { pgTable, pgEnum, text, timestamp, bigint, boolean, json, jsonb, varchar, integer, uniqueIndex, index, doublePrecision, numeric, primaryKey } from 'drizzle-orm/pg-core';
 import { vector } from 'drizzle-orm/pg-core';
 import { relations } from 'drizzle-orm';
 import type { Id } from '../types/common.types';
@@ -30,45 +30,6 @@ export interface NotificationPreferences {
   weeklyNewsletter: boolean;
 }
 
-export interface DirectorySyncConfig {
-  enabled: boolean;
-  source: {
-    id: string;
-    name: string;
-    subId?: string;
-    subName?: string;
-  };
-  columnMappings: {
-    email: string;
-    name?: string;
-    intro?: string;
-    location?: string;
-    twitter?: string;
-    linkedin?: string;
-    github?: string;
-    website?: string;
-  };
-  excludedColumns?: string[];
-  lastSyncAt?: string;
-  lastSyncStatus?: 'success' | 'error' | 'partial';
-  lastSyncError?: string;
-  memberCount?: number;
-}
-
-export interface SlackConfig {
-  selectedChannels?: string[];
-}
-
-export interface TwitterConfig {
-  username: string;
-}
-
-export interface IntegrationConfigType {
-  directorySync?: DirectorySyncConfig;
-  slack?: SlackConfig;
-  twitter?: TwitterConfig;
-}
-
 // ═══════════════════════════════════════════════════════════════════════════════
 // Users table (unified: Better Auth + domain fields)
 // Better Auth maps "image" -> "avatar" via auth config
@@ -89,11 +50,6 @@ export const users = pgTable('users', {
 
   // Ghost users (imported contacts who haven't signed up yet)
   isGhost: boolean('is_ghost').default(false).notNull(),
-
-  // XMTP wallet
-  walletAddress: text('wallet_address').unique(),
-  walletEncryptedKey: text('wallet_encrypted_key'),
-  xmtpInboxId: text('xmtp_inbox_id'),
 
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
@@ -232,7 +188,7 @@ export interface OpportunityInterpretation {
 
 export interface OpportunityContext {
   indexId?: Id<'indexes'>;
-  conversationId?: Id<'chatSessions'>;
+  conversationId?: Id<'conversations'>;
 }
 
 export const opportunities = pgTable('opportunities', {
@@ -302,6 +258,7 @@ export const indexMembers = pgTable('index_members', {
   metadata: json('metadata').$type<Record<string, string | string[]>>(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  deletedAt: timestamp('deleted_at'),
 }, (table) => ({
   pk: primaryKey({ columns: [table.indexId, table.userId] }),
 }));
@@ -312,6 +269,15 @@ export const personalIndexes = pgTable('personal_indexes', {
 }, (t) => ({
   pk: primaryKey({ columns: [t.userId] }),
   indexUnique: uniqueIndex('personal_indexes_index_id_unique').on(t.indexId),
+}));
+
+export const indexIntegrations = pgTable('index_integrations', {
+  indexId: text('index_id').notNull().references(() => indexes.id),
+  toolkit: text('toolkit').notNull(),
+  connectedAccountId: text('connected_account_id').notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (table) => ({
+  pk: primaryKey({ columns: [table.indexId, table.toolkit] }),
 }));
 
 export const files = pgTable('files', {
@@ -335,50 +301,6 @@ export const intentIndexes = pgTable('intent_indexes', {
   indexIdIdx: index('intent_indexes_index_id_idx').on(t.indexId),
 }));
 
-export const userIntegrations = pgTable('integrations', {
-  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
-  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
-  integrationType: varchar('integration_type', { length: 50 }).notNull(),
-  connectedAccountId: varchar('connected_account_id', { length: 255 }),
-  status: varchar('status', { length: 20 }).notNull().default('pending'),
-  redirectUrl: text('redirect_url'),
-  connectedAt: timestamp('connected_at'),
-  lastSyncAt: timestamp('last_sync_at'),
-  indexId: text('index_id').references(() => indexes.id),
-  config: json('config').$type<IntegrationConfigType>(),
-  createdAt: timestamp('created_at').defaultNow().notNull(),
-  updatedAt: timestamp('updated_at').defaultNow().notNull(),
-  deletedAt: timestamp('deleted_at')
-});
-
-export const chatMessageRoleEnum = pgEnum('chat_message_role', ['user', 'assistant', 'system']);
-
-export const chatSessions = pgTable('chat_sessions', {
-  id: text('id').primaryKey(),
-  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
-  title: text('title'),
-  indexId: text('index_id').references(() => indexes.id, { onDelete: 'set null' }),
-  shareToken: text('share_token'),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-  metadata: jsonb('metadata'),
-}, (table) => ({
-  userIdx: index('chat_sessions_user_idx').on(table.userId),
-  shareTokenUnique: uniqueIndex('chat_sessions_share_token_unique').on(table.shareToken),
-}));
-
-export const chatMessages = pgTable('chat_messages', {
-  id: text('id').primaryKey(),
-  sessionId: text('session_id').notNull().references(() => chatSessions.id, { onDelete: 'cascade' }),
-  role: chatMessageRoleEnum('role').notNull(),
-  content: text('content').notNull(),
-  routingDecision: jsonb('routing_decision'),
-  subgraphResults: jsonb('subgraph_results'),
-  tokenCount: integer('token_count'),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-}, (table) => ({
-  sessionIdx: index('chat_messages_session_idx').on(table.sessionId),
-}));
 
 // Links
 const linksTable = pgTable('links', {
@@ -413,9 +335,6 @@ export const usersRelations = relations(users, ({ one, many }) => ({
     fields: [users.id],
     references: [userProfiles.userId],
   }),
-  chatSessions: many(chatSessions),
-  ownedContacts: many(userContacts, { relationName: 'owned_contacts' }),
-  contactOf: many(userContacts, { relationName: 'contact_of' }),
 }));
 
 export const userProfilesRelations = relations(userProfiles, ({ one }) => ({
@@ -443,11 +362,6 @@ export const intentsRelations = relations(intents, ({ one, many }) => ({
     references: [files.id],
     relationName: 'intent_file',
   }),
-  integration: one(userIntegrations, {
-    fields: [intents.sourceId],
-    references: [userIntegrations.id],
-    relationName: 'intent_integration',
-  }),
   link: one(indexLinks, {
     fields: [intents.sourceId],
     references: [indexLinks.id],
@@ -458,7 +372,7 @@ export const intentsRelations = relations(intents, ({ one, many }) => ({
 export const indexesRelations = relations(indexes, ({ many }) => ({
   members: many(indexMembers),
   intents: many(intentIndexes),
-  integrations: many(userIntegrations),
+  integrations: many(indexIntegrations),
 }));
 
 export const indexMembersRelations = relations(indexMembers, ({ one }) => ({
@@ -483,6 +397,13 @@ export const personalIndexesRelations = relations(personalIndexes, ({ one }) => 
   }),
 }));
 
+export const indexIntegrationsRelations = relations(indexIntegrations, ({ one }) => ({
+  index: one(indexes, {
+    fields: [indexIntegrations.indexId],
+    references: [indexes.id],
+  }),
+}));
+
 export const intentIndexesRelations = relations(intentIndexes, ({ one }) => ({
   intent: one(intents, {
     fields: [intentIndexes.intentId],
@@ -491,77 +412,6 @@ export const intentIndexesRelations = relations(intentIndexes, ({ one }) => ({
   index: one(indexes, {
     fields: [intentIndexes.indexId],
     references: [indexes.id],
-  }),
-}));
-
-export const userIntegrationsRelations = relations(userIntegrations, ({ one }) => ({
-  user: one(users, {
-    fields: [userIntegrations.userId],
-    references: [users.id],
-  }),
-  index: one(indexes, {
-    fields: [userIntegrations.indexId],
-    references: [indexes.id],
-  }),
-}));
-
-export const chatSessionsRelations = relations(chatSessions, ({ one, many }) => ({
-  user: one(users, {
-    fields: [chatSessions.userId],
-    references: [users.id],
-  }),
-  messages: many(chatMessages),
-}));
-
-export const chatMessagesRelations = relations(chatMessages, ({ one }) => ({
-  session: one(chatSessions, {
-    fields: [chatMessages.sessionId],
-    references: [chatSessions.id],
-  }),
-}));
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// Hidden conversations (persistent chat deletion)
-// ═══════════════════════════════════════════════════════════════════════════════
-
-export const hiddenConversations = pgTable('hidden_conversations', {
-  userId: text('user_id').notNull().references(() => users.id),
-  conversationId: text('conversation_id').notNull(),
-  hiddenAt: timestamp('hidden_at').defaultNow().notNull(),
-}, (table) => ({
-  pk: primaryKey({ columns: [table.userId, table.conversationId] }),
-}));
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// User Contacts (My Network)
-// ═══════════════════════════════════════════════════════════════════════════════
-
-export const contactSourceEnum = pgEnum('contact_source', ['gmail', 'google_calendar', 'manual']);
-
-export const userContacts = pgTable('user_contacts', {
-  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
-  ownerId: text('owner_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
-  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
-  source: contactSourceEnum('source').notNull(),
-  importedAt: timestamp('imported_at').defaultNow().notNull(),
-  createdAt: timestamp('created_at').defaultNow().notNull(),
-  updatedAt: timestamp('updated_at').defaultNow().notNull(),
-  deletedAt: timestamp('deleted_at'),
-}, (t) => ({
-  ownerUserUnique: unique().on(t.ownerId, t.userId),
-  ownerIdx: index('user_contacts_owner_idx').on(t.ownerId),
-}));
-
-export const userContactsRelations = relations(userContacts, ({ one }) => ({
-  owner: one(users, {
-    fields: [userContacts.ownerId],
-    references: [users.id],
-    relationName: 'owned_contacts',
-  }),
-  user: one(users, {
-    fields: [userContacts.userId],
-    references: [users.id],
-    relationName: 'contact_of',
   }),
 }));
 
@@ -581,20 +431,15 @@ export type IndexMember = typeof indexMembers.$inferSelect;
 export type NewIndexMember = typeof indexMembers.$inferInsert;
 export type File = typeof files.$inferSelect;
 export type NewFile = typeof files.$inferInsert;
-export type UserIntegration = typeof userIntegrations.$inferSelect;
-export type NewUserIntegration = typeof userIntegrations.$inferInsert;
 export type UserNotificationSettings = typeof userNotificationSettings.$inferSelect;
 export type NewUserNotificationSettings = typeof userNotificationSettings.$inferInsert;
-export type ChatSession = typeof chatSessions.$inferSelect;
-export type NewChatSession = typeof chatSessions.$inferInsert;
-export type ChatMessage = typeof chatMessages.$inferSelect;
-export type NewChatMessage = typeof chatMessages.$inferInsert;
 export type HydeDocument = typeof hydeDocuments.$inferSelect;
 export type NewHydeDocument = typeof hydeDocuments.$inferInsert;
 export type Opportunity = typeof opportunities.$inferSelect;
 export type NewOpportunity = typeof opportunities.$inferInsert;
-export type UserContact = typeof userContacts.$inferSelect;
-export type NewUserContact = typeof userContacts.$inferInsert;
-export type ContactSource = typeof contactSourceEnum.enumValues[number];
 export type PersonalIndex = typeof personalIndexes.$inferSelect;
 export type NewPersonalIndex = typeof personalIndexes.$inferInsert;
+export type IndexIntegration = typeof indexIntegrations.$inferSelect;
+export type NewIndexIntegration = typeof indexIntegrations.$inferInsert;
+
+export * from './conversation.schema';

@@ -1,5 +1,6 @@
 import { Annotation } from "@langchain/langgraph";
 import { ProfileDocument } from "../agents/profile.generator";
+import type { DebugMetaAgent } from '../../../types/chat-streaming.types';
 
 /**
  * The Graph State for Profile Generation.
@@ -17,7 +18,7 @@ export const ProfileGraphState = Annotation.Root({
    * Operation mode controls graph flow:
    * - 'query': Fast path - only retrieve existing profile (no generation)
    * - 'write': Full pipeline - generate/update profile and hyde as needed
-   * - 'generate': Auto-generate profile from user table data via Parallels searchUser API
+   * - 'generate': Auto-generate profile from user table data via enrichUserProfile Chat API
    */
   operationMode: Annotation<'query' | 'write' | 'generate'>({
     reducer: (curr, next) => next ?? curr,
@@ -34,15 +35,6 @@ export const ProfileGraphState = Annotation.Root({
   }),
 
   // --- Intermediate State ---
-
-  /**
-   * Pre-fetched enrichment content (e.g. from Parallels search in the queue handler).
-   * When provided, autoGenerateNode skips its own search and uses this directly.
-   */
-  enrichmentInput: Annotation<string | undefined>({
-    reducer: (curr, next) => next,
-    default: () => undefined,
-  }),
 
   /**
    * Pre-populated profile from external enrichment (e.g. Parallel Chat API).
@@ -156,6 +148,12 @@ export const ProfileGraphState = Annotation.Root({
   }>({
     reducer: (curr, next) => ({ ...curr, ...next }),
     default: () => ({}),
+  }),
+
+  /** Timing records for each agent invocation within this graph run. */
+  agentTimings: Annotation<DebugMetaAgent[]>({
+    reducer: (acc, val) => [...acc, ...val],
+    default: () => [],
   }),
 
   /**

@@ -1,7 +1,5 @@
 /**
- * Smoke tests for ContactService — the core of the My Network feature.
- * Exercises the full flow: import contacts, ghost user creation, listing,
- * adding, removing, self-link prevention, deduplication, and ghost claim.
+ * Tests for ContactService — contacts backed by index_members with 'contact' permission.
  *
  * Requires DATABASE_URL and migrated schema.
  * Run: bun test src/services/tests/contact.service.spec.ts
@@ -10,467 +8,468 @@ import { config } from 'dotenv';
 config({ path: '.env.test', override: true });
 
 import { describe, expect, it, beforeAll, afterAll } from 'bun:test';
-import { eq, inArray } from 'drizzle-orm';
+import { eq, and, inArray, sql, isNull } from 'drizzle-orm';
 import db from '../../lib/drizzle/drizzle';
 import {
   users,
   userProfiles,
-  userContacts,
   indexes,
   indexMembers,
+  personalIndexes,
 } from '../../schemas/database.schema';
 import { ContactService } from '../contact.service';
-import { AuthDatabaseAdapter } from '../../adapters/auth.adapter';
 
-const TEST_PREFIX = 'contact_svc_smoke_' + Date.now() + '_';
+const TEST_PREFIX = 'contact_svc_v2_' + Date.now() + '_';
 
 // -- Test fixtures --
 let ownerId: string;
 let existingUserId: string;
 let personalIndexId: string;
 
-const ownerEmail = `${TEST_PREFIX}owner@test.com`;
-const existingContactEmail = `${TEST_PREFIX}existing@test.com`;
-const ghostEmail1 = `${TEST_PREFIX}ghost1@test.com`;
-const ghostEmail2 = `${TEST_PREFIX}ghost2@test.com`;
+const ownerEmail = `${TEST_PREFIX}owner@example.com`;
+const existingContactEmail = `${TEST_PREFIX}existing@example.com`;
+const ghostEmail1 = `${TEST_PREFIX}ghost1@example.com`;
 
 // Track IDs for cleanup
-const createdGhostIds: string[] = [];
+const createdUserIds: string[] = [];
 
 const svc = new ContactService();
-const authDb = new AuthDatabaseAdapter();
+
+/**
+ * Helper: create a user and personal index for testing.
+ */
+async function createTestUser(id: string, email: string, name: string): Promise<string> {
+  await db.insert(users).values({ id, name, email });
+  await db.insert(userProfiles).values({ userId: id });
+  createdUserIds.push(id);
+
+  // Create personal index
+  const indexId = crypto.randomUUID();
+  await db.insert(indexes).values({
+    id: indexId,
+    title: `${name}'s Personal Index`,
+    isPersonal: true,
+  });
+  await db.insert(personalIndexes).values({ userId: id, indexId });
+  await db.insert(indexMembers).values({
+    indexId,
+    userId: id,
+    permissions: ['owner'],
+    autoAssign: false,
+  });
+  return indexId;
+}
 
 beforeAll(async () => {
   ownerId = crypto.randomUUID();
   existingUserId = crypto.randomUUID();
 
-  // Create owner user
-  await db.insert(users).values({
-    id: ownerId,
-    name: TEST_PREFIX + 'Owner',
-    email: ownerEmail,
-  });
-  await db.insert(userProfiles).values({ userId: ownerId });
+  // Create owner with personal index
+  personalIndexId = await createTestUser(ownerId, ownerEmail, TEST_PREFIX + 'Owner');
 
-  // Create an existing (non-ghost) user that one contact will match
+  // Create an existing (non-ghost) user (no personal index needed for them)
   await db.insert(users).values({
     id: existingUserId,
     name: TEST_PREFIX + 'ExistingContact',
     email: existingContactEmail,
   });
-
-  // Create owner's personal index
-  const { ensurePersonalIndex } = await import('../../adapters/database.adapter');
-  personalIndexId = await ensurePersonalIndex(ownerId);
-});
+  createdUserIds.push(existingUserId);
+}, 60_000);
 
 afterAll(async () => {
-  // Clean up in dependency order: contacts → index_members → profiles → indexes → users
-  await db.delete(userContacts).where(eq(userContacts.ownerId, ownerId));
-  const allUserIds = [ownerId, existingUserId, ...createdGhostIds];
-  await db.delete(indexMembers).where(inArray(indexMembers.userId, allUserIds));
-  await db.delete(userProfiles).where(inArray(userProfiles.userId, allUserIds));
+  // Clean up in dependency order
+  const allUserIds = [...createdUserIds];
+  if (allUserIds.length > 0) {
+    await db.delete(indexMembers).where(inArray(indexMembers.userId, allUserIds));
+  }
+  // Clean personal_indexes for owner
+  await db.delete(personalIndexes).where(eq(personalIndexes.userId, ownerId));
   await db.delete(indexes).where(eq(indexes.id, personalIndexId));
-  await db.delete(users).where(inArray(users.id, allUserIds));
-});
+  if (allUserIds.length > 0) {
+    await db.delete(userProfiles).where(inArray(userProfiles.userId, allUserIds));
+    await db.delete(users).where(inArray(users.id, allUserIds));
+  }
+}, 60_000);
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// 1. Import contacts — mixed existing + ghost
+// 1. addContact — adds existing real user
 // ═══════════════════════════════════════════════════════════════════════════════
-describe('importContacts', () => {
-  it('imports contacts: links existing user, creates ghosts for unknown emails', async () => {
-    const result = await svc.importContacts(
-      ownerId,
-      [
-        { name: 'Existing Person', email: existingContactEmail },
-        { name: 'Ghost One', email: ghostEmail1 },
-        { name: 'Ghost Two', email: ghostEmail2 },
-      ],
-      'manual'
-    );
+describe('addContact', () => {
+  it('adds an existing real user as a contact', async () => {
+    const result = await svc.addContact(ownerId, existingContactEmail);
 
-    expect(result.imported).toBe(3);
-    expect(result.newContacts).toBe(3);
-    expect(result.skipped).toBe(0);
+    expect(result.userId).toBe(existingUserId);
+    expect(result.isNew).toBe(false);
+    expect(result.isGhost).toBe(false);
 
-    // Track ghost IDs for cleanup
-    for (const d of result.details) {
-      if (d.isNew) createdGhostIds.push(d.userId);
-    }
+    // Verify membership row exists
+    const [membership] = await db
+      .select()
+      .from(indexMembers)
+      .where(
+        and(
+          eq(indexMembers.indexId, personalIndexId),
+          eq(indexMembers.userId, existingUserId),
+          sql`'contact' = ANY(${indexMembers.permissions})`,
+        )
+      );
+    expect(membership).toBeDefined();
+    expect(membership.deletedAt).toBeNull();
+  }, 60_000);
 
-    // Verify existing user linked (not a ghost)
-    const existingDetail = result.details.find(d => d.email === existingContactEmail);
-    expect(existingDetail).toBeDefined();
-    expect(existingDetail!.userId).toBe(existingUserId);
-    expect(existingDetail!.isNew).toBe(false);
+  it('creates a ghost for an unknown email', async () => {
+    const result = await svc.addContact(ownerId, ghostEmail1, { name: 'Ghost One' });
 
-    // Verify ghosts created
-    const ghost1Detail = result.details.find(d => d.email === ghostEmail1);
-    expect(ghost1Detail).toBeDefined();
-    expect(ghost1Detail!.isNew).toBe(true);
+    expect(result.isNew).toBe(true);
+    expect(result.isGhost).toBe(true);
+    createdUserIds.push(result.userId);
 
     // Verify ghost row in DB
     const [ghostRow] = await db
       .select({ isGhost: users.isGhost, name: users.name })
       .from(users)
-      .where(eq(users.id, ghost1Detail!.userId));
+      .where(eq(users.id, result.userId));
     expect(ghostRow.isGhost).toBe(true);
     expect(ghostRow.name).toBe('Ghost One');
-  });
 
-  it('creates profile for ghost users', async () => {
-    const ghostId = createdGhostIds[0];
-    expect(ghostId).toBeDefined();
-
-    const [profile] = await db
-      .select()
-      .from(userProfiles)
-      .where(eq(userProfiles.userId, ghostId));
-    expect(profile).toBeDefined();
-    expect(profile.userId).toBe(ghostId);
-  });
-
-  it('adds contacts to the owner personal index as members', async () => {
-    const ghostId = createdGhostIds[0];
-    const memberships = await db
+    // Verify membership
+    const [membership] = await db
       .select()
       .from(indexMembers)
-      .where(eq(indexMembers.userId, ghostId));
-    expect(memberships.some(m => m.indexId === personalIndexId)).toBe(true);
-  });
+      .where(
+        and(
+          eq(indexMembers.indexId, personalIndexId),
+          eq(indexMembers.userId, result.userId),
+          sql`'contact' = ANY(${indexMembers.permissions})`,
+        )
+      );
+    expect(membership).toBeDefined();
+  }, 60_000);
 
-  it('skips self-import (owner email)', async () => {
-    const result = await svc.importContacts(
-      ownerId,
-      [{ name: 'Me', email: ownerEmail }],
-      'manual'
-    );
-    expect(result.imported).toBe(0);
-    expect(result.skipped).toBe(1);
-  });
+  it('skips soft-deleted contact when restore=false', async () => {
+    const softEmail = `${TEST_PREFIX}softdel@example.com`;
+    // First add the contact
+    const first = await svc.addContact(ownerId, softEmail, { name: 'Soft Del' });
+    createdUserIds.push(first.userId);
 
-  it('skips invalid emails', async () => {
-    const result = await svc.importContacts(
-      ownerId,
-      [
-        { name: 'No At', email: 'not-an-email' },
-        { name: 'Empty', email: '' },
-        { name: 'Blank', email: '   ' },
-      ],
-      'manual'
-    );
-    expect(result.imported).toBe(0);
-    expect(result.skipped).toBe(3);
-  });
+    // Soft-delete the membership
+    await db
+      .update(indexMembers)
+      .set({ deletedAt: new Date() })
+      .where(
+        and(
+          eq(indexMembers.indexId, personalIndexId),
+          eq(indexMembers.userId, first.userId),
+          sql`'contact' = ANY(${indexMembers.permissions})`,
+        )
+      );
 
-  it('deduplicates contacts within the same batch', async () => {
-    const uniqueEmail = `${TEST_PREFIX}dedup@test.com`;
-    const result = await svc.importContacts(
-      ownerId,
-      [
-        { name: 'First', email: uniqueEmail },
-        { name: 'Duplicate', email: uniqueEmail },
-      ],
-      'manual'
-    );
-    expect(result.imported).toBe(1);
-    expect(result.skipped).toBe(1);
-    // cleanup
-    for (const d of result.details) {
-      if (d.isNew) createdGhostIds.push(d.userId);
-    }
-  });
+    // Try adding again with restore=false (default)
+    const second = await svc.addContact(ownerId, softEmail, { restore: false });
 
-  it('is idempotent — re-importing same contacts does not duplicate', async () => {
-    const result = await svc.importContacts(
-      ownerId,
-      [
-        { name: 'Existing Person', email: existingContactEmail },
-        { name: 'Ghost One', email: ghostEmail1 },
-      ],
-      'manual'
-    );
-    // All contacts already exist, so no new contacts
-    expect(result.newContacts).toBe(0);
-    expect(result.imported).toBe(2);
-  });
+    // Should return the same user but membership stays soft-deleted
+    expect(second.userId).toBe(first.userId);
+
+    const [membership] = await db
+      .select({ deletedAt: indexMembers.deletedAt })
+      .from(indexMembers)
+      .where(
+        and(
+          eq(indexMembers.indexId, personalIndexId),
+          eq(indexMembers.userId, first.userId),
+          sql`'contact' = ANY(${indexMembers.permissions})`,
+        )
+      );
+    expect(membership.deletedAt).not.toBeNull();
+  }, 60_000);
+
+  it('restores soft-deleted contact when restore=true', async () => {
+    const restoreEmail = `${TEST_PREFIX}restore@example.com`;
+    // First add the contact
+    const first = await svc.addContact(ownerId, restoreEmail, { name: 'Restore Me' });
+    createdUserIds.push(first.userId);
+
+    // Soft-delete the membership
+    await db
+      .update(indexMembers)
+      .set({ deletedAt: new Date() })
+      .where(
+        and(
+          eq(indexMembers.indexId, personalIndexId),
+          eq(indexMembers.userId, first.userId),
+          sql`'contact' = ANY(${indexMembers.permissions})`,
+        )
+      );
+
+    // Restore
+    const second = await svc.addContact(ownerId, restoreEmail, { restore: true });
+    expect(second.userId).toBe(first.userId);
+
+    // Membership should be active again
+    const [membership] = await db
+      .select({ deletedAt: indexMembers.deletedAt })
+      .from(indexMembers)
+      .where(
+        and(
+          eq(indexMembers.indexId, personalIndexId),
+          eq(indexMembers.userId, first.userId),
+          sql`'contact' = ANY(${indexMembers.permissions})`,
+        )
+      );
+    expect(membership.deletedAt).toBeNull();
+  }, 60_000);
+
+  it('clears reverse opt-out when adding contact', async () => {
+    const otherEmail = `${TEST_PREFIX}other@example.com`;
+    const otherId = crypto.randomUUID();
+
+    // Create "other" user with personal index
+    const otherIndexId = await createTestUser(otherId, otherEmail, TEST_PREFIX + 'Other');
+
+    // Simulate: other user has owner as a soft-deleted contact in their personal index
+    await db.insert(indexMembers).values({
+      indexId: otherIndexId,
+      userId: ownerId,
+      permissions: ['contact'],
+      autoAssign: false,
+      deletedAt: new Date(),
+    }).onConflictDoNothing();
+
+    // Owner adds other as contact — should clear reverse opt-out
+    await svc.addContact(ownerId, otherEmail);
+
+    // The soft-deleted row in other's personal index for owner should be gone
+    const rows = await db
+      .select()
+      .from(indexMembers)
+      .where(
+        and(
+          eq(indexMembers.indexId, otherIndexId),
+          eq(indexMembers.userId, ownerId),
+          sql`'contact' = ANY(${indexMembers.permissions})`,
+        )
+      );
+    expect(rows.length).toBe(0);
+
+    // Cleanup: remove the other personal index
+    await db.delete(indexMembers).where(eq(indexMembers.indexId, otherIndexId));
+    await db.delete(personalIndexes).where(eq(personalIndexes.userId, otherId));
+    await db.delete(indexes).where(eq(indexes.id, otherIndexId));
+  }, 60_000);
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// 2. List contacts
+// 2. removeContact — hard deletes
+// ═══════════════════════════════════════════════════════════════════════════════
+describe('removeContact', () => {
+  it('hard-deletes the contact membership', async () => {
+    const removeEmail = `${TEST_PREFIX}removeme@example.com`;
+    const addResult = await svc.addContact(ownerId, removeEmail, { name: 'Remove Me' });
+    createdUserIds.push(addResult.userId);
+
+    // Verify exists
+    const beforeRows = await db
+      .select()
+      .from(indexMembers)
+      .where(
+        and(
+          eq(indexMembers.indexId, personalIndexId),
+          eq(indexMembers.userId, addResult.userId),
+          sql`'contact' = ANY(${indexMembers.permissions})`,
+        )
+      );
+    expect(beforeRows.length).toBe(1);
+
+    // Remove
+    await svc.removeContact(ownerId, addResult.userId);
+
+    // Verify gone (hard delete, not soft delete)
+    const afterRows = await db
+      .select()
+      .from(indexMembers)
+      .where(
+        and(
+          eq(indexMembers.indexId, personalIndexId),
+          eq(indexMembers.userId, addResult.userId),
+          sql`'contact' = ANY(${indexMembers.permissions})`,
+        )
+      );
+    expect(afterRows.length).toBe(0);
+  }, 60_000);
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 3. listContacts — returns contacts, excludes soft-deleted
 // ═══════════════════════════════════════════════════════════════════════════════
 describe('listContacts', () => {
-  it('returns all contacts with user details', async () => {
+  it('returns active contacts with user details', async () => {
     const contacts = await svc.listContacts(ownerId);
-    expect(contacts.length).toBeGreaterThanOrEqual(3);
 
+    // existingUserId and ghostEmail1 should be present (added in addContact tests)
     const existing = contacts.find(c => c.userId === existingUserId);
     expect(existing).toBeDefined();
     expect(existing!.user.isGhost).toBe(false);
-    expect(existing!.source).toBe('manual');
+    expect(existing!.user.email).toBe(existingContactEmail);
+  }, 60_000);
 
-    const ghost = contacts.find(c => c.user.isGhost === true);
-    expect(ghost).toBeDefined();
-  });
+  it('excludes soft-deleted contacts', async () => {
+    const sdEmail = `${TEST_PREFIX}sd_list@example.com`;
+    const added = await svc.addContact(ownerId, sdEmail, { name: 'SD List' });
+    createdUserIds.push(added.userId);
+
+    // Soft-delete
+    await db
+      .update(indexMembers)
+      .set({ deletedAt: new Date() })
+      .where(
+        and(
+          eq(indexMembers.indexId, personalIndexId),
+          eq(indexMembers.userId, added.userId),
+          sql`'contact' = ANY(${indexMembers.permissions})`,
+        )
+      );
+
+    const contacts = await svc.listContacts(ownerId);
+    const found = contacts.find(c => c.userId === added.userId);
+    expect(found).toBeUndefined();
+  }, 60_000);
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// 3. Add single contact
+// 4. importContacts — bulk with filtering
 // ═══════════════════════════════════════════════════════════════════════════════
-describe('addContact', () => {
-  const singleEmail = `${TEST_PREFIX}single@test.com`;
+describe('importContacts', () => {
+  it('imports valid contacts, skips invalid/non-human/duplicates', async () => {
+    const bulkEmail1 = `${TEST_PREFIX}bulk1@example.com`;
+    const bulkEmail2 = `${TEST_PREFIX}bulk2@example.com`;
 
-  it('adds a single contact by email', async () => {
-    const result = await svc.addContact(ownerId, singleEmail, 'Single Contact');
-    expect(result.imported).toBe(1);
-    expect(result.newContacts).toBe(1);
+    const result = await svc.importContacts(ownerId, [
+      { name: 'Bulk One', email: bulkEmail1 },
+      { name: 'Bulk Two', email: bulkEmail2 },
+      { name: 'Duplicate', email: bulkEmail1 }, // duplicate
+      { name: 'Self', email: ownerEmail },       // self
+      { name: 'Invalid', email: 'notanemail' },  // invalid
+      { name: '', email: 'noreply@company.com' }, // non-human
+    ]);
+
+    expect(result.imported).toBe(2);
+    expect(result.skipped).toBe(4); // dup + self + invalid + non-human
+    expect(result.newContacts).toBe(2); // both are new ghosts
+
+    // Track for cleanup
     for (const d of result.details) {
-      if (d.isNew) createdGhostIds.push(d.userId);
+      createdUserIds.push(d.userId);
     }
-  });
 
-  it('appears in contact list after adding', async () => {
+    // Verify both appear in list
     const contacts = await svc.listContacts(ownerId);
-    const found = contacts.find(c => c.user.email === singleEmail);
-    expect(found).toBeDefined();
-    expect(found!.user.name).toBe('Single Contact');
-  });
+    const bulk1 = contacts.find(c => c.user.email === bulkEmail1);
+    const bulk2 = contacts.find(c => c.user.email === bulkEmail2);
+    expect(bulk1).toBeDefined();
+    expect(bulk2).toBeDefined();
+  }, 60_000);
+
+  it('is idempotent — re-importing same contacts does not create duplicates', async () => {
+    const result = await svc.importContacts(ownerId, [
+      { name: 'Existing Person', email: existingContactEmail },
+    ]);
+
+    expect(result.imported).toBe(1);
+    expect(result.newContacts).toBe(0);
+    expect(result.existingContacts).toBe(1);
+  }, 60_000);
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// 4. Remove contact (soft delete)
+// 5. importContacts — name-based dedup
 // ═══════════════════════════════════════════════════════════════════════════════
-describe('removeContact', () => {
-  it('soft-deletes a contact and it no longer appears in list', async () => {
-    const contacts = await svc.listContacts(ownerId);
-    const target = contacts.find(c => c.userId === existingUserId);
-    expect(target).toBeDefined();
+describe('importContacts — name dedup', () => {
+  it('deduplicates same-name contacts with different emails', async () => {
+    const email1 = `${TEST_PREFIX}john_personal@gmail.com`;
+    const email2 = `${TEST_PREFIX}john_work@company.com`;
 
-    await svc.removeContact(ownerId, target!.id);
-
-    const after = await svc.listContacts(ownerId);
-    const removed = after.find(c => c.id === target!.id);
-    expect(removed).toBeUndefined();
-  });
-
-  it('re-importing a removed contact reactivates it', async () => {
-    const result = await svc.importContacts(
-      ownerId,
-      [{ name: 'Existing Person', email: existingContactEmail }],
-      'manual'
-    );
-    expect(result.imported).toBe(1);
-
-    const contacts = await svc.listContacts(ownerId);
-    const reactivated = contacts.find(c => c.userId === existingUserId);
-    expect(reactivated).toBeDefined();
-  });
-});
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// 5. Second owner imports existing ghost — no duplicate ghost created
-// ═══════════════════════════════════════════════════════════════════════════════
-describe('second owner imports existing ghost', () => {
-  const secondOwnerId = crypto.randomUUID();
-  const secondOwnerEmail = `${TEST_PREFIX}owner2@test.com`;
-
-  beforeAll(async () => {
-    await db.insert(users).values({
-      id: secondOwnerId,
-      name: TEST_PREFIX + 'Owner2',
-      email: secondOwnerEmail,
-    });
-    await db.insert(userProfiles).values({ userId: secondOwnerId });
-  });
-
-  afterAll(async () => {
-    await db.delete(userContacts).where(eq(userContacts.ownerId, secondOwnerId));
-    await db.delete(userProfiles).where(eq(userProfiles.userId, secondOwnerId));
-    await db.delete(users).where(eq(users.id, secondOwnerId));
-  });
-
-  it('reuses existing ghost user instead of creating a duplicate', async () => {
-    // ghostEmail1 already has a ghost from section 1
-    const result = await svc.importContacts(
-      secondOwnerId,
-      [{ name: 'Ghost One Again', email: ghostEmail1 }],
-      'manual'
-    );
+    const result = await svc.importContacts(ownerId, [
+      { name: 'John Smith', email: email1 },
+      { name: 'John Smith', email: email2 },
+    ]);
 
     expect(result.imported).toBe(1);
-    // The ghost user already exists in the users table, so isNew is false
-    expect(result.details[0].isNew).toBe(false);
+    expect(result.skipped).toBe(1);
 
-    // Verify only one user row exists for this email (no duplicate)
-    const rows = await db
+    // Track for cleanup
+    for (const d of result.details) {
+      createdUserIds.push(d.userId);
+    }
+
+    // Only one contact membership should exist
+    const contacts = await svc.listContacts(ownerId);
+    const johns = contacts.filter(c =>
+      c.user.email === email1 || c.user.email === email2
+    );
+    expect(johns.length).toBe(1);
+
+    // But both ghost user rows should exist in the users table
+    const [ghost1] = await db
       .select({ id: users.id })
       .from(users)
-      .where(eq(users.email, ghostEmail1));
-    expect(rows.length).toBe(1);
-
-    // Second owner's contact points to the same ghost user as first owner's
-    const firstOwnerContacts = await svc.listContacts(ownerId);
-    const secondOwnerContacts = await svc.listContacts(secondOwnerId);
-    const ghost1ForOwner1 = firstOwnerContacts.find(c => c.user.email === ghostEmail1);
-    const ghost1ForOwner2 = secondOwnerContacts.find(c => c.user.email === ghostEmail1);
-    expect(ghost1ForOwner1).toBeDefined();
-    expect(ghost1ForOwner2).toBeDefined();
-    expect(ghost1ForOwner1!.userId).toBe(ghost1ForOwner2!.userId);
-  });
-});
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// 6. Signup auto-claims ghost (simulates Better Auth hook)
-// ═══════════════════════════════════════════════════════════════════════════════
-describe('signup auto-claims ghost user', () => {
-  const signupEmail = `${TEST_PREFIX}signup@test.com`;
-  const realUserId = crypto.randomUUID();
-  let ghostId: string;
-
-  beforeAll(async () => {
-    // Create a ghost via contact import
-    const result = await svc.addContact(ownerId, signupEmail, 'Future Signup');
-    ghostId = result.details[0].userId;
-    createdGhostIds.push(ghostId);
-  });
-
-  afterAll(async () => {
-    await db.delete(userContacts).where(eq(userContacts.userId, realUserId));
-    await db.delete(userProfiles).where(eq(userProfiles.userId, realUserId));
-    await db.delete(indexMembers).where(eq(indexMembers.userId, realUserId));
-    await db.delete(users).where(eq(users.id, realUserId));
-    // Ghost is deleted by claim, remove from cleanup list
-    const idx = createdGhostIds.indexOf(ghostId);
-    if (idx >= 0) createdGhostIds.splice(idx, 1);
-  });
-
-  it('ghost exists before signup', async () => {
-    const [row] = await db
-      .select({ isGhost: users.isGhost })
+      .where(eq(users.email, email1));
+    const [ghost2] = await db
+      .select({ id: users.id })
       .from(users)
-      .where(eq(users.id, ghostId));
-    expect(row.isGhost).toBe(true);
-  });
+      .where(eq(users.email, email2));
+    expect(ghost1).toBeDefined();
+    expect(ghost2).toBeDefined();
+    createdUserIds.push(ghost2.id);
+  }, 60_000);
 
-  it('signup with ghost email claims the ghost automatically', async () => {
-    // Simulate Better Auth create.before hook: free the ghost email
-    const claimedGhostId = await authDb.prepareGhostClaim(signupEmail);
-    expect(claimedGhostId).toBe(ghostId);
+  it('deduplicates names case-insensitively', async () => {
+    const email1 = `${TEST_PREFIX}jane_a@example.com`;
+    const email2 = `${TEST_PREFIX}jane_b@example.com`;
 
-    // Simulate Better Auth inserting the real user
-    await db.insert(users).values({
-      id: realUserId,
-      name: TEST_PREFIX + 'SignupUser',
-      email: signupEmail,
-    });
+    const result = await svc.importContacts(ownerId, [
+      { name: 'Jane Doe', email: email1 },
+      { name: 'jane doe', email: email2 },
+    ]);
 
-    // Simulate Better Auth create.after hook: claim ghost data
-    await authDb.claimGhostUser(realUserId, claimedGhostId!);
+    expect(result.imported).toBe(1);
+    expect(result.skipped).toBe(1);
 
-    // Ghost row is gone
-    const ghostRows = await db
-      .select()
-      .from(users)
-      .where(eq(users.id, ghostId));
-    expect(ghostRows.length).toBe(0);
+    for (const d of result.details) createdUserIds.push(d.userId);
 
-    // Real user exists and is not a ghost
-    const [realUser] = await db
-      .select({ id: users.id, isGhost: users.isGhost, email: users.email })
-      .from(users)
-      .where(eq(users.id, realUserId));
-    expect(realUser.isGhost).toBe(false);
-    expect(realUser.email).toBe(signupEmail);
+    // Clean up orphan ghost
+    const [orphan] = await db.select({ id: users.id }).from(users).where(eq(users.email, email2.toLowerCase()));
+    if (orphan) createdUserIds.push(orphan.id);
+  }, 60_000);
 
-    // Contact relationship transferred: owner's contact now points to the real user
-    const contacts = await svc.listContacts(ownerId);
-    const claimed = contacts.find(c => c.userId === realUserId);
-    expect(claimed).toBeDefined();
-    expect(claimed!.user.isGhost).toBe(false);
-    expect(claimed!.user.email).toBe(signupEmail);
-  });
-});
+  it('does not merge contacts with different names', async () => {
+    const email1 = `${TEST_PREFIX}alice_dedup@example.com`;
+    const email2 = `${TEST_PREFIX}bob_dedup@example.com`;
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// 7. Ghost claim (two-phase: prepareGhostClaim + claimGhostUser)
-// ═══════════════════════════════════════════════════════════════════════════════
-describe('ghost claim flow', () => {
-  let claimGhostId: string;
-  const claimEmail = `${TEST_PREFIX}claim@test.com`;
-  const realUserId = crypto.randomUUID();
+    const result = await svc.importContacts(ownerId, [
+      { name: 'Alice', email: email1 },
+      { name: 'Bob', email: email2 },
+    ]);
 
-  beforeAll(async () => {
-    // Import a contact to create a ghost
-    const result = await svc.addContact(ownerId, claimEmail, 'Claim Target');
-    claimGhostId = result.details[0].userId;
-    createdGhostIds.push(claimGhostId);
-  });
+    expect(result.imported).toBe(2);
+    expect(result.skipped).toBe(0);
 
-  afterAll(async () => {
-    // Clean up the real user created during claim
-    await db.delete(userContacts).where(eq(userContacts.userId, realUserId));
-    await db.delete(userProfiles).where(eq(userProfiles.userId, realUserId));
-    await db.delete(indexMembers).where(eq(indexMembers.userId, realUserId));
-    await db.delete(users).where(eq(users.id, realUserId));
-    // Remove ghost from cleanup list since claim deletes it
-    const idx = createdGhostIds.indexOf(claimGhostId);
-    if (idx >= 0) createdGhostIds.splice(idx, 1);
-  });
+    for (const d of result.details) createdUserIds.push(d.userId);
+  }, 60_000);
 
-  it('prepareGhostClaim frees the ghost email', async () => {
-    const ghostId = await authDb.prepareGhostClaim(claimEmail);
-    expect(ghostId).toBe(claimGhostId);
+  it('does not merge nameless contacts with very different emails', async () => {
+    // Use sufficiently distinct local-parts + domains so scoring-based dedup
+    // keeps them separate even with the long TEST_PREFIX in the email.
+    const email1 = `${TEST_PREFIX}samantha_home_address@gmail.com`;
+    const email2 = `${TEST_PREFIX}robert_work_office@company.com`;
 
-    // Ghost email is now a placeholder
-    const [ghost] = await db
-      .select({ email: users.email })
-      .from(users)
-      .where(eq(users.id, claimGhostId));
-    expect(ghost.email).toBe(`__ghost_claimed_${claimGhostId}`);
-  });
+    const result = await svc.importContacts(ownerId, [
+      { name: '', email: email1 },
+      { name: '', email: email2 },
+    ]);
 
-  it('real user can be created with the freed email', async () => {
-    await db.insert(users).values({
-      id: realUserId,
-      name: TEST_PREFIX + 'RealClaimer',
-      email: claimEmail,
-    });
-    const [row] = await db
-      .select({ email: users.email })
-      .from(users)
-      .where(eq(users.id, realUserId));
-    expect(row.email).toBe(claimEmail);
-  });
+    expect(result.imported).toBe(2);
+    expect(result.skipped).toBe(0);
 
-  it('claimGhostUser transfers data and deletes ghost', async () => {
-    await authDb.claimGhostUser(realUserId, claimGhostId);
-
-    // Ghost row gone
-    const ghosts = await db
-      .select()
-      .from(users)
-      .where(eq(users.id, claimGhostId));
-    expect(ghosts.length).toBe(0);
-
-    // Contact ownership transferred
-    const contacts = await db
-      .select()
-      .from(userContacts)
-      .where(eq(userContacts.userId, realUserId));
-    expect(contacts.length).toBeGreaterThanOrEqual(1);
-
-    // Profile transferred
-    const profiles = await db
-      .select()
-      .from(userProfiles)
-      .where(eq(userProfiles.userId, realUserId));
-    expect(profiles.length).toBe(1);
-  });
-
-  it('contact list reflects the claimed user', async () => {
-    const contacts = await svc.listContacts(ownerId);
-    const claimed = contacts.find(c => c.userId === realUserId);
-    expect(claimed).toBeDefined();
-    expect(claimed!.user.isGhost).toBe(false);
-  });
+    for (const d of result.details) createdUserIds.push(d.userId);
+  }, 60_000);
 });

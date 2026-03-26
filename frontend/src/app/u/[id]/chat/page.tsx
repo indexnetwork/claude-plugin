@@ -1,8 +1,8 @@
-import { useEffect, useState } from "react";
-import { useNavigate, useSearchParams, useParams } from "react-router";
+import { useEffect, useRef, useState } from "react";
+import { useNavigate, useSearchParams, useParams, useLocation } from "react-router";
 import { Loader2 } from "lucide-react";
 import { useAuthContext } from "@/contexts/AuthContext";
-import { useUsers } from "@/contexts/APIContext";
+import { useUsers, useOpportunities } from "@/contexts/APIContext";
 import { User } from "@/lib/types";
 import ChatView from "@/components/chat/ChatView";
 
@@ -10,9 +10,20 @@ export default function ChatPage() {
   const { id } = useParams();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const location = useLocation();
   const initialGroupId = searchParams.get('groupId') ?? undefined;
+  const [initialState] = useState(() => {
+    const s = location.state as { prefill?: string; autoSend?: boolean; opportunityId?: string } | null;
+    if (s) window.history.replaceState({}, '');
+    return s;
+  });
+  const prefillMessage = initialState?.prefill ?? undefined;
+  const autoSend = initialState?.autoSend ?? false;
+  const pendingOpportunityId = initialState?.opportunityId ?? undefined;
   const { isAuthenticated, isLoading: authLoading } = useAuthContext();
   const usersService = useUsers();
+  const opportunitiesService = useOpportunities();
+  const opportunityAcceptedRef = useRef(false);
 
   const [profileData, setProfileData] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -42,12 +53,22 @@ export default function ChatPage() {
     fetchData();
   }, [id!, isAuthenticated, authLoading, usersService]);
 
+  const handleFirstMessageSent = async () => {
+    if (!pendingOpportunityId || opportunityAcceptedRef.current) return;
+    opportunityAcceptedRef.current = true;
+    try {
+      await opportunitiesService.updateStatus(pendingOpportunityId, "accepted");
+    } catch (err) {
+      console.error('[ChatPage] Failed to accept opportunity after message sent:', err);
+    }
+  };
+
   const handleClose = () => {
     navigate('/');
   };
 
   const handleBack = () => {
-    navigate('/chat');
+    navigate(-1);
   };
 
   if (authLoading || isLoading) {
@@ -80,8 +101,10 @@ export default function ChatPage() {
       userId={profileData.id}
       userName={profileData.name}
       userAvatar={profileData.avatar || undefined}
-      userTitle={profileData.location || undefined}
       initialGroupId={initialGroupId}
+      initialMessage={prefillMessage}
+      autoSend={autoSend}
+      onFirstMessageSent={pendingOpportunityId ? handleFirstMessageSent : undefined}
       onClose={handleClose}
       onBack={handleBack}
     />

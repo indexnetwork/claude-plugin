@@ -26,8 +26,10 @@ import { OpportunityPresenter, gatherPresenterContext, type PresenterDatabase } 
 import { HomeCategorizerAgent } from '../agents/home.categorizer';
 import { canUserSeeOpportunity, isActionableForViewer } from '../support/opportunity.utils';
 import { resolveHomeSectionIcon, DEFAULT_HOME_SECTION_ICON } from '../support/lucide.icon-catalog';
+import { getPrimaryActionLabel, SECONDARY_ACTION_LABEL } from '../support/opportunity.constants';
 import { protocolLogger } from '../support/protocol.logger';
 import { timed } from '../../performance';
+import { requestContext } from '../../request-context';
 
 const logger = protocolLogger('HomeGraph');
 
@@ -70,47 +72,6 @@ export function stripLeadingNarratorName(remark: string, narratorName: string): 
   }
   return t;
 }
-
-const toIntentArray = (value: unknown): unknown[] => (Array.isArray(value) ? value : []);
-
-const toIntentKey = (intent: unknown): string | null => {
-  if (typeof intent === 'string' || typeof intent === 'number') {
-    return String(intent);
-  }
-  if (!intent || typeof intent !== 'object') {
-    return null;
-  }
-
-  const record = intent as Record<string, unknown>;
-  const candidate =
-    record.intentId ?? record.id ?? record.payload ?? record.summary ?? record.title ?? record.name;
-
-  if (typeof candidate === 'string' || typeof candidate === 'number') {
-    return String(candidate);
-  }
-  return null;
-};
-
-const computeMutualIntentCount = (ctx: Record<string, unknown>): number => {
-  const actorIntents = toIntentArray(ctx.intents ?? ctx.viewerIntents ?? ctx.actorIntents);
-  const partnerIntents = toIntentArray(ctx.otherIntents ?? ctx.partnerIntents ?? ctx.otherPartyIntents);
-
-  const actorIntentSet = new Set(
-    actorIntents.map((intent) => toIntentKey(intent)).filter((key): key is string => key !== null)
-  );
-  const partnerIntentSet = new Set(
-    partnerIntents.map((intent) => toIntentKey(intent)).filter((key): key is string => key !== null)
-  );
-
-  let overlap = 0;
-  for (const key of actorIntentSet) {
-    if (partnerIntentSet.has(key)) {
-      overlap += 1;
-    }
-  }
-
-  return overlap;
-};
 
 /** Normalize timestamp for sorting; returns numeric ms or 0 for invalid/missing. */
 const safeParseDate = (value: unknown): number => {
@@ -212,10 +173,6 @@ export class HomeGraphFactory {
           const visibleForFeed = visible.filter((opp) =>
             isActionableForViewer(opp.actors, opp.status, state.userId)
           );
-          const expired = raw.filter(
-            (opp) =>
-              opp.status === 'expired' && canUserSeeOpportunity(opp.actors, opp.status, state.userId)
-          );
           const sorted = [...visibleForFeed].sort((a, b) => {
             const confA = getConfidence(a);
             const confB = getConfidence(b);
@@ -233,10 +190,10 @@ export class HomeGraphFactory {
             return true;
           });
           const opportunities = deduped.slice(0, state.limit);
-          return { opportunities, expired };
+          return { opportunities };
         } catch (e) {
           logger.error('HomeGraph loadOpportunities failed', { error: e });
-          return { error: 'Failed to load opportunities', opportunities: [], expired: [] };
+          return { error: 'Failed to load opportunities', opportunities: [] };
         }
       });
     };
@@ -296,7 +253,7 @@ export class HomeGraphFactory {
       logger.verbose('[HomeGraph:generateCardText] entry', { opportunitiesLength: opportunities.length, userId: state.userId });
       if (opportunities.length === 0) {
         logger.verbose('[HomeGraph:generateCardText] exit', { totalOpportunities: 0, totalSections: 0 });
-        return { cards: [], meta: { totalOpportunities: 0, totalSections: 0 } };
+        return { cards: [], agentTimings: [], meta: { totalOpportunities: 0, totalSections: 0 } };
       }
       const db = this.database as PresenterDatabase;
       const cards: HomeCardItem[] = [];
@@ -322,6 +279,8 @@ export class HomeGraphFactory {
       const oppIndexMap = new Map(
         state.opportunities.map((opp, idx) => [opp.id, idx])
       );
+
+      const agentTimingsAccum: import('../../../types/chat-streaming.types').DebugMetaAgent[] = [];
 
       for (let i = 0; i < opportunities.length; i += PRESENTATION_CONCURRENCY) {
         const chunk = opportunities.slice(i, i + PRESENTATION_CONCURRENCY);
@@ -371,6 +330,7 @@ export class HomeGraphFactory {
                 ? opportunity.interpretation.reasoning.replace(/\s+/g, ' ').trim().slice(0, MAX_REASONING_SNIPPET_LENGTH)
                 : '') || 'A promising connection.';
 
+            const isCounterpartGhost = otherUser?.isGhost ?? false;
             const fallbackCard = (): HomeCardItem => ({
               opportunityId: opportunity.id,
               userId: otherActor?.userId ?? '',
@@ -380,11 +340,14 @@ export class HomeGraphFactory {
               cta: isIntroducer
                 ? 'Share this introduction to get things started.'
                 : 'Take a look and decide whether to reach out.',
-              primaryActionLabel: isIntroducer ? 'Good match' : 'Start Chat',
-              secondaryActionLabel: isIntroducer ? 'Pass' : 'Skip',
+              primaryActionLabel: getPrimaryActionLabel(viewerRole),
+              secondaryActionLabel: SECONDARY_ACTION_LABEL,
               mutualIntentsLabel: isIntroducer ? 'Connector match' : 'Shared interests',
-              narratorChip: { name: 'Index', text: 'Worth a look.' },
+              narratorChip: isIntroducer
+                ? { name: 'You', text: 'Worth a look.', userId: state.userId }
+                : { name: 'Index', text: 'Worth a look.' },
               viewerRole,
+              isGhost: isCounterpartGhost,
               _cardIndex: cardIndex,
             });
 
@@ -395,13 +358,18 @@ export class HomeGraphFactory {
                 state.userId,
                 otherActor?.userId,
               );
-              const mutualIntentCount = computeMutualIntentCount(ctx as unknown as Record<string, unknown>);
               const homeInput = {
                 ...ctx,
-                mutualIntentCount,
+                mutualIntentCount: undefined,
                 opportunityStatus: opportunity.status,
               };
+              const _traceEmitterPresenter = requestContext.getStore()?.traceEmitter;
+              const presenterStart = Date.now();
+              _traceEmitterPresenter?.({ type: "agent_start", name: "opportunity-presenter" });
               const presentation = await presenter.presentHomeCard(homeInput);
+              const _presenterDuration = Date.now() - presenterStart;
+              agentTimingsAccum.push({ name: 'opportunity.presenter', durationMs: _presenterDuration });
+              _traceEmitterPresenter?.({ type: "agent_end", name: "opportunity-presenter", durationMs: _presenterDuration, summary: `Presented: ${userName}` });
               let narratorChip: { name: string; text: string; avatar?: string | null; userId?: string } | undefined;
               // Only show a person as narrator when they are the introducer and not the display counterpart
               // (bad data can have same user as introducer and party, e.g. "Amina introduced you to Amina")
@@ -415,6 +383,8 @@ export class HomeGraphFactory {
                   avatar: introUser?.avatar ?? null,
                   userId: introducer.userId,
                 };
+              } else if (introducer?.userId === state.userId) {
+                narratorChip = { name: 'You', text: presentation.narratorRemark, userId: state.userId };
               } else {
                 narratorChip = { name: 'Index', text: presentation.narratorRemark };
               }
@@ -426,11 +396,12 @@ export class HomeGraphFactory {
                 mainText: presentation.personalizedSummary,
                 cta: presentation.suggestedAction,
                 headline: presentation.headline,
-                primaryActionLabel: presentation.primaryActionLabel,
-                secondaryActionLabel: presentation.secondaryActionLabel,
+                primaryActionLabel: getPrimaryActionLabel(viewerRole),
+                secondaryActionLabel: SECONDARY_ACTION_LABEL,
                 mutualIntentsLabel: presentation.mutualIntentsLabel,
                 narratorChip,
                 viewerRole,
+                isGhost: isCounterpartGhost,
                 _cardIndex: cardIndex,
               } satisfies HomeCardItem;
             } catch (e) {
@@ -444,6 +415,7 @@ export class HomeGraphFactory {
       logger.verbose('[HomeGraph:generateCardText] exit', { totalOpportunities: state.opportunities.length, totalSections: 0 });
       return {
         cards,
+        agentTimings: agentTimingsAccum,
         meta: { totalOpportunities: state.opportunities.length, totalSections: 0 },
       };
       });
@@ -533,29 +505,30 @@ export class HomeGraphFactory {
         logger.verbose('[HomeGraph:categorizeDynamically] entry', { cardsLength: state.cards.length });
         if (state.cards.length === 0) {
           logger.verbose('[HomeGraph:categorizeDynamically] exit', { sectionProposalsCount: 0 });
-          return { sectionProposals: [] };
+          return { sectionProposals: [], agentTimings: [] };
         }
+        const agentTimingsAccum: import('../../../types/chat-streaming.types').DebugMetaAgent[] = [];
         const categorizerInput = state.cards.map((c) => ({
           index: c._cardIndex,
           headline: c.headline,
           mainText: c.mainText,
           name: c.name,
-          viewerRole:
-            c.primaryActionLabel === 'Good match' && c.secondaryActionLabel === 'Pass'
-              ? 'introducer'
-              : undefined,
-          opportunityStatus:
-            c.primaryActionLabel === 'Good match' && c.secondaryActionLabel === 'Pass'
-              ? 'pending'
-              : undefined,
+          viewerRole: c.viewerRole === 'introducer' ? 'introducer' : undefined,
+          opportunityStatus: c.viewerRole === 'introducer' ? 'pending' : undefined,
         }));
+        const _traceEmitterCategorizer = requestContext.getStore()?.traceEmitter;
+        const categorizerStart = Date.now();
+        _traceEmitterCategorizer?.({ type: "agent_start", name: "home-categorizer" });
         const { sections } = await categorizer.categorize(categorizerInput);
+        const _categorizerDuration = Date.now() - categorizerStart;
+        agentTimingsAccum.push({ name: 'home.categorizer', durationMs: _categorizerDuration });
+        _traceEmitterCategorizer?.({ type: "agent_end", name: "home-categorizer", durationMs: _categorizerDuration, summary: `Categorized into ${sections.length} section(s)` });
         const proposals: HomeSectionProposal[] = sections.map((s) => ({
           ...s,
           itemIndices: s.itemIndices.filter((i) => i >= 0 && i < state.cards.length),
         }));
         logger.verbose('[HomeGraph:categorizeDynamically] exit', { sectionProposalsCount: proposals.length });
-        return { sectionProposals: proposals };
+        return { sectionProposals: proposals, agentTimings: agentTimingsAccum };
       });
     };
 

@@ -25,6 +25,10 @@ export const createAuthService = (api: ReturnType<typeof useAuthenticatedAPI>) =
     return profile?.identity?.bio ?? null;
   },
 
+  // Permanently delete the authenticated user's account (soft delete)
+  deleteAccount: async (): Promise<void> => {
+    await api.delete<{ success: boolean }>('/auth/account');
+  },
 
 });
 

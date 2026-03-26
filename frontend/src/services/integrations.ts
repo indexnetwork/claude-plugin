@@ -1,80 +1,47 @@
 import { useMemo } from 'react';
 import { useAuthenticatedAPI } from '../lib/api';
-import {
-  IntegrationResponse,
-  AvailableIntegrationType,
-  ConnectIntegrationRequest,
-  ConnectIntegrationResponse,
-  IntegrationStatusResponse,
-  DirectorySyncConfig,
-  DirectorySyncError
-} from '../types';
 
-// Service functions factory that takes an authenticated API instance
+export interface ComposioConnection {
+  id: string;
+  toolkit: string;
+  status: string;
+  createdAt: string;
+}
+
+export interface ImportContactsResult {
+  imported: number;
+  skipped: number;
+  newContacts: number;
+  existingContacts: number;
+}
+
 export const createIntegrationsService = (api: ReturnType<typeof useAuthenticatedAPI>) => ({
-  // Get all integrations, optionally filtered by indexId
-  getIntegrations: async (indexId?: string): Promise<{ 
-    integrations: IntegrationResponse[]; 
-    availableTypes: AvailableIntegrationType[] 
-  }> => {
-    const url = indexId ? `/integrations?indexId=${indexId}` : '/integrations';
-    return api.get<{ 
-      integrations: IntegrationResponse[]; 
-      availableTypes: AvailableIntegrationType[] 
-    }>(url);
+  getConnections: async (indexId?: string): Promise<{ connections: ComposioConnection[] }> => {
+    const qs = indexId ? `?indexId=${encodeURIComponent(indexId)}` : '';
+    return api.get<{ connections: ComposioConnection[] }>(`/integrations${qs}`);
   },
 
-  // Connect an integration to an index
-  connectIntegration: async (
-    integrationType: string, 
-    data: ConnectIntegrationRequest
-  ): Promise<ConnectIntegrationResponse> => {
-    return api.post<ConnectIntegrationResponse>(`/integrations/connect/${integrationType}`, data);
+  connect: async (toolkit: string): Promise<{ redirectUrl: string }> => {
+    return api.post<{ redirectUrl: string }>(`/integrations/connect/${toolkit}`);
   },
 
-  // Check integration status using integrationId
-  getIntegrationStatus: async (integrationId: string): Promise<IntegrationStatusResponse> => {
-    return api.get<IntegrationStatusResponse>(`/integrations/${integrationId}/status`);
+  linkIntegration: async (toolkit: string, indexId: string): Promise<{ success: boolean }> => {
+    return api.post<{ success: boolean }>(`/integrations/${toolkit}/link`, { indexId });
   },
 
-  // Disconnect integration using integrationId
-  disconnectIntegration: async (integrationId: string): Promise<{ success: boolean }> => {
-    return api.delete<{ success: boolean }>(`/integrations/${integrationId}`);
+  unlinkIntegration: async (toolkit: string, indexId: string): Promise<{ success: boolean }> => {
+    return api.delete<{ success: boolean }>(`/integrations/${toolkit}/link?indexId=${encodeURIComponent(indexId)}`);
   },
 
-  // Directory sync methods
-  getDirectorySources: async (integrationId: string): Promise<{ sources: Array<{ id: string; name: string; subSources?: Array<{ id: string; name: string }> }> }> => {
-    return api.get(`/integrations/${integrationId}/directory/sources`);
+  disconnect: async (id: string): Promise<{ success: boolean }> => {
+    return api.delete<{ success: boolean }>(`/integrations/${id}`);
   },
 
-  getDirectorySourceSchema: async (integrationId: string, sourceId: string, subSourceId?: string): Promise<{ columns: Array<{ id: string; name: string; type?: string }> }> => {
-    const params = subSourceId ? `?subSourceId=${encodeURIComponent(subSourceId)}` : '';
-    return api.get(`/integrations/${integrationId}/directory/sources/${sourceId}/schema${params}`);
-  },
-
-  getDirectoryConfig: async (integrationId: string): Promise<{ config: DirectorySyncConfig | null }> => {
-    return api.get(`/integrations/${integrationId}/directory/config`);
-  },
-
-  saveDirectoryConfig: async (integrationId: string, config: Omit<DirectorySyncConfig, 'enabled' | 'lastSyncAt' | 'lastSyncStatus' | 'lastSyncError' | 'memberCount'>): Promise<{ success: boolean; config: DirectorySyncConfig }> => {
-    return api.post(`/integrations/${integrationId}/directory/config`, { config });
-  },
-
-  syncDirectory: async (integrationId: string): Promise<{ success: boolean; membersAdded: number; errors: DirectorySyncError[]; status: 'success' | 'error' | 'partial' }> => {
-    return api.post(`/integrations/${integrationId}/directory/sync`);
-  },
-
-  // Slack channel methods
-  getSlackChannels: async (integrationId: string): Promise<{ channels: Array<{ id: string; name: string }>; selectedChannels: string[] }> => {
-    return api.get(`/integrations/${integrationId}/slack/channels`);
-  },
-
-  saveSlackChannels: async (integrationId: string, channelIds: string[]): Promise<{ success: boolean; config: { selectedChannels: string[] } }> => {
-    return api.post(`/integrations/${integrationId}/slack/channels`, { channelIds });
+  importContacts: async (toolkit: string, indexId?: string): Promise<ImportContactsResult> => {
+    return api.post<ImportContactsResult>(`/integrations/${toolkit}/import`, { indexId });
   },
 });
 
-// Hook for using integrations service with proper error handling
 export function useIntegrationsService() {
   const api = useAuthenticatedAPI();
   return useMemo(() => createIntegrationsService(api), [api]);

@@ -24,6 +24,7 @@ import { useNotifications } from "@/contexts/NotificationContext";
 import { useOpportunities } from "@/contexts/APIContext";
 import { validateFiles } from "@/lib/file-validation";
 import InlineDiscoveryCard from "@/components/chat/InlineDiscoveryCard";
+import InviteMessageModal from "@/components/InviteMessageModal";
 import OpportunityCard, {
   type OpportunityCardData,
   OpportunitySkeleton,
@@ -223,12 +224,14 @@ function AssistantMessageContent({
     userId: string,
     viewerRole?: string,
     counterpartName?: string,
+    isGhost?: boolean,
   ) => void;
   onOpportunitySecondaryAction?: (
     opportunityId: string,
     userId: string,
     viewerRole?: string,
     counterpartName?: string,
+    isGhost?: boolean,
   ) => void;
   opportunityLoadingMap?: Record<string, boolean>;
   /** Map of opportunityId -> current status from server */
@@ -464,6 +467,10 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
   // Networks panel join tracking
   const [networkPanelPendingJoinIds, setNetworkPanelPendingJoinIds] = useState<Set<string>>(new Set());
 
+  // Invite message modal state
+  const [inviteModal, setInviteModal] = useState<{ userId: string; userName: string; message: string; loading: boolean; opportunityId: string } | null>(null);
+  const inviteModalResolveRef = useRef<((msg: string | null) => void) | null>(null);
+
   // Clear pending join IDs when stream completes (agent processed the join)
   const prevIsLoadingRef = useRef(isLoading);
   useEffect(() => {
@@ -616,6 +623,7 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
       navigatingToHomeRef.current = true;
       // Don't abort in-flight stream so the new session can finish and appear in the sidebar
       clearChat({ abortStream: false });
+      setSelectedIndexIds([]);
       setSessionLoaded(true);
     }
   }, [sessionIdFromUrl, loadSession, clearChat]);
@@ -653,63 +661,116 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
       fallbackUserId?: string,
       viewerRole?: string,
       counterpartName?: string,
+      isGhost?: boolean,
     ) => {
-      setOpportunityActionLoading((prev) => ({
-        ...prev,
-        [opportunityId]: true,
-      }));
-      try {
-        // Introducers "send" the intro (latent → pending) instead of accepting
-        const isIntroducer = viewerRole === "introducer";
-        const effectiveStatus =
-          isIntroducer && action === "accepted" ? "pending" : action;
+      const isIntroducer = viewerRole === "introducer";
 
-        const result = await opportunitiesService.updateStatus(
-          opportunityId,
-          effectiveStatus,
-        );
+      // Ghost + accepted + non-introducer: show modal immediately, fetch AI message in background
+      if (action === "accepted" && !isIntroducer && isGhost) {
+        const name = counterpartName ?? "them";
+        const displayUserId = fallbackUserId ?? "";
 
-        // Update local status map so the card reflects the new status immediately
-        setOpportunityStatusMap((prev) => ({
-          ...prev,
-          [opportunityId]: effectiveStatus,
-        }));
+        setInviteModal({ userId: displayUserId, userName: name, message: "", loading: true, opportunityId });
 
-        const counterpartUserId =
-          result.counterpartUserId ?? fallbackUserId;
-        if (action === "accepted" && !isIntroducer && counterpartUserId) {
-          navigate(`/u/${counterpartUserId}/chat`);
-        } else if (action === "accepted" && isIntroducer) {
-          showSuccess(
-            "Introduction sent",
-            `${counterpartName || "They"} will be notified and can accept to start the conversation.`,
-          );
+        opportunitiesService.getInviteMessage(opportunityId)
+          .then(({ message }) => {
+            setInviteModal((prev) => prev?.opportunityId === opportunityId ? { ...prev, message, loading: false } : prev);
+          })
+          .catch(() => {
+            setInviteModal((prev) => prev?.opportunityId === opportunityId ? { ...prev, loading: false } : prev);
+          });
+
+        const finalMessage = await new Promise<string | null>((resolve) => {
+          inviteModalResolveRef.current = resolve;
+        });
+
+        if (finalMessage === null) {
+          throw new Error("user_cancelled");
         }
+
+        setOpportunityActionLoading((prev) => ({ ...prev, [opportunityId]: true }));
+        try {
+          const result = await opportunitiesService.updateStatus(opportunityId, "accepted");
+          setOpportunityStatusMap((prev) => ({ ...prev, [opportunityId]: "accepted" }));
+          setHomeViewData((prev) => {
+            if (!prev) return prev;
+            return {
+              ...prev,
+              sections: prev.sections
+                .map((s) => ({ ...s, items: s.items.filter((i) => i.opportunityId !== opportunityId) }))
+                .filter((s) => s.items.length > 0),
+            };
+          });
+          const counterpartUserId = result.counterpartUserId ?? fallbackUserId;
+          if (counterpartUserId) {
+            navigate(`/u/${counterpartUserId}/chat`, { state: { prefill: finalMessage, autoSend: true } });
+          }
+        } catch (error) {
+          showError(error instanceof Error ? error.message : "Failed to update opportunity");
+        } finally {
+          setOpportunityActionLoading((prev) => ({ ...prev, [opportunityId]: false }));
+        }
+        return;
+      }
+
+      // Non-ghost + accepted + non-introducer: skip modal, prefill chat with AI message, accept only after first message
+      if (action === "accepted" && !isIntroducer && !isGhost) {
+        setOpportunityActionLoading((prev) => ({ ...prev, [opportunityId]: true }));
+        const userId = fallbackUserId ?? "";
+        let prefillMessage = "";
+        try {
+          const { message } = await opportunitiesService.getInviteMessage(opportunityId);
+          prefillMessage = message;
+        } catch { /* use empty */ }
+        setOpportunityActionLoading((prev) => ({ ...prev, [opportunityId]: false }));
         setHomeViewData((prev) => {
           if (!prev) return prev;
           return {
             ...prev,
             sections: prev.sections
-              .map((section) => ({
-                ...section,
-                items: section.items.filter(
-                  (item) => item.opportunityId !== opportunityId,
-                ),
-              }))
-              .filter((section) => section.items.length > 0),
+              .map((s) => ({ ...s, items: s.items.filter((i) => i.opportunityId !== opportunityId) }))
+              .filter((s) => s.items.length > 0),
           };
         });
+        navigate(`/u/${userId}/chat`, {
+          state: { prefill: prefillMessage, opportunityId },
+        });
+        return;
+      }
+
+      // For rejected or introducer accepted: proceed immediately without modal
+      setOpportunityActionLoading((prev) => ({ ...prev, [opportunityId]: true }));
+      try {
+        const effectiveStatus = isIntroducer && action === "accepted" ? "pending" : action;
+        const result = await opportunitiesService.updateStatus(opportunityId, effectiveStatus);
+        setOpportunityStatusMap((prev) => ({ ...prev, [opportunityId]: effectiveStatus }));
+
+        if (action === "accepted" && isIntroducer) {
+          showSuccess(
+            "Introduction sent",
+            `${counterpartName || "They"} will be notified and can accept to start the conversation.`,
+          );
+        }
+
+        setHomeViewData((prev) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            sections: prev.sections
+              .map((s) => ({ ...s, items: s.items.filter((i) => i.opportunityId !== opportunityId) }))
+              .filter((s) => s.items.length > 0),
+          };
+        });
+
+        // For rejected accepted non-introducer (shouldn't happen but just in case)
+        const counterpartUserId = result.counterpartUserId ?? fallbackUserId;
+        if (action === "accepted" && !isIntroducer && counterpartUserId) {
+          navigate(`/u/${counterpartUserId}/chat`);
+        }
       } catch (error) {
-        showError(
-          error instanceof Error
-            ? error.message
-            : "Failed to update opportunity",
-        );
+        showError(error instanceof Error ? error.message : "Failed to update opportunity");
       } finally {
-        setOpportunityActionLoading((prev) => ({
-          ...prev,
-          [opportunityId]: false,
-        }));
+        setOpportunityActionLoading((prev) => ({ ...prev, [opportunityId]: false }));
       }
     },
     [opportunitiesService, navigate, showError, showSuccess],
@@ -883,6 +944,28 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
     if (!sessionId || !trimmed || trimmed === displayTitle) return;
     await updateSessionTitle(sessionId, trimmed);
   };
+
+  const inviteModalElement = inviteModal ? (
+    <InviteMessageModal
+      userName={inviteModal.userName}
+      message={inviteModal.message}
+      loading={inviteModal.loading}
+      onMessageChange={(msg) => setInviteModal((prev) => prev ? { ...prev, message: msg } : null)}
+      onConfirm={() => {
+        const resolve = inviteModalResolveRef.current;
+        const msg = inviteModal.message;
+        inviteModalResolveRef.current = null;
+        setInviteModal(null);
+        resolve?.(msg);
+      }}
+      onCancel={() => {
+        const resolve = inviteModalResolveRef.current;
+        inviteModalResolveRef.current = null;
+        setInviteModal(null);
+        resolve?.(null);
+      }}
+    />
+  ) : null;
 
   if (!sessionLoaded) {
     return (
@@ -1121,6 +1204,8 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
         (homeViewData && homeViewData.sections.length > 0)
       ) {
         return (
+          <>
+          {inviteModalElement}
           <div className="px-6 lg:px-8 pb-12">
             <ContentContainer className="text-left">
               <div className="mt-12 mb-6 flex items-center justify-center gap-2">
@@ -1251,6 +1336,7 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
                             userId,
                             viewerRole,
                             counterpartName,
+                            isGhost,
                           ) =>
                             handleHomeOpportunityAction(
                               oppId,
@@ -1258,6 +1344,7 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
                               userId,
                               viewerRole,
                               counterpartName,
+                              isGhost,
                             )
                           }
                           onSecondaryAction={(
@@ -1265,6 +1352,7 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
                             userId,
                             viewerRole,
                             counterpartName,
+                            isGhost,
                           ) =>
                             handleHomeOpportunityAction(
                               oppId,
@@ -1272,6 +1360,7 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
                               userId,
                               viewerRole,
                               counterpartName,
+                              isGhost,
                             )
                           }
                           isLoading={
@@ -1285,6 +1374,7 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
               )}
             </ContentContainer>
           </div>
+          </>
         );
       }
     }
@@ -1409,12 +1499,14 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
 
   return (
     <>
+      {inviteModalElement}
       {/* Sticky header - full width, min-h-17 matches ChatView header height */}
       <div className="sticky top-0 bg-white z-10 px-4 py-3 flex items-center gap-3 min-h-17">
         <button
           type="button"
           onClick={() => {
             clearChat({ abortStream: false });
+            setSelectedIndexIds([]);
             navigate("/");
           }}
           className="p-1 -ml-1 rounded-md hover:bg-gray-100 text-gray-600 hover:text-black transition-colors shrink-0"
@@ -1540,6 +1632,7 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
                               userId,
                               viewerRole,
                               counterpartName,
+                              isGhost,
                             ) =>
                               handleHomeOpportunityAction(
                                 oppId,
@@ -1547,6 +1640,7 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
                                 userId,
                                 viewerRole,
                                 counterpartName,
+                                isGhost,
                               )
                             }
                             onOpportunitySecondaryAction={(
@@ -1554,6 +1648,7 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
                               userId,
                               viewerRole,
                               counterpartName,
+                              isGhost,
                             ) =>
                               handleHomeOpportunityAction(
                                 oppId,
@@ -1561,6 +1656,7 @@ export default function ChatContent({ sessionIdParam }: ChatContentProps) {
                                 userId,
                                 viewerRole,
                                 counterpartName,
+                                isGhost,
                               )
                             }
                             opportunityLoadingMap={opportunityActionLoading}

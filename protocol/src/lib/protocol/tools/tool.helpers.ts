@@ -54,6 +54,8 @@ export interface ResolvedToolContext {
   scopedMembershipRole?: "owner" | "member";
   /** True when user has not completed onboarding (onboarding.completedAt is null). */
   isOnboarding: boolean;
+  /** True when the user has a non-empty name. */
+  hasName: boolean;
   /** Chat session ID when tools are used in a chat; used for draft opportunities (context.conversationId). */
   sessionId?: string;
 }
@@ -175,10 +177,14 @@ export async function resolveChatContext(params: {
     scopedMembershipRole = owner ? "owner" : "member";
   }
 
+  const userName = user.name ?? "Unknown";
+  const userEmail = user.email ?? "";
+  const hasName = !!user.name?.trim();
+
   return {
     userId,
-    userName: user.name ?? "Unknown",
-    userEmail: user.email ?? "",
+    userName,
+    userEmail,
     indexId,
     indexName,
     isOwner,
@@ -188,6 +194,7 @@ export async function resolveChatContext(params: {
     scopedIndex,
     scopedMembershipRole,
     isOnboarding: !(user.onboarding?.completedAt),
+    hasName,
     ...(sessionId !== undefined ? { sessionId } : {}),
   };
 }

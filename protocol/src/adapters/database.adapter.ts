@@ -3,18 +3,26 @@
  * Postgres implementations; no dependency on lib/protocol.
  */
 
-import { eq, and, or, isNull, isNotNull, sql, count, desc, lt, lte, ne, inArray, ilike, notInArray } from 'drizzle-orm';
+import { eq, and, or, isNull, isNotNull, sql, count, desc, gt, lt, lte, ne, inArray, ilike, notInArray, asc } from 'drizzle-orm';
 
 import * as schema from '../schemas/database.schema';
 import db from '../lib/drizzle/drizzle';
 import type { User, NotificationPreferences, OnboardingState } from '../schemas/database.schema';
+import type {
+  Conversation,
+  ConversationParticipant,
+  Message,
+  Task,
+  Artifact,
+} from '../schemas/conversation.schema';
 import type { Id } from '../types/common.types';
-import type { MessagingStore } from '../lib/xmtp';
-import { generateWallet, decryptKey } from '../lib/xmtp';
 import { log } from '../lib/log';
 import { IndexMembershipEvents } from '../events/index_membership.event';
 
 const logger = log.lib.from('database.adapter');
+
+/** Sentinel participant ID for the built-in chat agent. */
+const SYSTEM_AGENT_ID = 'system-agent';
 
 /**
  * Creates a personal index for the user if one doesn't exist.
@@ -166,10 +174,11 @@ interface IndexMembershipRow {
   permissions: string[];
   memberPrompt: string | null;
   autoAssign: boolean;
+  isPersonal: boolean;
   joinedAt: Date;
 }
 
-const { intents, indexes, indexMembers, intentIndexes, users, hydeDocuments, opportunities, userNotificationSettings, userProfiles, files, links } = schema;
+const { intents, indexes, indexMembers, intentIndexes, users, hydeDocuments, opportunities, userNotificationSettings, userProfiles, files, links, sessions } = schema;
 
 // HyDE row to document shape (embedding may come as number[] or pg vector)
 type HydeSourceTypeLocal = 'intent' | 'profile' | 'query';
@@ -570,6 +579,8 @@ export class IntentDatabaseAdapter {
       location: user.location ?? null,
       socials: user.socials ?? null,
       onboarding: user.onboarding ?? null,
+      isGhost: user.isGhost ?? false,
+      deletedAt: user.deletedAt ?? null,
     };
   }
 
@@ -582,7 +593,8 @@ export class IntentDatabaseAdapter {
         and(
           eq(schema.indexMembers.indexId, indexId),
           eq(schema.indexMembers.userId, userId),
-          isNull(schema.indexes.deletedAt)
+          isNull(schema.indexes.deletedAt),
+          sql`${schema.indexMembers.permissions} && ARRAY['owner', 'member', 'admin']::text[]`
         )
       )
       .limit(1);
@@ -638,6 +650,7 @@ export class IntentDatabaseAdapter {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 // Chat Session and Message interfaces (internal to ChatDatabaseAdapter)
+// These remain backward-compatible so callers (chat.service, chat.controller) need no changes.
 interface ChatSession {
   id: string;
   userId: string;
@@ -657,6 +670,25 @@ interface ChatMessage {
   subgraphResults: Record<string, unknown> | null;
   tokenCount: number | null;
   createdAt: Date;
+}
+
+/** Shape stored inside conversation_metadata.metadata for agent-chat sessions. */
+interface ChatConversationMeta {
+  title?: string | null;
+  indexId?: string | null;
+  shareToken?: string | null;
+  ghostInviteSent?: boolean;
+  [key: string]: unknown;
+}
+
+/** Shape stored inside messages.metadata for agent-chat messages. */
+interface ChatMessageMeta {
+  routingDecision?: Record<string, unknown> | null;
+  subgraphResults?: Record<string, unknown> | null;
+  tokenCount?: number | null;
+  traceEvents?: unknown;
+  debugMeta?: unknown;
+  [key: string]: unknown;
 }
 
 interface CreateSessionInput {
@@ -688,133 +720,459 @@ export class ChatDatabaseAdapter {
   }
 
   // ─────────────────────────────────────────────────────────────────────────────
-  // Chat Session Methods
+  // Chat Session Methods (backed by conversations + conversation_participants + conversation_metadata)
   // ─────────────────────────────────────────────────────────────────────────────
 
   /**
-   * Create a new chat session
+   * Helper: read ChatConversationMeta from conversation_metadata for a conversation.
+   */
+  private async _getConvMeta(conversationId: string): Promise<ChatConversationMeta | null> {
+    const [row] = await db
+      .select({ metadata: schema.conversationMetadata.metadata })
+      .from(schema.conversationMetadata)
+      .where(eq(schema.conversationMetadata.conversationId, conversationId))
+      .limit(1);
+    return (row?.metadata as ChatConversationMeta) ?? null;
+  }
+
+  /**
+   * Helper: upsert ChatConversationMeta into conversation_metadata.
+   */
+  private async _upsertConvMeta(conversationId: string, patch: Partial<ChatConversationMeta>): Promise<void> {
+    const existing = await this._getConvMeta(conversationId);
+    const merged: ChatConversationMeta = { ...(existing ?? {}), ...patch };
+    await db
+      .insert(schema.conversationMetadata)
+      .values({ conversationId, metadata: merged })
+      .onConflictDoUpdate({
+        target: schema.conversationMetadata.conversationId,
+        set: { metadata: merged, updatedAt: new Date() },
+      });
+  }
+
+  /**
+   * Helper: convert a conversations row + metadata into a backward-compatible ChatSession.
+   */
+  private _toChatSession(
+    conv: { id: string; createdAt: Date; updatedAt: Date },
+    userId: string,
+    meta: ChatConversationMeta | null,
+  ): ChatSession {
+    return {
+      id: conv.id,
+      userId,
+      title: meta?.title ?? null,
+      indexId: meta?.indexId ?? null,
+      shareToken: meta?.shareToken ?? null,
+      createdAt: conv.createdAt,
+      updatedAt: conv.updatedAt,
+    };
+  }
+
+  /**
+   * Create a new chat session.
+   * Creates a conversation, adds user + system-agent as participants,
+   * and stores title/indexId in conversation_metadata.
    */
   async createSession(data: CreateSessionInput): Promise<void> {
-    await db.insert(schema.chatSessions).values({
-      id: data.id,
-      userId: data.userId,
-      title: data.title || null,
-      indexId: data.indexId?.trim() || null,
-      createdAt: new Date(),
-      updatedAt: new Date(),
+    const now = new Date();
+    await db.transaction(async (tx) => {
+      await tx.insert(schema.conversations).values({
+        id: data.id,
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      await tx.insert(schema.conversationParticipants).values([
+        { conversationId: data.id, participantId: data.userId, participantType: 'user' as const },
+        { conversationId: data.id, participantId: SYSTEM_AGENT_ID, participantType: 'agent' as const },
+      ]);
+
+      // Store title and indexId in conversation_metadata
+      const meta: ChatConversationMeta = {};
+      if (data.title) meta.title = data.title;
+      if (data.indexId?.trim()) meta.indexId = data.indexId.trim();
+      if (Object.keys(meta).length > 0) {
+        await tx.insert(schema.conversationMetadata).values({
+          conversationId: data.id,
+          metadata: meta,
+        });
+      }
     });
   }
 
   /**
-   * Get session by ID
+   * Get session by ID.
+   * Queries conversations + conversation_metadata and returns backward-compatible ChatSession.
    */
   async getSession(sessionId: string): Promise<ChatSession | null> {
-    const [session] = await db.select()
-      .from(schema.chatSessions)
-      .where(eq(schema.chatSessions.id, sessionId))
+    const [conv] = await db.select()
+      .from(schema.conversations)
+      .where(eq(schema.conversations.id, sessionId))
       .limit(1);
-    
-    return session || null;
+
+    if (!conv) return null;
+
+    // Find the user participant (not the agent)
+    const [userParticipant] = await db
+      .select({ participantId: schema.conversationParticipants.participantId })
+      .from(schema.conversationParticipants)
+      .where(
+        and(
+          eq(schema.conversationParticipants.conversationId, sessionId),
+          eq(schema.conversationParticipants.participantType, 'user'),
+        ),
+      )
+      .limit(1);
+
+    const userId = userParticipant?.participantId ?? '';
+    const meta = await this._getConvMeta(sessionId);
+    return this._toChatSession(conv, userId, meta);
   }
 
   /**
-   * Get all sessions for a user
+   * Get all sessions for a user, ordered by most recent.
+   * Queries conversation_participants to find the user's conversations.
    */
   async getUserSessions(userId: string, limit: number): Promise<ChatSession[]> {
-    return db.select()
-      .from(schema.chatSessions)
-      .where(eq(schema.chatSessions.userId, userId))
-      .orderBy(desc(schema.chatSessions.updatedAt))
+    // Subquery: conversation IDs that include the system agent (i.e. chat sessions, not DMs)
+    const chatSessionIds = db
+      .select({ conversationId: schema.conversationParticipants.conversationId })
+      .from(schema.conversationParticipants)
+      .where(
+        and(
+          eq(schema.conversationParticipants.participantId, SYSTEM_AGENT_ID),
+          eq(schema.conversationParticipants.participantType, 'agent'),
+        ),
+      );
+
+    const rows = await db
+      .select({
+        id: schema.conversations.id,
+        createdAt: schema.conversations.createdAt,
+        updatedAt: schema.conversations.updatedAt,
+      })
+      .from(schema.conversationParticipants)
+      .innerJoin(
+        schema.conversations,
+        eq(schema.conversationParticipants.conversationId, schema.conversations.id),
+      )
+      .where(
+        and(
+          eq(schema.conversationParticipants.participantId, userId),
+          eq(schema.conversationParticipants.participantType, 'user'),
+          isNull(schema.conversationParticipants.hiddenAt),
+          inArray(schema.conversations.id, chatSessionIds),
+        ),
+      )
+      .orderBy(desc(schema.conversations.updatedAt))
       .limit(limit);
+
+    if (rows.length === 0) return [];
+
+    // Batch-fetch metadata for chat conversations
+    const chatConvIdList = rows.map((r) => r.id);
+    const metaRows = await db
+      .select()
+      .from(schema.conversationMetadata)
+      .where(inArray(schema.conversationMetadata.conversationId, chatConvIdList));
+    const metaMap = new Map(metaRows.map((m) => [m.conversationId, m.metadata as ChatConversationMeta]));
+
+    return rows.map((conv) => this._toChatSession(conv, userId, metaMap.get(conv.id) ?? null));
   }
 
   /**
-   * Update session index
+   * Update session index.
    */
   async updateSessionIndex(sessionId: string, indexId: string | null): Promise<void> {
+    await this._upsertConvMeta(sessionId, { indexId });
     await db
-      .update(schema.chatSessions)
-      .set({ indexId, updatedAt: new Date() })
-      .where(eq(schema.chatSessions.id, sessionId));
+      .update(schema.conversations)
+      .set({ updatedAt: new Date() })
+      .where(eq(schema.conversations.id, sessionId));
   }
 
   /**
-   * Update session title
+   * Update session title.
    */
   async updateSessionTitle(sessionId: string, title: string): Promise<void> {
-    await db.update(schema.chatSessions)
-      .set({ title, updatedAt: new Date() })
-      .where(eq(schema.chatSessions.id, sessionId));
+    await this._upsertConvMeta(sessionId, { title });
+    await db
+      .update(schema.conversations)
+      .set({ updatedAt: new Date() })
+      .where(eq(schema.conversations.id, sessionId));
   }
 
   /**
-   * Update session timestamp
+   * Update session timestamp.
    */
   async updateSessionTimestamp(sessionId: string): Promise<void> {
-    await db.update(schema.chatSessions)
+    await db.update(schema.conversations)
       .set({ updatedAt: new Date() })
-      .where(eq(schema.chatSessions.id, sessionId));
+      .where(eq(schema.conversations.id, sessionId));
   }
 
   /**
-   * Delete a session
+   * Delete a session (FK cascades delete participants, messages, metadata).
    */
   async deleteSession(sessionId: string): Promise<void> {
-    await db.delete(schema.chatSessions)
-      .where(eq(schema.chatSessions.id, sessionId));
+    await db.delete(schema.conversations)
+      .where(eq(schema.conversations.id, sessionId));
   }
 
+  /**
+   * Set or clear the share token for a session.
+   */
   async setShareToken(sessionId: string, token: string | null): Promise<void> {
-    await db.update(schema.chatSessions)
-      .set({ shareToken: token, updatedAt: new Date() })
-      .where(eq(schema.chatSessions.id, sessionId));
+    await this._upsertConvMeta(sessionId, { shareToken: token });
+    await db
+      .update(schema.conversations)
+      .set({ updatedAt: new Date() })
+      .where(eq(schema.conversations.id, sessionId));
   }
 
+  /**
+   * Find a session by its share token.
+   */
   async getSessionByShareToken(token: string): Promise<ChatSession | null> {
-    const [session] = await db.select()
-      .from(schema.chatSessions)
-      .where(eq(schema.chatSessions.shareToken, token))
+    // Query conversation_metadata for the share token
+    const metaRows = await db
+      .select()
+      .from(schema.conversationMetadata)
+      .where(sql`${schema.conversationMetadata.metadata}->>'shareToken' = ${token}`)
       .limit(1);
-    return session || null;
+
+    if (metaRows.length === 0) return null;
+
+    const convId = metaRows[0].conversationId;
+    return this.getSession(convId);
   }
 
   // ─────────────────────────────────────────────────────────────────────────────
-  // Chat Message Methods
+  // Chat Message Methods (backed by messages table)
   // ─────────────────────────────────────────────────────────────────────────────
 
   /**
-   * Create a message
+   * Create a message in the new messages table.
+   * Maps role: 'assistant'|'system' -> role: 'agent', senderId: SYSTEM_AGENT_ID.
+   * Maps role: 'user' -> role: 'user', senderId looked up from conversation_participants.
+   * Stores routingDecision/subgraphResults/tokenCount in messages.metadata.
    */
   async createMessage(data: CreateMessageInput): Promise<void> {
-    await db.insert(schema.chatMessages).values({
+    const isAgent = data.role === 'assistant' || data.role === 'system';
+    let senderId: string;
+
+    if (isAgent) {
+      senderId = SYSTEM_AGENT_ID;
+    } else {
+      // Look up the user participant for this conversation
+      const [participant] = await db
+        .select({ participantId: schema.conversationParticipants.participantId })
+        .from(schema.conversationParticipants)
+        .where(
+          and(
+            eq(schema.conversationParticipants.conversationId, data.sessionId),
+            eq(schema.conversationParticipants.participantType, 'user'),
+          ),
+        )
+        .limit(1);
+      if (!participant?.participantId) {
+        throw new Error(`Conversation participant not found for session ${data.sessionId}`);
+      }
+      senderId = participant.participantId;
+    }
+
+    // Build metadata from non-null optional fields
+    const msgMeta: ChatMessageMeta = {};
+    if (data.routingDecision) msgMeta.routingDecision = data.routingDecision;
+    if (data.subgraphResults) msgMeta.subgraphResults = data.subgraphResults;
+    if (data.tokenCount !== undefined) msgMeta.tokenCount = data.tokenCount;
+
+    await db.insert(schema.messages).values({
       id: data.id,
-      sessionId: data.sessionId,
-      role: data.role,
-      content: data.content,
-      routingDecision: data.routingDecision || null,
-      subgraphResults: data.subgraphResults || null,
-      tokenCount: data.tokenCount || null,
+      conversationId: data.sessionId,
+      senderId,
+      role: isAgent ? 'agent' : 'user',
+      parts: [{ type: 'text', text: data.content }],
+      metadata: Object.keys(msgMeta).length > 0 ? msgMeta : null,
       createdAt: new Date(),
     });
+
+    // Update conversation.lastMessageAt
+    await db
+      .update(schema.conversations)
+      .set({ lastMessageAt: new Date() })
+      .where(eq(schema.conversations.id, data.sessionId));
   }
 
   /**
-   * Get messages for a session
+   * Get messages for a session, reconstructing the backward-compatible ChatMessage shape.
    */
   async getSessionMessages(sessionId: string, limit?: number): Promise<ChatMessage[]> {
     let query = db.select()
-      .from(schema.chatMessages)
-      .where(eq(schema.chatMessages.sessionId, sessionId))
-      .orderBy(schema.chatMessages.createdAt);
-    
-    const messages = limit ? await query.limit(limit) : await query;
-    
-    // Cast unknown fields to proper types
-    return messages.map(msg => ({
-      ...msg,
-      routingDecision: msg.routingDecision as Record<string, unknown> | null,
-      subgraphResults: msg.subgraphResults as Record<string, unknown> | null,
-    }));
+      .from(schema.messages)
+      .where(eq(schema.messages.conversationId, sessionId))
+      .orderBy(asc(schema.messages.createdAt));
+
+    const rows = limit ? await query.limit(limit) : await query;
+
+    return rows.map((msg) => {
+      const parts = msg.parts as Array<{ type?: string; text?: string }>;
+      const content =
+        parts?.find((p) => p?.type === 'text' && typeof p.text === 'string')?.text
+        ?? parts?.find((p) => typeof p?.text === 'string')?.text
+        ?? '';
+      const meta = (msg.metadata ?? {}) as ChatMessageMeta;
+
+      // Map role back: 'agent' -> 'assistant'
+      const role: 'user' | 'assistant' | 'system' = msg.role === 'agent' ? 'assistant' : 'user';
+
+      return {
+        id: msg.id,
+        sessionId,
+        role,
+        content,
+        routingDecision: (meta.routingDecision as Record<string, unknown>) ?? null,
+        subgraphResults: (meta.subgraphResults as Record<string, unknown>) ?? null,
+        tokenCount: typeof meta.tokenCount === 'number' ? meta.tokenCount : null,
+        createdAt: msg.createdAt,
+      };
+    });
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Chat Metadata Methods (backed by messages.metadata and conversation_metadata)
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Verify that a message belongs to a conversation the user participates in.
+   * @param messageId - The message ID to check
+   * @param userId - The user ID to verify ownership against
+   * @returns True if the message exists and the user is a participant
+   */
+  async verifyMessageOwnership(messageId: string, userId: string): Promise<boolean> {
+    const [row] = await db
+      .select({ conversationId: schema.messages.conversationId })
+      .from(schema.messages)
+      .where(eq(schema.messages.id, messageId))
+      .limit(1);
+
+    if (!row) return false;
+
+    const [participant] = await db
+      .select({ participantId: schema.conversationParticipants.participantId })
+      .from(schema.conversationParticipants)
+      .where(
+        and(
+          eq(schema.conversationParticipants.conversationId, row.conversationId),
+          eq(schema.conversationParticipants.participantId, userId),
+        ),
+      )
+      .limit(1);
+
+    return !!participant;
+  }
+
+  /**
+   * Upsert message metadata (traceEvents, debugMeta) into the message's metadata JSONB column.
+   */
+  async upsertMessageMetadata(params: {
+    id: string;
+    messageId: string;
+    traceEvents?: unknown;
+    debugMeta?: unknown;
+  }): Promise<void> {
+    if (params.traceEvents === undefined && params.debugMeta === undefined) return;
+
+    // Read current metadata from the message row
+    const [msg] = await db
+      .select({ metadata: schema.messages.metadata })
+      .from(schema.messages)
+      .where(eq(schema.messages.id, params.messageId))
+      .limit(1);
+
+    if (!msg) return;
+
+    const existing = (msg.metadata ?? {}) as ChatMessageMeta;
+    const merged: ChatMessageMeta = { ...existing };
+    if (params.traceEvents !== undefined) merged.traceEvents = params.traceEvents;
+    if (params.debugMeta !== undefined) merged.debugMeta = params.debugMeta;
+
+    await db
+      .update(schema.messages)
+      .set({ metadata: merged })
+      .where(eq(schema.messages.id, params.messageId));
+  }
+
+  /**
+   * Get message metadata (traceEvents, debugMeta) for a list of message IDs.
+   * Returns a backward-compatible shape matching the old ChatMessageMetadata type.
+   */
+  async getMessageMetadataByMessageIds(messageIds: string[]): Promise<Array<{ id: string; messageId: string; traceEvents: unknown; debugMeta: unknown; createdAt: Date }>> {
+    if (messageIds.length === 0) return [];
+    const rows = await db
+      .select({ id: schema.messages.id, metadata: schema.messages.metadata, createdAt: schema.messages.createdAt })
+      .from(schema.messages)
+      .where(inArray(schema.messages.id, messageIds));
+
+    return rows.map((r) => {
+      const meta = (r.metadata ?? {}) as ChatMessageMeta;
+      return {
+        id: r.id,
+        messageId: r.id,
+        traceEvents: meta.traceEvents ?? null,
+        debugMeta: meta.debugMeta ?? null,
+        createdAt: r.createdAt,
+      };
+    });
+  }
+
+  /**
+   * Upsert session-level metadata into conversation_metadata.
+   */
+  async upsertSessionMetadata(params: {
+    id: string;
+    sessionId: string;
+    metadata: unknown;
+  }): Promise<void> {
+    const existing = await this._getConvMeta(params.sessionId);
+    // Merge the session-level metadata under a `_sessionMeta` key to avoid
+    // colliding with title/indexId/shareToken, but also keep backward compat
+    // by storing the raw payload under the same shape the callers expect.
+    const merged: ChatConversationMeta = {
+      ...(existing ?? {}),
+      _sessionMeta: params.metadata,
+    };
+    await db
+      .insert(schema.conversationMetadata)
+      .values({ conversationId: params.sessionId, metadata: merged })
+      .onConflictDoUpdate({
+        target: schema.conversationMetadata.conversationId,
+        set: { metadata: merged, updatedAt: new Date() },
+      });
+  }
+
+  /**
+   * Retrieve session metadata by session ID.
+   * Returns a backward-compatible shape matching the old ChatSessionMetadata type.
+   */
+  async getSessionMetadata(sessionId: string): Promise<{ id: string; sessionId: string; metadata: unknown; createdAt: Date; updatedAt: Date } | undefined> {
+    const [row] = await db
+      .select()
+      .from(schema.conversationMetadata)
+      .where(eq(schema.conversationMetadata.conversationId, sessionId))
+      .limit(1);
+
+    if (!row) return undefined;
+
+    const meta = (row.metadata ?? {}) as ChatConversationMeta;
+    return {
+      id: row.conversationId,
+      sessionId: row.conversationId,
+      metadata: meta._sessionMeta ?? null,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+    };
   }
 
   // ─────────────────────────────────────────────────────────────────────────────
@@ -937,7 +1295,7 @@ export class ChatDatabaseAdapter {
 
   async updateUser(
     userId: string,
-    data: { name?: string; location?: string; socials?: { x?: string; linkedin?: string; github?: string; websites?: string[] }; onboarding?: OnboardingState }
+    data: { name?: string; intro?: string; location?: string; socials?: { x?: string; linkedin?: string; github?: string; websites?: string[] }; onboarding?: OnboardingState }
   ) {
     // Delegate to ProfileDatabaseAdapter which has the merge logic
     const profileAdapter = new ProfileDatabaseAdapter();
@@ -1057,6 +1415,7 @@ export class ChatDatabaseAdapter {
           permissions: schema.indexMembers.permissions,
           memberPrompt: schema.indexMembers.prompt,
           autoAssign: schema.indexMembers.autoAssign,
+          isPersonal: schema.indexes.isPersonal,
           joinedAt: schema.indexMembers.createdAt,
         })
         .from(schema.indexMembers)
@@ -1092,6 +1451,7 @@ export class ChatDatabaseAdapter {
           permissions: schema.indexMembers.permissions,
           memberPrompt: schema.indexMembers.prompt,
           autoAssign: schema.indexMembers.autoAssign,
+          isPersonal: schema.indexes.isPersonal,
           joinedAt: schema.indexMembers.createdAt,
         })
         .from(schema.indexMembers)
@@ -1159,7 +1519,8 @@ export class ChatDatabaseAdapter {
       .where(
         and(
           eq(schema.indexMembers.userId, userId),
-          isNull(schema.indexes.deletedAt)
+          isNull(schema.indexes.deletedAt),
+          sql`${schema.indexMembers.permissions} && ARRAY['owner', 'member', 'admin']::text[]`
         )
       );
 
@@ -1200,7 +1561,13 @@ export class ChatDatabaseAdapter {
       .where(
         and(
           isNull(schema.indexes.deletedAt),
-          inArray(schema.indexes.id, ids)
+          inArray(schema.indexes.id, ids),
+          // Only include personal indexes owned by the requesting user;
+          // contacts in someone else's personal index must not see it.
+          or(
+            eq(schema.indexes.isPersonal, false),
+            eq(ownerMembers.userId, userId)
+          )
         )
       )
       .orderBy(desc(schema.indexes.isPersonal), desc(schema.indexes.createdAt));
@@ -1567,11 +1934,18 @@ export class ChatDatabaseAdapter {
         indexId: indexMembers.indexId,
         title: indexes.title,
         prompt: indexes.prompt,
+        imageUrl: indexes.imageUrl,
         permissions: indexes.permissions,
+        isPersonal: indexes.isPersonal,
         createdAt: indexes.createdAt,
+        updatedAt: indexes.updatedAt,
+        ownerId: indexMembers.userId,
+        userName: users.name,
+        userAvatar: users.avatar,
       })
       .from(indexMembers)
       .innerJoin(indexes, eq(indexMembers.indexId, indexes.id))
+      .innerJoin(users, eq(indexMembers.userId, users.id))
       .where(
         and(
           eq(indexMembers.userId, userId),
@@ -1587,18 +1961,24 @@ export class ChatDatabaseAdapter {
           db.select({ count: count() }).from(intentIndexes).where(eq(intentIndexes.indexId, row.indexId)),
         ]);
         const perms = row.permissions as { joinPolicy: string; invitationLink: { code: string } | null; allowGuestVibeCheck: boolean } | null;
+        const memberCount = Number(memberCountResult[0]?.count ?? 0);
         return {
           id: row.indexId,
           title: row.title,
           prompt: row.prompt,
+          imageUrl: row.imageUrl,
           permissions: {
             joinPolicy: (perms?.joinPolicy ?? 'invite_only') as 'anyone' | 'invite_only',
             allowGuestVibeCheck: perms?.allowGuestVibeCheck ?? false,
             invitationLink: perms?.invitationLink ?? null,
           },
+          isPersonal: row.isPersonal,
           createdAt: row.createdAt,
-          memberCount: Number(memberCountResult[0]?.count ?? 0),
+          updatedAt: row.updatedAt,
+          memberCount,
           intentCount: Number(intentCountResult[0]?.count ?? 0),
+          user: { id: row.ownerId, name: row.userName, avatar: row.userAvatar },
+          _count: { members: memberCount },
         };
       })
     );
@@ -1681,7 +2061,9 @@ export class ChatDatabaseAdapter {
         userId: indexMembers.userId,
         name: users.name,
         avatar: users.avatar,
+        intro: users.intro,
         email: users.email,
+        isGhost: users.isGhost,
         permissions: indexMembers.permissions,
         memberPrompt: indexMembers.prompt,
         autoAssign: indexMembers.autoAssign,
@@ -1691,27 +2073,30 @@ export class ChatDatabaseAdapter {
       .innerJoin(users, eq(indexMembers.userId, users.id))
       .where(eq(indexMembers.indexId, indexId));
 
-    const result = await Promise.all(
-      members.map(async (m) => {
-        const [intentCountRow] = await db
-          .select({ count: count() })
+    const memberUserIds = members.map((m) => m.userId);
+    const intentCountRows = memberUserIds.length > 0
+      ? await db
+          .select({ userId: intents.userId, count: count() })
           .from(intentIndexes)
           .innerJoin(intents, eq(intentIndexes.intentId, intents.id))
-          .where(and(eq(intentIndexes.indexId, indexId), eq(intents.userId, m.userId), isNull(intents.archivedAt)));
-        return {
-          userId: m.userId,
-          name: m.name,
-          avatar: m.avatar,
-          email: m.email,
-          permissions: m.permissions ?? [],
-          memberPrompt: m.memberPrompt,
-          autoAssign: m.autoAssign,
-          joinedAt: m.joinedAt,
-          intentCount: Number(intentCountRow?.count ?? 0),
-        };
-      })
-    );
-    return result;
+          .where(and(eq(intentIndexes.indexId, indexId), inArray(intents.userId, memberUserIds), isNull(intents.archivedAt)))
+          .groupBy(intents.userId)
+      : [];
+    const intentCountMap = new Map(intentCountRows.map((r) => [r.userId, Number(r.count)]));
+
+    return members.map((m) => ({
+      userId: m.userId,
+      name: m.name,
+      avatar: m.avatar,
+      intro: m.intro ?? null,
+      email: m.email,
+      isGhost: m.isGhost ?? false,
+      permissions: m.permissions ?? [],
+      memberPrompt: m.memberPrompt,
+      autoAssign: m.autoAssign,
+      joinedAt: m.joinedAt,
+      intentCount: intentCountMap.get(m.userId) ?? 0,
+    }));
   }
 
   async getMembersFromUserIndexes(userId: Id<'users'>): Promise<{ userId: Id<'users'>; name: string; avatar: string | null }[]> {
@@ -1737,7 +2122,11 @@ export class ChatDatabaseAdapter {
       .innerJoin(users, eq(indexMembers.userId, users.id))
       .innerJoin(indexes, eq(indexMembers.indexId, indexes.id))
       .where(
-        and(inArray(indexMembers.indexId, myIndexIds), isNull(indexes.deletedAt))
+        and(
+          inArray(indexMembers.indexId, myIndexIds),
+          isNull(indexes.deletedAt),
+          isNull(users.deletedAt),
+        )
       );
 
     const byId = new Map<Id<'users'>, { userId: Id<'users'>; name: string; avatar: string | null }>();
@@ -1796,7 +2185,8 @@ export class ChatDatabaseAdapter {
         and(
           eq(indexMembers.indexId, indexId),
           eq(indexMembers.userId, userId),
-          isNull(indexes.deletedAt)
+          isNull(indexes.deletedAt),
+          sql`${indexMembers.permissions} && ARRAY['owner', 'member', 'admin']::text[]`
         )
       )
       .limit(1);
@@ -1812,16 +2202,17 @@ export class ChatDatabaseAdapter {
         and(
           eq(indexMembers.indexId, indexId),
           eq(indexMembers.userId, userId),
-          isNull(indexes.deletedAt)
+          isNull(indexes.deletedAt),
+          sql`${indexMembers.permissions} && ARRAY['owner', 'member', 'admin']::text[]`
         )
       )
       .limit(1);
-    
+
     if (rows.length === 0) return null;
-    
+
     const permissions = rows[0]?.permissions || [];
     const isOwner = permissions.includes('owner');
-    
+
     return { permissions, isOwner };
   }
 
@@ -1902,6 +2293,7 @@ export class ChatDatabaseAdapter {
         prompt: indexes.prompt,
         imageUrl: indexes.imageUrl,
         permissions: indexes.permissions,
+        isPersonal: indexes.isPersonal,
         createdAt: indexes.createdAt,
         updatedAt: indexes.updatedAt,
         ownerId: indexMembers.userId,
@@ -1928,6 +2320,7 @@ export class ChatDatabaseAdapter {
       db.select({ count: count() }).from(intentIndexes).where(eq(intentIndexes.indexId, indexId)),
     ]);
     const perms = (updatedRow.permissions as { joinPolicy: string; invitationLink: { code: string } | null; allowGuestVibeCheck: boolean }) ?? {};
+    const memberCount = Number(memberCountResult[0]?.count ?? 0);
     return {
       id: updatedRow.id,
       title: updatedRow.title,
@@ -1938,13 +2331,19 @@ export class ChatDatabaseAdapter {
         allowGuestVibeCheck: perms.allowGuestVibeCheck ?? false,
         invitationLink: perms.invitationLink ?? null,
       },
+      isPersonal: updatedRow.isPersonal,
       createdAt: updatedRow.createdAt,
-      memberCount: Number(memberCountResult[0]?.count ?? 0),
+      updatedAt: updatedRow.updatedAt,
+      memberCount,
       intentCount: Number(intentCountResult[0]?.count ?? 0),
+      user: { id: updatedRow.ownerId, name: updatedRow.userName, avatar: updatedRow.userAvatar },
+      _count: { members: memberCount },
     };
   }
 
   async softDeleteIndex(indexId: string): Promise<void> {
+    await db.delete(intentIndexes).where(eq(intentIndexes.indexId, indexId));
+    await db.delete(indexMembers).where(eq(indexMembers.indexId, indexId));
     await db.update(indexes).set({ deletedAt: new Date(), updatedAt: new Date() }).where(eq(indexes.id, indexId));
   }
 
@@ -2289,14 +2688,18 @@ export class ChatDatabaseAdapter {
   async searchPersonalIndexMembers(userId: string, query: string, excludeIndexId?: string) {
     if (!query || query.trim().length === 0) return [];
 
-    // Find user's contacts from user_contacts table
+    // Find user's contacts from personal index (index_members with permissions=['contact'])
+    const personalIndexId = await getPersonalIndexId(userId);
+    if (!personalIndexId) return [];
+
     const contactUserIds = db
-      .select({ userId: schema.userContacts.userId })
-      .from(schema.userContacts)
+      .select({ userId: schema.indexMembers.userId })
+      .from(schema.indexMembers)
       .where(
         and(
-          eq(schema.userContacts.ownerId, userId),
-          isNull(schema.userContacts.deletedAt)
+          eq(schema.indexMembers.indexId, personalIndexId),
+          sql`'contact' = ANY(${schema.indexMembers.permissions})`,
+          isNull(schema.indexMembers.deletedAt)
         )
       );
 
@@ -2511,177 +2914,148 @@ export class ChatDatabaseAdapter {
   // ─────────────────────────────────────────────────────────────────────────────
 
   /**
-   * Get user IDs of all contacts owned by the given user.
-   * @param ownerId - The owner's user ID
-   * @returns Array of contact user IDs
-   */
-  async getContactUserIds(ownerId: string): Promise<string[]> {
-    const rows = await db
-      .select({ userId: schema.userContacts.userId })
-      .from(schema.userContacts)
-      .where(
-        and(
-          eq(schema.userContacts.ownerId, ownerId),
-          isNull(schema.userContacts.deletedAt)
-        )
-      );
-    return rows.map((r) => r.userId);
-  }
-
-  /**
    * Create a ghost user (unregistered contact) with empty profile.
+   * Uses the same ON CONFLICT DO UPDATE pattern as the auth adapter:
+   * - New email → inserts ghost row
+   * - Existing ghost → updates name, returns existing ghost ID
+   * - Existing real user → setWhere doesn't match, returns existing real user ID
+   *
+   * This ensures one consistent user-upsert mechanism across the codebase
+   * (auth adapter for real-user signup/ghost-claim, this method for ghost creation).
+   *
    * @param data - Name and email for the ghost user
-   * @returns The created ghost user's ID
+   * @returns The created ghost user's ID (or existing user's ID if email taken)
    */
   async createGhostUser(data: { name: string; email: string }): Promise<{ id: string }> {
     const id = crypto.randomUUID();
-    await db.insert(schema.users).values({
-      id,
-      name: data.name,
-      email: data.email,
-      isGhost: true,
-    });
+    const email = data.email.toLowerCase().trim();
 
-    // Create empty profile
-    await db.insert(schema.userProfiles).values({
-      userId: id,
-    });
-
-    return { id };
-  }
-
-  /**
-   * Upsert a contact record (idempotent via unique constraint).
-   * @param data - Contact data with ownerId, userId, and source
-   */
-  async upsertContact(data: { ownerId: string; userId: string; source: 'gmail' | 'google_calendar' | 'manual' }): Promise<void> {
-    await db
-      .insert(schema.userContacts)
+    // Same onConflictDoUpdate + setWhere pattern as AuthDatabaseAdapter.createDrizzleAdapter().
+    // If a ghost already exists with this email, update its name.
+    // If a real user exists, setWhere won't match → RETURNING is empty.
+    const result = await db
+      .insert(schema.users)
       .values({
-        ownerId: data.ownerId,
-        userId: data.userId,
-        source: data.source,
+        id,
+        name: data.name,
+        email,
+        isGhost: true,
       })
       .onConflictDoUpdate({
-        target: [schema.userContacts.ownerId, schema.userContacts.userId],
+        target: schema.users.email,
         set: {
-          source: data.source,
-          importedAt: new Date(),
-          updatedAt: new Date(),
-          deletedAt: null, // reactivate if previously soft-deleted
+          name: sql`EXCLUDED."name"`,
+          updatedAt: sql`now()`,
         },
-      });
-  }
-
-  /**
-   * Get all contacts for a user with their user details.
-   * @param ownerId - The owner's user ID
-   * @returns Array of contacts with user details
-   */
-  async getContacts(ownerId: string): Promise<Array<{
-    id: string;
-    userId: string;
-    source: string;
-    importedAt: Date;
-    user: { id: string; name: string; email: string; avatar: string | null; isGhost: boolean };
-  }>> {
-    const rows = await db
-      .select({
-        id: schema.userContacts.id,
-        userId: schema.userContacts.userId,
-        source: schema.userContacts.source,
-        importedAt: schema.userContacts.importedAt,
-        userName: schema.users.name,
-        userEmail: schema.users.email,
-        userAvatar: schema.users.avatar,
-        userIsGhost: schema.users.isGhost,
+        setWhere: sql`${schema.users.isGhost} = true`,
       })
-      .from(schema.userContacts)
-      .innerJoin(schema.users, eq(schema.userContacts.userId, schema.users.id))
-      .where(
-        and(
-          eq(schema.userContacts.ownerId, ownerId),
-          isNull(schema.userContacts.deletedAt)
-        )
-      )
-      .orderBy(desc(schema.userContacts.importedAt));
+      .returning({ id: schema.users.id });
 
-    return rows.map((row) => ({
-      id: row.id,
-      userId: row.userId,
-      source: row.source,
-      importedAt: row.importedAt,
-      user: {
-        id: row.userId,
-        name: row.userName,
-        email: row.userEmail,
-        avatar: row.userAvatar,
-        isGhost: row.userIsGhost,
-      },
-    }));
+    if (result[0]) {
+      // New ghost created or existing ghost updated
+      if (result[0].id === id) {
+        // Truly new ghost — create empty profile
+        await db.insert(schema.userProfiles).values({
+          userId: id,
+        }).onConflictDoNothing();
+      }
+      return { id: result[0].id };
+    }
+
+    // Real user already exists with this email — return their ID (exclude soft-deleted)
+    const [existing] = await db
+      .select({ id: schema.users.id })
+      .from(schema.users)
+      .where(and(eq(schema.users.email, email), isNull(schema.users.deletedAt)))
+      .limit(1);
+
+    if (!existing) {
+      throw new Error(`Cannot create ghost: email belongs to a deleted user (${email})`);
+    }
+
+    return { id: existing.id };
   }
 
   /**
-   * Soft-delete a contact.
-   * @param ownerId - The owner's user ID
-   * @param contactId - The contact record ID
+   * Soft-delete a ghost user by unsubscribe token.
+   * Looks up the user via userNotificationSettings.unsubscribeToken,
+   * then soft-deletes if the user is a ghost and not already deleted.
+   * @param token - The unsubscribe token from the email link
+   * @returns true if user was soft-deleted, false if not found or not eligible
    */
-  async removeContact(ownerId: string, contactId: string): Promise<void> {
-    await db.transaction(async (tx) => {
-      // Look up the contact's userId before soft-deleting
-      const [contact] = await tx
-        .select({ userId: schema.userContacts.userId })
-        .from(schema.userContacts)
-        .where(
-          and(
-            eq(schema.userContacts.id, contactId),
-            eq(schema.userContacts.ownerId, ownerId),
-          )
-        );
+  async softDeleteGhostByUnsubscribeToken(token: string): Promise<boolean> {
+    const [settings] = await db.select({ userId: schema.userNotificationSettings.userId })
+      .from(schema.userNotificationSettings)
+      .where(eq(schema.userNotificationSettings.unsubscribeToken, token))
+      .limit(1);
+    if (!settings) return false;
 
-      // Soft-delete the contact
-      await tx
-        .update(schema.userContacts)
-        .set({ deletedAt: new Date() })
-        .where(
-          and(
-            eq(schema.userContacts.id, contactId),
-            eq(schema.userContacts.ownerId, ownerId)
-          )
-        );
+    // Verify user is a ghost
+    const [user] = await db.select({ id: schema.users.id, isGhost: schema.users.isGhost })
+      .from(schema.users)
+      .where(eq(schema.users.id, settings.userId))
+      .limit(1);
+    if (!user || !user.isGhost) return false;
 
-      // Clean up personal index membership and intent assignments
-      if (contact) {
-        const personalIndexId = await getPersonalIndexId(ownerId);
-        if (personalIndexId) {
-          await tx.delete(schema.indexMembers)
-            .where(
-              and(
-                eq(schema.indexMembers.indexId, personalIndexId),
-                eq(schema.indexMembers.userId, contact.userId),
-                sql`${schema.indexMembers.permissions} = ARRAY['contact']`,
-              )
-            );
+    // Soft-delete all index_members rows where this ghost is a contact
+    const result = await db.update(schema.indexMembers)
+      .set({ deletedAt: new Date() })
+      .where(and(
+        eq(schema.indexMembers.userId, settings.userId),
+        sql`'contact' = ANY(${schema.indexMembers.permissions})`,
+        isNull(schema.indexMembers.deletedAt),
+      ))
+      .returning({ indexId: schema.indexMembers.indexId });
 
-          // Remove contact's intents from the personal index
-          const contactIntentIds = await tx
-            .select({ id: schema.intents.id })
-            .from(schema.intents)
-            .where(eq(schema.intents.userId, contact.userId));
-
-          if (contactIntentIds.length > 0) {
-            await tx.delete(schema.intentIndexes)
-              .where(
-                and(
-                  eq(schema.intentIndexes.indexId, personalIndexId),
-                  inArray(schema.intentIndexes.intentId, contactIntentIds.map(i => i.id)),
-                )
-              );
-          }
-        }
-      }
-    });
+    return result.length > 0;
   }
+
+  /**
+   * Get or create notification settings for a user.
+   * If no row exists, creates one with default preferences.
+   * @param userId - The user's ID
+   * @returns The notification settings row (includes unsubscribeToken)
+   */
+  async getOrCreateNotificationSettings(userId: string): Promise<{ id: string; userId: string; unsubscribeToken: string }> {
+    const projection = {
+      id: schema.userNotificationSettings.id,
+      userId: schema.userNotificationSettings.userId,
+      unsubscribeToken: schema.userNotificationSettings.unsubscribeToken,
+    };
+
+    // Atomic upsert: insert with onConflictDoNothing, then select
+    await db.insert(schema.userNotificationSettings)
+      .values({ userId })
+      .onConflictDoNothing({ target: schema.userNotificationSettings.userId });
+
+    const [row] = await db.select(projection)
+      .from(schema.userNotificationSettings)
+      .where(eq(schema.userNotificationSettings.userId, userId))
+      .limit(1);
+    if (!row) {
+      throw new Error(`Failed to get or create notification settings for user ${userId}`);
+    }
+    return row;
+  }
+
+  /**
+   * Get emails of soft-deleted ghost users from a list of emails.
+   * Used to prevent re-importing opted-out ghost contacts.
+   * @param emails - List of emails to check
+   * @returns Emails belonging to soft-deleted ghost users
+   */
+  async getSoftDeletedGhostEmails(emails: string[]): Promise<string[]> {
+    if (emails.length === 0) return [];
+    const results = await db.select({ email: schema.users.email })
+      .from(schema.users)
+      .where(and(
+        inArray(schema.users.email, emails),
+        eq(schema.users.isGhost, true),
+        isNotNull(schema.users.deletedAt),
+      ));
+    return results.map(r => r.email);
+  }
+
 
   /**
    * Returns personal index IDs where the given user is a contact member.
@@ -2703,11 +3077,12 @@ export class ChatDatabaseAdapter {
   }
 
   /**
-   * Find a user by email.
+   * Find a user by email (case-insensitive).
    * @param email - The email to search for
    * @returns User record or null
    */
   async getUserByEmail(email: string): Promise<{ id: string; name: string; email: string; isGhost: boolean } | null> {
+    const normalized = email.toLowerCase().trim();
     const [row] = await db
       .select({
         id: schema.users.id,
@@ -2716,7 +3091,10 @@ export class ChatDatabaseAdapter {
         isGhost: schema.users.isGhost,
       })
       .from(schema.users)
-      .where(eq(schema.users.email, email))
+      .where(and(
+        sql`lower(${schema.users.email}) = ${normalized}`,
+        isNull(schema.users.deletedAt),
+      ))
       .limit(1);
     return row ?? null;
   }
@@ -2771,18 +3149,22 @@ export class ChatDatabaseAdapter {
     const usersToInsert = data.map(d => ({
       id: crypto.randomUUID(),
       name: d.name,
-      email: d.email,
+      email: d.email.toLowerCase().trim(),
       isGhost: true,
     }));
 
     await db.insert(schema.users).values(usersToInsert).onConflictDoNothing();
 
-    // Re-query to find which users actually exist (created now vs already existed)
+    // Re-query to find which live users actually exist (created now vs already existed)
+    // Excludes soft-deleted users so they don't flow into membership upserts or enrichment
     const insertedEmails = new Set(usersToInsert.map(u => u.email));
     const existingAfterInsert = await db
       .select({ id: schema.users.id, email: schema.users.email })
       .from(schema.users)
-      .where(inArray(schema.users.email, [...insertedEmails]));
+      .where(and(
+        inArray(schema.users.email, [...insertedEmails]),
+        isNull(schema.users.deletedAt),
+      ));
 
     // Map back to our generated IDs vs actual IDs
     const emailToId = new Map(existingAfterInsert.map(u => [u.email, u.id]));
@@ -2811,159 +3193,287 @@ export class ChatDatabaseAdapter {
     return results;
   }
 
+
   /**
-   * Bulk upsert contact records.
-   * @param data - Array of contact records
+   * Upsert a contact membership in the owner's personal index.
+   * Inserts an index_members row with permissions=['contact'].
+   * @param ownerId - The owner of the personal index
+   * @param contactUserId - The user to add as a contact member
+   * @param options - If restore=true, reactivates soft-deleted rows via onConflictDoUpdate(deletedAt=null).
+   *                  If restore=false (default), skips soft-deleted rows and uses onConflictDoNothing for active ones.
    */
-  async upsertContactsBulk(data: Array<{ ownerId: string; userId: string; source: 'gmail' | 'google_calendar' | 'manual' }>): Promise<void> {
-    if (data.length === 0) return;
+  async upsertContactMembership(
+    ownerId: string,
+    contactUserId: string,
+    options: { restore?: boolean } = {}
+  ): Promise<void> {
+    const personalIndexId = await ensurePersonalIndex(ownerId);
 
-    const values = data.map(d => ({
-      ownerId: d.ownerId,
-      userId: d.userId,
-      source: d.source,
-    }));
+    if (options.restore) {
+      await db
+        .insert(schema.indexMembers)
+        .values({
+          indexId: personalIndexId,
+          userId: contactUserId,
+          permissions: ['contact'],
+          autoAssign: false,
+        })
+        .onConflictDoUpdate({
+          target: [schema.indexMembers.indexId, schema.indexMembers.userId],
+          set: { deletedAt: null, updatedAt: new Date() },
+        });
+    } else {
+      // Check for soft-deleted row first — skip if found (opt-out respected)
+      const [existing] = await db
+        .select({ deletedAt: schema.indexMembers.deletedAt })
+        .from(schema.indexMembers)
+        .where(
+          and(
+            eq(schema.indexMembers.indexId, personalIndexId),
+            eq(schema.indexMembers.userId, contactUserId),
+            sql`'contact' = ANY(${schema.indexMembers.permissions})`,
+          )
+        )
+        .limit(1);
 
-    await db
-      .insert(schema.userContacts)
-      .values(values)
-      .onConflictDoUpdate({
-        target: [schema.userContacts.ownerId, schema.userContacts.userId],
-        set: {
-          source: sql`excluded.source`,
-          importedAt: new Date(),
-          updatedAt: new Date(),
-          deletedAt: null,
-        },
-      });
+      if (existing?.deletedAt) return; // soft-deleted — do not restore
+
+      await db
+        .insert(schema.indexMembers)
+        .values({
+          indexId: personalIndexId,
+          userId: contactUserId,
+          permissions: ['contact'],
+          autoAssign: false,
+        })
+        .onConflictDoNothing();
+    }
   }
 
   /**
-   * Atomically create ghost users and upsert all contacts in a single transaction.
-   * Ghost users are created first, then all contacts (both existing-user and ghost-user)
-   * are upserted together, ensuring the write path is atomic.
-   *
-   * @param ownerId - The user importing contacts
-   * @param ghosts - Array of ghost user data to create
-   * @param validContacts - All validated contacts with resolved emails
-   * @param existingByEmail - Map of already-existing users by email
-   * @param source - Contact source type
-   * @returns Object containing the newly created ghost users
+   * Bulk upsert contact memberships in the owner's personal index.
+   * Respects opt-outs: skips contacts that have a soft-deleted membership row.
+   * @param ownerId - The owner of the personal index
+   * @param contactUserIds - User IDs to add as contacts
+   * @returns Resolves when all non-opted-out memberships are upserted
    */
-  async importContactsBulk(
-    ownerId: string,
-    ghosts: Array<{ name: string; email: string }>,
-    validContacts: Array<{ name: string; email: string }>,
-    existingByEmail: Map<string, { id: string; email: string; name: string; isGhost: boolean }>,
-    source: 'gmail' | 'google_calendar' | 'manual'
-  ): Promise<{ newGhosts: Array<{ id: string; name: string; email: string }>; newContacts: number }> {
-    return await db.transaction(async (tx) => {
-      // Create ghost users
-      const newGhosts: Array<{ id: string; name: string; email: string }> = [];
-      if (ghosts.length > 0) {
-        const usersToInsert = ghosts.map(d => ({
-          id: crypto.randomUUID(),
-          name: d.name,
-          email: d.email,
-          isGhost: true,
-        }));
+  async upsertContactMembershipBulk(ownerId: string, contactUserIds: string[]): Promise<void> {
+    if (contactUserIds.length === 0) return;
+    const personalIndexId = await ensurePersonalIndex(ownerId);
 
-        await tx.insert(schema.users).values(usersToInsert).onConflictDoNothing();
+    const softDeleted = new Set(
+      (await db
+        .select({ userId: schema.indexMembers.userId })
+        .from(schema.indexMembers)
+        .where(
+          and(
+            eq(schema.indexMembers.indexId, personalIndexId),
+            inArray(schema.indexMembers.userId, contactUserIds),
+            sql`'contact' = ANY(${schema.indexMembers.permissions})`,
+            isNotNull(schema.indexMembers.deletedAt),
+          )
+        )
+      ).map(r => r.userId)
+    );
 
-        const insertedEmails = new Set(usersToInsert.map(u => u.email));
-        const existingAfterInsert = await tx
-          .select({ id: schema.users.id, email: schema.users.email })
-          .from(schema.users)
-          .where(inArray(schema.users.email, [...insertedEmails]));
+    const idsToInsert = contactUserIds.filter(id => !softDeleted.has(id));
+    if (idsToInsert.length === 0) return;
 
-        const emailToId = new Map(existingAfterInsert.map(u => [u.email, u.id]));
-        const actuallyCreatedIds = new Set(
-          usersToInsert
-            .filter(u => emailToId.get(u.email) === u.id)
-            .map(u => u.id)
-        );
+    const values = idsToInsert.map(userId => ({
+      indexId: personalIndexId,
+      userId,
+      permissions: ['contact'],
+      autoAssign: false,
+    }));
+    await db.insert(schema.indexMembers).values(values).onConflictDoNothing();
+  }
 
-        if (actuallyCreatedIds.size > 0) {
-          const profilesToInsert = usersToInsert
-            .filter(u => actuallyCreatedIds.has(u.id))
-            .map(u => ({ userId: u.id }));
-          await tx.insert(schema.userProfiles).values(profilesToInsert);
-        }
+  /**
+   * Bulk-add users as members to a specific index.
+   * Skips users that are already members (onConflictDoNothing).
+   * @param indexId - The target index
+   * @param userIds - User IDs to add as members
+   */
+  async addMembersBulkToIndex(indexId: string, userIds: string[]): Promise<void> {
+    if (userIds.length === 0) return;
 
-        for (const u of usersToInsert) {
-          const actualId = emailToId.get(u.email);
-          if (actualId) {
-            newGhosts.push({ id: actualId, name: u.name, email: u.email });
-            // Add ghosts to the lookup map so contacts can be resolved below
-            existingByEmail.set(u.email.toLowerCase(), { id: actualId, email: u.email, name: u.name, isGhost: true });
-          }
-        }
-      }
+    let memberPrompt: string | null = null;
+    const [indexRow] = await db.select({ prompt: schema.indexes.prompt }).from(schema.indexes).where(eq(schema.indexes.id, indexId)).limit(1);
+    if (indexRow) memberPrompt = indexRow.prompt;
 
-      // Upsert all contacts (existing users + newly created ghosts)
-      const contactsToUpsert: Array<{ ownerId: string; userId: string; source: typeof source }> = [];
-      for (const contact of validContacts) {
-        const user = existingByEmail.get(contact.email.toLowerCase());
-        if (user) {
-          contactsToUpsert.push({ ownerId, userId: user.id, source });
-        }
-      }
+    const values = userIds.map(userId => ({
+      indexId,
+      userId,
+      permissions: ['member'],
+      prompt: memberPrompt,
+      autoAssign: false,
+    }));
+    await db.insert(schema.indexMembers).values(values).onConflictDoNothing();
+  }
 
-      let newContacts = 0;
-      if (contactsToUpsert.length > 0) {
-        // Check which contacts already exist in the network
-        const userIds = contactsToUpsert.map(c => c.userId);
-        const existingContacts = await tx
-          .select({ userId: schema.userContacts.userId })
-          .from(schema.userContacts)
-          .where(
-            and(
-              eq(schema.userContacts.ownerId, ownerId),
-              isNull(schema.userContacts.deletedAt),
-              inArray(schema.userContacts.userId, userIds)
-            )
-          );
-        const existingUserIds = new Set(existingContacts.map(c => c.userId));
-        newContacts = contactsToUpsert.filter(c => !existingUserIds.has(c.userId)).length;
+  // ─── Index Integrations ───────────────────────────────────────────────────────
 
-        await tx
-          .insert(schema.userContacts)
-          .values(contactsToUpsert)
-          .onConflictDoUpdate({
-            target: [schema.userContacts.ownerId, schema.userContacts.userId],
-            set: {
-              source: sql`excluded.source`,
-              importedAt: new Date(),
-              updatedAt: new Date(),
-              deletedAt: null,
-            },
-          });
+  /**
+   * Link a Composio connected account to an index.
+   * @param indexId - Target index
+   * @param toolkit - Toolkit slug (e.g. 'gmail', 'slack')
+   * @param connectedAccountId - Composio connected account ID
+   */
+  async insertIndexIntegration(indexId: string, toolkit: string, connectedAccountId: string): Promise<void> {
+    await db.insert(schema.indexIntegrations)
+      .values({ indexId, toolkit, connectedAccountId })
+      .onConflictDoNothing();
+  }
 
-        // Sync new contacts to the owner's personal index
-        const newContactUserIds = contactsToUpsert
-          .filter(c => !existingUserIds.has(c.userId))
-          .map(c => c.userId);
+  /**
+   * Unlink a toolkit from an index.
+   * @param indexId - Target index
+   * @param toolkit - Toolkit slug
+   */
+  async deleteIndexIntegration(indexId: string, toolkit: string): Promise<void> {
+    await db.delete(schema.indexIntegrations)
+      .where(and(
+        eq(schema.indexIntegrations.indexId, indexId),
+        eq(schema.indexIntegrations.toolkit, toolkit),
+      ));
+  }
 
-        if (newContactUserIds.length > 0) {
-          const personalIndexId = await getPersonalIndexId(ownerId);
-          if (personalIndexId) {
-            // Add new contacts as members of the personal index
-            const contactMemberValues = newContactUserIds.map(userId => ({
-              indexId: personalIndexId,
-              userId,
-              permissions: ['contact'] as string[],
-              autoAssign: false,
-            }));
-            await tx.insert(schema.indexMembers)
-              .values(contactMemberValues)
-              .onConflictDoNothing();
+  /**
+   * Remove all index links for a specific Composio connected account.
+   * Called when a user fully disconnects their Composio connection.
+   * @param connectedAccountId - Composio connected account ID
+   */
+  async deleteIndexIntegrationsByConnectedAccount(connectedAccountId: string): Promise<void> {
+    await db.delete(schema.indexIntegrations)
+      .where(eq(schema.indexIntegrations.connectedAccountId, connectedAccountId));
+  }
 
-          }
-        }
-      }
+  /**
+   * List all linked integrations for an index.
+   * @param indexId - The index to query
+   * @returns Array of linked integration records
+   */
+  async getIndexIntegrations(indexId: string): Promise<Array<{ toolkit: string; connectedAccountId: string; createdAt: Date }>> {
+    return db.select({
+      toolkit: schema.indexIntegrations.toolkit,
+      connectedAccountId: schema.indexIntegrations.connectedAccountId,
+      createdAt: schema.indexIntegrations.createdAt,
+    })
+      .from(schema.indexIntegrations)
+      .where(eq(schema.indexIntegrations.indexId, indexId));
+  }
 
-      return { newGhosts, newContacts };
-    });
+  /**
+   * Hard-delete a contact membership from the owner's personal index.
+   * @param ownerId - The owner of the personal index
+   * @param contactUserId - The contact user to remove
+   */
+  async hardDeleteContactMembership(ownerId: string, contactUserId: string): Promise<void> {
+    const personalIndexId = await getPersonalIndexId(ownerId);
+    if (!personalIndexId) return;
+
+    await db.delete(schema.indexMembers)
+      .where(
+        and(
+          eq(schema.indexMembers.indexId, personalIndexId),
+          eq(schema.indexMembers.userId, contactUserId),
+          sql`'contact' = ANY(${schema.indexMembers.permissions})`,
+        )
+      );
+  }
+
+  /**
+   * Clear a soft-deleted contact membership that the other user has for this owner.
+   * This removes the "reverse opt-out" so the other user's personal index no longer blocks the owner.
+   * @param ownerId - The user being added as a contact
+   * @param otherUserId - The other user whose personal index may have a soft-deleted row for ownerId
+   */
+  async clearReverseOptOut(ownerId: string, otherUserId: string): Promise<void> {
+    const otherPersonalIndexId = await getPersonalIndexId(otherUserId);
+    if (!otherPersonalIndexId) return;
+
+    await db.delete(schema.indexMembers)
+      .where(
+        and(
+          eq(schema.indexMembers.indexId, otherPersonalIndexId),
+          eq(schema.indexMembers.userId, ownerId),
+          sql`'contact' = ANY(${schema.indexMembers.permissions})`,
+          isNotNull(schema.indexMembers.deletedAt),
+        )
+      );
+  }
+
+  /**
+   * Bulk clear soft-deleted contact memberships (reverse opt-outs) for multiple users.
+   * Removes rows where `ownerId` appears as a soft-deleted contact in each user's personal index.
+   * @param ownerId - The user being added as a contact
+   * @param otherUserIds - The users whose personal indexes may have soft-deleted rows for ownerId
+   */
+  async clearReverseOptOutBulk(ownerId: string, otherUserIds: string[]): Promise<void> {
+    if (otherUserIds.length === 0) return;
+
+    // Batch lookup personal indexes for all other users
+    const personalIndexRows = await db
+      .select({ userId: schema.personalIndexes.userId, indexId: schema.personalIndexes.indexId })
+      .from(schema.personalIndexes)
+      .where(inArray(schema.personalIndexes.userId, otherUserIds));
+
+    const personalIndexIds = personalIndexRows.map(r => r.indexId);
+    if (personalIndexIds.length === 0) return;
+
+    // Single DELETE across all matching personal indexes
+    await db.delete(schema.indexMembers)
+      .where(
+        and(
+          inArray(schema.indexMembers.indexId, personalIndexIds),
+          eq(schema.indexMembers.userId, ownerId),
+          sql`'contact' = ANY(${schema.indexMembers.permissions})`,
+          isNotNull(schema.indexMembers.deletedAt),
+        )
+      );
+  }
+
+  /**
+   * Get all contact members from the owner's personal index.
+   * @param ownerId - The owner of the personal index
+   * @returns Array of contact members with user details
+   */
+  async getContactMembers(ownerId: string): Promise<Array<{
+    userId: string;
+    user: { id: string; name: string; email: string; avatar: string | null; isGhost: boolean };
+  }>> {
+    const personalIndexId = await getPersonalIndexId(ownerId);
+    if (!personalIndexId) return [];
+
+    const rows = await db
+      .select({
+        userId: schema.indexMembers.userId,
+        userName: schema.users.name,
+        userEmail: schema.users.email,
+        userAvatar: schema.users.avatar,
+        userIsGhost: schema.users.isGhost,
+      })
+      .from(schema.indexMembers)
+      .innerJoin(schema.users, eq(schema.indexMembers.userId, schema.users.id))
+      .where(
+        and(
+          eq(schema.indexMembers.indexId, personalIndexId),
+          sql`'contact' = ANY(${schema.indexMembers.permissions})`,
+          isNull(schema.indexMembers.deletedAt),
+          isNull(schema.users.deletedAt),
+        )
+      );
+
+    return rows.map((row) => ({
+      userId: row.userId,
+      user: {
+        id: row.userId,
+        name: row.userName,
+        email: row.userEmail,
+        avatar: row.userAvatar,
+        isGhost: row.userIsGhost,
+      },
+    }));
   }
 
 }
@@ -3022,13 +3532,13 @@ export class ProfileDatabaseAdapter {
   }
 
   /**
-   * Update user account fields (name, location, socials).
+   * Update user account fields (name, intro, location, socials).
    * Merges socials with existing values so callers can set individual social
    * fields (e.g. only linkedin) without overwriting the rest.
    */
   async updateUser(
     userId: string,
-    data: { name?: string; location?: string; socials?: { x?: string; linkedin?: string; github?: string; websites?: string[] }; onboarding?: OnboardingState }
+    data: { name?: string; intro?: string; location?: string; socials?: { x?: string; linkedin?: string; github?: string; websites?: string[] }; onboarding?: OnboardingState }
   ): Promise<{ id: string; name: string; email: string; intro?: string | null; avatar?: string | null; location?: string | null; socials?: { x?: string; linkedin?: string; github?: string; websites?: string[] } | null; onboarding?: OnboardingState | null } | null> {
     // Load current user to merge socials
     const current = await this.getUser(userId);
@@ -3037,6 +3547,7 @@ export class ProfileDatabaseAdapter {
     const updateFields: Record<string, unknown> = { updatedAt: new Date() };
 
     if (data.name !== undefined) updateFields.name = data.name;
+    if (data.intro !== undefined) updateFields.intro = data.intro;
     if (data.location !== undefined) updateFields.location = data.location;
     if (data.onboarding !== undefined) updateFields.onboarding = data.onboarding;
 
@@ -3522,7 +4033,7 @@ export class OpportunityDatabaseAdapter {
     return updated.length;
   }
 
-  /** Set status to expired for opportunities with expires_at <= now. Used by cron. */
+  /** Set status to expired for opportunities with expires_at <= now. Skips terminal statuses (accepted, rejected, expired). */
   async expireStaleOpportunities(): Promise<number> {
     const now = new Date();
     const updated = await db
@@ -3532,7 +4043,7 @@ export class OpportunityDatabaseAdapter {
         and(
           isNotNull(opportunities.expiresAt),
           lte(opportunities.expiresAt, now),
-          ne(opportunities.status, 'expired')
+          notInArray(opportunities.status, ['accepted', 'rejected', 'expired'])
         )
       )
       .returning({ id: opportunities.id });
@@ -3840,13 +4351,13 @@ export class UserDatabaseAdapter {
       .where(eq(users.id, userId))
       .limit(1);
 
-    return result[0] || null;
+    return result[0] ?? null;
   }
 
   /**
    * Find multiple users by IDs. Returns public profile fields only (same shape as single-user API).
    */
-  async findByIds(userIds: string[]): Promise<Array<Pick<typeof users.$inferSelect, 'id' | 'name' | 'intro' | 'avatar' | 'location' | 'socials' | 'createdAt' | 'updatedAt'>>> {
+  async findByIds(userIds: string[]): Promise<Array<Pick<typeof users.$inferSelect, 'id' | 'name' | 'intro' | 'avatar' | 'location' | 'socials' | 'isGhost' | 'createdAt' | 'updatedAt'>>> {
     if (userIds.length === 0) return [];
     const result = await db.select({
       id: users.id,
@@ -3855,6 +4366,7 @@ export class UserDatabaseAdapter {
       avatar: users.avatar,
       location: users.location,
       socials: users.socials,
+      isGhost: users.isGhost,
       createdAt: users.createdAt,
       updatedAt: users.updatedAt,
     })
@@ -3959,6 +4471,14 @@ export class UserDatabaseAdapter {
       .returning();
 
     return result[0] || null;
+  }
+
+  /**
+   * Deletes all sessions for a user (used before soft-delete to invalidate auth).
+   * @param userId - The user whose sessions should be removed
+   */
+  async deleteUserSessions(userId: string): Promise<void> {
+    await db.delete(sessions).where(eq(sessions.userId, userId));
   }
 
   /**
@@ -4336,97 +4856,6 @@ import type {
   SimilarIntent,
 } from '../lib/protocol/interfaces/database.interface';
 
-const messagingLogger = log.lib.from('messaging.db');
-
-/**
- * Drizzle-backed implementation of the MessagingStore interface.
- * Provides wallet management, conversation visibility, and user resolution for XMTP.
- */
-export class MessagingDatabaseAdapter implements MessagingStore {
-  constructor(private readonly masterKey: Buffer) {}
-
-  async getWalletKey(userId: string) {
-    const [user] = await db.select({
-      walletEncryptedKey: schema.users.walletEncryptedKey,
-      walletAddress: schema.users.walletAddress,
-    }).from(schema.users).where(eq(schema.users.id, userId)).limit(1);
-
-    if (!user?.walletEncryptedKey || !user.walletAddress) return null;
-    return {
-      privateKey: decryptKey(user.walletEncryptedKey, this.masterKey),
-      walletAddress: user.walletAddress,
-    };
-  }
-
-  async ensureWallet(userId: string) {
-    const [user] = await db.select({ walletAddress: schema.users.walletAddress })
-      .from(schema.users).where(eq(schema.users.id, userId)).limit(1);
-    if (!user) { messagingLogger.warn('[ensureWallet] User not found', { userId }); return; }
-    if (user.walletAddress) return;
-
-    const w = generateWallet(this.masterKey);
-    await db.update(schema.users).set({
-      walletAddress: w.address,
-      walletEncryptedKey: w.encryptedKey,
-    }).where(eq(schema.users.id, userId));
-    messagingLogger.info('[ensureWallet] Wallet generated', { userId });
-  }
-
-  async setInboxId(userId: string, inboxId: string) {
-    await db.update(schema.users).set({ xmtpInboxId: inboxId }).where(eq(schema.users.id, userId));
-  }
-
-  async getPublicInfo(userId: string) {
-    const [user] = await db.select({
-      walletAddress: schema.users.walletAddress,
-      xmtpInboxId: schema.users.xmtpInboxId,
-    }).from(schema.users).where(eq(schema.users.id, userId)).limit(1);
-    return user ?? null;
-  }
-
-  async getHiddenConversations(userId: string) {
-    return db.select({
-      conversationId: schema.hiddenConversations.conversationId,
-      hiddenAt: schema.hiddenConversations.hiddenAt,
-    }).from(schema.hiddenConversations).where(eq(schema.hiddenConversations.userId, userId));
-  }
-
-  async getHiddenAt(userId: string, conversationId: string) {
-    const [row] = await db.select({ hiddenAt: schema.hiddenConversations.hiddenAt })
-      .from(schema.hiddenConversations)
-      .where(and(
-        eq(schema.hiddenConversations.userId, userId),
-        eq(schema.hiddenConversations.conversationId, conversationId),
-      ))
-      .limit(1);
-    return row?.hiddenAt ?? null;
-  }
-
-  async hideConversation(userId: string, conversationId: string) {
-    await db.insert(schema.hiddenConversations)
-      .values({ userId, conversationId })
-      .onConflictDoUpdate({
-        target: [schema.hiddenConversations.userId, schema.hiddenConversations.conversationId],
-        set: { hiddenAt: new Date() },
-      });
-  }
-
-  async resolveUsersByInboxIds(inboxIds: string[]) {
-    const matched = await db.select({
-      id: schema.users.id,
-      name: schema.users.name,
-      avatar: schema.users.avatar,
-      xmtpInboxId: schema.users.xmtpInboxId,
-    }).from(schema.users).where(inArray(schema.users.xmtpInboxId, inboxIds));
-
-    const map = new Map<string, { id: string; name: string; avatar: string | null }>();
-    for (const u of matched) {
-      if (u.xmtpInboxId) map.set(u.xmtpInboxId, { id: u.id, name: u.name, avatar: u.avatar });
-    }
-    return map;
-  }
-}
-
 /**
  * Creates a UserDatabase bound to the authenticated user.
  * All operations are scoped to the user's own resources (no userId param needed).
@@ -4732,3 +5161,731 @@ export function createSystemDatabase(
     getStaleHydeDocuments: (threshold) => db.getStaleHydeDocuments(threshold),
   };
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Conversation Database Adapter
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Participant with resolved user info. */
+export interface ResolvedParticipant {
+  participantId: string;
+  participantType: 'user' | 'agent';
+  name: string | null;
+  avatar: string | null;
+}
+
+/** Summary returned by getConversationsForUser. */
+export interface ConversationSummary {
+  id: string;
+  lastMessageAt: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+  participants: ResolvedParticipant[];
+  lastMessage: { parts: unknown[]; senderId: string; createdAt: Date } | null;
+  metadata: Record<string, unknown> | null;
+}
+
+/**
+ * Database adapter for the A2A-aligned conversation tables.
+ *
+ * @remarks
+ * Covers conversations, participants, messages, tasks, artifacts, and metadata.
+ * Uses Drizzle ORM against the `conversations` family of tables.
+ */
+export class ConversationDatabaseAdapter {
+  // ─────────────────────────────────────────────────────────────────────────
+  // Conversations
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Creates a conversation and inserts participants in a single transaction.
+   * @param participants - List of participant descriptors
+   * @returns The newly created conversation row
+   */
+  async createConversation(
+    participants: { participantId: string; participantType: 'user' | 'agent' }[],
+  ): Promise<Conversation> {
+    const id = crypto.randomUUID();
+    const now = new Date();
+
+    await db.transaction(async (tx) => {
+      await tx.insert(schema.conversations).values({ id, createdAt: now, updatedAt: now });
+      if (participants.length > 0) {
+        await tx.insert(schema.conversationParticipants).values(
+          participants.map((p) => ({
+            conversationId: id,
+            participantId: p.participantId,
+            participantType: p.participantType,
+          })),
+        );
+      }
+    });
+
+    return { id, dmPair: null, lastMessageAt: null, createdAt: now, updatedAt: now };
+  }
+
+  /**
+   * Retrieves a conversation by ID with its participants.
+   * @param id - Conversation ID
+   * @returns Conversation with participants, or null if not found
+   */
+  async getConversation(
+    id: string,
+  ): Promise<(Conversation & { participants: ConversationParticipant[] }) | null> {
+    const [conv] = await db
+      .select()
+      .from(schema.conversations)
+      .where(eq(schema.conversations.id, id))
+      .limit(1);
+
+    if (!conv) return null;
+
+    const participants = await db
+      .select()
+      .from(schema.conversationParticipants)
+      .where(eq(schema.conversationParticipants.conversationId, id));
+
+    return { ...conv, participants };
+  }
+
+  /**
+   * Lists conversations for a user, ordered by most recent message.
+   * @param userId - The user whose conversations to list
+   * @returns Summaries with participant lists
+   */
+  async getConversationsForUser(userId: string): Promise<ConversationSummary[]> {
+    // Include conversations that are not hidden OR have new messages since hiding
+    const rows = await db
+      .select({
+        conversationId: schema.conversationParticipants.conversationId,
+        hiddenAt: schema.conversationParticipants.hiddenAt,
+      })
+      .from(schema.conversationParticipants)
+      .innerJoin(
+        schema.conversations,
+        eq(schema.conversationParticipants.conversationId, schema.conversations.id),
+      )
+      .where(
+        and(
+          eq(schema.conversationParticipants.participantId, userId),
+          or(
+            isNull(schema.conversationParticipants.hiddenAt),
+            gt(schema.conversations.lastMessageAt, schema.conversationParticipants.hiddenAt),
+          ),
+        ),
+      );
+
+    if (rows.length === 0) return [];
+
+    const ids = rows.map((r) => r.conversationId);
+    const hiddenAtByConv = new Map<string, Date | null>();
+    for (const r of rows) {
+      hiddenAtByConv.set(r.conversationId, r.hiddenAt);
+    }
+
+    const convs = await db
+      .select()
+      .from(schema.conversations)
+      .where(inArray(schema.conversations.id, ids))
+      .orderBy(sql`${schema.conversations.lastMessageAt} DESC NULLS LAST`);
+
+    const allParticipants = await db
+      .select()
+      .from(schema.conversationParticipants)
+      .where(inArray(schema.conversationParticipants.conversationId, ids));
+
+    // Resolve user names/avatars for participants
+    const userIds = [...new Set(allParticipants.filter(p => p.participantType === 'user').map(p => p.participantId))];
+    const userMap = new Map<string, { name: string; avatar: string | null }>();
+    if (userIds.length > 0) {
+      const users = await db
+        .select({ id: schema.users.id, name: schema.users.name, avatar: schema.users.avatar })
+        .from(schema.users)
+        .where(inArray(schema.users.id, userIds));
+      for (const u of users) {
+        userMap.set(u.id, { name: u.name, avatar: u.avatar });
+      }
+    }
+
+    const participantsByConv = new Map<string, ResolvedParticipant[]>();
+    for (const p of allParticipants) {
+      const list = participantsByConv.get(p.conversationId) ?? [];
+      const userInfo = userMap.get(p.participantId);
+      list.push({
+        participantId: p.participantId,
+        participantType: p.participantType,
+        name: userInfo?.name ?? (p.participantType === 'agent' ? 'Agent' : null),
+        avatar: userInfo?.avatar ?? null,
+      });
+      participantsByConv.set(p.conversationId, list);
+    }
+
+    // Fetch last message per conversation efficiently using DISTINCT ON
+    const lastMessageByConv = new Map<string, { parts: unknown[]; senderId: string; createdAt: Date }>();
+    if (ids.length > 0) {
+      const lastMessages = await db
+        .selectDistinctOn([schema.messages.conversationId], {
+          conversationId: schema.messages.conversationId,
+          parts: schema.messages.parts,
+          senderId: schema.messages.senderId,
+          createdAt: schema.messages.createdAt,
+        })
+        .from(schema.messages)
+        .where(inArray(schema.messages.conversationId, ids))
+        .orderBy(schema.messages.conversationId, desc(schema.messages.createdAt));
+
+      for (const r of lastMessages) {
+        const hiddenAt = hiddenAtByConv.get(r.conversationId);
+        if (hiddenAt && r.createdAt <= hiddenAt) continue;
+        lastMessageByConv.set(r.conversationId, {
+          parts: r.parts as unknown[],
+          senderId: r.senderId,
+          createdAt: r.createdAt,
+        });
+      }
+    }
+
+    // Fetch metadata per conversation
+    const allMeta = ids.length > 0
+      ? await db
+          .select()
+          .from(schema.conversationMetadata)
+          .where(inArray(schema.conversationMetadata.conversationId, ids))
+      : [];
+
+    const metaByConv = new Map<string, Record<string, unknown>>();
+    for (const m of allMeta) {
+      metaByConv.set(m.conversationId, m.metadata as Record<string, unknown>);
+    }
+
+    return convs.map((c) => ({
+      ...c,
+      participants: participantsByConv.get(c.id) ?? [],
+      lastMessage: lastMessageByConv.get(c.id) ?? null,
+      metadata: metaByConv.get(c.id) ?? null,
+    }));
+  }
+
+  /**
+   * Finds an existing DM between exactly two users, or creates one.
+   * Uses a unique `dmPair` column to prevent duplicate DMs under concurrency.
+   * @param userA - First user ID
+   * @param userB - Second user ID
+   * @returns The existing or newly created conversation
+   */
+  async getOrCreateDM(userA: string, userB: string): Promise<Conversation> {
+    if (userA === userB) {
+      throw new Error('Cannot create a DM with yourself');
+    }
+
+    const dmPair = [userA, userB].sort().join(':');
+
+    // Try to find existing DM by the unique pair key
+    const [existing] = await db
+      .select()
+      .from(schema.conversations)
+      .where(eq(schema.conversations.dmPair, dmPair))
+      .limit(1);
+
+    if (existing) return existing;
+
+    // Try to create — unique constraint prevents duplicates
+    try {
+      return await this.createConversationWithDmPair(
+        [
+          { participantId: userA, participantType: 'user' as const },
+          { participantId: userB, participantType: 'user' as const },
+        ],
+        dmPair,
+      );
+    } catch (err: unknown) {
+      // Unique constraint violation — concurrent create won
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes('unique') || msg.includes('duplicate')) {
+        const [conv] = await db
+          .select()
+          .from(schema.conversations)
+          .where(eq(schema.conversations.dmPair, dmPair))
+          .limit(1);
+        if (conv) return conv;
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * Creates a conversation with a dmPair key for DM deduplication.
+   * @param participants - List of participant descriptors
+   * @param dmPair - Normalized pair key (sorted user IDs joined by ':')
+   * @returns The newly created conversation row
+   */
+  private async createConversationWithDmPair(
+    participants: { participantId: string; participantType: 'user' | 'agent' }[],
+    dmPair: string,
+  ): Promise<Conversation> {
+    const id = crypto.randomUUID();
+    const now = new Date();
+
+    await db.transaction(async (tx) => {
+      await tx.insert(schema.conversations).values({ id, dmPair, createdAt: now, updatedAt: now });
+      if (participants.length > 0) {
+        await tx.insert(schema.conversationParticipants).values(
+          participants.map((p) => ({
+            conversationId: id,
+            participantId: p.participantId,
+            participantType: p.participantType,
+          })),
+        );
+      }
+    });
+
+    return { id, dmPair, lastMessageAt: null, createdAt: now, updatedAt: now };
+  }
+
+  /**
+   * Deletes a conversation (cascades to participants, messages, tasks, artifacts).
+   * @param id - Conversation ID
+   */
+  async deleteConversation(id: string): Promise<void> {
+    await db.delete(schema.conversations).where(eq(schema.conversations.id, id));
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Messages
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Creates a message and updates the conversation's lastMessageAt.
+   * @param data - Message payload
+   * @returns The inserted message row
+   */
+  async createMessage(data: {
+    conversationId: string;
+    senderId: string;
+    role: 'user' | 'agent';
+    parts: unknown[];
+    taskId?: string;
+    metadata?: Record<string, unknown> | null;
+    extensions?: string[];
+    referenceTaskIds?: string[];
+  }): Promise<Message> {
+    const id = crypto.randomUUID();
+
+    const [msg] = await db
+      .insert(schema.messages)
+      .values({
+        id,
+        conversationId: data.conversationId,
+        senderId: data.senderId,
+        role: data.role,
+        parts: data.parts,
+        taskId: data.taskId ?? null,
+        metadata: data.metadata ?? null,
+        extensions: data.extensions ?? null,
+        referenceTaskIds: data.referenceTaskIds ?? null,
+      })
+      .returning();
+
+    await this.updateLastMessageAt(data.conversationId);
+
+    // Clear hiddenAt for the sender so conversation reappears in their list
+    await db
+      .update(schema.conversationParticipants)
+      .set({ hiddenAt: null })
+      .where(and(
+        eq(schema.conversationParticipants.conversationId, data.conversationId),
+        eq(schema.conversationParticipants.participantId, data.senderId),
+      ));
+
+    return msg;
+  }
+
+  /**
+   * Retrieves messages for a conversation, ordered by creation time ascending.
+   * @param conversationId - Conversation ID
+   * @param opts - Optional limit, cursor (before), or taskId filter
+   * @returns Ordered list of messages
+   */
+  async getMessages(
+    conversationId: string,
+    opts?: { limit?: number; before?: string; taskId?: string; userId?: string },
+  ): Promise<Message[]> {
+    const conditions = [eq(schema.messages.conversationId, conversationId)];
+
+    // Filter out messages before hiddenAt for this user
+    if (opts?.userId) {
+      const [participant] = await db
+        .select({ hiddenAt: schema.conversationParticipants.hiddenAt })
+        .from(schema.conversationParticipants)
+        .where(and(
+          eq(schema.conversationParticipants.conversationId, conversationId),
+          eq(schema.conversationParticipants.participantId, opts.userId),
+        ))
+        .limit(1);
+      if (participant?.hiddenAt) {
+        conditions.push(gt(schema.messages.createdAt, participant.hiddenAt));
+      }
+    }
+
+    if (opts?.taskId) {
+      conditions.push(eq(schema.messages.taskId, opts.taskId));
+    }
+
+    if (opts?.before) {
+      // Cursor-based: get messages created before the given message
+      const [ref] = await db
+        .select({ createdAt: schema.messages.createdAt })
+        .from(schema.messages)
+        .where(and(
+          eq(schema.messages.id, opts.before),
+          eq(schema.messages.conversationId, conversationId),
+        ))
+        .limit(1);
+
+      if (ref) {
+        conditions.push(lt(schema.messages.createdAt, ref.createdAt));
+      }
+    }
+
+    // Query newest messages first (DESC), then reverse for chronological order.
+    // This ensures limit returns the LATEST N messages, not the oldest.
+    let query = db
+      .select()
+      .from(schema.messages)
+      .where(and(...conditions))
+      .orderBy(desc(schema.messages.createdAt));
+
+    if (opts?.limit) {
+      query = query.limit(opts.limit) as typeof query;
+    }
+
+    const rows = await query;
+    return rows.reverse();
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Conversation State
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Bumps the lastMessageAt timestamp on a conversation to now.
+   * @param conversationId - Conversation ID
+   */
+  async updateLastMessageAt(conversationId: string): Promise<void> {
+    await db
+      .update(schema.conversations)
+      .set({ lastMessageAt: new Date(), updatedAt: new Date() })
+      .where(eq(schema.conversations.id, conversationId));
+  }
+
+  /**
+   * Retrieves participant info for a conversation.
+   * @param conversationId - Conversation ID
+   * @returns Array of participant records
+   */
+  async getParticipants(conversationId: string) {
+    return db
+      .select({
+        participantId: schema.conversationParticipants.participantId,
+        participantType: schema.conversationParticipants.participantType,
+      })
+      .from(schema.conversationParticipants)
+      .where(eq(schema.conversationParticipants.conversationId, conversationId));
+  }
+
+  /**
+   * Checks whether a user is a participant in a conversation.
+   * @param conversationId - Conversation ID
+   * @param userId - User ID to check
+   * @returns True if the user is a participant
+   */
+  async isParticipant(conversationId: string, userId: string): Promise<boolean> {
+    const [row] = await db
+      .select({ participantId: schema.conversationParticipants.participantId })
+      .from(schema.conversationParticipants)
+      .where(
+        and(
+          eq(schema.conversationParticipants.conversationId, conversationId),
+          eq(schema.conversationParticipants.participantId, userId),
+        ),
+      )
+      .limit(1);
+    return !!row;
+  }
+
+  /**
+   * Hides a conversation for a specific user by setting hiddenAt.
+   * @param userId - The user hiding the conversation
+   * @param conversationId - Conversation ID
+   */
+  async hideConversation(userId: string, conversationId: string): Promise<void> {
+    await db
+      .update(schema.conversationParticipants)
+      .set({ hiddenAt: new Date() })
+      .where(
+        and(
+          eq(schema.conversationParticipants.conversationId, conversationId),
+          eq(schema.conversationParticipants.participantId, userId),
+        ),
+      );
+  }
+
+  /**
+   * Unhides a conversation for a specific user by clearing hiddenAt.
+   * @param userId - The user unhiding the conversation
+   * @param conversationId - Conversation ID
+   */
+  async unhideConversation(userId: string, conversationId: string): Promise<void> {
+    await db
+      .update(schema.conversationParticipants)
+      .set({ hiddenAt: null })
+      .where(
+        and(
+          eq(schema.conversationParticipants.conversationId, conversationId),
+          eq(schema.conversationParticipants.participantId, userId),
+        ),
+      );
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Metadata
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Upserts metadata for a conversation.
+   * @param conversationId - Conversation ID
+   * @param metadata - Arbitrary JSON metadata
+   */
+  async upsertMetadata(conversationId: string, metadata: Record<string, unknown>): Promise<void> {
+    await db
+      .insert(schema.conversationMetadata)
+      .values({ conversationId, metadata })
+      .onConflictDoUpdate({
+        target: schema.conversationMetadata.conversationId,
+        set: { metadata, updatedAt: new Date() },
+      });
+  }
+
+  /**
+   * Retrieves metadata for a conversation.
+   * @param conversationId - Conversation ID
+   * @returns The metadata object, or null if none exists
+   */
+  async getMetadata(conversationId: string): Promise<Record<string, unknown> | null> {
+    const [row] = await db
+      .select({ metadata: schema.conversationMetadata.metadata })
+      .from(schema.conversationMetadata)
+      .where(eq(schema.conversationMetadata.conversationId, conversationId))
+      .limit(1);
+
+    return (row?.metadata as Record<string, unknown>) ?? null;
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Tasks
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Creates a task in the submitted state.
+   * @param conversationId - Conversation the task belongs to
+   * @param metadata - Optional task metadata
+   * @returns The newly created task
+   */
+  async createTask(conversationId: string, metadata?: Record<string, unknown>): Promise<Task> {
+    const [task] = await db
+      .insert(schema.tasks)
+      .values({
+        conversationId,
+        metadata: metadata ?? null,
+      })
+      .returning();
+
+    return task;
+  }
+
+  /**
+   * Transitions a task to a new state.
+   * @param taskId - Task ID
+   * @param state - New task state
+   * @param statusMessage - Optional status message payload
+   * @returns The updated task
+   * @throws If the task is not found
+   */
+  async updateTaskState(taskId: string, state: string, statusMessage?: unknown): Promise<Task> {
+    const [task] = await db
+      .update(schema.tasks)
+      .set({
+        state: state as typeof schema.taskStateEnum.enumValues[number],
+        statusMessage: statusMessage ?? null,
+        statusTimestamp: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(eq(schema.tasks.id, taskId))
+      .returning();
+
+    if (!task) throw new Error(`Task ${taskId} not found`);
+    return task;
+  }
+
+  /**
+   * Retrieves a task by ID.
+   * @param taskId - Task ID
+   * @returns The task, or null if not found
+   */
+  async getTask(taskId: string): Promise<Task | null> {
+    const [task] = await db
+      .select()
+      .from(schema.tasks)
+      .where(eq(schema.tasks.id, taskId))
+      .limit(1);
+
+    return task ?? null;
+  }
+
+  /**
+   * Lists all tasks for a conversation.
+   * @param conversationId - Conversation ID
+   * @returns Ordered list of tasks
+   */
+  async getTasksByConversation(conversationId: string): Promise<Task[]> {
+    return db
+      .select()
+      .from(schema.tasks)
+      .where(eq(schema.tasks.conversationId, conversationId))
+      .orderBy(schema.tasks.createdAt);
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Artifacts
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Creates an artifact linked to a task.
+   * @param data - Artifact payload
+   * @returns The newly created artifact
+   */
+  async createArtifact(data: {
+    taskId: string;
+    name?: string;
+    description?: string;
+    parts: unknown[];
+    metadata?: Record<string, unknown> | null;
+  }): Promise<Artifact> {
+    const [artifact] = await db
+      .insert(schema.artifacts)
+      .values({
+        taskId: data.taskId,
+        name: data.name ?? null,
+        description: data.description ?? null,
+        parts: data.parts,
+        metadata: data.metadata ?? null,
+      })
+      .returning();
+
+    return artifact;
+  }
+
+  /**
+   * Lists all artifacts for a task.
+   * @param taskId - Task ID
+   * @returns Ordered list of artifacts
+   */
+  async getArtifacts(taskId: string): Promise<Artifact[]> {
+    return db
+      .select()
+      .from(schema.artifacts)
+      .where(eq(schema.artifacts.taskId, taskId))
+      .orderBy(schema.artifacts.createdAt);
+  }
+
+  /**
+   * Retrieves messages for multiple tasks in a single query.
+   * @param taskIds - Task IDs to fetch messages for
+   * @returns Map of taskId to ordered messages
+   */
+  async getMessagesByTaskIds(taskIds: string[]): Promise<Map<string, Message[]>> {
+    if (taskIds.length === 0) return new Map();
+
+    const rows = await db
+      .select()
+      .from(schema.messages)
+      .where(inArray(schema.messages.taskId, taskIds))
+      .orderBy(asc(schema.messages.createdAt));
+
+    const map = new Map<string, Message[]>();
+    for (const row of rows) {
+      if (!row.taskId) continue;
+      const list = map.get(row.taskId) ?? [];
+      list.push(row);
+      map.set(row.taskId, list);
+    }
+    return map;
+  }
+
+  /**
+   * Retrieves negotiation tasks for a user, with their outcome artifacts.
+   * @param userId - User to find negotiations for (as source or candidate)
+   * @param opts - Optional pagination and mutual-only filtering
+   * @returns Tasks with joined outcome artifacts, ordered by most recent first
+   */
+  async getNegotiationsByUser(
+    userId: string,
+    opts?: { limit?: number; offset?: number; mutualWithUserId?: string; result?: 'consensus' | 'no_consensus' | 'in_progress' },
+  ): Promise<Array<Task & { artifact: Artifact | null }>> {
+    const limit = opts?.limit ?? 10;
+    const offset = opts?.offset ?? 0;
+
+    const userFilter = opts?.mutualWithUserId
+      ? and(
+          sql`${schema.tasks.metadata}->>'type' = 'negotiation'`,
+          or(
+            and(
+              sql`${schema.tasks.metadata}->>'sourceUserId' = ${userId}`,
+              sql`${schema.tasks.metadata}->>'candidateUserId' = ${opts.mutualWithUserId}`,
+            ),
+            and(
+              sql`${schema.tasks.metadata}->>'sourceUserId' = ${opts.mutualWithUserId}`,
+              sql`${schema.tasks.metadata}->>'candidateUserId' = ${userId}`,
+            ),
+          ),
+        )
+      : and(
+          sql`${schema.tasks.metadata}->>'type' = 'negotiation'`,
+          or(
+            sql`${schema.tasks.metadata}->>'sourceUserId' = ${userId}`,
+            sql`${schema.tasks.metadata}->>'candidateUserId' = ${userId}`,
+          ),
+        );
+
+    const resultFilter = opts?.result === 'consensus'
+      ? sql`(${schema.artifacts.parts}->0->>'kind' = 'data' AND (${schema.artifacts.parts}->0->'data'->>'consensus')::boolean = true)`
+      : opts?.result === 'no_consensus'
+        ? sql`(${schema.artifacts.parts}->0->>'kind' = 'data' AND (${schema.artifacts.parts}->0->'data'->>'consensus')::boolean = false)`
+        : opts?.result === 'in_progress'
+          ? and(isNull(schema.artifacts.id), inArray(schema.tasks.state, ['submitted', 'working', 'input_required']))
+          : undefined;
+
+    const rows = await db
+      .select({
+        task: schema.tasks,
+        artifact: schema.artifacts,
+      })
+      .from(schema.tasks)
+      .leftJoin(
+        schema.artifacts,
+        and(
+          eq(schema.artifacts.taskId, schema.tasks.id),
+          eq(schema.artifacts.name, 'negotiation-outcome'),
+        ),
+      )
+      .where(resultFilter ? and(userFilter, resultFilter) : userFilter)
+      .orderBy(desc(schema.tasks.createdAt))
+      .limit(limit)
+      .offset(offset);
+
+    return rows.map((r) => ({ ...r.task, artifact: r.artifact }));
+  }
+}
+
+/** Singleton instance of the conversation database adapter. */
+export const conversationDatabaseAdapter = new ConversationDatabaseAdapter();

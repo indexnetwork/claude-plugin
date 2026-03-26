@@ -1,4 +1,4 @@
-import { Controller, Get, Patch, UseGuards } from '../lib/router/router.decorators';
+import { Controller, Get, Patch, Delete, UseGuards } from '../lib/router/router.decorators';
 import { AuthGuard } from '../guards/auth.guard';
 import type { AuthenticatedUser } from '../guards/auth.guard';
 import { userService } from '../services/user.service';
@@ -47,7 +47,7 @@ export class AuthController {
     if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
       providers.push('google');
     }
-    return Response.json({ providers });
+    return Response.json({ providers, emailPassword: process.env.NODE_ENV !== 'production' });
   }
 
   /**
@@ -107,5 +107,16 @@ export class AuthController {
     return Response.json({
       user: { ...userFieldsOut, notificationPreferences: prefs },
     });
+  }
+
+  /**
+   * Soft-deletes the authenticated user's account.
+   */
+  @Delete('/account')
+  @UseGuards(AuthGuard)
+  async deleteAccount(_req: Request, user: AuthenticatedUser) {
+    logger.verbose('Account deletion requested', { userId: user.id });
+    await userService.softDelete(user.id);
+    return Response.json({ success: true });
   }
 }

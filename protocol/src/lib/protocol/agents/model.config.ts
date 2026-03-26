@@ -24,9 +24,12 @@ export const MODEL_CONFIG = {
   lensInferrer:         { model: "google/gemini-2.5-flash" },
   opportunityEvaluator: { model: "google/gemini-2.5-flash" },
   opportunityPresenter: { model: "google/gemini-2.5-flash" },
+  negotiationProposer:  { model: "google/gemini-2.5-flash" },
+  negotiationResponder: { model: "google/gemini-2.5-flash" },
   homeCategorizer:      { model: "google/gemini-2.5-flash" },
   suggestionGenerator:  { model: "google/gemini-2.5-flash", temperature: 0.4, maxTokens: 512 },
   chatTitleGenerator:   { model: "google/gemini-2.5-flash", temperature: 0.3, maxTokens: 32 },
+  inviteGenerator:      { model: "google/gemini-2.5-flash", temperature: 0.3, maxTokens: 512 },
   chat:                 { model: process.env.CHAT_MODEL ?? "google/gemini-3-pro-preview", maxTokens: 8192, reasoning: { effort: (process.env.CHAT_REASONING_EFFORT ?? "low") as NonNullable<ModelSettings["reasoning"]>["effort"], exclude: true } },
 } as const satisfies Record<string, ModelSettings>;
 
@@ -35,6 +38,15 @@ export const MODEL_CONFIG = {
  * @param agent - Key from MODEL_CONFIG identifying which agent's settings to use.
  * @returns A ChatOpenAI instance ready for use (call .withStructuredOutput() as needed).
  */
+/**
+ * Returns the model name string for the given agent key.
+ * @param agent - Key from MODEL_CONFIG identifying which agent's settings to use.
+ * @returns The model identifier string (e.g. "google/gemini-2.5-flash").
+ */
+export function getModelName(agent: keyof typeof MODEL_CONFIG): string {
+  return MODEL_CONFIG[agent].model;
+}
+
 export function createModel(agent: keyof typeof MODEL_CONFIG): ChatOpenAI {
   if (!process.env.OPENROUTER_API_KEY?.trim()) {
     throw new Error(`createModel(${agent}): OPENROUTER_API_KEY is required.`);

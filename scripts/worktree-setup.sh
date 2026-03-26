@@ -3,7 +3,7 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 WORKTREES_DIR="$REPO_ROOT/.worktrees"
-WORKSPACES=("protocol" "frontend" "evaluator")
+WORKSPACES=("protocol" "frontend")
 
 if [ -z "${1:-}" ]; then
   echo "Usage: bun run worktree:setup <worktree-name>"
@@ -57,6 +57,21 @@ for ws in "${WORKSPACES[@]}"; do
     fi
   done
 done
+
+# Symlink .claude/settings.local.json (gitignored, not present in worktrees)
+CLAUDE_SRC="$REPO_ROOT/.claude/settings.local.json"
+CLAUDE_DST="$WORKTREE/.claude/settings.local.json"
+if [ -f "$CLAUDE_SRC" ]; then
+  if [ -L "$CLAUDE_DST" ]; then
+    echo "  [.claude] settings.local.json already linked"
+  elif [ -f "$CLAUDE_DST" ]; then
+    echo "  [.claude] settings.local.json exists (not a symlink, skipping)"
+  else
+    mkdir -p "$WORKTREE/.claude"
+    ln -s "$CLAUDE_SRC" "$CLAUDE_DST"
+    echo "  [.claude] settings.local.json -> linked"
+  fi
+fi
 
 echo ""
 echo "Done. Worktree '$1' is ready."

@@ -6,13 +6,13 @@ import { createConnectionsService } from '@/services/connections';
 import { createSynthesisService } from '@/services/synthesis';
 import { createDiscoverService } from '@/services/discover';
 import { createFilesService } from '@/services/files';
-import { createSyncService } from '@/services/sync';
 import { createLinksService } from '@/services/links';
 import { createAuthService } from '@/services/auth';
 import { createIntegrationsService } from '@/services/integrations';
 import { createAdminService } from '@/services/admin';
 import { createUsersService } from '@/services/users';
 import { createOpportunitiesService } from '@/services/opportunities';
+import { createConversationService } from '@/services/conversation';
 
 export interface APIContextType {
   indexesService: ReturnType<typeof createIndexesService>;
@@ -21,13 +21,13 @@ export interface APIContextType {
   synthesisService: ReturnType<typeof createSynthesisService>;
   discoverService: ReturnType<typeof createDiscoverService>;
   filesService: ReturnType<typeof createFilesService>;
-  syncService: ReturnType<typeof createSyncService>;
   linksService: ReturnType<typeof createLinksService>;
   authService: ReturnType<typeof createAuthService>;
   integrationsService: ReturnType<typeof createIntegrationsService>;
   adminService: ReturnType<typeof createAdminService>;
   usersService: ReturnType<typeof createUsersService>;
   opportunitiesService: ReturnType<typeof createOpportunitiesService>;
+  conversationService: ReturnType<typeof createConversationService>;
 }
 
 const APIContext = createContext<APIContextType | undefined>(undefined);
@@ -48,13 +48,13 @@ export function APIProvider({ children }: { children: ReactNode }) {
       synthesisService: createSynthesisService(api),
       discoverService: createDiscoverService(api),
       filesService: createFilesService(api),
-      syncService: createSyncService(api),
       linksService: createLinksService(api),
       authService: createAuthService(api),
       integrationsService: createIntegrationsService(api),
       adminService: createAdminService(api),
       usersService: createUsersService(api),
-      opportunitiesService: createOpportunitiesService(api)
+      opportunitiesService: createOpportunitiesService(api),
+      conversationService: createConversationService(api)
     };
     apiRef.current = api;
   }
@@ -105,11 +105,6 @@ export function useFiles() {
   return filesService;
 }
 
-export function useSync() {
-  const { syncService } = useAPI();
-  return syncService;
-}
-
 export function useLinks() {
   const { linksService } = useAPI();
   return linksService;
@@ -118,11 +113,6 @@ export function useLinks() {
 export function useAuth() {
   const { authService } = useAPI();
   return authService;
-}
-
-export function useIntegrations() {
-  const { integrationsService } = useAPI();
-  return integrationsService;
 }
 
 export function useAdmin() {
@@ -138,4 +128,9 @@ export function useUsers() {
 export function useOpportunities() {
   const { opportunitiesService } = useAPI();
   return opportunitiesService;
+}
+
+export function useConversations() {
+  const { conversationService } = useAPI();
+  return conversationService;
 }

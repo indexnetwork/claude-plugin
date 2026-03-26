@@ -225,7 +225,7 @@ describe("opportunity.discover", () => {
             : null,
         getUser: async (userId: string) =>
           userId === candidateId
-            ? { name: "Yuki Tanaka", avatar: "https://example.com/yuki.jpg" }
+            ? { name: "Yuki Tanaka", avatar: "https://example.com/yuki.jpg", onboarding: { completedAt: new Date() } }
             : null,
       } as unknown as ChatGraphCompositeDatabase;
 
@@ -298,9 +298,9 @@ describe("opportunity.discover", () => {
           return null;
         },
         getUser: async (userId: string) => {
-          if (userId === introducerId) return { name: "Carol Introducer", avatar: null };
-          if (userId === targetId) return { name: "Alice Target", avatar: null };
-          if (userId === candidateId) return { name: "Bob Candidate", avatar: null };
+          if (userId === introducerId) return { name: "Carol Introducer", avatar: null, onboarding: { completedAt: new Date() } };
+          if (userId === targetId) return { name: "Alice Target", avatar: null, onboarding: { completedAt: new Date() } };
+          if (userId === candidateId) return { name: "Bob Candidate", avatar: null, onboarding: { completedAt: new Date() } };
           return null;
         },
       } as unknown as ChatGraphCompositeDatabase;
@@ -321,7 +321,7 @@ describe("opportunity.discover", () => {
       // Viewer is the introducer
       expect(card.viewerRole).toBe("introducer");
       // Home card presentation should have "Introduce Them" action
-      expect(card.homeCardPresentation?.primaryActionLabel).toBe("Introduce Them");
+      expect(card.homeCardPresentation?.primaryActionLabel).toBe("Good match");
       // Headline should be "PartyName → OtherPartyName" format
       expect(card.homeCardPresentation?.headline).toContain("→");
       // Narrator chip should be "You" since viewer is the introducer
@@ -366,9 +366,9 @@ describe("opportunity.discover", () => {
           return null;
         },
         getUser: async (userId: string) => {
-          if (userId === viewerId) return { name: "Viewer User", avatar: null };
-          if (userId === introducerThirdPartyId) return { name: "Dan Introducer", avatar: "https://example.com/dan.jpg" };
-          if (userId === candidateId) return { name: "Eve Match", avatar: null };
+          if (userId === viewerId) return { name: "Viewer User", avatar: null, onboarding: { completedAt: new Date() } };
+          if (userId === introducerThirdPartyId) return { name: "Dan Introducer", avatar: "https://example.com/dan.jpg", onboarding: { completedAt: new Date() } };
+          if (userId === candidateId) return { name: "Eve Match", avatar: null, onboarding: { completedAt: new Date() } };
           return null;
         },
       } as unknown as ChatGraphCompositeDatabase;
@@ -423,9 +423,9 @@ describe("opportunity.discover", () => {
             : null,
         getUser: async (userId: string) =>
           userId === candidateId
-            ? { name: "Frank Mentor", avatar: null }
+            ? { name: "Frank Mentor", avatar: null, onboarding: { completedAt: new Date() } }
             : userId === "u1"
-              ? { name: "User One", avatar: null }
+              ? { name: "User One", avatar: null, onboarding: { completedAt: new Date() } }
               : null,
       } as unknown as ChatGraphCompositeDatabase;
 
@@ -444,6 +444,160 @@ describe("opportunity.discover", () => {
       expect(card.narratorChip?.userId).toBeUndefined();
       expect(card.homeCardPresentation?.primaryActionLabel).toBe("Start Chat");
       expect(card.homeCardPresentation?.headline).toContain("Connection with");
+    });
+
+    test("excludes soft-deleted users from enriched results", async () => {
+      const deletedUserId = "deleted-user-1";
+      const activeUserId = "active-user-1";
+      const mockGraph = {
+        invoke: async () => ({
+          opportunities: [
+            {
+              id: "opp-deleted",
+              actors: [
+                { indexId: "idx-1", userId: "u1", role: "patient" },
+                { indexId: "idx-1", userId: deletedUserId, role: "agent" },
+              ],
+              interpretation: { reasoning: "Match with deleted user.", confidence: 0.9 },
+              detection: { source: "opportunity_graph", createdBy: "agent", timestamp: new Date().toISOString() },
+              status: "latent",
+            },
+            {
+              id: "opp-active",
+              actors: [
+                { indexId: "idx-1", userId: "u1", role: "patient" },
+                { indexId: "idx-1", userId: activeUserId, role: "agent" },
+              ],
+              interpretation: { reasoning: "Match with active user.", confidence: 0.85 },
+              detection: { source: "opportunity_graph", createdBy: "agent", timestamp: new Date().toISOString() },
+              status: "latent",
+            },
+          ],
+        }),
+      };
+      const dbWithDeletedUser = {
+        ...mockDatabase,
+        getProfile: async (userId: string) => {
+          if (userId === deletedUserId)
+            return { identity: { name: "Deleted Person", bio: "Gone." }, attributes: {}, narrative: {} };
+          if (userId === activeUserId)
+            return { identity: { name: "Active Person", bio: "Here." }, attributes: {}, narrative: {} };
+          return null;
+        },
+        getUser: async (userId: string) => {
+          if (userId === deletedUserId)
+            return { id: deletedUserId, name: "Deleted Person", avatar: null, deletedAt: new Date("2026-01-01"), onboarding: { completedAt: new Date() } };
+          if (userId === activeUserId)
+            return { id: activeUserId, name: "Active Person", avatar: null, deletedAt: null, onboarding: { completedAt: new Date() } };
+          if (userId === "u1")
+            return { id: "u1", name: "Viewer", avatar: null, deletedAt: null, onboarding: { completedAt: new Date() } };
+          return null;
+        },
+      } as unknown as ChatGraphCompositeDatabase;
+
+      const result = await runDiscoverFromQuery({
+        opportunityGraph: mockGraph as any,
+        database: dbWithDeletedUser,
+        userId: "u1",
+        query: "find connections",
+        indexScope: ["idx1"],
+        minimalForChat: true,
+      });
+
+      expect(result.found).toBe(true);
+      expect(result.opportunities).toHaveLength(1);
+      expect(result.opportunities![0].userId).toBe(activeUserId);
+      // The deleted user should NOT appear
+      const deletedMatch = result.opportunities!.find((o) => o.userId === deletedUserId);
+      expect(deletedMatch).toBeUndefined();
+    });
+
+    test("ghost counterpart gets 'Start Chat' primaryActionLabel in minimalForChat path (IND-161)", async () => {
+      const ghostId = "ghost-user-1";
+      const mockGraph = {
+        invoke: async () => ({
+          opportunities: [
+            {
+              id: "opp-ghost",
+              actors: [
+                { indexId: "idx-1", userId: "u1", role: "patient" },
+                { indexId: "idx-1", userId: ghostId, role: "agent" },
+              ],
+              interpretation: { reasoning: "Great match.", confidence: 0.88 },
+              detection: { source: "opportunity_graph", createdBy: "agent", timestamp: new Date().toISOString() },
+              status: "latent",
+            },
+          ],
+        }),
+      };
+      const dbWithGhostUser = {
+        ...mockDatabase,
+        getProfile: async () => null,
+        getUser: async (userId: string) =>
+          userId === ghostId
+            ? { id: ghostId, name: "Ghost User", avatar: null, isGhost: true }
+            : userId === "u1"
+              ? { id: "u1", name: "Viewer", avatar: null, isGhost: false }
+              : null,
+      } as unknown as ChatGraphCompositeDatabase;
+
+      const result = await runDiscoverFromQuery({
+        opportunityGraph: mockGraph as any,
+        database: dbWithGhostUser,
+        userId: "u1",
+        query: "find connections",
+        indexScope: ["idx1"],
+        minimalForChat: true,
+      });
+
+      expect(result.found).toBe(true);
+      const card = result.opportunities![0];
+      expect(card.isGhost).toBe(true);
+      expect(card.homeCardPresentation?.primaryActionLabel).toBe("Start Chat");
+    });
+
+    test("non-ghost counterpart keeps 'Start Chat' primaryActionLabel in minimalForChat path (IND-161)", async () => {
+      const onboardedId = "onboarded-user-1";
+      const mockGraph = {
+        invoke: async () => ({
+          opportunities: [
+            {
+              id: "opp-onboarded",
+              actors: [
+                { indexId: "idx-1", userId: "u1", role: "patient" },
+                { indexId: "idx-1", userId: onboardedId, role: "agent" },
+              ],
+              interpretation: { reasoning: "Good match.", confidence: 0.82 },
+              detection: { source: "opportunity_graph", createdBy: "agent", timestamp: new Date().toISOString() },
+              status: "latent",
+            },
+          ],
+        }),
+      };
+      const dbWithOnboardedUser = {
+        ...mockDatabase,
+        getProfile: async () => null,
+        getUser: async (userId: string) =>
+          userId === onboardedId
+            ? { id: onboardedId, name: "Onboarded User", avatar: null, isGhost: false, onboarding: { completedAt: new Date() } }
+            : userId === "u1"
+              ? { id: "u1", name: "Viewer", avatar: null, isGhost: false, onboarding: { completedAt: new Date() } }
+              : null,
+      } as unknown as ChatGraphCompositeDatabase;
+
+      const result = await runDiscoverFromQuery({
+        opportunityGraph: mockGraph as any,
+        database: dbWithOnboardedUser,
+        userId: "u1",
+        query: "find connections",
+        indexScope: ["idx1"],
+        minimalForChat: true,
+      });
+
+      expect(result.found).toBe(true);
+      const card = result.opportunities![0];
+      expect(card.isGhost).toBe(false);
+      expect(card.homeCardPresentation?.primaryActionLabel).toBe("Start Chat");
     });
 
     test("returns createIntentSuggested and suggestedIntentDescription when graph returns create-intent signal", async () => {

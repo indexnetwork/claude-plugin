@@ -812,7 +812,7 @@ describe("read_indexes (Phase 3 index-scoped)", () => {
   const scopedIndexId = "a1b2c3d4-0000-4000-8000-000000000010";
 
   test("when context.indexId is set and showAll not true, returns only current index membership with scopeNote", async () => {
-    const oneMembership = [{ indexId: scopedIndexId, indexTitle: "Current Index", indexPrompt: null, permissions: [], memberPrompt: null, autoAssign: true, joinedAt: new Date() }];
+    const oneMembership = [{ indexId: scopedIndexId, indexTitle: "Current Index", indexPrompt: null, permissions: [], memberPrompt: null, autoAssign: true, isPersonal: false, joinedAt: new Date() }];
     const mockDb = createMockDatabase(async () => [], {
       getIndexMemberships: async (uid) => (uid === testUserId ? oneMembership : []),
       getOwnedIndexes: async () => [],
@@ -831,8 +831,8 @@ describe("read_indexes (Phase 3 index-scoped)", () => {
 
   test("when context.indexId is set, showAll parameter is ignored (strict scope enforcement)", async () => {
     const allMemberships = [
-      { indexId: scopedIndexId, indexTitle: "Index A", indexPrompt: null, permissions: [], memberPrompt: null, autoAssign: true, joinedAt: new Date() },
-      { indexId: "b2c3d4e5-0000-4000-8000-000000000011", indexTitle: "Index B", indexPrompt: null, permissions: [], memberPrompt: null, autoAssign: false, joinedAt: new Date() },
+      { indexId: scopedIndexId, indexTitle: "Index A", indexPrompt: null, permissions: [], memberPrompt: null, autoAssign: true, isPersonal: false, joinedAt: new Date() },
+      { indexId: "b2c3d4e5-0000-4000-8000-000000000011", indexTitle: "Index B", indexPrompt: null, permissions: [], memberPrompt: null, autoAssign: false, isPersonal: false, joinedAt: new Date() },
     ];
     const mockDb = createMockDatabase(async () => [], {
       getIndexMemberships: async (uid) => (uid === testUserId ? allMemberships : []),
@@ -1079,7 +1079,7 @@ describe("create_opportunities tool", () => {
 
     expect(card.viewerRole).toBe("introducer");
     expect(card.headline).toBe("Alice → Bob");
-    expect(card.primaryActionLabel).toBe("Introduce Them");
+    expect(card.primaryActionLabel).toBe("Good match");
   }, 60000);
 
   test("introduction mode: viewer as party — card headline is 'Connection with Counterpart' and action is 'Start Chat'", async () => {
@@ -1198,6 +1198,7 @@ describe("create_opportunities tool", () => {
         permissions: [],
         memberPrompt: null,
         autoAssign: false,
+        isPersonal: false,
         joinedAt: new Date(),
       }],
     });
@@ -1237,6 +1238,7 @@ describe("create_opportunities tool", () => {
         permissions: [],
         memberPrompt: null,
         autoAssign: false,
+        isPersonal: false,
         joinedAt: new Date(),
       }],
     });
@@ -1250,6 +1252,82 @@ describe("create_opportunities tool", () => {
     expect(parsed.success).toBe(true);
     expect(parsed.data.found).toBe(true);
     expect(parsed.data.suggestIntentCreationForVisibility).toBeUndefined();
+  });
+
+  test("introducer discovery: does not include suggestIntentCreationForVisibility even with non-empty searchQuery (IND-177)", async () => {
+    mockDiscoveryResult = {
+      found: true,
+      count: 1,
+      opportunities: [{
+        opportunityId: "opp-intro-discovery-1",
+        userId: "candidate-user-id",
+        name: "Carol Biotech",
+        avatar: null,
+        matchReason: "Both interested in biotech investments",
+        score: 0.85,
+        status: "draft",
+      }],
+    };
+    const mockDb = createMockDatabase(async () => [], {
+      getIndexMemberships: async () => [{
+        indexId: "00000000-0000-0000-0000-000000000001",
+        indexTitle: "Test Index",
+        indexPrompt: null,
+        permissions: [],
+        memberPrompt: null,
+        autoAssign: false,
+        isPersonal: false,
+        joinedAt: new Date(),
+      }],
+    });
+    const context: ToolContext = { userId: testUserId, database: mockDb, embedder: mockEmbedder, scraper: mockScraper };
+    const tools = await createChatTools(context);
+    const tool = tools.find((t: { name: string }) => t.name === "create_opportunities") as {
+      invoke: (args: { searchQuery: string; introTargetUserId: string }) => Promise<string>;
+    };
+    const result = await tool.invoke({
+      searchQuery: "looking for biotech investors",
+      introTargetUserId: "abb9fae3-fdef-48a4-8d2c-e71fb1169264",
+    });
+    const parsed = JSON.parse(result);
+    expect(parsed.success).toBe(true);
+    expect(parsed.data.found).toBe(true);
+    expect(parsed.data.suggestIntentCreationForVisibility).toBeUndefined();
+    expect(parsed.data.suggestedIntentDescription).toBeUndefined();
+    expect(parsed.data.message).not.toContain("create a signal");
+  });
+
+  test("introducer discovery: does not auto-suggest intent creation when graph returns createIntentSuggested (IND-177)", async () => {
+    mockDiscoveryResult = {
+      found: false,
+      count: 0,
+      createIntentSuggested: true,
+      suggestedIntentDescription: "biotech investors for early-stage startups",
+    };
+    const mockDb = createMockDatabase(async () => [], {
+      getIndexMemberships: async () => [{
+        indexId: "00000000-0000-0000-0000-000000000001",
+        indexTitle: "Test Index",
+        indexPrompt: null,
+        permissions: [],
+        memberPrompt: null,
+        autoAssign: false,
+        isPersonal: false,
+        joinedAt: new Date(),
+      }],
+    });
+    const context: ToolContext = { userId: testUserId, database: mockDb, embedder: mockEmbedder, scraper: mockScraper };
+    const tools = await createChatTools(context);
+    const tool = tools.find((t: { name: string }) => t.name === "create_opportunities") as {
+      invoke: (args: { searchQuery: string; introTargetUserId: string }) => Promise<string>;
+    };
+    const result = await tool.invoke({
+      searchQuery: "biotech investors",
+      introTargetUserId: "abb9fae3-fdef-48a4-8d2c-e71fb1169264",
+    });
+    const parsed = JSON.parse(result);
+    expect(parsed.success).toBe(true);
+    expect(parsed.data.createIntentSuggested).toBeUndefined();
   });
 
   test("discovery mode: caps displayed opportunity cards at CHAT_DISPLAY_LIMIT (3) even when graph returns more", async () => {
@@ -1274,6 +1352,7 @@ describe("create_opportunities tool", () => {
         permissions: [],
         memberPrompt: null,
         autoAssign: false,
+        isPersonal: false,
         joinedAt: new Date(),
       }],
     });
@@ -1317,6 +1396,7 @@ describe("create_opportunities tool", () => {
         permissions: [],
         memberPrompt: null,
         autoAssign: false,
+        isPersonal: false,
         joinedAt: new Date(),
       }],
     });
@@ -1364,6 +1444,37 @@ describe("create_opportunities tool", () => {
     expect(blocks.length).toBe(3);
     // Should mention remaining candidates (2 from pagination + 2 extra from cap = 4)
     expect(parsed.data.message).toContain("more candidates");
+  });
+
+  test("continueFrom introducer flow: final page does not include signal creation CTA (IND-177)", async () => {
+    mockDiscoveryResult = {
+      found: true,
+      count: 1,
+      opportunities: [{
+        opportunityId: "opp-intro-continue-1",
+        userId: "candidate-intro-continue",
+        name: "Diana Researcher",
+        avatar: null,
+        matchReason: "Both interested in biotech",
+        score: 0.8,
+        status: "draft",
+      }],
+    };
+    const mockDb = createMockDatabase(async () => [], {});
+    const context: ToolContext = { userId: testUserId, database: mockDb, embedder: mockEmbedder, scraper: mockScraper };
+    const tools = await createChatTools(context);
+    const tool = tools.find((t: { name: string }) => t.name === "create_opportunities") as {
+      invoke: (args: { continueFrom: string; introTargetUserId: string }) => Promise<string>;
+    };
+    const result = await tool.invoke({
+      continueFrom: "disc-intro-continue-456",
+      introTargetUserId: "abb9fae3-fdef-48a4-8d2c-e71fb1169264",
+    });
+    const parsed = JSON.parse(result);
+    expect(parsed.success).toBe(true);
+    expect(parsed.data.found).toBe(true);
+    expect(parsed.data.message).not.toContain("create a signal");
+    expect(parsed.data.message).toContain("introduction candidates");
   });
 });
 

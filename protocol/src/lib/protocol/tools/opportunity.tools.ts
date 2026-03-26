@@ -1,7 +1,10 @@
 import { z } from "zod";
+
+import { requestContext } from "../../request-context";
+
 import type { DefineTool, ToolDeps } from "./tool.helpers";
 import { success, error, UUID_REGEX } from "./tool.helpers";
-import { MINIMAL_MAIN_TEXT_MAX_CHARS } from "../support/opportunity.constants";
+import { MINIMAL_MAIN_TEXT_MAX_CHARS, getPrimaryActionLabel, SECONDARY_ACTION_LABEL } from "../support/opportunity.constants";
 import { viewerCentricCardSummary, narratorRemarkFromReasoning } from "../support/opportunity.card-text";
 import { runDiscoverFromQuery, continueDiscovery } from "../support/opportunity.discover";
 import type { EvaluatorEntity } from "../agents/opportunity.evaluator";
@@ -47,6 +50,7 @@ export function buildMinimalOpportunityCard(
   introducerAvatar?: string | null,
   viewerName?: string,
   secondPartyName?: string,
+  isCounterpartGhost?: boolean,
 ): {
   opportunityId: string;
   userId: string;
@@ -62,6 +66,7 @@ export function buildMinimalOpportunityCard(
   viewerRole: string;
   score: number | undefined;
   status: string;
+  isGhost: boolean;
 } {
   const viewerActor = opp.actors.find((a) => a.userId === viewerId);
   const viewerRole = viewerActor?.role ?? "party";
@@ -85,11 +90,8 @@ export function buildMinimalOpportunityCard(
       : undefined;
   const narratorName = viewerIsIntroducer
     ? "You"
-    : introducerName ?? (introducerActor ? "Someone" : "Index");
-  const primaryActionLabel =
-    viewerRole === "introducer"
-      ? "Introduce Them"
-      : "Start Chat";
+    : introducerName?.trim() || (introducerActor ? "Someone" : "Index");
+  const primaryActionLabel = getPrimaryActionLabel(viewerRole);
   return {
     opportunityId: opp.id,
     userId: counterpartUserId,
@@ -101,7 +103,7 @@ export function buildMinimalOpportunityCard(
       ? `${counterpartName} → ${secondPartyName}`
       : `Connection with ${counterpartName}`,
     primaryActionLabel,
-    secondaryActionLabel: "Skip",
+    secondaryActionLabel: SECONDARY_ACTION_LABEL,
     mutualIntentsLabel: "Suggested connection",
     narratorChip: {
       name: narratorName,
@@ -115,6 +117,7 @@ export function buildMinimalOpportunityCard(
     viewerRole,
     score,
     status: opp.status ?? "latent",
+    isGhost: isCounterpartGhost ?? false,
   };
 }
 
@@ -148,7 +151,7 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
       indexId: z
         .string()
         .optional()
-        .describe("Index UUID; optional when index-scoped."),
+        .describe("Index UUID; optional when index-scoped. Pass the personal index ID (\"My Network\") to scope discovery to the user's contacts only."),
       intentId: z
         .string()
         .optional()
@@ -225,6 +228,9 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
 
       // ── Continuation mode ── (must take strict precedence — it's a pagination token)
       if (query.continueFrom) {
+        const _continueTraceEmitter = requestContext.getStore()?.traceEmitter;
+        const _graphStart = Date.now();
+        _continueTraceEmitter?.({ type: "graph_start", name: "opportunity" });
         const result = await continueDiscovery({
           opportunityGraph: graphs.opportunity,
           database,
@@ -236,6 +242,8 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
           minimalForChat: true,
           ...(context.sessionId ? { chatSessionId: context.sessionId } : {}),
         });
+        const _graphMs = Date.now() - _graphStart;
+        _continueTraceEmitter?.({ type: "graph_end", name: "opportunity", durationMs: _graphMs });
 
         const allDebugSteps = [...(result.debugSteps ?? [])];
 
@@ -244,8 +252,10 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
             found: false,
             count: 0,
             message: result.message ?? "No more matching opportunities found in the remaining candidates.",
+            summary: "No more matches found",
             ...(result.pagination ? { pagination: result.pagination } : {}),
             debugSteps: allDebugSteps,
+            _graphTimings: [{ name: 'opportunity', durationMs: _graphMs, agents: [] }],
           });
         }
 
@@ -264,6 +274,7 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
             mutualIntentsLabel: opp.homeCardPresentation?.mutualIntentsLabel,
             narratorChip: opp.narratorChip,
             viewerRole: opp.viewerRole,
+            isGhost: opp.isGhost ?? false,
             score: opp.score,
             status: opp.status,
           };
@@ -283,9 +294,12 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
           "Found " + displayedBlocks.length + " more potential connection(s). IMPORTANT: Include the following opportunity code blocks EXACTLY as-is in your response (they render as interactive cards):\n\n" +
           blocksText;
 
+        const isIntroducerContinuation = !!query.introTargetUserId?.trim();
         const totalRemaining = (result.pagination?.remaining ?? 0) + extraFromCap;
         if (totalRemaining > 0 && result.pagination?.discoveryId) {
           message += `\n\nThere are ${totalRemaining} more candidates. Ask if the user wants to see more — they can say "show me more" and you should call create_opportunities with continueFrom="${result.pagination.discoveryId}".`;
+        } else if (isIntroducerContinuation) {
+          message += `\n\nThese are all the introduction candidates I found for this person.`;
         } else {
           message += `\n\nThese are all the connections I found. If the user wants to attract more connections, suggest they create a signal — e.g. "Would you like to create a signal so others looking for someone like you can find you?" If they agree, call create_intent with a description based on what they were searching for.`;
         }
@@ -294,8 +308,10 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
           found: true,
           count: displayedBlocks.length,
           message,
+          summary: `Found ${displayedBlocks.length} more match(es)`,
           ...(result.pagination ? { pagination: result.pagination } : {}),
           debugSteps: allDebugSteps,
+          _graphTimings: [{ name: 'opportunity', durationMs: _graphMs, agents: [] }],
         });
       }
 
@@ -351,6 +367,9 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
           }),
         );
 
+        const _introGraphStart = Date.now();
+        const _introTraceEmitter = requestContext.getStore()?.traceEmitter;
+        _introTraceEmitter?.({ type: "graph_start", name: "opportunity" });
         const result = await graphs.opportunity.invoke({
           operationMode: "create_introduction",
           userId: context.userId,
@@ -363,6 +382,8 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
             ...(context.sessionId ? { conversationId: context.sessionId } : {}),
           },
         });
+        const _introGraphMs = Date.now() - _introGraphStart;
+        _introTraceEmitter?.({ type: "graph_end", name: "opportunity", durationMs: _introGraphMs });
 
         if (result.error || !result.opportunities?.length) {
           return error(
@@ -393,9 +414,8 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
 
         const viewerIsParty = effectivePartyUserIds.includes(context.userId);
         const viewerRole = viewerIsParty ? "party" : "introducer";
-        const primaryActionLabel = viewerIsParty
-          ? "Start Chat"
-          : "Introduce Them";
+        const isCounterpartGhost = counterpartUser?.isGhost ?? false;
+        const primaryActionLabel = getPrimaryActionLabel(viewerRole);
         const narratorChip = viewerIsParty
           ? {
               name: "Index",
@@ -431,10 +451,11 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
           cta: "Start a conversation to connect.",
           headline,
           primaryActionLabel,
-          secondaryActionLabel: "Skip",
+          secondaryActionLabel: SECONDARY_ACTION_LABEL,
           mutualIntentsLabel: "Suggested connection",
           narratorChip,
           viewerRole,
+          isGhost: isCounterpartGhost,
           score: confidence,
           status: created.status ?? "draft",
         };
@@ -446,6 +467,7 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
         return success({
           found: true,
           count: 1,
+          summary: "Draft introduction created",
           message:
             "Draft introduction created. IMPORTANT: Include the following " +
             CODE_FENCE +
@@ -459,6 +481,7 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
               status: created.status ?? "draft",
             },
           ],
+          _graphTimings: [{ name: 'opportunity', durationMs: _introGraphMs, agents: result.agentTimings ?? [] }],
         });
       }
 
@@ -470,15 +493,22 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
       }
 
       let indexScope: string[];
+      const _scopeGraphTimings: Array<{ name: string; durationMs: number; agents: Array<{ name: string; durationMs: number }> }> = [];
       if (effectiveIndexId) {
         if (!UUID_REGEX.test(effectiveIndexId)) {
           return error("Invalid index ID format.");
         }
+        const _scopeGraphStart = Date.now();
+        const _scopeIndexMembershipTraceEmitter = requestContext.getStore()?.traceEmitter;
+        _scopeIndexMembershipTraceEmitter?.({ type: "graph_start", name: "index_membership" });
         const memberResult = await graphs.indexMembership.invoke({
           userId: context.userId,
           indexId: effectiveIndexId,
           operationMode: "read" as const,
         });
+        const _scopeIndexMembershipMs = Date.now() - _scopeGraphStart;
+        _scopeIndexMembershipTraceEmitter?.({ type: "graph_end", name: "index_membership", durationMs: _scopeIndexMembershipMs });
+        _scopeGraphTimings.push({ name: 'index_membership', durationMs: _scopeIndexMembershipMs, agents: [] });
         if (memberResult.error) {
           return error("Index not found or you are not a member.");
         }
@@ -488,11 +518,17 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
         indexScope = [context.indexId];
       } else {
         // No scope - use all indexes (only in unscoped chat)
+        const _scopeGraphStart = Date.now();
+        const _scopeIndexTraceEmitter = requestContext.getStore()?.traceEmitter;
+        _scopeIndexTraceEmitter?.({ type: "graph_start", name: "index" });
         const indexResult = await graphs.index.invoke({
           userId: context.userId,
           operationMode: "read" as const,
           showAll: true,
         });
+        const _scopeIndexMs = Date.now() - _scopeGraphStart;
+        _scopeIndexTraceEmitter?.({ type: "graph_end", name: "index", durationMs: _scopeIndexMs });
+        _scopeGraphTimings.push({ name: 'index', durationMs: _scopeIndexMs, agents: [] });
         indexScope = (indexResult.readResult?.memberOf || []).map(
           (m: { indexId: string }) => m.indexId,
         );
@@ -511,6 +547,9 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
         return error("You cannot discover introductions for yourself. Try regular discovery instead.");
       }
 
+      const _discoverTraceEmitter = requestContext.getStore()?.traceEmitter;
+      const _discoverGraphStart = Date.now();
+      _discoverTraceEmitter?.({ type: "graph_start", name: "opportunity" });
       const result = await runDiscoverFromQuery({
         opportunityGraph: graphs.opportunity,
         database,
@@ -525,13 +564,21 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
         cache,
         ...(context.sessionId ? { chatSessionId: context.sessionId } : {}),
       });
+      const _discoverGraphMs = Date.now() - _discoverGraphStart;
+      _discoverTraceEmitter?.({ type: "graph_end", name: "opportunity", durationMs: _discoverGraphMs });
+      const _discoverGraphTimings = [
+        ..._scopeGraphTimings,
+        { name: 'opportunity', durationMs: _discoverGraphMs, agents: [] },
+      ];
 
       const allDebugSteps = [
         ...toolDebugSteps,
         ...(result.debugSteps ?? []),
       ];
 
-      if (result.createIntentSuggested && result.suggestedIntentDescription) {
+      const isIntroducerFlow = !!query.introTargetUserId?.trim();
+
+      if (result.createIntentSuggested && result.suggestedIntentDescription && !isIntroducerFlow) {
         return success({
           found: false,
           count: 0,
@@ -539,8 +586,10 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
           suggestedIntentDescription: result.suggestedIntentDescription,
           message:
             "No matching opportunities found. Call create_intent with the suggested description, then create_opportunities again.",
+          summary: "No matches found",
           ...(result.pagination ? { pagination: result.pagination } : {}),
           debugSteps: allDebugSteps,
+          _graphTimings: _discoverGraphTimings,
         });
       }
 
@@ -549,8 +598,10 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
           found: false,
           count: 0,
           message: result.message ?? "No matching opportunities found.",
+          summary: "No matches found",
           ...(result.pagination ? { pagination: result.pagination } : {}),
           debugSteps: allDebugSteps,
+          _graphTimings: _discoverGraphTimings,
         });
       }
 
@@ -566,7 +617,9 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
               forMention.map((c) => c.name + (c.status ? " (" + c.status + ")" : "")).join(", ") +
               ". View on your home page.",
           existingConnections: result.existingConnections,
+          summary: "No new matches (existing connections only)",
           debugSteps: allDebugSteps,
+          _graphTimings: _discoverGraphTimings,
         });
       }
 
@@ -589,6 +642,7 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
           mutualIntentsLabel: opp.homeCardPresentation?.mutualIntentsLabel,
           narratorChip: opp.narratorChip,
           viewerRole: opp.viewerRole,
+          isGhost: opp.isGhost ?? false,
           score: opp.score,
           status: opp.status,
         };
@@ -621,6 +675,8 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
       const totalRemaining = (result.pagination?.remaining ?? 0) + extraFromCap;
       if (totalRemaining > 0 && result.pagination?.discoveryId) {
         message += `\n\nThere are ${totalRemaining} more candidates. Ask if the user wants to see more — they can say "show me more" and you should call create_opportunities with continueFrom="${result.pagination.discoveryId}".`;
+      } else if (isIntroducerFlow) {
+        message += `\n\nThese are all the introduction candidates I found for this person.`;
       } else {
         message += `\n\nThese are all the connections I found. If the user wants to attract more connections, suggest they create a signal — e.g. "Would you like to create a signal so others looking for someone like you can find you?" If they agree, call create_intent with a description based on what they were searching for.`;
       }
@@ -629,18 +685,20 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
         found: true,
         count: displayedBlocks.length,
         message,
+        summary: `Found ${displayedBlocks.length} match(es)`,
         ...(result.existingConnections?.length ? { existingConnections: result.existingConnections } : {}),
         ...(result.pagination ? { pagination: result.pagination } : {}),
         debugSteps: allDebugSteps,
         // Distinct from `createIntentSuggested` (no-results path) intentionally:
         // `handleCreateIntentCallback` in chat.agent.ts auto-creates for that key.
         // This flag is for the results-found path where the agent must ask the user first.
-        ...(searchQuery && !query.targetUserId
+        ...(searchQuery && !query.targetUserId && !isIntroducerFlow
           ? {
               suggestIntentCreationForVisibility: true,
               suggestedIntentDescription: searchQuery,
             }
           : {}),
+        _graphTimings: _discoverGraphTimings,
       });
     },
   });
@@ -688,6 +746,7 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
         return success({
           found: false,
           count: 0,
+          summary: "No opportunities yet",
           message:
             "You have no opportunities yet. Use create_opportunities to find connections.",
         });
@@ -726,6 +785,7 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
 
       const opportunityBlocks: string[] = [];
       const seenOpportunityIds = new Set<string>();
+      const skippedCards: Array<{ opportunityId: string; error: string }> = [];
 
       for (const opp of opportunities) {
         if (seenOpportunityIds.has(opp.id)) continue;
@@ -795,18 +855,44 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
               "\n" + CODE_FENCE,
           );
         } catch (err) {
+          const errMsg = err instanceof Error ? err.message : String(err);
           logger.warn("Skipping opportunity that failed to build minimal card", {
             opportunityId: opp.id,
-            error: err instanceof Error ? err.message : String(err),
+            error: errMsg,
           });
+          skippedCards.push({ opportunityId: opp.id, error: errMsg });
           continue;
         }
       }
 
+      const listDebugSteps: Array<{ step: string; detail?: string; data?: Record<string, unknown> }> = [];
+      if (skippedCards.length > 0) {
+        listDebugSteps.push({
+          step: "card_build_errors",
+          detail: `${skippedCards.length} opportunity card(s) failed to build`,
+          data: {
+            skippedCount: skippedCards.length,
+            totalOpportunities: opportunities.length,
+            errors: skippedCards,
+          },
+        });
+      }
+
       if (opportunityBlocks.length === 0) {
+        if (skippedCards.length > 0) {
+          return success({
+            found: false,
+            count: 0,
+            summary: "Some opportunities couldn't be displayed",
+            message:
+              "I found opportunities, but couldn't render them. Please try again.",
+            ...(listDebugSteps.length ? { debugSteps: listDebugSteps } : {}),
+          });
+        }
         return success({
           found: false,
           count: 0,
+          summary: "No opportunities yet",
           message:
             "You have no opportunities yet. Use create_opportunities to find connections.",
         });
@@ -818,6 +904,7 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
       return success({
         found: true,
         count: opportunityBlocks.length,
+        summary: `You have ${opportunityBlocks.length} opportunity(ies)`,
         message:
           "You have " +
           opportunityBlocks.length +
@@ -825,6 +912,7 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
           CODE_FENCE +
           "opportunity code blocks EXACTLY as-is in your response (they render as interactive cards):\n\n" +
           blocksText,
+        ...(listDebugSteps.length ? { debugSteps: listDebugSteps } : {}),
       });
     },
   });
@@ -862,12 +950,17 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
       }
 
       const isSend = query.status === "pending";
+      const _updateGraphStart = Date.now();
+      const _updateTraceEmitter = requestContext.getStore()?.traceEmitter;
+      _updateTraceEmitter?.({ type: "graph_start", name: "opportunity" });
       const result = await graphs.opportunity.invoke({
         userId: context.userId,
         operationMode: isSend ? ("send" as const) : ("update" as const),
         opportunityId: query.opportunityId,
         ...(isSend ? {} : { newStatus: query.status }),
       });
+      const _updateGraphMs = Date.now() - _updateGraphStart;
+      _updateTraceEmitter?.({ type: "graph_end", name: "opportunity", durationMs: _updateGraphMs });
 
       if (result.mutationResult) {
         if (result.mutationResult.success) {
@@ -878,6 +971,7 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
             ...(result.mutationResult.notified && {
               notified: result.mutationResult.notified,
             }),
+            _graphTimings: [{ name: 'opportunity', durationMs: _updateGraphMs, agents: result.agentTimings ?? [] }],
           });
         }
         return error(

@@ -113,6 +113,90 @@
       "when": 1773418618881,
       "tag": "0015_add_personal_indexes_drop_owner_id",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1773497228139,
+      "tag": "0016_create_chat_metadata_tables",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1773780467313,
+      "tag": "0017_add_index_members_deleted_at",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1773780529000,
+      "tag": "0018_drop_ghost_users_and_user_contacts",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1773780617911,
+      "tag": "0019_sync_drop_user_contacts_schema",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1773916279485,
+      "tag": "0020_drop_integrations_table",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1773916380000,
+      "tag": "0021_cleanup_ghost_orphan_rows",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1773952790085,
+      "tag": "0022_create_conversations_tables",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1773955520222,
+      "tag": "0023_drop_old_chat_and_xmtp_tables",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1774010711543,
+      "tag": "0024_add_conversation_participants_conversation_id_idx",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1774011557244,
+      "tag": "0025_add_conversations_dm_pair",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1774873200000,
+      "tag": "0026_drop_user_wallet_xmtp_columns",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1774873300000,
+      "tag": "0027_create_index_integrations",
+      "breakpoints": true
     }
   ]
 }

@@ -12,10 +12,14 @@ import { ProfileController } from './controllers/profile.controller';
 import { UserController } from './controllers/user.controller';
 import { StorageController } from './controllers/storage.controller';
 import { SubscribeController } from './controllers/subscribe.controller';
+import { UnsubscribeController } from './controllers/unsubscribe.controller';
 import { fileService } from './services/file.service';
-import { MessagingController } from './controllers/messaging.controller';
-import { MessagingDatabaseAdapter, ensurePersonalIndex } from './adapters/database.adapter';
-import { MessagingService } from './services/messaging.service';
+import { ConversationController } from './controllers/conversation.controller';
+import { ConversationService } from './services/conversation.service';
+import { TaskService } from './services/task.service';
+import { IntegrationController } from './controllers/integration.controller';
+import { ComposioIntegrationAdapter } from './adapters/integration.adapter';
+import { IntegrationService } from './services/integration.service';
 import path from 'path';
 import { RouteRegistry } from './lib/router/router.decorators';
 import { log } from './lib/log';
@@ -37,6 +41,7 @@ import { IntentEvents } from './events/intent.event';
 
 intentQueue.startWorker();
 opportunityQueue.startWorker();
+opportunityQueue.startCrons();
 notificationQueue.startWorker();
 profileQueue.startWorker();
 hydeQueue.startCrons();
@@ -46,6 +51,14 @@ IndexMembershipEvents.onMemberAdded = (userId: string) => {
   profileQueue.addEnsureProfileHydeJob({ userId }).catch((err) => {
     log.job.from('IndexMembership').error('Failed to enqueue ensure_profile_hyde', { userId, error: err });
   });
+};
+
+IntentEvents.onCreated = (intentId: string, userId: string) => {
+  log.job.from('IntentEvents').verbose('Intent created, triggering maintenance', { intentId, userId });
+  opportunityQueue.addJob(
+    { intentId, userId },
+    { priority: 10, jobId: `rediscovery:${userId}:${intentId}:${Math.floor(Date.now() / (6 * 60 * 60 * 1000))}` },
+  ).catch((err) => log.job.from('IntentEvents').error('Failed to enqueue maintenance on create', { intentId, userId, error: err }));
 };
 
 IntentEvents.onArchived = (intentId: string, userId: string) => {
@@ -95,27 +108,11 @@ const storageAdapter = new S3StorageAdapter({
   bucket: process.env.S3_BUCKET,
 });
 
-const walletMasterKeyHex = process.env.WALLET_ENCRYPTION_KEY;
-if (!walletMasterKeyHex || walletMasterKeyHex.length !== 64) {
-  logger.error('WALLET_ENCRYPTION_KEY must be a 64-char hex string (32 bytes)');
-  process.exit(1);
-}
-const walletMasterKey = Buffer.from(walletMasterKeyHex, 'hex');
-
-const messagingStore = new MessagingDatabaseAdapter(walletMasterKey);
-
 const authDb = new AuthDatabaseAdapter();
 const auth = createAuth({
   authDb,
   getTrustedOrigins,
   sendMagicLinkEmail,
-  ensureWallet: (userId) => messagingStore.ensureWallet(userId),
-  ensurePersonalIndex,
-});
-const messagingService = new MessagingService(messagingStore, {
-  xmtpEnv: (process.env.XMTP_ENV as 'dev' | 'production' | 'local') || 'dev',
-  xmtpDbDir: path.resolve(import.meta.dir, '../.xmtp'),
-  walletMasterKey,
 });
 // Set storage adapter on fileService for S3 file operations
 fileService.setStorageAdapter(storageAdapter);
@@ -130,9 +127,12 @@ controllerInstances.set(LinkController, new LinkController());
 controllerInstances.set(OpportunityController, new OpportunityController());
 controllerInstances.set(IndexOpportunityController, new IndexOpportunityController());
 controllerInstances.set(UserController, new UserController());
-controllerInstances.set(MessagingController, new MessagingController(messagingService));
 controllerInstances.set(StorageController, new StorageController(storageAdapter));
 controllerInstances.set(SubscribeController, new SubscribeController());
+controllerInstances.set(UnsubscribeController, new UnsubscribeController());
+controllerInstances.set(ConversationController, new ConversationController(new ConversationService(), new TaskService()));
+const integrationAdapter = new ComposioIntegrationAdapter();
+controllerInstances.set(IntegrationController, new IntegrationController(integrationAdapter, new IntegrationService(integrationAdapter)));
 controllerInstances.set(DebugController, new DebugController());
 
 logger.info('Routes registered', { prefix: GLOBAL_PREFIX });

@@ -1,9 +1,9 @@
 import { useEffect, useState, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router';
-import { MoreHorizontal, Trash2, Loader2 } from 'lucide-react';
+import { MoreHorizontal, Trash2 } from 'lucide-react';
 import UserAvatar from '@/components/UserAvatar';
-import { useXMTP } from '@/contexts/XMTPContext';
 import { useAuthContext } from '@/contexts/AuthContext';
+import { useConversation } from '@/contexts/ConversationContext';
 
 interface RecentChat {
   groupId: string;
@@ -40,25 +40,35 @@ export default function ChatSidebar() {
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const { user } = useAuthContext();
-  const { isConnected, conversations, refreshConversations, deleteConversation } = useXMTP();
-  
+  const { conversations, refreshConversations, hideConversation } = useConversation();
+
   const [loading, setLoading] = useState(true);
   const [chatMenuOpen, setChatMenuOpen] = useState<string | null>(null);
   const chatMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (!isConnected || !user?.id) return;
+    if (!user?.id) return;
+    setLoading(true);
     refreshConversations().finally(() => setLoading(false));
-  }, [isConnected, user?.id, refreshConversations]);
+  }, [user?.id, refreshConversations]);
 
-  const recentChats: RecentChat[] = conversations.map((c) => ({
-    groupId: c.groupId,
-    peerUserId: c.peerUserId,
-    peerAvatar: c.peerAvatar,
-    name: c.name || 'Conversation',
-    lastMessage: c.lastMessage ? String(c.lastMessage.content ?? '') : 'No messages yet',
-    sortTimestamp: c.updatedAt ? Number(c.updatedAt) / 1_000_000 : 0,
-  })).sort((a, b) => b.sortTimestamp - a.sortTimestamp);
+  // Only show human-to-human DMs (no agent participants); agent chats appear in History sidebar
+  const dmConversations = conversations.filter((conv) => {
+    const participants = conv.participants ?? [];
+    return participants.length === 2 && participants.every((p) => p.participantType === 'user');
+  });
+  const recentChats: RecentChat[] = dmConversations.map((conv) => {
+    const peer = (conv.participants ?? []).find((p) => p.participantId !== user?.id && p.participantType === 'user');
+    const lastText = (conv.lastMessage?.parts as { text?: string }[] | undefined)?.find(p => p.text)?.text ?? '';
+    return {
+      groupId: conv.id,
+      peerUserId: peer?.participantId ?? null,
+      peerAvatar: peer?.avatar ?? null,
+      name: conv.metadata?.title ?? peer?.name ?? 'Conversation',
+      lastMessage: lastText,
+      sortTimestamp: conv.lastMessageAt ? new Date(conv.lastMessageAt).getTime() : 0,
+    };
+  }).sort((a, b) => b.sortTimestamp - a.sortTimestamp);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -124,8 +134,8 @@ export default function ChatSidebar() {
                       onClick={async (e) => {
                         e.stopPropagation();
                         setChatMenuOpen(null);
-                        await deleteConversation(chat.groupId);
-                        if (pathname?.includes(chat.peerUserId ?? '')) {
+                        await hideConversation(chat.groupId);
+                        if (chat.peerUserId && pathname?.includes(chat.peerUserId)) {
                           navigate('/');
                         }
                       }}

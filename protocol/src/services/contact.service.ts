@@ -1,7 +1,7 @@
 import { log } from '../lib/log';
 import { ChatDatabaseAdapter } from '../adapters/database.adapter';
-import type { ContactSource } from '../schemas/database.schema';
 import { profileQueue } from '../queues/profile.queue';
+import { deduplicateContacts, getPreset } from '../lib/dedup/dedup';
 
 const logger = log.service.from('ContactService');
 
@@ -61,7 +61,14 @@ export interface ContactInput {
   email: string;
 }
 
-/** Result of importing contacts. */
+/** Result of adding a single contact. */
+export interface ContactResult {
+  userId: string;
+  isNew: boolean;
+  isGhost: boolean;
+}
+
+/** Result of importing contacts in bulk. */
 export interface ImportResult {
   imported: number;
   skipped: number;
@@ -70,29 +77,26 @@ export interface ImportResult {
   details: Array<{ email: string; userId: string; isNew: boolean }>;
 }
 
-/** Contact with user details. */
-export interface Contact {
-  id: string;
-  userId: string;
-  source: string;
-  importedAt: Date;
-  user: {
-    id: string;
-    name: string;
-    email: string;
-    avatar: string | null;
-    isGhost: boolean;
-  };
+/** Result of resolving contacts to user IDs (without membership changes). */
+export interface ResolveResult {
+  /** All resolved user IDs (existing + newly created ghosts). */
+  userIds: string[];
+  /** IDs of users that were newly created as ghosts. */
+  newGhostIds: string[];
+  /** Number of input contacts that were filtered or invalid. */
+  skipped: number;
+  /** Per-user details. */
+  details: Array<{ email: string; userId: string; isNew: boolean }>;
 }
 
 /**
  * ContactService
  *
- * Manages user contacts ("My Network") including importing from integrations,
- * creating ghost users for unknown contacts, and listing/removing contacts.
+ * Manages user contacts ("My Network") using index_members with 'contact' permission
+ * on the owner's personal index.
  *
  * RESPONSIBILITIES:
- * - Import contacts from integration output (Gmail, Calendar) or manual input
+ * - Add/remove contacts via index_members rows
  * - Create ghost users for contacts without existing accounts
  * - Enqueue enrichment jobs for new ghost users
  * - List and manage contacts
@@ -101,130 +105,182 @@ export class ContactService {
   constructor(private db = new ChatDatabaseAdapter()) {}
 
   /**
-   * Import contacts into the user's network.
-   * For each contact:
-   * - If email exists in users table, link to existing user
-   * - If email doesn't exist, create a ghost user
-   * - Upsert the contact relationship
-   * - Enqueue enrichment for new ghost users
+   * Add a single contact by email.
+   * Resolves user by email, creates a ghost if not found, upserts contact membership,
+   * clears any reverse opt-out, and enqueues enrichment for new ghosts.
    *
-   * Uses bulk operations for performance.
+   * @param ownerId - The user adding the contact
+   * @param email - Email of the contact to add
+   * @param options - Optional name and restore flag
+   * @returns Result with userId, isNew, and isGhost flags
+   */
+  async addContact(
+    ownerId: string,
+    email: string,
+    options: { name?: string; restore?: boolean } = {}
+  ): Promise<ContactResult> {
+    const normalizedEmail = email.toLowerCase().trim();
+    const name = options.name?.trim() || normalizedEmail.split('@')[0];
+
+    // Look up existing user
+    let user = await this.db.getUserByEmail(normalizedEmail);
+    let isNew = false;
+    let isGhost = false;
+
+    if (!user) {
+      // Create ghost user (handles concurrency, creates profile)
+      const { id: ghostId } = await this.db.createGhostUser({ name, email: normalizedEmail });
+
+      // Re-query to get full user record
+      user = await this.db.getUserByEmail(normalizedEmail);
+      if (!user) {
+        throw new Error(`Failed to create or find user for email: ${normalizedEmail}`);
+      }
+      isNew = user.id === ghostId;
+      isGhost = true;
+    } else {
+      isGhost = user.isGhost;
+    }
+
+    // Upsert contact membership
+    await this.db.upsertContactMembership(ownerId, user.id, { restore: options.restore });
+
+    // Clear reverse opt-out
+    await this.db.clearReverseOptOut(ownerId, user.id);
+
+    // Enqueue enrichment for new ghosts
+    if (isNew && isGhost) {
+      await profileQueue.addEnrichUserJob({ userId: user.id });
+      logger.info('[ContactService] Enrichment job enqueued for new ghost', { userId: user.id });
+    }
+
+    return { userId: user.id, isNew, isGhost };
+  }
+
+  /**
+   * Resolve contacts to user IDs without creating any memberships.
+   * Normalizes, filters non-human, deduplicates, looks up existing users,
+   * creates ghost users for unknowns, and enqueues enrichment for new ghosts.
+   *
+   * @param ownerId - The requesting user (excluded from results)
+   * @param contacts - Raw contact data (name, email)
+   * @returns Resolved user IDs, new ghost IDs, skip count, and per-user details
+   */
+  async resolveUsers(
+    ownerId: string,
+    contacts: ContactInput[]
+  ): Promise<ResolveResult> {
+    const owner = await this.db.getUser(ownerId);
+    const ownerEmail = owner?.email.toLowerCase();
+
+    const seenEmails = new Set<string>();
+    const validContacts: Array<{ name: string; email: string }> = [];
+    let skipped = 0;
+
+    for (const contact of contacts) {
+      const email = contact.email.toLowerCase().trim();
+      if (!email || !email.includes('@')) { skipped++; continue; }
+      if (ownerEmail === email) { skipped++; continue; }
+      if (seenEmails.has(email)) { skipped++; continue; }
+      const name = contact.name?.trim() || '';
+      if (!isHumanContact(email, name)) {
+        logger.debug('[ContactService] Skipped non-human contact', { domain: email.split('@')[1] });
+        skipped++;
+        continue;
+      }
+      seenEmails.add(email);
+      validContacts.push({ name: name || email.split('@')[0], email });
+    }
+
+    if (validContacts.length === 0) {
+      return { userIds: [], newGhostIds: [], skipped, details: [] };
+    }
+
+    const emails = validContacts.map(c => c.email);
+    const existingUsers = await this.db.getUsersByEmails(emails);
+    const emailToUser = new Map(existingUsers.map(u => [u.email, u]));
+    const existingEmails = new Set(existingUsers.map(u => u.email));
+
+    const newContactData = validContacts.filter(c => !emailToUser.has(c.email));
+    const createdGhosts = await this.db.createGhostUsersBulk(newContactData);
+    const newGhostIds = new Set<string>();
+    for (const ghost of createdGhosts) {
+      if (!existingEmails.has(ghost.email)) {
+        newGhostIds.add(ghost.id);
+      }
+      emailToUser.set(ghost.email, { ...ghost, isGhost: true });
+    }
+
+    const userIds: string[] = [];
+    const details: ResolveResult['details'] = [];
+    for (const vc of validContacts) {
+      const user = emailToUser.get(vc.email);
+      if (user) {
+        userIds.push(user.id);
+        details.push({ email: vc.email, userId: user.id, isNew: newGhostIds.has(user.id) });
+      } else {
+        skipped++;
+      }
+    }
+
+    const newGhostIdsArray = [...newGhostIds];
+    if (newGhostIdsArray.length > 0) {
+      await profileQueue.addEnrichUserJobBulk(newGhostIdsArray.map(id => ({ userId: id })));
+      logger.info('[ContactService] Enrichment jobs enqueued for new ghosts', { count: newGhostIdsArray.length });
+    }
+
+    return { userIds, newGhostIds: newGhostIdsArray, skipped, details };
+  }
+
+  /**
+   * Import contacts in bulk using batched DB operations.
+   * Resolves users, upserts contact memberships on the owner's personal index,
+   * and clears reverse opt-outs.
    *
    * @param ownerId - The user importing contacts
    * @param contacts - Array of contact data (name, email)
-   * @param source - Where contacts came from (gmail, google_calendar, manual)
    * @returns Import statistics and details
    */
   async importContacts(
     ownerId: string,
-    contacts: ContactInput[],
-    source: ContactSource
+    contacts: ContactInput[]
   ): Promise<ImportResult> {
-    logger.info('[ContactService] Importing contacts', {
-      ownerId,
-      count: contacts.length,
-      source,
-    });
+    logger.info('[ContactService] Importing contacts', { ownerId, count: contacts.length });
 
+    const resolved = await this.resolveUsers(ownerId, contacts);
+
+    if (resolved.userIds.length === 0) {
+      return { imported: 0, skipped: resolved.skipped, newContacts: 0, existingContacts: 0, details: [] };
+    }
+
+    const preset = getPreset(process.env.CONTACT_DEDUP_STRATEGY);
+    const dedupResult = deduplicateContacts(contacts, resolved.details, preset);
+    const dedupedUserIds = dedupResult.kept.map(d => d.userId);
+    const nameSkipped = dedupResult.removed.length;
+
+    if (dedupResult.removed.length > 0) {
+      logger.info('[ContactService] Dedup removed contacts', {
+        ownerId,
+        removed: dedupResult.removed.map(r => ({
+          email: r.email,
+          matchedWith: r.matchedWith,
+          nameScore: r.nameScore.toFixed(3),
+          emailScore: r.emailScore.toFixed(3),
+        })),
+      });
+    }
+
+    await this.db.upsertContactMembershipBulk(ownerId, dedupedUserIds);
+    await this.db.clearReverseOptOutBulk(ownerId, dedupedUserIds);
+
+    const newCount = dedupResult.kept.filter(d => d.isNew).length;
     const result: ImportResult = {
-      imported: 0,
-      skipped: 0,
-      newContacts: 0,
-      existingContacts: 0,
-      details: [],
+      imported: dedupedUserIds.length,
+      skipped: resolved.skipped + nameSkipped,
+      newContacts: newCount,
+      existingContacts: dedupedUserIds.length - newCount,
+      details: dedupResult.kept,
     };
-
-    // Fetch owner once
-    const owner = await this.db.getUser(ownerId);
-    const ownerEmail = owner?.email.toLowerCase();
-
-    // Normalize, filter, and deduplicate contacts
-    const seenEmails = new Set<string>();
-    const validContacts: Array<{ name: string; email: string }> = [];
-    for (const contact of contacts) {
-      const email = contact.email.toLowerCase().trim();
-      if (!email || !email.includes('@')) {
-        result.skipped++;
-        continue;
-      }
-      if (ownerEmail === email) {
-        result.skipped++;
-        continue;
-      }
-      if (seenEmails.has(email)) {
-        result.skipped++;
-        continue;
-      }
-      const name = contact.name?.trim() || '';
-      if (!isHumanContact(email, name)) {
-        logger.debug('[ContactService] Skipped non-human contact', { domain: email.split('@')[1] });
-        result.skipped++;
-        continue;
-      }
-      seenEmails.add(email);
-      validContacts.push({
-        name: name || email.split('@')[0],
-        email,
-      });
-    }
-
-    if (validContacts.length === 0) {
-      logger.info('[ContactService] No valid contacts to import', { ownerId });
-      return result;
-    }
-
-    // Bulk lookup existing users by email
-    const emails = validContacts.map(c => c.email);
-    const existingUsers = await this.db.getUsersByEmails(emails);
-    const existingByEmail = new Map(existingUsers.map(u => [u.email.toLowerCase(), u]));
-
-    // Identify contacts that need ghost users
-    const needGhosts: Array<{ name: string; email: string }> = [];
-    for (const contact of validContacts) {
-      if (!existingByEmail.has(contact.email)) {
-        needGhosts.push(contact);
-      }
-    }
-
-    // Atomically create ghosts + upsert all contacts in a single transaction
-    const { newContacts } = await this.db.importContactsBulk(
-      ownerId,
-      needGhosts,
-      validContacts,
-      existingByEmail,
-      source
-    );
-
-    result.newContacts = newContacts;
-
-    // Build result details (existingByEmail was updated inside the transaction with ghost IDs)
-    for (const contact of validContacts) {
-      const user = existingByEmail.get(contact.email);
-      if (user) {
-        result.details.push({
-          email: contact.email,
-          userId: user.id,
-          isNew: !existingUsers.some(u => u.id === user.id),
-        });
-      }
-    }
-    result.imported = result.details.length;
-    result.existingContacts = result.imported - result.newContacts;
-
-    // Enqueue enrichment for newly created ghost users only.
-    const newGhostDetails = result.details.filter(d => {
-      const user = existingByEmail.get(d.email);
-      return user?.isGhost === true && d.isNew;
-    });
-    if (newGhostDetails.length > 0) {
-      for (const ghost of newGhostDetails) {
-        await profileQueue.addEnrichGhostJob({ userId: ghost.userId });
-      }
-      logger.info('[ContactService] Enrichment jobs enqueued for new ghost users', {
-        ghostIds: newGhostDetails.map(g => g.userId),
-        count: newGhostDetails.length,
-      });
-    }
 
     logger.info('[ContactService] Import completed', {
       ownerId,
@@ -243,40 +299,22 @@ export class ContactService {
    * @param ownerId - The user whose contacts to list
    * @returns Array of contacts with user details
    */
-  async listContacts(ownerId: string): Promise<Contact[]> {
-    logger.verbose('[ContactService] Listing contacts', { ownerId });
-    return this.db.getContacts(ownerId);
+  async listContacts(ownerId: string): Promise<Array<{
+    userId: string;
+    user: { id: string; name: string; email: string; avatar: string | null; isGhost: boolean };
+  }>> {
+    return this.db.getContactMembers(ownerId);
   }
 
   /**
-   * Remove a contact from the user's network (soft delete).
+   * Remove a contact from the user's network (hard delete from index_members).
    *
    * @param ownerId - The user removing the contact
-   * @param contactId - The contact record ID to remove
+   * @param contactUserId - The contact user ID to remove
    */
-  async removeContact(ownerId: string, contactId: string): Promise<void> {
-    logger.info('[ContactService] Removing contact', { ownerId, contactId });
-    await this.db.removeContact(ownerId, contactId);
-  }
-
-  /**
-   * Add a single contact manually by email.
-   *
-   * @param ownerId - The user adding the contact
-   * @param email - Email of the contact to add
-   * @param name - Optional name for the contact
-   * @returns The import result for the single contact
-   */
-  async addContact(
-    ownerId: string,
-    email: string,
-    name?: string
-  ): Promise<ImportResult> {
-    return this.importContacts(
-      ownerId,
-      [{ name: name || '', email }],
-      'manual'
-    );
+  async removeContact(ownerId: string, contactUserId: string): Promise<void> {
+    logger.info('[ContactService] Removing contact', { ownerId, contactUserId });
+    await this.db.hardDeleteContactMembership(ownerId, contactUserId);
   }
 }
 

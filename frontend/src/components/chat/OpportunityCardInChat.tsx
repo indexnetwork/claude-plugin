@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router";
-import { Bot, Check, CheckCircle2, Clock, X } from "lucide-react";
+import { Check, CheckCircle2, Clock, X } from "lucide-react";
+import GhostBadge from "@/components/GhostBadge";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import UserAvatar from "@/components/UserAvatar";
@@ -41,6 +42,8 @@ export interface OpportunityCardData {
   score?: number;
   /** Opportunity status at the time the card was created. */
   status?: string;
+  /** Whether the counterpart is a ghost (not yet onboarded) user. */
+  isGhost?: boolean;
 }
 
 /** Status values that allow user actions (accept/reject). Matches DB opportunity_status enum. */
@@ -110,6 +113,7 @@ interface OpportunityCardProps {
     userId: string,
     viewerRole?: string,
     counterpartName?: string,
+    isGhost?: boolean,
   ) => void | Promise<void>;
   /** Handler for secondary action (reject/skip). */
   onSecondaryAction?: (
@@ -117,6 +121,7 @@ interface OpportunityCardProps {
     userId: string,
     viewerRole?: string,
     counterpartName?: string,
+    isGhost?: boolean,
   ) => void | Promise<void>;
   /** Whether an action is currently loading for this card. */
   isLoading?: boolean;
@@ -200,9 +205,11 @@ export default function OpportunityCard({
           card.userId,
           card.viewerRole,
           card.name,
+          card.isGhost,
         );
         setActionTaken("accepted");
-      } catch {
+      } catch (err) {
+        if (err instanceof Error && err.message === "user_cancelled") return;
         setActionError(true);
       }
     }
@@ -217,6 +224,7 @@ export default function OpportunityCard({
           card.userId,
           card.viewerRole,
           card.name,
+          card.isGhost,
         );
         setActionTaken("rejected");
       } catch {
@@ -277,12 +285,14 @@ export default function OpportunityCard({
             avatar={card.avatar || null}
             size={32}
             className="shrink-0"
+            blur={card.isGhost}
           />
           <div className="min-w-0">
-            <h4 className="font-bold text-gray-900 text-sm hover:underline">
+            <h4 className="font-bold text-gray-900 text-sm hover:underline flex items-center gap-1.5">
               {card.viewerRole === "introducer" && card.headline
                 ? card.headline
                 : card.name || "Someone"}
+              {card.isGhost && <GhostBadge />}
             </h4>
             <p className="text-[11px] text-[#3D3D3D]">
               {card.mutualIntentsLabel || "Potential connection"}
@@ -361,8 +371,9 @@ export default function OpportunityCard({
         </ReactMarkdown>
       </div>
 
-      {/* Narrator Chip */}
-      {card.narratorChip && (
+      {/* Narrator Chip — only shown for human-introduced opportunities */}
+      {/* TODO: remove name !== "Index" filter after cached Index chips have expired */}
+      {card.narratorChip && card.narratorChip.name !== "Index" && (
         <div className="mt-3">
           <div
             className={cn(
@@ -387,15 +398,11 @@ export default function OpportunityCard({
               : {})}
           >
             <div className="relative shrink-0">
-              {card.narratorChip.name === "Index" ? (
-                <Bot className="w-7 h-7 text-[#3D3D3D]" />
-              ) : (
-                <UserAvatar
-                  name={card.narratorChip.name}
-                  avatar={card.narratorChip.avatar ?? null}
-                  size={28}
-                />
-              )}
+              <UserAvatar
+                name={card.narratorChip.name}
+                avatar={card.narratorChip.avatar ?? null}
+                size={28}
+              />
             </div>
             <span className="text-[13px] text-[#3D3D3D]">
               <span

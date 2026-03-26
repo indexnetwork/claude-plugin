@@ -72,6 +72,7 @@ const systemPrompt = `
     4. Be specific about the "Why" for BOTH sides in the reasoning.
     5. DEDUPLICATION: Do NOT suggest opportunities that duplicate "Existing Opportunities".
     6. Do not suggest an opportunity if the source and candidate clearly already know each other (e.g. same company, co-founders, same team).
+    7. SAME-SIDE MATCHING: If both the source and candidate are SEEKING the same resource (e.g., both looking for investors, both seeking a co-founder), this is not an opportunity. Return an empty list unless one side clearly OFFERS what the other SEEKS.
 `;
 
 // Entity-bundle system prompt (C2): entities + four match patterns + actors output
@@ -92,6 +93,18 @@ Input:
   - ragScore, matchedVia (how they were found)
 - EXISTING OPPORTUNITIES: Context of matches already made (for deduplication).
 
+BEFORE SCORING — determine role satisfiability:
+
+Definitions:
+  SUBSTITUTIVE ROLE: The candidate can directly fill the open position in the discoverer's intent. The candidate IS the person/entity the discoverer is seeking. Example: discoverer seeks "co-founder" → candidate is an engineer willing to co-found.
+  COMPLEMENTARY ROLE: The candidate's contribution is defined relative to the seeker-sought relation from the outside — they fund, advise, recruit for, or enable the sought relationship rather than participating in it as the target. Example: discoverer seeks "co-founder" → candidate is a VC (funds the company, does not co-found it).
+
+Step 1 — Identify the open argument in each discoverer intent: what type of person or entity would satisfy the intent if found?
+Step 2 — For each candidate, ask: can this candidate directly fill that open argument position?
+  YES → substitutive role. Proceed to scoring.
+  NO → complementary role. Apply Rule 7 (score ≤ 30, return no opportunity).
+Step 3 — Contextual override: if the candidate's profile contains explicit evidence that they currently function in the substitutive role (e.g., a former investor who is now building full-time as a technical co-founder), re-evaluate Step 2 against their current role, not their categorical label.
+
 Match patterns to consider:
 1. Profile-to-profile: Complementary backgrounds (skills, interests, location).
 2. Profile-to-intents+profile: Someone's skills/background match another's stated goals (intents).
@@ -101,7 +114,13 @@ Match patterns to consider:
 Output:
 - A list of 0..N opportunities. Each opportunity has:
   - reasoning: Third-party analytical explanation (for other LLM agents). Mention entities by role. Do NOT use "you". Never leak private intents.
-  - score: 0-100. 90-100 = Must Meet, 70-89 = Should Meet, 50-69 = Worth Considering, <50 = weak match.
+  - score: 0-100.
+    - 90-100: Must Meet — candidate's PRIMARY role directly matches what the discoverer seeks.
+      Example: discoverer seeks "AI/ML co-founder" → candidate IS an AI/ML engineer who wants to co-found.
+    - 70-89: Should Meet — meaningful overlap on role type AND complementary intent.
+    - 50-69: Worth Considering — tangential overlap only.
+    - <30 (return empty): Complementary-role mismatch (candidate cannot fill the discoverer's open argument position), same-side match, or already acquainted.
+      Example: discoverer seeks "co-founder" → candidate is a VC investor. The investor's contribution is external to the co-founding relation; they cannot substitute into it. Score 0.
   - IMPORTANT: Include ALL reasonable matches with scores >= 30. Let the system filter by threshold.
   - actors: At least 2 actors per opportunity. Each actor has:
     - userId
@@ -120,6 +139,18 @@ Rules:
 4. Write reasoning from an objective observer's perspective; be specific about the "Why" for each side.
 5. When in introduction mode, each opportunity must have exactly two actors — the two people being introduced. The discoverer (introducer) is added by the system and must not be included in your actors list.
 6. ALREADY KNOW EACH OTHER: Do NOT suggest an opportunity if the entities clearly already know each other. Examples: co-founders of the same company, same team at the same organization, same employer, or any relationship that is obviously existing from their profiles (bio, context). When in doubt, if both profiles mention the same company/org/team in a way that implies they work together, return an empty list for that pair.
+7. ROLE-SATISFIABILITY (evaluate before scoring): A candidate satisfies a discoverer's intent only if they can fill the SUBSTITUTIVE ROLE — the open argument position in the intent (the type of person the discoverer is seeking). A candidate in a COMPLEMENTARY ROLE (one that funds, advises, recruits for, or otherwise enables the sought relation from outside it) does not satisfy the intent, regardless of how closely associated their domain is.
+   COMPLEMENTARY-ROLE CAP: If the candidate occupies a complementary rather than substitutive role relative to the discoverer's intent, score ≤ 30. Return no opportunity.
+   CONTEXTUAL OVERRIDE: If the candidate's profile contains explicit evidence that they currently function in the substitutive role (not merely historically or tangentially), treat them as substitutive and score normally.
+8. SAME-SIDE MATCHING: Before scoring, check whether the DISCOVERER and CANDIDATE are both SEEKING the same thing. Look at both parties' intents for directionality:
+   - SEEKING signals: "looking for", "seeking", "want to find", "need", "raising", "hiring"
+   - OFFERING signals: "can offer", "expert in", "investing in", "mentoring", "available for"
+   If both parties have SEEKING intents targeting the same resource (e.g., both seeking investors, both seeking co-founders, both seeking mentorship), this is NOT an opportunity — score <30. An opportunity requires one side to OFFER what the other SEEKS.
+9. LOCATION MATCHING: When the DISCOVERY REQUEST mentions a specific location (city, region, or country):
+   a. If a candidate's profile.location is KNOWN and clearly does NOT match the requested location (different city/region), score ≤ 40 for that candidate. Geographic mismatch is a strong negative signal when the user explicitly requested a location.
+   b. If a candidate's profile.location is UNKNOWN, EMPTY, or AMBIGUOUS, do NOT penalize — allow them through and score based on other factors. Note in reasoning that their location is unverified.
+   c. If a candidate's profile.location matches or is reasonably close (e.g., "Bay Area" matches "San Francisco", "Remote" matches any location), score normally.
+   d. "Remote" or "Global" locations are compatible with any requested location.
 `;
 
 // ──────────────────────────────────────────────────────────────
@@ -339,7 +370,7 @@ export class OpportunityEvaluator {
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : String(e);
       logger.warn(`[OpportunityEvaluator] Analysis failed for candidate ${candidateUserId}`, { message });
-      return [];
+      throw e;
     }
   }
 
@@ -378,6 +409,7 @@ CRITICAL REASONING INSTRUCTIONS FOR INTRODUCTIONS:
       ? `\nDISCOVERY REQUEST: The user asked: "${input.discoveryQuery.trim()}"
 
 CRITICAL SCORING RULES FOR DISCOVERY REQUESTS:
+0. QUERY IS PRIMARY: The DISCOVERY REQUEST above is the primary evaluation criterion. The source user's stored INTENTS (if listed below) are background context — use them ONLY to fill in blanks when the query is too broad or vague to evaluate on its own. If the query is specific enough to score candidates, score strictly against the query and IGNORE stored intents. Never let a stored intent override or replace the query as the basis for scoring.
 1. MATCH THE REQUEST TYPE FIRST: If the user asks for "investors", prioritize candidates who are ACTUALLY investors (VCs, angels, fund partners). Engineers and collaborators should score LOWER unless they are also investors.
 2. ROLE KEYWORDS MATTER: Look for keywords in bios like "investor", "VC", "venture", "fund", "partner at [fund]", "angel", "mentor", etc. that match what the user asked for.
 3. SCORING HIERARCHY:
@@ -386,11 +418,21 @@ CRITICAL SCORING RULES FOR DISCOVERY REQUESTS:
    - 50-69: Weak match - candidate is tangentially related but doesn't fit the primary request
    - <50: Does not match the request - exclude or heavily down-rank
 4. DO NOT score collaborators/builders highly when the user explicitly asks for investors, and vice versa.
+5. SAME-SIDE CHECK: If the candidate's intents show they are ALSO SEEKING what the discoverer is seeking (e.g., both looking for investors, both looking for co-founders), this is a same-side match. Score <30 regardless of keyword overlap in bios. The candidate must BE or OFFER what the discoverer is looking for, not also be looking for it.
+6. LOCATION ENFORCEMENT: If the discovery request mentions a specific location (e.g., "in SF", "based in London", "Istanbul"), check each candidate's profile.location:
+   - KNOWN MISMATCH (e.g., request says "SF" but candidate is "New York"): Score ≤ 40. State the mismatch in reasoning.
+   - UNKNOWN/EMPTY location: Do not penalize. Note that location is unverified.
+   - MATCH or COMPATIBLE (e.g., "Bay Area" ≈ "SF", "Remote" ≈ any): Score normally.
 `
       : '';
+    const hasDiscoveryQuery = !!input.discoveryQuery?.trim();
     const entitiesBlock = input.entities.map((e) => {
+      const isSource = e.userId === input.discovererId;
+      // When an explicit discovery query is active, label the source user's stored
+      // intents as background context so the LLM treats the query as primary.
+      const intentsLabel = isSource && hasDiscoveryQuery ? 'BACKGROUND INTENTS (use only if query is too vague)' : 'INTENTS';
       const intentsPart = e.intents?.length
-        ? `\n  INTENTS:\n${e.intents.map((i) => `    - ${i.intentId}: ${i.payload}`).join('\n')}`
+        ? `\n  ${intentsLabel}:\n${e.intents.map((i) => `    - ${i.intentId}: ${i.payload}`).join('\n')}`
         : '';
       // Mask the discoverer's name so the LLM cannot leak it into reasoning.
       // The system prompt already says "use third-party references", but the LLM
@@ -432,14 +474,14 @@ CRITICAL SCORING RULES FOR DISCOVERY REQUESTS:
       });
       return returnAll ? introGuard : filtered;
     } catch (llmError) {
-      logger.error('[OpportunityEvaluator.invokeEntityBundle] Failed; returning empty opportunities.', {
+      logger.error('[OpportunityEvaluator.invokeEntityBundle] Failed', {
         discovererId: input.discovererId,
         totalEntities,
         parsedTotal,
         minScore,
         llmError,
       });
-      return [];
+      throw llmError;
     }
   }
 

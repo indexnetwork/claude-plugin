@@ -3,6 +3,7 @@ import type { Id } from '../../../types/common.types';
 import type { OpportunityStatus, Opportunity } from '../interfaces/database.interface';
 import type { Lens } from '../interfaces/embedder.interface';
 import type { EvaluatorEntity } from '../agents/opportunity.evaluator';
+import type { DebugMetaAgent } from '../../../types/chat-streaming.types';
 
 /**
  * Opportunity Graph State (Linear Multi-Step Workflow)
@@ -15,7 +16,7 @@ import type { EvaluatorEntity } from '../agents/opportunity.evaluator';
 /** Asker's profile shape (embedding + optional identity/narrative/attributes). Used by sourceProfile annotation. */
 export interface SourceProfileData {
   embedding: number[] | null;
-  identity?: { name?: string; bio?: string };
+  identity?: { name?: string; bio?: string; location?: string };
   narrative?: { context?: string };
   attributes?: { skills?: string[]; interests?: string[] };
 }
@@ -375,6 +376,12 @@ export const OpportunityGraphState = Annotation.Root({
    */
   trace: Annotation<Array<{ node: string; detail?: string; data?: Record<string, unknown> }>>({
     reducer: (curr, next) => [...curr, ...(next || [])],
+    default: () => [],
+  }),
+
+  /** Timing records for each agent invocation within this graph run. */
+  agentTimings: Annotation<DebugMetaAgent[]>({
+    reducer: (acc, val) => [...acc, ...val],
     default: () => [],
   }),
 });

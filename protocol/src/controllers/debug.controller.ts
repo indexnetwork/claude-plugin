@@ -1,4 +1,4 @@
-import { eq, and, sql, desc, asc, min, max, count } from 'drizzle-orm';
+import { eq, and, sql, desc, asc, inArray, min, max, count } from 'drizzle-orm';
 
 import db from '../lib/drizzle/drizzle';
 import { log } from '../lib/log';
@@ -11,9 +11,13 @@ import {
   indexes,
   indexMembers,
   opportunities,
-  chatSessions,
-  chatMessages,
 } from '../schemas/database.schema';
+import {
+  conversations,
+  conversationParticipants,
+  conversationMetadata,
+  messages,
+} from '../schemas/conversation.schema';
 import { debugService } from '../services/debug.service';
 
 import { AuthGuard, type AuthenticatedUser } from '../guards/auth.guard';
@@ -523,37 +527,90 @@ export class DebugController {
     logger.verbose('Chat debug request', { sessionId, userId: user.id });
 
     // ── 1. Fetch session (scoped to authenticated user) ──────────────────
-    const [session] = await db
-      .select({
-        id: chatSessions.id,
-        title: chatSessions.title,
-        indexId: chatSessions.indexId,
-        userId: chatSessions.userId,
-      })
-      .from(chatSessions)
-      .where(and(eq(chatSessions.id, sessionId), eq(chatSessions.userId, user.id)))
+    // Verify the user is a participant of this conversation
+    const [participant] = await db
+      .select({ participantId: conversationParticipants.participantId })
+      .from(conversationParticipants)
+      .where(
+        and(
+          eq(conversationParticipants.conversationId, sessionId),
+          eq(conversationParticipants.participantId, user.id),
+          eq(conversationParticipants.participantType, 'user'),
+        ),
+      )
       .limit(1);
 
-    if (!session) {
+    if (!participant) {
       return Response.json({ error: 'Chat session not found' }, { status: 404 });
     }
 
-    // ── 2. Fetch messages ordered by creation time ───────────────────────
-    const messageRows = await db
-      .select({
-        id: chatMessages.id,
-        role: chatMessages.role,
-        content: chatMessages.content,
-        routingDecision: chatMessages.routingDecision,
-        subgraphResults: chatMessages.subgraphResults,
-        createdAt: chatMessages.createdAt,
-      })
-      .from(chatMessages)
-      .where(eq(chatMessages.sessionId, sessionId))
-      .orderBy(asc(chatMessages.createdAt));
+    // Fetch conversation + metadata
+    const [conv] = await db
+      .select({ id: conversations.id })
+      .from(conversations)
+      .where(eq(conversations.id, sessionId))
+      .limit(1);
 
-    // ── 3. Build messages and turns ──────────────────────────────────────
-    const messages: Array<{ role: string; content: string }> = [];
+    if (!conv) {
+      return Response.json({ error: 'Chat session not found' }, { status: 404 });
+    }
+
+    const [convMeta] = await db
+      .select({ metadata: conversationMetadata.metadata })
+      .from(conversationMetadata)
+      .where(eq(conversationMetadata.conversationId, sessionId))
+      .limit(1);
+
+    const meta = (convMeta?.metadata ?? {}) as { title?: string; indexId?: string; _sessionMeta?: unknown };
+    const session = {
+      id: conv.id,
+      title: meta.title ?? null,
+      indexId: meta.indexId ?? null,
+      userId: user.id,
+    };
+
+    // ── 2. Fetch messages ordered by creation time ───────────────────────
+    const rawMessageRows = await db
+      .select({
+        id: messages.id,
+        role: messages.role,
+        parts: messages.parts,
+        metadata: messages.metadata,
+        createdAt: messages.createdAt,
+      })
+      .from(messages)
+      .where(eq(messages.conversationId, sessionId))
+      .orderBy(asc(messages.createdAt));
+
+    // Map to a shape compatible with the rest of the method
+    const messageRows = rawMessageRows.map((m) => {
+      const parts = m.parts as Array<{ type?: string; text?: string }>;
+      const content = parts?.[0]?.text ?? '';
+      const msgMeta = (m.metadata ?? {}) as Record<string, unknown>;
+      const mappedRole = m.role === 'agent' ? 'assistant' : 'user';
+      return {
+        id: m.id,
+        role: mappedRole as 'user' | 'assistant' | 'system',
+        content,
+        routingDecision: msgMeta.routingDecision ?? null,
+        subgraphResults: msgMeta.subgraphResults ?? null,
+        debugMeta: msgMeta.debugMeta ?? null,
+        createdAt: m.createdAt,
+      };
+    });
+
+    // ── 3. Build metadata map from messages.metadata ─────────────────────
+    const metadataByMessageId = new Map(
+      messageRows
+        .filter((m) => m.role === 'assistant' && m.debugMeta)
+        .map((m) => [m.id, { messageId: m.id, debugMeta: m.debugMeta }]),
+    );
+
+    // Fetch session metadata
+    const sessionMeta = meta._sessionMeta ? { metadata: meta._sessionMeta } : null;
+
+    // ── 4. Build messages and turns ──────────────────────────────────────
+    const chatMessages: Array<{ role: string; content: string }> = [];
     const turns: Array<{
       messageIndex: number;
       graph: string | null;
@@ -563,35 +620,59 @@ export class DebugController {
         args: Record<string, unknown>;
         resultSummary: string;
         success: boolean;
+        durationMs: number;
+        steps: Array<{ step: string; detail?: string; data?: Record<string, unknown> }>;
+        graphs: Array<{
+          name: string;
+          durationMs: number;
+          agents: Array<{ name: string; durationMs: number }>;
+        }>;
       }>;
     }> = [];
 
     for (const msg of messageRows) {
-      const messageIndex = messages.length;
-      messages.push({ role: msg.role, content: msg.content });
+      const messageIndex = chatMessages.length;
+      chatMessages.push({ role: msg.role, content: msg.content });
 
       if (msg.role === 'assistant') {
-        // Extract debug metadata from subgraphResults if available
-        const subgraph = msg.subgraphResults as Record<string, unknown> | null;
-        const debugMeta = subgraph?.debugMeta as
-          | { graph?: string; iterations?: number; tools?: Array<{
+        const msgMetadata = metadataByMessageId.get(msg.id);
+        const debugMetaFromMetadata = msgMetadata?.debugMeta as {
+          graph?: string;
+          iterations?: number;
+          tools?: Array<{
+            name: string;
+            args?: Record<string, unknown>;
+            resultSummary?: string;
+            success?: boolean;
+            durationMs?: number;
+            steps?: Array<{ step: string; detail?: string; data?: Record<string, unknown> }>;
+            graphs?: Array<{
               name: string;
-              args?: Record<string, unknown>;
-              resultSummary?: string;
-              success?: boolean;
-            }> }
-          | undefined;
+              durationMs: number;
+              agents: Array<{ name: string; durationMs: number }>;
+            }>;
+          }>;
+        } | undefined;
+
+        // Fall back to subgraphResults for older messages without metadata
+        const fallbackMeta = !debugMetaFromMetadata
+          ? (msg.subgraphResults as Record<string, unknown> | null)?.debugMeta as typeof debugMetaFromMetadata
+          : undefined;
+        const source = debugMetaFromMetadata ?? fallbackMeta;
 
         turns.push({
           messageIndex,
-          graph: debugMeta?.graph ?? null,
-          iterations: typeof debugMeta?.iterations === 'number' ? debugMeta.iterations : null,
-          tools: Array.isArray(debugMeta?.tools)
-            ? debugMeta.tools.map((t) => ({
+          graph: source?.graph ?? null,
+          iterations: typeof source?.iterations === 'number' ? source.iterations : null,
+          tools: Array.isArray(source?.tools)
+            ? source.tools.map((t) => ({
                 name: t.name ?? 'unknown',
                 args: t.args ?? {},
                 resultSummary: t.resultSummary ?? '',
                 success: t.success ?? true,
+                durationMs: t.durationMs ?? 0,
+                steps: t.steps ?? [],
+                graphs: t.graphs ?? [],
               }))
             : [],
         });
@@ -603,8 +684,9 @@ export class DebugController {
       exportedAt: new Date().toISOString(),
       title: session.title ?? null,
       indexId: session.indexId ?? null,
-      messages,
+      messages: chatMessages,
       turns,
+      sessionMetadata: sessionMeta?.metadata ?? null,
     });
   }
 }

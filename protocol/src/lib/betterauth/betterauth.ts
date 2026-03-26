@@ -12,9 +12,9 @@ export const BASE_URL =
 export interface AuthDbContract {
   /** Returns a configured adapter object for Better Auth's `database` option. */
   createDrizzleAdapter(): unknown;
-  prepareGhostClaim(email: string): Promise<string | null>;
-  claimGhostUser(realUserId: string, ghostId: string): Promise<void>;
-  restoreGhostEmail(ghostId: string, email: string): Promise<void>;
+  ensurePersonalIndex(userId: string): Promise<string>;
+  /** Flips isGhost to false for the given user. No-op if already non-ghost. */
+  claimGhostUser(userId: string): Promise<void>;
 }
 
 /**
@@ -25,74 +25,56 @@ export interface AuthDeps {
   authDb: AuthDbContract;
   getTrustedOrigins: (req?: Request) => Promise<string[]> | string[];
   sendMagicLinkEmail: (email: string, url: string) => Promise<void>;
-  ensureWallet?: (userId: string) => Promise<void>;
-  ensurePersonalIndex?: (userId: string) => Promise<string>;
 }
 
 /**
  * Creates a configured Better Auth instance.
  * All infrastructure access is provided through `deps` so this module
  * follows the project layering rules (lib receives adapters via injection).
+ *
+ * @remarks Email/password auth is disabled in production — only magic link
+ * and social OAuth are available. Ghost user de-ghosting is handled by the
+ * session.create.after hook which calls `claimGhostUser` on every login.
+ * The adapter-level ON CONFLICT upsert in `createDrizzleAdapter` remains
+ * as a dev-only fallback for email/password signups.
  */
 export function createAuth(deps: AuthDeps) {
-  const { authDb, getTrustedOrigins, sendMagicLinkEmail, ensureWallet, ensurePersonalIndex } = deps;
-
-  /**
-   * Tracks ghost IDs that were freed in `create.before` so `create.after` can claim them.
-   * Keyed by the new real user's ID to avoid races between concurrent signups.
-   */
-  const pendingGhostClaims = new Map<string, string>();
+  const { authDb, getTrustedOrigins, sendMagicLinkEmail } = deps;
 
   return betterAuth({
     baseURL: BASE_URL,
     database: authDb.createDrizzleAdapter(),
     databaseHooks: {
+      session: {
+        create: {
+          after: async (session) => {
+            try {
+              await authDb.claimGhostUser(session.userId);
+            } catch (err) {
+              logger.error('Failed to claim ghost user on sign-in', { userId: session.userId, error: err });
+            }
+            try {
+              await authDb.ensurePersonalIndex(session.userId);
+            } catch (err) {
+              logger.error('Failed to ensure personal index on sign-in', { userId: session.userId, error: err });
+            }
+          },
+        },
+      },
       user: {
         create: {
-          before: async (user) => {
-            // Free the ghost's email before Better Auth inserts the real user,
-            // otherwise the unique constraint on users.email blocks signup.
-            try {
-              const ghostId = await authDb.prepareGhostClaim(user.email);
-              if (ghostId) {
-                pendingGhostClaims.set(user.id, ghostId);
-              }
-            } catch (err) {
-              logger.error('Failed to prepare ghost claim', { email: user.email.replace(/(.{2}).+(@.+)/, '$1***$2'), error: err });
-            }
-            return { data: user };
-          },
           after: async (user) => {
             try {
-              if (ensureWallet) await ensureWallet(user.id);
-            } catch (_) { /* wallet generation failure shouldn't block registration */ }
-
-            try {
-              if (ensurePersonalIndex) await ensurePersonalIndex(user.id);
-            } catch (_) { /* personal index creation failure shouldn't block registration */ }
-
-            const ghostId = pendingGhostClaims.get(user.id);
-            if (ghostId) {
-              try {
-                await authDb.claimGhostUser(user.id, ghostId);
-                pendingGhostClaims.delete(user.id);
-              } catch (err) {
-                // Restore ghost email so the ghost row isn't orphaned with a placeholder email
-                try {
-                  await authDb.restoreGhostEmail(ghostId, user.email);
-                } catch (restoreErr) {
-                  logger.error('Failed to restore ghost email after claim failure', { ghostId, error: restoreErr });
-                }
-                pendingGhostClaims.delete(user.id);
-                logger.error('Ghost claiming failed', { userId: user.id, ghostId, error: err });
-              }
+              await authDb.ensurePersonalIndex(user.id);
+            } catch (err) {
+              logger.error('Failed to create personal index on registration', { userId: user.id, error: err });
             }
           },
         },
       },
     },
     basePath: "/api/auth",
-    emailAndPassword: { enabled: true },
+    emailAndPassword: { enabled: process.env.NODE_ENV !== 'production' },
     user: {
       fields: {
         image: "avatar",
@@ -133,6 +115,9 @@ export function createAuth(deps: AuthDeps) {
       defaultCookieAttributes: {
         sameSite: "none",
         secure: true,
+      },
+      database: {
+        generateId: () => crypto.randomUUID(),
       },
     },
   });

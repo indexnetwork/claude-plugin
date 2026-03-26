@@ -99,15 +99,15 @@ index/
 **Tech Stack**: Bun runtime, Express.js, Drizzle ORM, PostgreSQL with pgvector, BullMQ (Redis-backed queues), LangChain/LangGraph
 
 **Key Directories**:
-- `src/controllers/` - API controllers (chat, intent, opportunity, profile, upload, messaging); used with decorator-based routing in `main.ts`
-- `src/adapters/` - Implementations of protocol interfaces (database, embedder, cache, queue, scraper, storage, messaging); implement interfaces from `src/lib/protocol/interfaces/`
+- `src/controllers/` - API controllers (chat, intent, opportunity, profile, upload, conversation); used with decorator-based routing in `main.ts`
+- `src/adapters/` - Implementations of protocol interfaces (database, embedder, cache, queue, scraper, storage); implement interfaces from `src/lib/protocol/interfaces/`
 - `src/services/` - Business logic layer
 - `src/schemas/` - Drizzle table definitions; primary schema is `schemas/database.schema.ts`
 - `src/guards/` - Auth/validation guards for the decorator router (e.g. `auth.guard.ts`)
 - `src/types/` - Shared TypeScript types
 - `src/cli/` - CLI and maintenance scripts (db-seed, db-flush, db-apply-schema, db-reset-remote, backfill-profile-hyde, generate-profiles, opportunity-three-user-test, test-data). Note: some package.json maintenance scripts (trigger-integration, export-slack, import-slack-export, reset-brokers, update-embeddings, audit-intent-freshness) reference CLI files that no longer exist
-- `src/lib/` - Utilities, infrastructure; includes `lib/protocol/` (graphs, agents, interfaces, docs), `lib/drizzle/`, `lib/router/`, `lib/smartest/` (LLM-based test verification framework), `lib/performance/` (performance monitoring decorators/wrappers), `lib/parallel/` (parallel execution utilities), `lib/request-context.ts` (AsyncLocalStorage for request-scoped data like originUrl)
-- `src/lib/protocol/` - Protocol layer: `graphs/` (LangGraph state machines: chat, home, hyde, index, index_membership, intent, intent_index, opportunity, profile), `agents/` (chat agent, intent inferrer/indexer/reconciler/verifier/clarifier, opportunity evaluator/presenter, profile/hyde generators, home categorizer, lens inferrer, suggestion generator, chat title generator), `states/` (graph state definitions: chat, home, hyde, index, index_membership, intent, intent_index, opportunity, profile), `streamers/` (response streaming: chat.streamer, response.streamer), `support/` (protocol utilities: chat checkpointer/utils, opportunity card-text/constants/discover/enricher/persist/presentation/sanitize/utils, debug-meta sanitizer, lucide icon-catalog, protocol logger), `tools/` (agent tool definitions: contact, index, integration, intent, opportunity, profile, utility tools), `interfaces/` (database, embedder, cache, queue, scraper, storage), `docs/`
+- `src/lib/` - Utilities, infrastructure; includes `lib/protocol/` (graphs, agents, interfaces, docs), `lib/drizzle/`, `lib/router/`, `lib/smartest/` (LLM-based test verification framework), `lib/performance/` (performance monitoring decorators/wrappers), `lib/parallel/` (parallel execution utilities), `lib/request-context.ts` (AsyncLocalStorage for request-scoped data: `originUrl`, `traceEmitter` for streaming graph/agent trace events)
+- `src/lib/protocol/` - Protocol layer: `graphs/` (LangGraph state machines: chat, home, hyde, index, index_membership, intent, intent_index, maintenance, opportunity, profile), `agents/` (chat agent, intent inferrer/indexer/reconciler/verifier/clarifier, opportunity evaluator/presenter, profile/hyde generators, home categorizer, lens inferrer, suggestion generator, chat title generator), `states/` (graph state definitions: chat, home, hyde, index, index_membership, intent, intent_index, maintenance, opportunity, profile), `streamers/` (response streaming: chat.streamer, response.streamer), `support/` (protocol utilities: chat checkpointer/utils, feed health scorer, opportunity card-text/constants/discover/enricher/persist/presentation/sanitize/utils, debug-meta sanitizer, lucide icon-catalog, protocol logger), `tools/` (agent tool definitions: contact, index, integration, intent, opportunity, profile, utility tools), `interfaces/` (database, embedder, cache, queue, scraper, storage), `docs/`
 - `src/queues/` - BullMQ job queue definitions
 - `src/events/` - Event emitters for agent system (intent events, index membership events)
 
@@ -146,6 +146,7 @@ All agents live under `src/lib/protocol/agents/`. There is no separate `src/agen
 3. **Opportunity Agents**:
    - `opportunity.evaluator.ts` - Evaluates opportunity matches
    - `opportunity.presenter.ts` - Formats opportunity presentation
+   - `invite.generator.ts` - Generates contextual invite messages for ghost user outreach
 
 4. **Profile/Discovery Agents**:
    - `profile.generator.ts` - Generates user profiles from identity signals
@@ -156,7 +157,7 @@ All agents live under `src/lib/protocol/agents/`. There is no separate `src/agen
    - `suggestion.generator.ts` - Generates suggestions
    - `home.categorizer.ts` - Categorizes home feed content
 
-**Protocol Graphs** (`src/lib/protocol/graphs/`): chat, home, hyde, index, index_membership, intent, intent_index, opportunity, profile. See docs under `lib/protocol/docs/` for design details.
+**Protocol Graphs** (`src/lib/protocol/graphs/`): chat, home, hyde, index, index_membership, intent, intent_index, maintenance, opportunity, profile. See docs under `lib/protocol/docs/` for design details.
 
 **Agent Execution Pattern**:
 ```typescript
@@ -169,6 +170,31 @@ IntentEvents.onCreated({ intentId, userId, payload?, previousStatus? });
 
 // Brokers react to events asynchronously (they implement onIntentCreated(intentId), etc.)
 ```
+
+**Trace Event Instrumentation** (real-time TRACE panel in chat UI):
+
+`requestContext` carries a `traceEmitter?` callback injected by `chat.agent.ts` per tool invocation. Tool files and graph files use it to stream `graph_start`/`graph_end`/`agent_start`/`agent_end` events to the frontend.
+
+- **Tool files** (`tools/*.tools.ts`): emit `graph_start`/`graph_end` around every `graphs.X.invoke()` call
+- **Graph files** (`graphs/*.graph.ts`): emit `agent_start`/`agent_end` around every agent call inside nodes
+
+```typescript
+// In tool files — wrap graph invocations
+const traceEmitter = requestContext.getStore()?.traceEmitter;
+const graphStart = Date.now();
+traceEmitter?.({ type: "graph_start", name: "opportunity" });
+const result = await graphs.opportunity.invoke(input, config);
+traceEmitter?.({ type: "graph_end", name: "opportunity", durationMs: Date.now() - graphStart });
+
+// In graph files — wrap agent calls inside nodes
+const traceEmitter = requestContext.getStore()?.traceEmitter;
+const agentStart = Date.now();
+traceEmitter?.({ type: "agent_start", name: "opportunity-evaluator" });
+const result = await agent.run(input);
+traceEmitter?.({ type: "agent_end", name: "opportunity-evaluator", durationMs: Date.now() - agentStart, summary: "Evaluated 3 candidates" });
+```
+
+When adding a new tool file or graph file, follow this same pattern. Use kebab-case agent names (e.g. `"intent-inferrer"`, `"profile-generator"`).
 
 ### Database Layer (Drizzle ORM)
 
@@ -183,14 +209,17 @@ IntentEvents.onCreated({ intentId, userId, payload?, previousStatus? });
 - `index_members` - Membership with custom prompts and auto-assignment settings
 - `intent_indexes` - Many-to-many junction (intents ↔ indexes) with composite PK and optional `relevancyScore` (0.0–1.0)
 - `files` / `user_integrations` - Source tracking for intents
-- `chat_sessions` / `chat_messages` - Chat session and message storage (chat graph, chat.service)
+- `conversations` - Conversation containers (A2A context). `lastMessageAt` for sorting.
+- `conversation_participants` - Who is in each conversation. Composite PK (conversationId, participantId). `hiddenAt` for soft-hide.
+- `messages` - A2A-compatible messages with parts (jsonb), role (user|agent), senderId, taskId. Metadata for agent debug data.
+- `tasks` - A2A task lifecycle (submitted→working→completed/failed). Tracks agent work units within conversations.
+- `artifacts` - Structured outputs from tasks (opportunity cards, etc.). A2A-compatible parts format.
+- `conversation_metadata` - Sparse 1:1 data per conversation (title, shareToken, indexId).
 - `user_notification_settings` - User notification preferences
 - `opportunities` - Opportunity records (detection, actors, interpretation, context, status)
 - `hyde_documents` - Stored HyDE documents for retrieval
 - `sessions` / `accounts` / `verifications` / `jwks` - Better Auth tables
 - `links` - Shareable link records
-- `hidden_conversations` - Hidden conversation tracking
-- `user_contacts` - My Network contacts (owner/user pairs with source: gmail|google_calendar|manual)
 
 **Key Features**:
 - pgvector extension for 2000-dimensional embeddings
@@ -236,9 +265,10 @@ IntentEvents.onCreated({ intentId, userId, payload?, previousStatus? });
 - `UploadController` - Upload handling
 - `UserController` - User management
 - `LinkController` - Link management
-- `MessagingController` - Messaging operations
+- `ConversationController` - Unified conversations, messages, tasks, artifacts (REST + SSE)
 - `DebugController` - Debug endpoints for pipeline tracing (dev/admin only, gated by `DebugGuard`)
 - `QueuesController` - Bull Board queue monitoring UI
+- `UnsubscribeController` - Ghost user email opt-out (public, no auth)
 
 ### Frontend Architecture
 
@@ -265,7 +295,7 @@ IntentEvents.onCreated({ intentId, userId, payload?, previousStatus? });
   - `/pages/privacy-policy`, `/pages/terms-of-use` - Legal pages
   - `/dev/intent-proposal` - Dev tool for intent proposal testing
 - `src/components/` - Reusable React components
-- `src/contexts/` - React Context providers (Auth, AIChatContext, AIChatSessionsContext, API, DiscoveryFilter, Indexes, IndexFilter, Notifications, SaveBar, XMTP)
+- `src/contexts/` - React Context providers (Auth, AIChatContext, AIChatSessionsContext, API, DiscoveryFilter, Indexes, IndexFilter, Notifications, SaveBar, Conversation)
 - `src/services/` - Frontend API clients (typed fetch wrappers)
 - `src/lib/` - Utilities and shared logic
 - `build-blog.ts` - Blog pre-build script (generates blog assets at build time)
@@ -302,7 +332,7 @@ Each layer has a `*.template.md` with coding guidelines. Consult before adding o
 
 ### Adapter Pattern
 
-Protocol interfaces live in `src/lib/protocol/interfaces/` (e.g. `database.interface.ts`, `storage.interface.ts`). Implementations live in `src/adapters/` (auth, database, embedder, cache, integration, queue, scraper, storage, messaging). Controllers (e.g. opportunity, chat) receive database/queue abstractions via constructor injection so they can be tested with mocks.
+Protocol interfaces live in `src/lib/protocol/interfaces/` (e.g. `database.interface.ts`, `storage.interface.ts`). Adapters in `src/adapters/` (auth, database, embedder, cache, integration, queue, scraper, storage) must not import from `src/lib/protocol/interfaces/` — they define their own types that align with protocol interfaces. Controllers (e.g. opportunity, chat) receive database/queue abstractions via constructor injection so they can be tested with mocks.
 
 **Adapter file naming**: Use **conceptual** names (role/capability), not implementation technology. Pattern: `{concept}.adapter.ts`. Examples: `database.adapter.ts` (not `drizzle.adapter.ts`), `cache.adapter.ts` and `queue.adapter.ts` (not `redis.adapter.ts`), `storage.adapter.ts` (not `s3.adapter.ts`). Tests: `{concept}.adapter.spec.ts`.
 
@@ -330,7 +360,9 @@ inferenceType: 'explicit' | 'implicit'
 
 ### Personal Indexes
 
-Each user has a personal index (`isPersonal=true`) created on registration, tracked via the `personal_indexes` mapping table (one row per user). Ownership is determined through `index_members` with `permissions: ['owner']`, not a denormalized column. Personal indexes contain the user's imported contacts and are used for network-scoped discovery. Contacts synced into a personal index automatically become members with `'contact'` permissions. When a user accepts an opportunity, the counterpart is auto-added as a contact.
+Each user has a personal index (`isPersonal=true`) created on registration, tracked via the `personal_indexes` mapping table (one row per user). Ownership is determined through `index_members` with `permissions: ['owner']`, not a denormalized column.
+
+Contacts are stored as `index_members` rows with `'contact'` permission on the owner's personal index — there is no separate contacts table. The `addContact(email)` primitive in `ContactService` handles finding or creating users (including ghost users for unknown emails) and upserting the membership. When a user accepts an opportunity, the counterpart is auto-added as a contact via `addContact` with `restore: true`.
 
 Personal indexes cannot be deleted, renamed, or listed publicly. They are filtered from public index listings by guards.
 
@@ -389,6 +421,7 @@ The protocol uses OpenRouter as the LLM provider. Model settings per agent are c
 - `OPENROUTER_BASE_URL` - Optional (defaults to `https://openrouter.ai/api/v1`)
 - `CHAT_MODEL` - Override chat agent model (defaults to `google/gemini-3-pro-preview`)
 - `CHAT_REASONING_EFFORT` - Chat reasoning budget (`minimal|low|medium|high|xhigh`, defaults to `low`)
+- `RUN_OPPORTUNITY_EVAL_IN_PARALLEL` - Experimental: fire one LLM call per candidate in parallel instead of a single bundled call (default: `false`). ~2.5× faster at production minScore; validate on staging before enabling.
 
 ## Environment Setup
 
@@ -417,6 +450,7 @@ NODE_ENV=development
 - `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` - LLM observability
 - `SENTRY_DSN` - Error tracking
 - `PARALLELS_API_KEY` - Web crawling and profile extraction
+- `APP_URL` - Base URL for email links (defaults to `https://index.network`)
 
 ### Frontend Environment Variables
 

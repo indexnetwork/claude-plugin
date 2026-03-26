@@ -1,11 +1,12 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router';
 import { Link } from 'react-router';
-import { Compass, MessagesSquare, Loader2, ChevronDown, User as UserIcon, LogOut, Library, History, Network } from 'lucide-react';
+import { Compass, MessagesSquare, ChevronDown, User as UserIcon, LogOut, Library, History, Network, Users } from 'lucide-react';
 import { useAuthContext } from '@/contexts/AuthContext';
-import { useXMTP } from '@/contexts/XMTPContext';
+import { useIndexFilter } from '@/contexts/IndexFilterContext';
 import { useAIChatSessions } from '@/contexts/AIChatSessionsContext';
 import { useAIChat } from '@/contexts/AIChatContext';
+import { useConversation } from '@/contexts/ConversationContext';
 import { apiClient } from '@/lib/api';
 import UserAvatar from '@/components/UserAvatar';
 import { useIndexesState } from '@/contexts/IndexesContext';
@@ -26,10 +27,12 @@ interface ChatSession {
 export default function Sidebar() {
   const navigate = useNavigate();
   const { pathname } = useLocation();
-  const { user, updateUser, refetchUser, signOut } = useAuthContext();
-  const { isConnected: isReady, totalUnreadCount: xmtpUnreadCount } = useXMTP();
+  const { user, signOut } = useAuthContext();
+  const { isConnected } = useConversation();
+  const totalUnreadCount = 0; // Unread tracking out of scope for now
   const { sessionsVersion } = useAIChatSessions();
   const { clearChat } = useAIChat();
+  const { setSelectedIndexIds } = useIndexFilter();
   const indexesService = useIndexes();
   const opportunitiesService = useOpportunities();
   const { indexes, addIndex } = useIndexesState();
@@ -38,7 +41,6 @@ export default function Sidebar() {
   const [chatSessions, setChatSessions] = useState<ChatSession[]>([]);
   const [loadingSessions, setLoadingSessions] = useState(false);
   const [navigatingToChat, setNavigatingToChat] = useState(false);
-  const [totalUnreadCount, setTotalUnreadCount] = useState(0);
   const [createIndexModalOpen, setCreateIndexModalOpen] = useState(false);
   const [userDropdownOpen, setUserDropdownOpen] = useState(false);
   const [historyExpanded, setHistoryExpanded] = useState(true);
@@ -47,9 +49,10 @@ export default function Sidebar() {
   const isMessagesView = pathname === '/chat' || (pathname?.includes('/chat') && pathname?.startsWith('/u/'));
   const isLibraryView = pathname?.startsWith('/library');
   const isNetworksView = pathname?.startsWith('/networks');
+  const isMyNetworkView = pathname?.startsWith('/mynetwork');
   const isHistoryView = pathname?.startsWith('/d/');
   const isProfileView = pathname?.startsWith('/profile');
-  const isHomeView = !isMessagesView && !isLibraryView && !isNetworksView && !isHistoryView && !isProfileView;
+  const isHomeView = !isMessagesView && !isLibraryView && !isNetworksView && !isMyNetworkView && !isHistoryView && !isProfileView;
 
   // Get current AI session ID from pathname (e.g., /d/abc123 -> abc123)
   const currentSessionId = pathname?.match(/^\/d\/([^/]+)/)?.[1] || null;
@@ -74,6 +77,7 @@ export default function Sidebar() {
 
   const handleDiscoverClick = () => {
     clearChat({ abortStream: false });
+    setSelectedIndexIds([]);
     navigate('/');
   };
 
@@ -140,11 +144,6 @@ export default function Sidebar() {
     fetchSessions();
   }, [sessionsVersion, user?.id]);
 
-
-  // Sync unread count from XMTP context
-  useEffect(() => {
-    setTotalUnreadCount(xmtpUnreadCount);
-  }, [xmtpUnreadCount]);
 
   // Close menus when clicking outside
   useEffect(() => {
@@ -255,6 +254,18 @@ export default function Sidebar() {
             </div>
           )}
         </div>
+
+        <button
+          onClick={() => navigate('/mynetwork')}
+          className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-md text-sm transition-colors ${
+            isMyNetworkView
+              ? 'bg-gray-100 text-black font-bold'
+              : 'text-black font-medium hover:bg-gray-50'
+          }`}
+        >
+          <Users className="w-5 h-5" />
+          My Network
+        </button>
       </nav>
 
       {/* Spacer */}

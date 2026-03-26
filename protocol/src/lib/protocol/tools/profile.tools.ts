@@ -1,9 +1,35 @@
 import { z } from "zod";
+
+import { requestContext } from "../../request-context";
+import { enrichUserProfile } from "../../../lib/parallel/parallel";
+
 import type { DefineTool, ToolDeps } from "./tool.helpers";
 import { success, error, needsClarification, UUID_REGEX } from "./tool.helpers";
 import { protocolLogger } from "../support/protocol.logger";
 
 const logger = protocolLogger("ChatTools:Profile");
+
+async function enrichFromUserRecord(user: { name?: string | null; email?: string | null; socials?: { linkedin?: string; x?: string; github?: string; websites?: string[] } | null }) {
+  return enrichUserProfile({
+    name: user.name || undefined,
+    email: user.email || undefined,
+    linkedin: user.socials?.linkedin || undefined,
+    twitter: user.socials?.x || undefined,
+    github: user.socials?.github || undefined,
+    websites: user.socials?.websites?.length ? user.socials.websites : undefined,
+  });
+}
+
+function isMeaningfulEnrichment(enrichment: Awaited<ReturnType<typeof enrichUserProfile>>): enrichment is NonNullable<typeof enrichment> {
+  return !!enrichment &&
+    enrichment.confidentMatch &&
+    (
+      enrichment.identity.bio.trim().length > 0 ||
+      enrichment.narrative.context.trim().length > 0 ||
+      enrichment.attributes.skills.length > 0 ||
+      enrichment.attributes.interests.length > 0
+    );
+}
 
 export function createProfileTools(defineTool: DefineTool, deps: ToolDeps) {
   const { userDb, systemDb, graphs } = deps;
@@ -175,13 +201,18 @@ export function createProfileTools(defineTool: DefineTool, deps: ToolDeps) {
       }
 
       // --- Mode 1: No args / self → use profileGraph query (returns id for updates) ---
+      const _readProfileGraphStart = Date.now();
+      const _readProfileTraceEmitter = requestContext.getStore()?.traceEmitter;
+      _readProfileTraceEmitter?.({ type: "graph_start", name: "profile" });
       const result = await graphs.profile.invoke({
         userId: context.userId,
         operationMode: 'query' as const,
       });
+      const _readProfileGraphMs = Date.now() - _readProfileGraphStart;
+      _readProfileTraceEmitter?.({ type: "graph_end", name: "profile", durationMs: _readProfileGraphMs });
 
       if (result.readResult) {
-        return success(result.readResult);
+        return success({ ...result.readResult, _graphTimings: [{ name: 'profile', durationMs: _readProfileGraphMs, agents: result.agentTimings ?? [] }] });
       }
       if (result.profile) {
         return success({
@@ -193,11 +224,13 @@ export function createProfileTools(defineTool: DefineTool, deps: ToolDeps) {
             skills: result.profile.attributes.skills,
             interests: result.profile.attributes.interests,
           },
+          _graphTimings: [{ name: 'profile', durationMs: _readProfileGraphMs, agents: result.agentTimings ?? [] }],
         });
       }
       return success({
         hasProfile: false,
         message: "You don't have a profile yet. Would you like to create one? You can share your LinkedIn, GitHub, or X/Twitter profile, or just tell me about yourself.",
+        _graphTimings: [{ name: 'profile', durationMs: _readProfileGraphMs, agents: result.agentTimings ?? [] }],
       });
     },
   });
@@ -205,7 +238,7 @@ export function createProfileTools(defineTool: DefineTool, deps: ToolDeps) {
   const createUserProfile = defineTool({
     name: "create_user_profile",
     description:
-      "Auto-generates (or regenerates) a profile from the user's account data (name, email, social links) via web lookup, or from explicit text when the user provides a short description (e.g. role, skills, location). When the user provides a profile URL in their message, pass it in the matching parameter (e.g. linkedinUrl) so that URL is used for this request, not their saved links. Works whether or not the user already has a profile. Call with no args first; if it returns missing fields, ask the user conversationally for their full name and/or social URLs, then call again with those fields filled in.",
+      "Auto-generates (or regenerates) a profile from the user's account data (name, email, social links) via web lookup, or from explicit text when the user provides a short description (e.g. role, skills, location). When the user provides a profile URL in their message, pass it in the matching parameter (e.g. linkedinUrl) so that URL is used for this request, not their saved links. Works whether or not the user already has a profile. Call with no args first; if it returns missing fields, ask the user conversationally for their full name and/or social URLs, then call again with those fields filled in. During onboarding, the first call returns a preview without saving. When the user confirms, call again with confirm=true to save.",
     querySchema: z.object({
       name: z.string().optional().describe("User's full name (first and last), if provided by the user"),
       linkedinUrl: z.string().optional().describe("LinkedIn profile URL"),
@@ -214,29 +247,138 @@ export function createProfileTools(defineTool: DefineTool, deps: ToolDeps) {
       websites: z.array(z.string()).optional().describe("Personal or portfolio website URLs"),
       location: z.string().optional().describe("User's location (city, country)"),
       bioOrDescription: z.string().optional().describe("Explicit profile text from the user (e.g. 'software engineer, AI/ML, SF Bay Area'); creates or updates profile from this text only, no scraping"),
+      confirm: z.boolean().optional().describe("Pass true to save a previously previewed profile during onboarding"),
     }),
     handler: async ({ context, query }) => {
-      const onboarding = context.user.onboarding;
-      const isOnboarding =
-        !!onboarding &&
-        (onboarding.flow != null || onboarding.currentStep != null) &&
-        !onboarding.completedAt;
+      // Persist user-info fields (name, location, socials) to users table before any branching.
+      // This ensures users.name is always updated regardless of which code path runs.
+      // Trim all string fields to avoid persisting whitespace-only values.
+      const name = query.name?.trim();
+      const location = query.location?.trim();
+      const linkedinUrl = query.linkedinUrl?.trim();
+      const githubUrl = query.githubUrl?.trim();
+      const twitterUrl = query.twitterUrl?.trim();
+      const websites = query.websites?.map((url) => url.trim()).filter(Boolean);
+      const hasSocialsFromQuery = Boolean(linkedinUrl || githubUrl || twitterUrl || websites?.length);
+      if (name || location || hasSocialsFromQuery) {
+        const socialsUpdate: { linkedin?: string; github?: string; x?: string; websites?: string[] } = {};
+        if (linkedinUrl) socialsUpdate.linkedin = linkedinUrl;
+        if (githubUrl) socialsUpdate.github = githubUrl;
+        if (twitterUrl) socialsUpdate.x = twitterUrl;
+        if (websites?.length) socialsUpdate.websites = websites;
+        await userDb.updateUser({
+          ...(name ? { name } : {}),
+          ...(location ? { location } : {}),
+          ...(hasSocialsFromQuery ? { socials: socialsUpdate } : {}),
+        });
+        logger.verbose("Persisted user-info fields to user record", { userId: context.userId });
+      }
+
+      const isOnboarding = !(context.user.onboarding?.completedAt);
       if (isOnboarding) {
-        const existing = await graphs.profile.invoke({ userId: context.userId, operationMode: 'query' as const });
-        if (existing.readResult?.hasProfile && existing.readResult.profile) {
-          const p = existing.readResult.profile;
+        const existingProfile = await userDb.getProfile();
+        if (existingProfile) {
           return success({
             alreadyExists: true,
-            message: "Profile already exists. If the user confirmed it, call complete_onboarding() to finish setup. If they want changes, use update_user_profile().",
+            message: "Profile already exists. If the user confirmed it, call complete_onboarding() to finish setup. If they want changes, use create_user_profile(bioOrDescription=\"...\", confirm=true).",
             profile: {
-              name: p.name,
-              bio: p.bio,
-              location: p.location,
-              skills: p.skills,
-              interests: p.interests,
+              name: existingProfile.identity.name,
+              bio: existingProfile.identity.bio,
+              location: existingProfile.identity.location,
+              skills: existingProfile.attributes.skills,
+              interests: existingProfile.attributes.interests,
             },
           });
         }
+
+        // Preview mode: enrich and persist enrichment results, but don't generate full profile
+        if (!query.confirm) {
+          try {
+            const user = await userDb.getUser();
+            const enrichment = user ? await enrichFromUserRecord(user) : null;
+
+            if (isMeaningfulEnrichment(enrichment)) {
+              // Persist enrichment data to user record so confirm path has it
+              const updatePayload: {
+                name?: string;
+                intro?: string;
+                location?: string;
+                socials?: { x?: string; linkedin?: string; github?: string; websites?: string[] };
+              } = {};
+              // No ghost guard needed: onboarding users are active (non-ghost) and
+              // haven't confirmed a name yet — the enriched name is a preview they accept or edit.
+              if (enrichment.identity.name?.trim()) {
+                updatePayload.name = enrichment.identity.name.trim();
+              }
+              if (enrichment.identity.bio?.trim()) updatePayload.intro = enrichment.identity.bio.trim();
+              if (enrichment.identity.location?.trim()) updatePayload.location = enrichment.identity.location.trim();
+              const socials: { x?: string; linkedin?: string; github?: string; websites?: string[] } = {};
+              if (enrichment.socials.twitter) socials.x = enrichment.socials.twitter;
+              if (enrichment.socials.linkedin) socials.linkedin = enrichment.socials.linkedin;
+              if (enrichment.socials.github) socials.github = enrichment.socials.github;
+              if (enrichment.socials.websites?.length) socials.websites = enrichment.socials.websites;
+              if (Object.keys(socials).length > 0) updatePayload.socials = socials;
+              if (Object.keys(updatePayload).length > 0) await userDb.updateUser(updatePayload);
+
+              return success({
+                preview: true,
+                message: "Profile preview generated. Call create_user_profile(confirm=true) to save.",
+                profile: {
+                  name: enrichment.identity.name,
+                  bio: enrichment.identity.bio,
+                  location: enrichment.identity.location,
+                  skills: enrichment.attributes.skills,
+                  interests: enrichment.attributes.interests,
+                },
+              });
+            }
+          } catch (err) {
+            logger.warn("Enrichment preview failed", {
+              error: err instanceof Error ? err.message : String(err),
+            });
+          }
+
+          return needsClarification({
+            missingFields: ['bio_or_social_urls'],
+            message: "I couldn't find enough public info. Could you share a short description of yourself, or a LinkedIn/GitHub/X profile link?",
+          });
+        }
+
+        // Confirm mode: invoke graph in generate mode (enrichment data already persisted during preview)
+        // Do NOT re-run enrichFromUserRecord — the graph's autoGenerateNode handles enrichment
+        // from the (now well-populated) user record, avoiding non-deterministic drift.
+        try {
+          const _confirmGraphStart = Date.now();
+          const _confirmTraceEmitter = requestContext.getStore()?.traceEmitter;
+          _confirmTraceEmitter?.({ type: "graph_start", name: "profile" });
+          const result = await graphs.profile.invoke({
+            userId: context.userId,
+            operationMode: 'generate' as const,
+          });
+          const _confirmGraphMs = Date.now() - _confirmGraphStart;
+          _confirmTraceEmitter?.({ type: "graph_end", name: "profile", durationMs: _confirmGraphMs });
+
+          if (result.error) return error(result.error);
+          if (result.profile) {
+            return success({
+              created: true,
+              message: "Profile saved.",
+              profile: {
+                name: result.profile.identity.name,
+                bio: result.profile.identity.bio,
+                location: result.profile.identity.location,
+                skills: result.profile.attributes.skills,
+                interests: result.profile.attributes.interests,
+              },
+              _graphTimings: [{ name: 'profile', durationMs: _confirmGraphMs, agents: result.agentTimings ?? [] }],
+            });
+          }
+        } catch (err) {
+          logger.warn("Profile generation on confirm failed, falling back to full graph", {
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+        // Fallback: graph invocation failed on confirm, fall through to full graph invocation
       }
 
       const hasBioOrDescription = !!query.bioOrDescription?.trim();
@@ -245,17 +387,22 @@ export function createProfileTools(defineTool: DefineTool, deps: ToolDeps) {
         // Create/update profile from user's explicit text only; do not persist to user record
         // Include name and location in the input if provided so the ProfileGenerator can use them
         const inputParts: string[] = [];
-        if (query.name) inputParts.push(`Name: ${query.name}`);
-        if (query.location) inputParts.push(`Location: ${query.location}`);
+        if (name) inputParts.push(`Name: ${name}`);
+        if (location) inputParts.push(`Location: ${location}`);
         inputParts.push(query.bioOrDescription!.trim());
         const profileInput = inputParts.join('\n');
         
+        const _bioProfileGraphStart = Date.now();
+        const _bioProfileTraceEmitter = requestContext.getStore()?.traceEmitter;
+        _bioProfileTraceEmitter?.({ type: "graph_start", name: "profile" });
         const result = await graphs.profile.invoke({
           userId: context.userId,
           operationMode: 'write' as const,
           input: profileInput,
           forceUpdate: true,
         });
+        const _bioProfileGraphMs = Date.now() - _bioProfileGraphStart;
+        _bioProfileTraceEmitter?.({ type: "graph_end", name: "profile", durationMs: _bioProfileGraphMs });
         if (result.error) {
           return error(result.error);
         }
@@ -270,38 +417,27 @@ export function createProfileTools(defineTool: DefineTool, deps: ToolDeps) {
               skills: result.profile.attributes.skills,
               interests: result.profile.attributes.interests,
             },
+            _graphTimings: [{ name: 'profile', durationMs: _bioProfileGraphMs, agents: result.agentTimings ?? [] }],
           });
         }
         return success({
           created: true,
           message: "Profile created/updated with the information you provided.",
+          _graphTimings: [{ name: 'profile', durationMs: _bioProfileGraphMs, agents: result.agentTimings ?? [] }],
         });
       }
 
-      // If any user-info fields are provided, persist them to the users table first
-      const hasSocials = !!(query.linkedinUrl || query.githubUrl || query.twitterUrl || (query.websites && query.websites.length));
-      if (query.name || query.location || hasSocials) {
-        const socialsUpdate: { linkedin?: string; github?: string; x?: string; websites?: string[] } = {};
-        if (query.linkedinUrl) socialsUpdate.linkedin = query.linkedinUrl;
-        if (query.githubUrl) socialsUpdate.github = query.githubUrl;
-        if (query.twitterUrl) socialsUpdate.x = query.twitterUrl;
-        if (query.websites && query.websites.length) socialsUpdate.websites = query.websites;
-
-        // Use userDb for the user's own data
-        await userDb.updateUser({
-          ...(query.name ? { name: query.name } : {}),
-          ...(query.location ? { location: query.location } : {}),
-          ...(hasSocials ? { socials: socialsUpdate } : {}),
-        });
-        logger.verbose("Updated user record before profile generation", { userId: context.userId });
-      }
-
-      // Invoke profile graph in generate mode (uses user table data + Parallels searchUser)
+      // Invoke profile graph in generate mode (uses enrichUserProfile Chat API)
+      const _generateProfileGraphStart = Date.now();
+      const _generateProfileTraceEmitter = requestContext.getStore()?.traceEmitter;
+      _generateProfileTraceEmitter?.({ type: "graph_start", name: "profile" });
       const result = await graphs.profile.invoke({
         userId: context.userId,
         operationMode: 'generate' as const,
         forceUpdate: true,
       });
+      const _generateProfileGraphMs = Date.now() - _generateProfileGraphStart;
+      _generateProfileTraceEmitter?.({ type: "graph_end", name: "profile", durationMs: _generateProfileGraphMs });
 
       // If user info is insufficient, ask conversationally
       if (result.needsUserInfo) {
@@ -326,6 +462,7 @@ export function createProfileTools(defineTool: DefineTool, deps: ToolDeps) {
             skills: result.profile.attributes.skills,
             interests: result.profile.attributes.interests,
           },
+          _graphTimings: [{ name: 'profile', durationMs: _generateProfileGraphMs, agents: result.agentTimings ?? [] }],
         });
       }
 
@@ -344,7 +481,12 @@ export function createProfileTools(defineTool: DefineTool, deps: ToolDeps) {
     }),
     handler: async ({ context, query }) => {
       // Use profileGraph query mode to validate profile existence and get id
+      const _updateQueryProfileGraphStart = Date.now();
+      const _updateQueryProfileTraceEmitter = requestContext.getStore()?.traceEmitter;
+      _updateQueryProfileTraceEmitter?.({ type: "graph_start", name: "profile" });
       const queryResult = await graphs.profile.invoke({ userId: context.userId, operationMode: 'query' as const });
+      const _updateQueryProfileGraphMs = Date.now() - _updateQueryProfileGraphStart;
+      _updateQueryProfileTraceEmitter?.({ type: "graph_end", name: "profile", durationMs: _updateQueryProfileGraphMs });
       if (!queryResult.readResult?.hasProfile && !queryResult.profile) {
         return error("You don't have a profile yet. Use create_user_profile first.");
       }
@@ -360,13 +502,27 @@ export function createProfileTools(defineTool: DefineTool, deps: ToolDeps) {
       }
 
       // Execute update directly
-      await graphs.profile.invoke({
+      const _updateWriteProfileGraphStart = Date.now();
+      const _updateWriteProfileTraceEmitter = requestContext.getStore()?.traceEmitter;
+      _updateWriteProfileTraceEmitter?.({ type: "graph_start", name: "profile" });
+      const _writeResult = await graphs.profile.invoke({
         userId: context.userId,
         operationMode: "write",
         input: inputForProfile,
         forceUpdate: true,
       });
-      return success({ message: "Profile updated." });
+      const _updateWriteProfileGraphMs = Date.now() - _updateWriteProfileGraphStart;
+      _updateWriteProfileTraceEmitter?.({ type: "graph_end", name: "profile", durationMs: _updateWriteProfileGraphMs });
+      if (_writeResult.error) {
+        return error(_writeResult.error);
+      }
+      return success({
+        message: "Profile updated.",
+        _graphTimings: [
+          { name: 'profile', durationMs: _updateQueryProfileGraphMs, agents: queryResult.agentTimings ?? [] },
+          { name: 'profile', durationMs: _updateWriteProfileGraphMs, agents: _writeResult.agentTimings ?? [] },
+        ],
+      });
     },
   });
 

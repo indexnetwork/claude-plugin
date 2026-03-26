@@ -74,6 +74,16 @@ export interface ValidationResult {
 
 // ----- Pure Validation Functions -----
 
+/**
+ * Validates file type based on filename extension and MIME type.
+ * For general uploads, accepts exact MIME matches or application/octet-stream.
+ * For avatars, requires exact MIME type match.
+ *
+ * @param filename - The file's name including extension
+ * @param mimetype - The reported MIME type from the multipart Content-Type header
+ * @param uploadType - Whether this is a 'general' or 'avatar' upload
+ * @returns ValidationResult indicating if the file type is valid
+ */
 export function validateFileTypeByMetadata(
   filename: string,
   mimetype: string,
@@ -103,16 +113,21 @@ export function validateFileTypeByMetadata(
       };
     }
   } else {
-    // For general files, require BOTH extension and MIME type to be valid for security
     const allowedMimeTypes = GENERAL_ALLOWED_TYPES[ext as keyof typeof GENERAL_ALLOWED_TYPES];
     const hasValidExtension = ext && allowedMimeTypes;
-    const hasValidMimeType = allowedMimeTypes && (allowedMimeTypes as readonly string[]).includes(mimeType);
-    
+    // Accept the file when the extension is valid AND the MIME type either matches
+    // our whitelist or is a generic fallback. Browsers and CLI tools often report
+    // application/octet-stream for file types like .md, .csv, .json, .xml, etc.
+    const isGenericMime = mimeType === 'application/octet-stream';
+    const hasValidMimeType = allowedMimeTypes && (
+      (allowedMimeTypes as readonly string[]).includes(mimeType) || isGenericMime
+    );
+
     if (!hasValidExtension || !hasValidMimeType) {
       return {
         isValid: false,
         error: ValidationError.UNSUPPORTED_FILE_TYPE,
-        message: `File "${filename}" (${mimetype}) is not supported. Both extension and MIME type must be valid. Allowed: CSV, DOC, DOCX, EPUB, HTML, JSON, MD, PDF, PPT, PPTX, RTF, TSV, TXT, XLS, XLSX, XML`
+        message: `File "${filename}" (${mimetype}) is not supported. Allowed: CSV, DOC, DOCX, EPUB, HTML, JSON, MD, PDF, PPT, PPTX, RTF, TSV, TXT, XLS, XLSX, XML`
       };
     }
   }

@@ -70,7 +70,7 @@ export const router = createBrowserRouter([
         lazy: () => import("@/app/l/[code]/page"),
       },
       {
-        path: "/library",
+        path: "/library/:tab?",
         lazy: () => import("@/app/library/page"),
       },
       {
@@ -78,8 +78,12 @@ export const router = createBrowserRouter([
         lazy: () => import("@/app/networks/page"),
       },
       {
-        path: "/networks/:id",
+        path: "/networks/:id/*",
         lazy: () => import("@/app/networks/[id]/page"),
+      },
+      {
+        path: "/mynetwork/*",
+        lazy: () => import("@/app/mynetwork/page"),
       },
       {
         path: "/pages/privacy-policy",

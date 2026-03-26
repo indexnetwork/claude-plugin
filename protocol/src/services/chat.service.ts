@@ -163,15 +163,19 @@ export class ChatSessionService {
     routingDecision?: Record<string, unknown>;
     subgraphResults?: Record<string, unknown>;
     tokenCount?: number;
+    /** When set, triggers a ghost invite email if the recipient is a ghost user. */
+    recipientUserId?: string;
+    /** The sender's user ID (needed for ghost invite email context). */
+    senderUserId?: string;
   }): Promise<string> {
     logger.verbose('Adding message', {
       sessionId: params.sessionId,
       role: params.role,
       contentLength: params.content.length,
     });
-    
+
     const id = generateSnowflakeId();
-    
+
     await this.db.createMessage({
       id,
       sessionId: params.sessionId,
@@ -181,10 +185,75 @@ export class ChatSessionService {
       subgraphResults: params.subgraphResults,
       tokenCount: params.tokenCount,
     });
-    
+
     // Update session timestamp
     await this.db.updateSessionTimestamp(params.sessionId);
-    
+
+    // Ghost invite email: on first user message to a ghost, send email notification
+    if (params.role === 'user' && params.recipientUserId) {
+      try {
+        const recipient = await this.db.getUser(params.recipientUserId);
+        if (recipient?.isGhost && !recipient.deletedAt) {
+          // Check if we already sent a ghost invite for this session
+          const sessionMeta = await this.db.getSessionMetadata(params.sessionId);
+          const metadataObj = sessionMeta?.metadata as Record<string, unknown> | null;
+          const alreadySent = metadataObj?.ghostInviteSent === true;
+
+          if (!alreadySent) {
+            const sender = params.senderUserId
+              ? await this.db.getUser(params.senderUserId)
+              : null;
+
+            if (sender && recipient.email) {
+              const { ghostInviteTemplate } = await import('../lib/email/templates');
+              const appUrl = process.env.APP_URL || 'https://index.network';
+              const replyUrl = `${appUrl}/onboarding?ref=invite`;
+              // Use unsubscribe token instead of raw user ID
+              const notifSettings = await this.db.getOrCreateNotificationSettings(recipient.id);
+              const unsubscribeUrl = `${appUrl}/api/unsubscribe/${notifSettings.unsubscribeToken}`;
+
+              const email = ghostInviteTemplate(
+                recipient.name ?? 'there',
+                sender.name ?? 'Someone',
+                params.content,
+                replyUrl,
+                unsubscribeUrl,
+              );
+
+              const { emailQueue } = await import('../queues/email.queue');
+              await emailQueue.addJob({
+                to: recipient.email,
+                subject: email.subject,
+                html: email.html,
+                text: email.text,
+              });
+
+              // Mark as sent so we don't send again for this session
+              const metaId = generateSnowflakeId();
+              await this.db.upsertSessionMetadata({
+                id: metaId,
+                sessionId: params.sessionId,
+                metadata: {
+                  ...(metadataObj ?? {}),
+                  ghostInviteSent: true,
+                },
+              });
+
+              logger.verbose('Ghost invite email queued', {
+                sessionId: params.sessionId,
+              });
+            }
+          }
+        }
+      } catch (err) {
+        // Log but don't fail the message creation
+        logger.error('Failed to send ghost invite email', {
+          error: err,
+          sessionId: params.sessionId,
+        });
+      }
+    }
+
     return id;
   }
 
@@ -322,6 +391,78 @@ export class ChatSessionService {
    */
   getGraphFactory(): ChatGraphFactory {
     return this.factory;
+  }
+
+  /**
+   * Verify that a message belongs to a session owned by the given user.
+   *
+   * @param messageId - The message ID to check
+   * @param userId - The user ID to verify ownership against
+   * @returns True if the message exists and its session is owned by the user
+   */
+  async verifyMessageOwnership(messageId: string, userId: string): Promise<boolean> {
+    return this.db.verifyMessageOwnership(messageId, userId);
+  }
+
+  /**
+   * Save trace events and debug metadata for a chat message.
+   *
+   * @param params - Message metadata to persist
+   */
+  async saveMessageMetadata(params: {
+    messageId: string;
+    userId?: string;
+    traceEvents?: unknown;
+    debugMeta?: unknown;
+  }): Promise<void> {
+    if (params.userId) {
+      const isOwner = await this.db.verifyMessageOwnership(params.messageId, params.userId);
+      if (!isOwner) throw new Error('Not authorized');
+    }
+    const id = generateSnowflakeId();
+    await this.db.upsertMessageMetadata({
+      id,
+      messageId: params.messageId,
+      traceEvents: params.traceEvents,
+      debugMeta: params.debugMeta,
+    });
+  }
+
+  /**
+   * Upsert session-level metadata (e.g. aggregated debug info).
+   *
+   * @param params - Session metadata to persist
+   */
+  async upsertSessionMetadata(params: {
+    sessionId: string;
+    metadata: unknown;
+  }): Promise<void> {
+    const id = generateSnowflakeId();
+    await this.db.upsertSessionMetadata({
+      id,
+      sessionId: params.sessionId,
+      metadata: params.metadata,
+    });
+  }
+
+  /**
+   * Retrieve message metadata for a list of message IDs.
+   *
+   * @param messageIds - The message IDs to look up
+   * @returns Array of message metadata records
+   */
+  async getMessageMetadataByMessageIds(messageIds: string[]) {
+    return this.db.getMessageMetadataByMessageIds(messageIds);
+  }
+
+  /**
+   * Retrieve session metadata by session ID.
+   *
+   * @param sessionId - The session ID
+   * @returns The session metadata record or undefined
+   */
+  async getSessionMetadata(sessionId: string) {
+    return this.db.getSessionMetadata(sessionId);
   }
 
   /**

@@ -1,5 +1,6 @@
 import { Annotation } from '@langchain/langgraph';
 import type { Opportunity } from '../interfaces/database.interface';
+import type { DebugMetaAgent } from '../../../types/chat-streaming.types';
 
 /**
  * Home view card item: one opportunity with full presenter-driven display contract.
@@ -17,10 +18,12 @@ export interface HomeCardItem {
   secondaryActionLabel: string;
   /** Presenter-generated subtitle under the other party name (e.g. "1 mutual intent"). */
   mutualIntentsLabel: string;
-  /** e.g. { name: 'Index', text: '...' } or introducer name + remark; avatar set when narrator is a user */
+  /** Narrator chip for human-introduced opportunities; avatar set when narrator is a user */
   narratorChip?: { name: string; text: string; avatar?: string | null; userId?: string };
   /** Viewer's role in this opportunity (e.g. 'introducer', 'party', 'agent', 'patient', 'peer'). */
   viewerRole?: string;
+  /** Whether the counterpart is a ghost (not yet onboarded) user. */
+  isGhost?: boolean;
   /** For section assignment from LLM */
   _cardIndex: number;
 }
@@ -92,12 +95,6 @@ export const HomeGraphState = Annotation.Root({
     default: () => [],
   }),
 
-  /** Expired or excluded opportunities (optional for future "Show expired" UI). */
-  expired: Annotation<Opportunity[]>({
-    reducer: (curr, next) => next ?? curr,
-    default: () => [],
-  }),
-
   /** Presenter results retrieved from cache (opportunityId → HomeCardItem). */
   cachedCards: Annotation<Map<string, HomeCardItem>>({
     reducer: (curr, next) => next ?? curr,
@@ -125,5 +122,11 @@ export const HomeGraphState = Annotation.Root({
   meta: Annotation<{ totalOpportunities: number; totalSections: number }>({
     reducer: (curr, next) => next ?? curr,
     default: () => ({ totalOpportunities: 0, totalSections: 0 }),
+  }),
+
+  /** Timing records for each agent invocation within this graph run. */
+  agentTimings: Annotation<DebugMetaAgent[]>({
+    reducer: (acc, val) => [...acc, ...val],
+    default: () => [],
   }),
 });

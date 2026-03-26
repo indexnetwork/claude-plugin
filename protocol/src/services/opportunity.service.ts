@@ -15,8 +15,10 @@ import { RedisCacheAdapter } from '../adapters/cache.adapter';
 import { presentOpportunity, type UserInfo } from '../lib/protocol/support/opportunity.presentation';
 import { canUserSeeOpportunity, validateOpportunityActors } from '../lib/protocol/support/opportunity.utils';
 import { persistOpportunities } from '../lib/protocol/support/opportunity.persist';
+import { getPrimaryActionLabel } from '../lib/protocol/support/opportunity.constants';
 import { OpportunityPresenter, gatherPresenterContext, type PresenterDatabase } from '../lib/protocol/agents/opportunity.presenter';
 import { stripUuids, stripIntroducerMentions } from '../lib/protocol/support/opportunity.sanitize';
+import { opportunityQueue } from '../queues/opportunity.queue';
 
 const logger = log.service.from("OpportunityService");
 const presenter = new OpportunityPresenter();
@@ -77,9 +79,10 @@ export class OpportunityService {
 
   constructor(
     database?: OpportunityControllerDatabase,
+    cache?: OpportunityCache,
   ) {
     this.db = database ?? (new ChatDatabaseAdapter() as OpportunityControllerDatabase);
-    this.cache = new RedisCacheAdapter();
+    this.cache = cache ?? new RedisCacheAdapter();
 
     // Lazy-build graph for discover when adapter supports it
     if (this.db && 'getHydeDocument' in this.db) {
@@ -135,10 +138,20 @@ export class OpportunityService {
       if (result.error) {
         return { error: result.error };
       }
-      return {
-        sections: result.sections ?? [],
-        meta: result.meta ?? { totalOpportunities: 0, totalSections: 0 },
-      };
+      const sections = result.sections ?? [];
+      const meta = result.meta ?? { totalOpportunities: 0, totalSections: 0 };
+
+      // Self-healing: when no actionable opportunities exist, re-queue discovery for active intents
+      const totalItems = sections.reduce(
+        (sum: number, s: { items: unknown[] }) => sum + (s.items?.length ?? 0), 0
+      );
+      if (totalItems === 0 && !options?.indexId) {
+        this.triggerRediscoveryIfNeeded(userId).catch((err) =>
+          logger.warn('[OpportunityService] Rediscovery trigger failed', { userId, error: err })
+        );
+      }
+
+      return { sections, meta };
     } catch (e) {
       logger.error('[OpportunityService] getHomeView failed', { userId, error: e });
       return { error: 'Failed to load home view' };
@@ -215,6 +228,8 @@ export class OpportunityService {
     });
 
     const otherPartyInfo = otherPartyIds[0] ? userMap.get(otherPartyIds[0])! : { id: '', name: 'Unknown', avatar: null as string | null };
+    const counterpartUser = userRecords[0];
+    const isCounterpartGhost = counterpartUser?.isGhost === true && counterpartUser?.deletedAt == null;
     const presentation = presentOpportunity(opp, viewerId, otherPartyInfo, introducerInfo, 'card');
 
     const otherParties = nonIntroducerActors.map((a) => {
@@ -236,6 +251,8 @@ export class OpportunityService {
       confidence: confidenceNum,
       index: indexRecord ? { id: indexRecord.id, title: indexRecord.title } : (indexIdForDisplay ? { id: indexIdForDisplay, title: '' } : { id: '', title: '' }),
       status: opp.status,
+      isGhost: isCounterpartGhost,
+      primaryActionLabel: getPrimaryActionLabel(myActor.role),
       createdAt: opp.createdAt instanceof Date ? opp.createdAt.toISOString() : opp.createdAt,
       expiresAt: opp.expiresAt ? (opp.expiresAt instanceof Date ? opp.expiresAt.toISOString() : opp.expiresAt) : undefined,
     };
@@ -284,7 +301,7 @@ export class OpportunityService {
 
     await this.db.acceptSiblingOpportunities(userId, counterpart.userId, opportunityId);
 
-    await this.db.upsertContact({ ownerId: userId, userId: counterpart.userId, source: 'manual' });
+    await this.db.upsertContactMembership(userId, counterpart.userId, { restore: true });
 
     return {
       opportunity: updated,
@@ -546,8 +563,124 @@ export class OpportunityService {
   }
 
   /**
+   * Generate an invite message for a ghost user counterpart in an opportunity.
+   * @param opportunityId - The opportunity ID
+   * @param viewerId - The authenticated user requesting the invite
+   * @returns Generated invite message or error
+   */
+  async generateInviteMessage(opportunityId: string, viewerId: string) {
+    const opp = await this.db.getOpportunity(opportunityId);
+    if (!opp) {
+      return { error: 'Opportunity not found', status: 404 };
+    }
+
+    const isActor = opp.actors.some((a) => a.userId === viewerId);
+    if (!isActor) {
+      return { error: 'Not authorized', status: 403 };
+    }
+    if (!canUserSeeOpportunity(opp.actors, opp.status, viewerId)) {
+      return { error: 'Not authorized to view this opportunity', status: 403 };
+    }
+
+    const counterpart = opp.actors.find(
+      (a) => a.role !== 'introducer' && a.userId !== viewerId
+    ) ?? opp.actors.find((a) => a.userId !== viewerId);
+
+    if (!counterpart) {
+      return { error: 'No counterpart found', status: 400 };
+    }
+
+    const [viewer, recipient] = await Promise.all([
+      this.db.getUser(viewerId),
+      this.db.getUser(counterpart.userId),
+    ]);
+
+    if (!recipient?.isGhost || recipient.deletedAt != null) {
+      return { error: 'Counterpart is not a ghost user', status: 400 };
+    }
+
+    const introducer = opp.actors.find((a) => a.role === 'introducer');
+    const introducerUser = introducer ? await this.db.getUser(introducer.userId) : null;
+
+    // Gather intents for context
+    const [senderIntents, recipientIntents] = await Promise.all([
+      this.db.getActiveIntents(viewerId).then(intents => intents.map(i => i.payload)),
+      this.db.getActiveIntents(counterpart.userId).then(intents => intents.map(i => i.payload)),
+    ]);
+
+    const { generateInviteMessage: generate } = await import('../lib/protocol/agents/invite.generator');
+
+    const result = await generate({
+      recipientName: recipient.name ?? 'there',
+      senderName: viewer?.name ?? 'Someone',
+      opportunityInterpretation: opp.interpretation.reasoning,
+      senderIntents,
+      recipientIntents,
+      referrerName: introducerUser?.name ?? undefined,
+    });
+
+    return { message: result.message };
+  }
+
+  /**
+   * Re-queue opportunity discovery for a user's active intents when no actionable
+   * opportunities exist. Throttled to once per 6 hours per user via cache key.
+   */
+  private async triggerRediscoveryIfNeeded(userId: string): Promise<void> {
+    const cacheKey = `rediscovery:throttle:${userId}`;
+
+    // Best-effort throttle: cache errors should not block self-healing
+    try {
+      const existing = await this.cache.get(cacheKey);
+      if (existing) return;
+    } catch (err) {
+      logger.warn('[OpportunityService] Rediscovery throttle read failed; continuing without cooldown', { userId, error: err });
+    }
+
+    const activeIntents = await this.db.getActiveIntents(userId);
+    if (!activeIntents?.length) return;
+
+    logger.info('[OpportunityService] Triggering rediscovery for stale user', {
+      userId,
+      intentCount: activeIntents.length,
+    });
+
+    // Bucket jobId by 6-hour window so completed/failed job retention (24h) doesn't block the next cycle
+    const bucket = Math.floor(Date.now() / (6 * 60 * 60 * 1000));
+    const results = await Promise.allSettled(
+      activeIntents.map((intent) =>
+        opportunityQueue.addJob(
+          { intentId: intent.id, userId },
+          { priority: 10, jobId: `rediscovery:${userId}:${intent.id}:${bucket}` },
+        )
+      )
+    );
+
+    const succeeded = results.filter((r) => r.status === 'fulfilled').length;
+    const failedCount = results.length - succeeded;
+
+    if (failedCount > 0) {
+      logger.warn('[OpportunityService] Some rediscovery jobs failed to enqueue', {
+        userId,
+        failedCount,
+        totalCount: activeIntents.length,
+      });
+    }
+
+    // Only arm cooldown if all jobs were enqueued; partial failures should allow
+    // retries on the next home view load (bucketed jobId deduplicates the successful ones)
+    if (succeeded > 0 && failedCount === 0) {
+      try {
+        await this.cache.set(cacheKey, { triggeredAt: new Date().toISOString() }, { ttl: 6 * 60 * 60 });
+      } catch (err) {
+        logger.warn('[OpportunityService] Rediscovery throttle write failed', { userId, error: err });
+      }
+    }
+  }
+
+  /**
    * Check if user has permission to create opportunities in an index.
-   * 
+   *
    * @param creatorId - User creating the opportunity
    * @param parties - Parties involved
    * @param indexId - The index ID

@@ -36,8 +36,12 @@ async function flushDatabase(): Promise<{ ok: boolean; error?: string }> {
   try {
     const tables = [
       'intent_indexes',
-      'chat_messages',
-      'chat_sessions',
+      'artifacts',
+      'messages',
+      'tasks',
+      'conversation_metadata',
+      'conversation_participants',
+      'conversations',
       'opportunities',
       'user_notification_settings',
       'user_profiles',
@@ -47,7 +51,6 @@ async function flushDatabase(): Promise<{ ok: boolean; error?: string }> {
       'links',
       'index_members',
       'indexes',
-      'integrations',
       'users',
     ];
 

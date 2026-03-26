@@ -16,6 +16,7 @@ import type { HydeCache } from '../interfaces/cache.interface';
 import { HYDE_DEFAULT_CACHE_TTL } from '../agents/hyde.strategies';
 import { protocolLogger } from '../support/protocol.logger';
 import { timed } from '../../performance';
+import { requestContext } from '../../request-context';
 
 const logger = protocolLogger("HyDEGraphFactory");
 
@@ -63,22 +64,29 @@ export class HydeGraphFactory {
 
         logger.verbose('Inferring lenses', { sourceTextLength: sourceText.length, hasProfileContext: !!profileContext });
 
+        const agentTimingsAccum: import('../../../types/chat-streaming.types').DebugMetaAgent[] = [];
+
         try {
+          const _traceEmitterLens = requestContext.getStore()?.traceEmitter;
+          const inferrerStart = Date.now();
+          _traceEmitterLens?.({ type: "agent_start", name: "lens-inferrer" });
           const result = await self.inferrer.infer({
             sourceText,
             profileContext,
             maxLenses,
           });
+          agentTimingsAccum.push({ name: 'lens.inferrer', durationMs: Date.now() - inferrerStart });
+          _traceEmitterLens?.({ type: "agent_end", name: "lens-inferrer", durationMs: Date.now() - inferrerStart, summary: result.lenses.length > 0 ? `Inferred ${result.lenses.length} lens(es)` : "lens-inferrer completed" });
 
           logger.verbose('Lenses inferred', {
             count: result.lenses.length,
             lenses: result.lenses.map(l => ({ label: l.label, corpus: l.corpus })),
           });
 
-          return { lenses: result.lenses };
+          return { lenses: result.lenses, agentTimings: agentTimingsAccum };
         } catch (error) {
           logger.error('Lens inference failed in graph node', { error });
-          return { lenses: [] };
+          return { lenses: [], agentTimings: agentTimingsAccum };
         }
       });
     };
@@ -155,15 +163,22 @@ export class HydeGraphFactory {
           lenses: missing.map(l => l.label),
         });
 
+        const agentTimingsAccum: import('../../../types/chat-streaming.types').DebugMetaAgent[] = [];
         const generated: Record<string, HydeDocumentState> = {};
 
         await Promise.all(
           missing.map(async (lens) => {
+            const _traceEmitterHyde = requestContext.getStore()?.traceEmitter;
+            const generatorStart = Date.now();
+            _traceEmitterHyde?.({ type: "agent_start", name: "hyde-generator" });
             const out = await self.generator.generate({
               sourceText,
               lens: lens.label,
               corpus: lens.corpus,
             });
+            const _hydeDuration = Date.now() - generatorStart;
+            agentTimingsAccum.push({ name: 'hyde.generator', durationMs: _hydeDuration });
+            _traceEmitterHyde?.({ type: "agent_end", name: "hyde-generator", durationMs: _hydeDuration, summary: `Generated: ${lens.label}` });
             generated[lens.label] = {
               lens: lens.label,
               targetCorpus: lens.corpus,
@@ -173,7 +188,7 @@ export class HydeGraphFactory {
           })
         );
 
-        return { hydeDocuments: { ...state.hydeDocuments, ...generated } };
+        return { hydeDocuments: { ...state.hydeDocuments, ...generated }, agentTimings: agentTimingsAccum };
       });
     };
 

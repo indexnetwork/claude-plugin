@@ -27,8 +27,13 @@ export type ChatStreamEventType =
   | "llm_end"
   // Internal response tracking events
   | "response_complete"
+  | "response_reset"
   // Debug meta (per-turn graph/tool usage for copy debug)
-  | "debug_meta";
+  | "debug_meta"
+  | "graph_start"
+  | "graph_end"
+  | "agent_start"
+  | "agent_end";
 
 /**
  * Base interface for all chat stream events.
@@ -136,7 +141,7 @@ export interface OpportunityCardPayload {
   secondaryActionLabel?: string;
   /** Subtitle under the other party name (e.g. "1 mutual intent"). */
   mutualIntentsLabel?: string;
-  /** Narrator chip (Index or introducer). */
+  /** Narrator chip for human-introduced opportunities. */
   narratorChip?: {
     name: string;
     text: string;
@@ -158,6 +163,8 @@ export interface DoneEvent extends ChatStreamEventBase {
   type: "done";
   /** Complete response text */
   response: string;
+  /** Server-generated assistant message ID (for trace event persistence) */
+  messageId?: string;
   /** Optional routing decision metadata */
   routingDecision?: Record<string, unknown>;
   /** Optional subgraph results metadata */
@@ -281,6 +288,28 @@ export interface ResponseCompleteEvent extends ChatStreamEventBase {
 }
 
 /**
+ * Response reset event — tells the frontend to discard all previously streamed tokens.
+ * Emitted when the agent detects hallucinated code blocks and forces a correction iteration.
+ */
+export interface ResponseResetEvent extends ChatStreamEventBase {
+  type: "response_reset";
+  /** Human-readable reason for the reset */
+  reason: string;
+}
+
+/**
+ * Hallucination detected event — tells the frontend that the agent caught a
+ * hallucinated code block and is auto-invoking the correct tool.
+ */
+export interface HallucinationDetectedEvent extends ChatStreamEventBase {
+  type: "hallucination_detected";
+  /** The type of block that was hallucinated (e.g. "intent_proposal", "opportunity") */
+  blockType: string;
+  /** The tool being auto-invoked to recover */
+  tool: string;
+}
+
+/**
  * One internal step reported by a tool for debug visibility (e.g. subgraph, subtask).
  */
 export interface DebugMetaStep {
@@ -291,6 +320,28 @@ export interface DebugMetaStep {
 }
 
 /**
+ * One agent invocation recorded inside a graph run.
+ */
+export interface DebugMetaAgent {
+  /** Name of the agent (e.g. "opportunity.evaluator"). */
+  name: string;
+  /** Wall-clock milliseconds for this agent invocation. */
+  durationMs: number;
+}
+
+/**
+ * One graph invocation recorded by a tool that calls a LangGraph graph.
+ */
+export interface DebugMetaGraph {
+  /** Name of the graph (e.g. "opportunity"). */
+  name: string;
+  /** Wall-clock milliseconds for the full graph run. */
+  durationMs: number;
+  /** Agent invocations recorded inside this graph run. */
+  agents: DebugMetaAgent[];
+}
+
+/**
  * One tool call entry in debug meta (sanitized args, result summary, optional steps).
  */
 export interface DebugMetaToolCall {
@@ -298,8 +349,12 @@ export interface DebugMetaToolCall {
   args: Record<string, unknown>;
   resultSummary: string;
   success: boolean;
+  /** Wall-clock milliseconds for the full tool execution. */
+  durationMs: number;
   /** Internal steps (subgraphs, subtasks) when the tool reports debugSteps in its result. */
   steps?: DebugMetaStep[];
+  /** LangGraph graphs invoked by this tool, with their agent timings. */
+  graphs?: DebugMetaGraph[];
 }
 
 /**
@@ -310,6 +365,34 @@ export interface DebugMetaEvent extends ChatStreamEventBase {
   graph: string;
   iterations: number;
   tools: DebugMetaToolCall[];
+}
+
+/** Graph start event — emitted when a LangGraph sub-graph begins inside a tool. */
+export interface GraphStartEvent extends ChatStreamEventBase {
+  type: "graph_start";
+  graphName: string;
+}
+
+/** Graph end event — emitted when a LangGraph sub-graph completes. */
+export interface GraphEndEvent extends ChatStreamEventBase {
+  type: "graph_end";
+  graphName: string;
+  durationMs: number;
+}
+
+/** Agent start event — emitted when an LLM agent begins inside a graph node. */
+export interface AgentStartEvent extends ChatStreamEventBase {
+  type: "agent_start";
+  agentName: string;
+}
+
+/** Agent end event — emitted when an LLM agent completes. */
+export interface AgentEndEvent extends ChatStreamEventBase {
+  type: "agent_end";
+  agentName: string;
+  durationMs: number;
+  /** Structured outcome summary, e.g. "5 of 12 passed" or "3 intents extracted". */
+  summary: string;
 }
 
 /**
@@ -336,8 +419,15 @@ export type ChatStreamEvent =
   | LlmEndEvent
   // Internal response tracking events
   | ResponseCompleteEvent
+  | ResponseResetEvent
+  | HallucinationDetectedEvent
   // Debug meta
-  | DebugMetaEvent;
+  | DebugMetaEvent
+  // Trace hierarchy events
+  | GraphStartEvent
+  | GraphEndEvent
+  | AgentStartEvent
+  | AgentEndEvent;
 
 /**
  * Formats a chat stream event as an SSE message. If JSON.stringify throws (e.g. circular ref,
@@ -466,6 +556,7 @@ export function createTokenEvent(
  * Options for the done event (optional metadata).
  */
 export interface CreateDoneEventOptions {
+  messageId?: string;
   routingDecision?: Record<string, unknown>;
   subgraphResults?: Record<string, unknown>;
   title?: string;
@@ -644,6 +735,28 @@ export function createResponseCompleteEvent(
   return createStreamEvent<ResponseCompleteEvent>("response_complete", sessionId, { response });
 }
 
+/**
+ * Creates a formatted response reset event.
+ * Tells the frontend to discard all previously streamed tokens.
+ */
+export function createResponseResetEvent(
+  sessionId: string,
+  reason: string,
+): ResponseResetEvent {
+  return createStreamEvent<ResponseResetEvent>("response_reset", sessionId, { reason });
+}
+
+/**
+ * Creates a hallucination detected event for the trace panel.
+ */
+export function createHallucinationDetectedEvent(
+  sessionId: string,
+  blockType: string,
+  tool: string,
+): HallucinationDetectedEvent {
+  return createStreamEvent<HallucinationDetectedEvent>("hallucination_detected", sessionId, { blockType, tool });
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 // DEBUG META EVENT CREATORS
 // ════════════════════════════════════════════════════════════════════════════
@@ -662,4 +775,41 @@ export function createDebugMetaEvent(
     iterations,
     tools,
   });
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// TRACE HIERARCHY EVENT CREATORS
+// ════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Creates a graph start event emitted when a LangGraph sub-graph begins inside a tool.
+ */
+export function createGraphStartEvent(sessionId: string, graphName: string): GraphStartEvent {
+  return createStreamEvent<GraphStartEvent>("graph_start", sessionId, { graphName });
+}
+
+/**
+ * Creates a graph end event emitted when a LangGraph sub-graph completes.
+ */
+export function createGraphEndEvent(sessionId: string, graphName: string, durationMs: number): GraphEndEvent {
+  return createStreamEvent<GraphEndEvent>("graph_end", sessionId, { graphName, durationMs });
+}
+
+/**
+ * Creates an agent start event emitted when an LLM agent begins inside a graph node.
+ */
+export function createAgentStartEvent(sessionId: string, agentName: string): AgentStartEvent {
+  return createStreamEvent<AgentStartEvent>("agent_start", sessionId, { agentName });
+}
+
+/**
+ * Creates an agent end event emitted when an LLM agent completes.
+ */
+export function createAgentEndEvent(
+  sessionId: string,
+  agentName: string,
+  durationMs: number,
+  summary: string,
+): AgentEndEvent {
+  return createStreamEvent<AgentEndEvent>("agent_end", sessionId, { agentName, durationMs, summary });
 }
