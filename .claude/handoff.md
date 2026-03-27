@@ -1,58 +1,39 @@
 ---
-trigger: "Retire the 'viewed' status from opportunity lifecycle"
-type: refactor
-branch: refactor/retire-viewed-status
+trigger: "Based on docs/, update README.md and possibly CLAUDE.md"
+type: docs
+branch: docs/update-readme-claude
 created: 2026-03-27
-version-bump: patch
+version-bump: none
 ---
 
 ## Related Files
-
-### Protocol (schema + enum)
-- protocol/src/schemas/database.schema.ts (opportunityStatusEnum definition)
-
-### Protocol (adapter layer)
-- protocol/src/adapters/database.adapter.ts (status union types in multiple methods)
-- protocol/src/adapters/tests/database.adapter.spec.ts
-
-### Protocol (interfaces)
-- protocol/src/lib/protocol/interfaces/database.interface.ts
-
-### Protocol (services)
-- protocol/src/services/opportunity.service.ts (status filter options)
-- protocol/src/services/tests/opportunity.service.updateStatus.spec.ts
-
-### Protocol (controllers)
-- protocol/src/controllers/opportunity.controller.ts (status validation, allowed list)
-- protocol/src/controllers/tests/opportunity.controller.spec.ts
-
-### Protocol (support/lib)
-- protocol/src/lib/protocol/support/opportunity.discover.ts
-- protocol/src/lib/protocol/support/opportunity.enricher.ts
-- protocol/src/lib/protocol/support/opportunity.utils.ts
-- protocol/src/lib/protocol/support/tests/opportunity.enricher.spec.ts
-- protocol/src/lib/protocol/support/tests/opportunity.utils.spec.ts
-- protocol/src/lib/protocol/tools/profile.tools.ts
-- protocol/src/lib/protocol/tools/tests/chat.tools.spec.ts
-
-### Frontend
-- frontend/src/services/opportunities.ts (OpportunityStatus type, query options)
-- frontend/src/components/chat/OpportunityCardInChat.tsx (ACTIONABLE_STATUSES set)
-
-### Docs
-- docs/domain/opportunities.md (lifecycle table)
+- README.md
+- CLAUDE.md
+- docs/design/architecture-overview.md
+- docs/design/protocol-deep-dive.md
+- docs/domain/negotiation.md
+- docs/guides/getting-started.md
+- docs/specs/api-reference.md
+- docs/swe-config.json
 
 ## Relevant Docs
-- docs/domain/opportunities.md
-- docs/domain/negotiation.md
+- docs/design/architecture-overview.md
+- docs/guides/getting-started.md
 
 ## Scope
-Remove `viewed` from the opportunity status enum and all references across the codebase. The `viewed` status is a read-receipt concept that doesn't belong in the lifecycle state machine — it can be tracked separately (e.g., as a timestamp or flag) if needed in the future.
+Update README.md and CLAUDE.md to reflect the current state of the project based on the newly created docs/ directory:
 
-Changes required:
-1. **Migration**: Remove `viewed` from `opportunityStatusEnum` in schema, generate and apply a Drizzle migration
-2. **Protocol types**: Remove `viewed` from all status union types across adapters, interfaces, services, controllers, and support files (~17 files)
-3. **Frontend types**: Remove `viewed` from `OpportunityStatus`, `ACTIONABLE_STATUSES`, and query option types (2 files)
-4. **Tests**: Update all test files that reference `viewed` status
-5. **Docs**: Update the lifecycle table in `docs/domain/opportunities.md` to reflect 6 states instead of 7
-6. **Data migration**: Any existing rows with status `viewed` should be migrated to `pending` in the SQL migration
+**README.md:**
+- Fix outdated prerequisites (Node.js 18+ → Bun 1.2+, add pgvector 0.5+ and Redis 6+)
+- Remove speculative Future Roadmap section (TEE/XMTP/decentralized storage)
+- Add bilateral negotiation to Key Features and How It Works
+- Fix "Next.js" → "Vite + React Router v7 SPA" in project structure
+- Update graph count from 6 to 11, add negotiation
+- Fix contributing workflow to branch from dev (not main), use worktrees
+- Add Documentation section linking to all docs/ files
+- Link Getting Started to docs/guides/getting-started.md
+
+**CLAUDE.md:**
+- Add docs/ directory tree to monorepo structure
+- Add negotiation graph to protocol graphs list
+- Update docs reference from lib/protocol/docs/ to docs/design/ and docs/domain/
