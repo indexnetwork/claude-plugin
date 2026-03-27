@@ -1,18 +1,18 @@
 import { useState, useEffect, useCallback } from "react";
 import { Link } from "react-router";
-import { Loader2, ChevronDown, Bot } from "lucide-react";
+import { Loader2, ChevronDown, Bot, Handshake } from "lucide-react";
 import UserAvatar from "@/components/UserAvatar";
 import { useUsers } from "@/contexts/APIContext";
 import type { NegotiationSummary, NegotiationTurnSummary } from "@/services/users";
 
 const PAGE_SIZE = 20;
 
-type ResultFilter = '' | 'consensus' | 'no_consensus' | 'in_progress';
+type ResultFilter = '' | 'has_opportunity' | 'no_opportunity' | 'in_progress';
 
 const FILTERS: { value: ResultFilter; label: string }[] = [
   { value: '', label: 'All' },
-  { value: 'consensus', label: 'Consensus' },
-  { value: 'no_consensus', label: 'No consensus' },
+  { value: 'has_opportunity', label: 'Has opportunities' },
+  { value: 'no_opportunity', label: 'No opportunities' },
   { value: 'in_progress', label: 'In progress' },
 ];
 
@@ -73,9 +73,11 @@ function TurnMessage({ turn, isLast }: { turn: NegotiationTurnSummary; isLast: b
 
 interface NegotiationHistoryProps {
   userId: string;
+  onTriggerNegotiation?: () => Promise<NegotiationSummary | void>;
+  isTriggering?: boolean;
 }
 
-export default function NegotiationHistory({ userId }: NegotiationHistoryProps) {
+export default function NegotiationHistory({ userId, onTriggerNegotiation, isTriggering }: NegotiationHistoryProps) {
   const usersService = useUsers();
   const [negotiations, setNegotiations] = useState<NegotiationSummary[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -154,7 +156,36 @@ export default function NegotiationHistory({ userId }: NegotiationHistoryProps) 
 
       {!isLoading && negotiations.length === 0 && !resultFilter && (
         <div className="text-sm text-gray-500 font-ibm-plex-mono py-12 text-center border border-dashed border-gray-200 rounded-lg">
-          <p>No negotiations yet</p>
+          {onTriggerNegotiation ? (
+            <div className="space-y-3">
+              <p>No negotiations yet</p>
+              <button
+                onClick={async () => {
+                  const result = await onTriggerNegotiation();
+                  if (result) {
+                    setNegotiations((prev) => [result, ...prev]);
+                  }
+                }}
+                disabled={isTriggering}
+                className="inline-flex items-center gap-2 bg-[#041729] text-white px-4 py-2 rounded-sm text-sm font-medium hover:bg-[#0a2d4a] transition-colors disabled:opacity-50"
+              >
+                {isTriggering ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Negotiating...
+                  </>
+                ) : (
+                  <>
+                    <Handshake className="w-4 h-4" />
+                    Peer Agents
+                  </>
+                )}
+              </button>
+              <p className="text-xs text-gray-400">Start a discovery negotiation</p>
+            </div>
+          ) : (
+            <p>No negotiations yet</p>
+          )}
         </div>
       )}
 
@@ -202,12 +233,12 @@ export default function NegotiationHistory({ userId }: NegotiationHistoryProps) 
                   {neg.outcome ? (
                     <span
                       className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${
-                        neg.outcome.consensus
+                        neg.outcome.hasOpportunity
                           ? "bg-emerald-50 text-emerald-700"
                           : "bg-gray-100 text-gray-500"
                       }`}
                     >
-                      {neg.outcome.consensus ? "Consensus" : "No consensus"}
+                      {neg.outcome.hasOpportunity ? "Opportunity" : "No opportunity"}
                     </span>
                   ) : (
                     <span className="text-xs px-1.5 py-0.5 rounded-full font-medium bg-yellow-50 text-yellow-700">
@@ -216,7 +247,7 @@ export default function NegotiationHistory({ userId }: NegotiationHistoryProps) 
                   )}
                 </div>
                 <div className="flex items-center gap-2 text-xs text-gray-500">
-                  {neg.outcome?.consensus && neg.outcome.finalScore > 0 && (
+                  {neg.outcome?.hasOpportunity && neg.outcome.finalScore > 0 && (
                     <span>Score: {neg.outcome.finalScore}</span>
                   )}
                   {neg.outcome?.role && (

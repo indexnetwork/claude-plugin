@@ -595,7 +595,10 @@ export class OpportunityService {
       this.db.getUser(counterpart.userId),
     ]);
 
-    if (!recipient?.isGhost || recipient.deletedAt != null) {
+    if (!recipient || recipient.deletedAt != null) {
+      return { error: 'Counterpart not available', status: 400 };
+    }
+    if (!recipient.isGhost) {
       return { error: 'Counterpart is not a ghost user', status: 400 };
     }
 
