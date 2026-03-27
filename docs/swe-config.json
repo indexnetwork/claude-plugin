@@ -31,6 +31,10 @@
       "Events and queues are the only mechanism for cross-service communication"
     ]
   },
+  "versioning": [
+    "Bump protocol/package.json version for changes under protocol/",
+    "Bump frontend/package.json version for changes under frontend/"
+  ],
   "directives": [
     "File naming: {domain}.{purpose}.ts (e.g. intent.inferrer.ts, chat.graph.ts) — no camelCase filenames",
     "Adapter naming: use conceptual names (database.adapter.ts), never implementation names (drizzle.adapter.ts)",
