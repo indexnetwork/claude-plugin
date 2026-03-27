@@ -13,7 +13,8 @@
     "coderabbit": true,
     "linear": true,
     "githubIssues": true,
-    "autoDocs": true
+    "autoDocs": true,
+    "context7": true
   },
   "architecture": {
     "rules": [
@@ -35,23 +36,33 @@
     "Bump protocol/package.json version for changes under protocol/",
     "Bump frontend/package.json version for changes under frontend/"
   ],
-  "directives": [
-    "File naming: {domain}.{purpose}.ts (e.g. intent.inferrer.ts, chat.graph.ts) — no camelCase filenames",
-    "Adapter naming: use conceptual names (database.adapter.ts), never implementation names (drizzle.adapter.ts)",
-    "Import ordering: external packages → deep relative (../../+) → nearby relative (./ or ../)",
-    "Use Zod for all agent input/output schemas with .describe() on every field",
-    "Use createModel() from model.config.ts for all LLM configuration — never hardcode model names",
-    "Agents must be pure: no direct DB access, no side effects — services handle persistence",
-    "Every LangGraph graph must have at least one conditional edge and use Annotation.Root with reducers",
-    "Singleton pattern for services: export class + export const instance at bottom of file",
-    "TSDoc on all classes and public methods (summary, @param, @returns, @throws)",
-    "Conventional commits (feat/fix/refactor/test/docs/chore) and conventional branch names (type/short-description)",
-    "Always use worktrees for feature and fix branches — keep dev stable",
-    "Prefer soft deletes (deletedAt) over hard deletes",
-    "Snake_case for queue job names (e.g. generate_hyde, discover_opportunities)",
-    "Kebab-case for trace event agent names (e.g. intent-inferrer, profile-generator)",
-    "Emit trace events (graph_start/end, agent_start/end) around all graph invocations and agent calls",
-    "Migration files must be renamed to {NNNN}_{action}_{target}.sql with matching _journal.json tag",
-    "Target specific test files (bun test path/to/file.spec.ts), never run full suite unnecessarily"
-  ]
+  "directives": {
+    "implementation": [
+      "File naming: {domain}.{purpose}.ts (e.g. intent.inferrer.ts, chat.graph.ts) — no camelCase filenames",
+      "Adapter naming: use conceptual names (database.adapter.ts), never implementation names (drizzle.adapter.ts)",
+      "Import ordering: external packages → deep relative (../../+) → nearby relative (./ or ../)",
+      "Use Zod for all agent input/output schemas with .describe() on every field",
+      "Use createModel() from model.config.ts for all LLM configuration — never hardcode model names",
+      "Agents must be pure: no direct DB access, no side effects — services handle persistence",
+      "Every LangGraph graph must have at least one conditional edge and use Annotation.Root with reducers",
+      "Singleton pattern for services: export class + export const instance at bottom of file",
+      "Prefer soft deletes (deletedAt) over hard deletes",
+      "Snake_case for queue job names (e.g. generate_hyde, discover_opportunities)",
+      "Kebab-case for trace event agent names (e.g. intent-inferrer, profile-generator)",
+      "Emit trace events (graph_start/end, agent_start/end) around all graph invocations and agent calls",
+      "Migration files must be renamed to {NNNN}_{action}_{target}.sql with matching _journal.json tag"
+    ],
+    "review": [],
+    "documentation": [
+      "TSDoc on all classes and public methods (summary, @param, @returns, @throws)"
+    ],
+    "delivery": [
+      "Conventional commits (feat/fix/refactor/test/docs/chore) and conventional branch names (type/short-description)",
+      "Two remotes: origin (fork) and upstream (main repo). Push worktree branches to origin, create PRs from origin into upstream/dev. After merging a PR into upstream/dev, pull from upstream and push to origin to keep both in sync."
+    ],
+    "triage": [
+      "Always use worktrees for feature and fix branches — keep dev stable",
+      "Target specific test files (bun test path/to/file.spec.ts), never run full suite unnecessarily"
+    ]
+  }
 }
