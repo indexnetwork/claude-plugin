@@ -70,7 +70,7 @@ describe('IntroducerDiscovery', () => {
       expect(result).toEqual([]);
     });
 
-    it('filters out contacts with no active intents', async () => {
+    it('includes contacts regardless of intent count (profile matches are valuable)', async () => {
       const contacts: ContactWithIntents[] = [
         { userId: 'contact-1', latestIntentAt: '2026-03-27T00:00:00Z', intentCount: 3 },
         { userId: 'contact-2', latestIntentAt: null, intentCount: 0 },
@@ -79,8 +79,8 @@ describe('IntroducerDiscovery', () => {
       const db = createMockDatabase({ contacts });
       const result = await selectContactsForDiscovery(db, userId);
 
-      expect(result).toHaveLength(2);
-      expect(result.map((c) => c.userId)).toEqual(['contact-1', 'contact-3']);
+      expect(result).toHaveLength(3);
+      expect(result.map((c) => c.userId)).toEqual(['contact-1', 'contact-2', 'contact-3']);
     });
 
     it('respects the limit parameter', async () => {
@@ -107,14 +107,14 @@ describe('IntroducerDiscovery', () => {
   });
 
   describe('runIntroducerDiscovery', () => {
-    it('returns early when no contacts have intents', async () => {
+    it('returns early when user has no contacts', async () => {
       const db = createMockDatabase({ contacts: [] });
       const queue = createMockQueue();
       const result = await runIntroducerDiscovery(db, queue, userId);
 
       expect(result.contactsEvaluated).toBe(0);
       expect(result.jobsEnqueued).toBe(0);
-      expect(result.skippedReason).toBe('no_contacts_with_intents');
+      expect(result.skippedReason).toBe('no_contacts');
       expect(queue.addJob).not.toHaveBeenCalled();
     });
 
@@ -124,7 +124,7 @@ describe('IntroducerDiscovery', () => {
       const result = await runIntroducerDiscovery(db, queue, userId);
 
       expect(result.contactsEvaluated).toBe(0);
-      expect(result.skippedReason).toBe('no_contacts_with_intents');
+      expect(result.skippedReason).toBe('no_contacts');
     });
 
     it('enqueues discovery jobs for contacts with intents', async () => {

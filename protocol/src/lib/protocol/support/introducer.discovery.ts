@@ -82,17 +82,13 @@ export async function selectContactsForDiscovery(
     limit,
   );
 
-  // Filter out contacts with no active intents
-  const withIntents = contacts.filter((c) => c.intentCount > 0);
-
   logger.verbose('[IntroducerDiscovery] Selected contacts for discovery', {
     userId,
     totalContacts: contacts.length,
-    withIntents: withIntents.length,
     limit,
   });
 
-  return withIntents;
+  return contacts;
 }
 
 /**
@@ -129,7 +125,7 @@ export async function runIntroducerDiscovery(
   const contacts = await selectContactsForDiscovery(database, userId);
 
   if (contacts.length === 0) {
-    return { contactsEvaluated: 0, jobsEnqueued: 0, skippedReason: 'no_contacts_with_intents' };
+    return { contactsEvaluated: 0, jobsEnqueued: 0, skippedReason: 'no_contacts' };
   }
 
   const personalIndexId = await database.getPersonalIndexId(userId);
