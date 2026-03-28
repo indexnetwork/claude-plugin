@@ -32,7 +32,7 @@ export class IntegrationController {
   @UseGuards(AuthGuard)
   async list(req: Request, user: AuthenticatedUser) {
     const url = new URL(req.url);
-    const networkId = url.searchParams.get('networkId');
+    const networkId = url.searchParams.get('networkId')?.trim() || undefined;
 
     const connections = await this.integrationService.listConnections(user.id);
 
@@ -76,7 +76,7 @@ export class IntegrationController {
       return new Response(JSON.stringify({ error: 'Unsupported toolkit' }), { status: 400 });
     }
     const body = await req.json().catch(() => ({})) as Record<string, unknown>;
-    const networkId = typeof body.networkId === 'string' ? body.networkId : undefined;
+    const networkId = typeof body.networkId === 'string' ? body.networkId.trim() || undefined : undefined;
     if (!networkId) {
       return new Response(JSON.stringify({ error: 'networkId is required' }), { status: 400 });
     }
@@ -99,7 +99,7 @@ export class IntegrationController {
       return new Response(JSON.stringify({ error: 'Unsupported toolkit' }), { status: 400 });
     }
     const url = new URL(req.url);
-    const networkId = url.searchParams.get('networkId');
+    const networkId = url.searchParams.get('networkId')?.trim() || undefined;
     if (!networkId) {
       return new Response(JSON.stringify({ error: 'networkId query param is required' }), { status: 400 });
     }
@@ -124,7 +124,7 @@ export class IntegrationController {
       return new Response(JSON.stringify({ error: 'Unsupported toolkit' }), { status: 400 });
     }
     const body = await req.json().catch(() => ({})) as Record<string, unknown>;
-    const networkId = typeof body.networkId === 'string' ? body.networkId : undefined;
+    const networkId = typeof body.networkId === 'string' ? body.networkId.trim() || undefined : undefined;
     try {
       const result = await this.integrationService.importContacts(user.id, params.toolkit, networkId);
       return result;

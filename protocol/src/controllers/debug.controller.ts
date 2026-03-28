@@ -98,7 +98,7 @@ export class DebugController {
     const indexRows = await db
       .select({
         networkId: intentNetworks.networkId,
-        indexTitle: networks.title,
+        networkTitle: networks.title,
         indexPrompt: networks.prompt,
       })
       .from(intentNetworks)
@@ -144,7 +144,7 @@ export class DebugController {
 
     const indexAssignments = indexRows.map((r) => ({
       networkId: r.networkId,
-      indexTitle: r.indexTitle,
+      networkTitle: r.networkTitle,
       indexPrompt: r.indexPrompt,
     }));
 

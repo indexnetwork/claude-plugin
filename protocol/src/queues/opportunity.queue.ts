@@ -19,7 +19,7 @@ export const QUEUE_NAME = 'opportunity-discovery-queue';
 export interface OpportunityJobData {
   intentId: string;
   userId: string;
-  indexIds?: string[];
+  networkIds?: string[];
   /** When set, run discovery on behalf of this contact user (introducer discovery). */
   contactUserId?: string;
 }
@@ -83,7 +83,7 @@ export class OpportunityQueue {
 
   /**
    * Add a discover_opportunities job for an intent/user.
-   * @param data - intentId, userId, optional indexIds
+   * @param data - intentId, userId, optional networkIds
    * @param options - Optional jobId and priority
    * @returns The BullMQ job
    */
@@ -176,7 +176,7 @@ export class OpportunityQueue {
   }
 
   private async handleDiscoverOpportunities(data: OpportunityJobData): Promise<void> {
-    const { intentId, userId, indexIds, contactUserId } = data;
+    const { intentId, userId, networkIds, contactUserId } = data;
     const db = this.deps?.database ?? this.database;
 
     let searchQuery: string;
@@ -201,7 +201,7 @@ export class OpportunityQueue {
       }
       searchQuery = intent.payload;
       triggerIntentId = intentId;
-      this.logger.info('[OpportunityDiscovery] Starting discovery', { intentId, userId, indexIds });
+      this.logger.info('[OpportunityDiscovery] Starting discovery', { intentId, userId, networkIds });
     }
 
     this.logger.debug('[OpportunityDiscovery] Search query preview', { intentId, searchQuery: searchQuery?.slice(0, 80) });
@@ -209,7 +209,7 @@ export class OpportunityQueue {
       userId: userId as Id<'users'>,
       searchQuery,
       operationMode: 'create',
-      networkId: indexIds?.[0] as Id<'networks'> | undefined,
+      networkId: networkIds?.[0] as Id<'networks'> | undefined,
       triggerIntentId,
       onBehalfOfUserId,
       options: { initialStatus: 'latent' },
