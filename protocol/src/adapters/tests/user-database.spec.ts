@@ -51,7 +51,7 @@ const ownedIntentForIndexing = {
   id: 'intent-1',
   payload: 'test intent',
   userId: AUTH_USER,
-  sourceType: null as string | null,
+  sourceType: null as 'file' | 'integration' | 'link' | 'discovery_form' | 'enrichment' | null,
   sourceId: null as string | null,
 };
 
@@ -59,39 +59,55 @@ const otherIntentForIndexing = {
   id: 'intent-2',
   payload: 'other intent',
   userId: OTHER_USER,
-  sourceType: null as string | null,
+  sourceType: null as 'file' | 'integration' | 'link' | 'discovery_form' | 'enrichment' | null,
   sourceId: null as string | null,
 };
 
+const stubDetection = { source: 'opportunity_graph' as const, timestamp: new Date().toISOString() };
+const stubInterpretation = { category: 'test', reasoning: 'stub', confidence: 1 };
+const stubDates = { createdAt: new Date(), updatedAt: new Date(), expiresAt: null };
+
 const ownedOpportunity = {
   id: 'opp-1',
+  detection: stubDetection,
   actors: [
     { userId: AUTH_USER, indexId: 'idx-a', role: 'patient' },
     { userId: OTHER_USER, indexId: 'idx-a', role: 'peer' },
   ],
+  interpretation: stubInterpretation,
   context: { indexId: 'idx-a' },
+  confidence: '0.9',
   status: 'pending' as const,
+  ...stubDates,
 };
 
 const otherOpportunity = {
   id: 'opp-2',
+  detection: stubDetection,
   actors: [
     { userId: 'user-random-789', indexId: 'idx-b', role: 'patient' },
     { userId: OTHER_USER, indexId: 'idx-b', role: 'peer' },
   ],
+  interpretation: stubInterpretation,
   context: { indexId: 'idx-b' },
+  confidence: '0.9',
   status: 'pending' as const,
+  ...stubDates,
 };
 
 /** Opportunity where AUTH_USER is agent and an introducer exists — latent status should be hidden */
 const latentWithIntroducer = {
   id: 'opp-3',
+  detection: stubDetection,
   actors: [
     { userId: AUTH_USER, indexId: 'idx-c', role: 'agent' },
     { userId: OTHER_USER, indexId: 'idx-c', role: 'introducer' },
   ],
+  interpretation: stubInterpretation,
   context: { indexId: 'idx-c' },
+  confidence: '0.9',
   status: 'latent' as const,
+  ...stubDates,
 };
 
 function createMockDb(): ChatDatabaseAdapter {
