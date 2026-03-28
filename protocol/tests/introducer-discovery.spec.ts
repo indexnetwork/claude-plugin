@@ -140,9 +140,9 @@ describe('IntroducerDiscovery', () => {
       expect(result.jobsEnqueued).toBe(2);
       expect(queue.addJob).toHaveBeenCalledTimes(2);
 
-      // Verify job data includes contact prefix and personal index
+      // Verify job data includes introducer prefix and personal index
       const firstCall = (queue.addJob as ReturnType<typeof mock>).mock.calls[0];
-      expect(firstCall[0].intentId).toStartWith('contact:');
+      expect(firstCall[0].intentId).toStartWith('introducer:');
       expect(firstCall[0].userId).toBe(userId);
       expect(firstCall[0].indexIds).toEqual([personalIndexId]);
       expect(firstCall[1].priority).toBe(15);
