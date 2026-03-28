@@ -5,6 +5,9 @@
  * Uses a mock ChatDatabaseAdapter — no database connection needed.
  */
 
+import { config } from 'dotenv';
+config({ path: '.env.test' });
+
 import { describe, it, expect, beforeEach, mock } from 'bun:test';
 import { createUserDatabase } from '../database.adapter';
 import type { ChatDatabaseAdapter } from '../database.adapter';

@@ -6,7 +6,22 @@
  * Uses a mock ChatDatabaseAdapter — no database connection needed.
  */
 
+import { config } from 'dotenv';
+config({ path: '.env.test' });
+
 import { describe, it, expect, beforeEach, mock } from 'bun:test';
+
+// Mock getPersonalIndexId before importing the module under test.
+// This prevents verifySharedIndex from hitting the real DB.
+const mockGetPersonalIndexId = mock(() => Promise.resolve(null));
+mock.module('../database.adapter', () => {
+  const actual = require('../database.adapter');
+  return {
+    ...actual,
+    getPersonalIndexId: mockGetPersonalIndexId,
+  };
+});
+
 import { createSystemDatabase } from '../database.adapter';
 import type { ChatDatabaseAdapter } from '../database.adapter';
 
@@ -446,19 +461,17 @@ describe('createSystemDatabase', () => {
       expect(mockDb.getProfile).toHaveBeenCalledWith(OTHER_USER);
     });
 
-    it('getProfile throws when other user shares no scoped index', async () => {
-      // No shared memberships — verifySharedIndex falls through to getPersonalIndexId
-      // which queries the real DB. Without a DB connection this throws a query error,
-      // confirming the access path is reached (not silently allowed).
+    it('getProfile throws when other user shares no scoped index and no personal index contact', async () => {
+      // No shared memberships, getPersonalIndexId returns null (mocked)
       (mockDb.getIndexMemberships as ReturnType<typeof mock>).mockResolvedValueOnce([
         { indexId: 'some-unrelated-index' },
       ]);
-      await expect(sysDb.getProfile(OTHER_USER)).rejects.toThrow();
+      await expect(sysDb.getProfile(OTHER_USER)).rejects.toThrow('no shared index');
     });
 
-    it('getUser throws when other user shares no scoped index', async () => {
+    it('getUser throws when other user shares no scoped index and no personal index contact', async () => {
       (mockDb.getIndexMemberships as ReturnType<typeof mock>).mockResolvedValueOnce([]);
-      await expect(sysDb.getUser(OTHER_USER)).rejects.toThrow();
+      await expect(sysDb.getUser(OTHER_USER)).rejects.toThrow('no shared index');
     });
   });
 });
