@@ -33,12 +33,12 @@ Remove all imports from `src/lib/protocol/interfaces/` in the four adapter files
 3. Replace the import with the local type
 4. Ensure the local type structurally aligns with the protocol interface (TypeScript structural typing ensures compatibility without import coupling)
 
-### Affected imports
-- **database.adapter.ts**: `VectorStore` (from embedder.interface), several types from database.interface
-- **integration.adapter.ts**: types from integration.interface
-- **embedder.adapter.ts**: `LensEmbedding`, `ProfileEmbeddingSearchOptions` from embedder.interface (also re-exports `LensEmbedding`)
-- **cache.adapter.ts**: `Cache`, `CacheOptions` from cache.interface
+### Affected imports (before → after)
+- **database.adapter.ts**: Before: imported `VectorStore` from `embedder.interface`, `UserDatabase`/`SystemDatabase`/`SimilarIntent` from `database.interface`. After: defines local structurally-aligned types; no protocol-interface imports.
+- **integration.adapter.ts**: Before: imported `IntegrationAdapter`, session, connection, and tool-response types from `integration.interface`. After: defines local structurally-aligned types; no protocol-interface imports.
+- **embedder.adapter.ts**: Before: imported `LensEmbedding`, `ProfileEmbeddingSearchOptions` from `embedder.interface` and re-exported `LensEmbedding`. After: defines local `LensEmbedding` and `ProfileEmbeddingSearchOptions`; no protocol-interface import/re-export.
+- **cache.adapter.ts**: Before: imported `Cache`, `CacheOptions` from `cache.interface`. After: defines local structurally-aligned types; no protocol-interface imports.
 
 ### Key consideration
-- The `embedder.adapter.ts` re-exports `LensEmbedding` — consumers of that re-export need to be updated to import from the adapter's local type instead
+- `embedder.adapter.ts` no longer re-exports protocol `LensEmbedding`; consumers should import the adapter-local `LensEmbedding` type instead
 - Use TypeScript structural typing: adapters define their own types that happen to match the protocol interface shape, no import needed
