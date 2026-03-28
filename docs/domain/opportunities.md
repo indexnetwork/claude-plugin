@@ -107,7 +107,6 @@ Opportunities follow a seven-state lifecycle:
 | **latent** | Detected but not yet surfaced to any user. The system knows this coordination point exists. |
 | **draft** | Under construction (used during negotiation). Not yet visible. |
 | **pending** | Surfaced to the appropriate party based on role visibility rules. Awaiting user action. |
-| **viewed** | The user has seen the opportunity but not yet acted on it. |
 | **accepted** | The user has accepted the connection. Triggers contact creation and notification to the other party. |
 | **rejected** | The user has declined the connection. |
 | **expired** | The timing window has passed or the underlying intents are no longer active. |
@@ -123,7 +122,7 @@ Who sees an opportunity and when is governed by the actor roles and the opportun
 | Role | Sees when |
 |---|---|
 | Introducer | Always (they created the introduction) |
-| Patient / Party | Status is pending or viewed |
+| Patient / Party | Status is pending |
 | Agent | Status is accepted, rejected, or expired |
 | Peer | Always |
 
@@ -199,6 +198,6 @@ Additional metadata:
 
 ## Negotiation Gate
 
-Before an opportunity is persisted, it may pass through bilateral agent-to-agent negotiation (see [Negotiation](negotiation.md)). Negotiation acts as a quality gate: only opportunities that achieve consensus between the proposer and responder agents are persisted. If negotiation rejects the match, the opportunity is not created.
+Before an opportunity is persisted, it may pass through bilateral agent-to-agent negotiation (see [Negotiation](negotiation.md)). Negotiation acts as a quality gate: only matches where both agents agree are persisted as opportunities. If negotiation rejects the match, the opportunity is not created.
 
 This prevents low-quality matches from reaching users even when the initial evaluator score is above threshold.

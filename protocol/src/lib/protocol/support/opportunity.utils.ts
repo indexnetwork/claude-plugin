@@ -112,14 +112,14 @@ export function isActionableForViewer(
       case 'patient':
       case 'party':
         return hasIntroducer
-          ? status === 'pending' || status === 'viewed'
+          ? status === 'pending'
           : status === 'latent';
       case 'agent':
         return hasIntroducer
           ? status === 'accepted'
-          : status === 'pending' || status === 'viewed';
+          : status === 'pending';
       case 'peer':
-        return status === 'latent' || status === 'pending' || status === 'viewed';
+        return status === 'latent' || status === 'pending';
       default:
         return false;
     }
@@ -149,8 +149,8 @@ export function classifyOpportunity(
   viewerId: string
 ): FeedCategory {
   if (opp.status === 'expired') return 'expired';
-  const hasIntroducer = opp.actors.some((a) => a.role === 'introducer');
-  if (hasIntroducer) return 'connector-flow';
+  const viewerIsIntroducer = opp.actors.some((a) => a.userId === viewerId && a.role === 'introducer');
+  if (viewerIsIntroducer) return 'connector-flow';
   return 'connection';
 }
 

@@ -34,6 +34,11 @@ AGENTS.md
 .worktrees/
 
 # ===================
+# Environment Files
+# ===================
+evaluator/.env
+
+# ===================
 # Project Configuration (Zed Agent Rules)
 # ===================
 .rules

@@ -7,6 +7,10 @@ SELECT id FROM "users" WHERE "is_ghost" = true;
 
 DELETE FROM "personal_indexes" WHERE "user_id" IN (SELECT id FROM ghost_ids);
 DELETE FROM "files" WHERE "user_id" IN (SELECT id FROM ghost_ids);
-DELETE FROM "hidden_conversations" WHERE "user_id" IN (SELECT id FROM ghost_ids);
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'hidden_conversations') THEN
+    DELETE FROM "hidden_conversations" WHERE "user_id" IN (SELECT id FROM ghost_ids);
+  END IF;
+END $$;
 
 DROP TABLE IF EXISTS ghost_ids;

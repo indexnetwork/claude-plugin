@@ -2863,7 +2863,7 @@ export class ChatDatabaseAdapter {
   }
   async updateOpportunityStatus(
     id: string,
-    status: 'latent' | 'draft' | 'pending' | 'viewed' | 'accepted' | 'rejected' | 'expired'
+    status: 'latent' | 'draft' | 'pending' | 'accepted' | 'rejected' | 'expired'
   ): Promise<OpportunityRow | null> {
     return this.opportunityAdapter.updateOpportunityStatus(id, status);
   }
@@ -2873,12 +2873,12 @@ export class ChatDatabaseAdapter {
   async getOpportunityBetweenActors(
     actorIds: string[],
     indexId: string
-  ): Promise<{ id: Id<'opportunities'>; status: 'latent' | 'draft' | 'pending' | 'viewed' | 'accepted' | 'rejected' | 'expired' } | null> {
+  ): Promise<{ id: Id<'opportunities'>; status: 'latent' | 'draft' | 'pending' | 'accepted' | 'rejected' | 'expired' } | null> {
     return this.opportunityAdapter.getOpportunityBetweenActors(actorIds, indexId);
   }
   async findOverlappingOpportunities(
     actorUserIds: Id<'users'>[],
-    options?: { excludeStatuses?: ('latent' | 'draft' | 'pending' | 'viewed' | 'accepted' | 'rejected' | 'expired')[] }
+    options?: { excludeStatuses?: ('latent' | 'draft' | 'pending' | 'accepted' | 'rejected' | 'expired')[] }
   ): Promise<OpportunityRow[]> {
     return this.opportunityAdapter.findOverlappingOpportunities(actorUserIds, options);
   }
@@ -3476,6 +3476,74 @@ export class ChatDatabaseAdapter {
     }));
   }
 
+  /**
+   * Get the user's personal index ID.
+   * @param userId - The user whose personal index to find
+   * @returns The personal index ID, or null if none exists
+   */
+  async getPersonalIndexId(userId: string): Promise<string | null> {
+    return getPersonalIndexId(userId);
+  }
+
+  /**
+   * Get contacts from a personal index with their latest intent timestamp and intent count.
+   * Contacts are sorted by most recent intent (freshest first) for introducer discovery.
+   *
+   * @param personalIndexId - The personal index to query
+   * @param ownerId - The index owner (excluded from results)
+   * @param limit - Maximum contacts to return
+   * @returns Contacts with intent freshness data
+   */
+  async getContactsWithIntentFreshness(
+    personalIndexId: string,
+    ownerId: string,
+    limit: number,
+  ): Promise<Array<{ userId: string; latestIntentAt: string | null; intentCount: number }>> {
+    try {
+      const rows = await db
+        .select({
+          userId: schema.indexMembers.userId,
+          latestIntentAt: sql<string | null>`MAX(${schema.intents.updatedAt})`.as('latest_intent_at'),
+          intentCount: sql<number>`COUNT(${schema.intents.id})::int`.as('intent_count'),
+        })
+        .from(schema.indexMembers)
+        .innerJoin(
+          schema.users,
+          eq(schema.indexMembers.userId, schema.users.id),
+        )
+        .leftJoin(
+          schema.intents,
+          and(
+            eq(schema.intents.userId, schema.indexMembers.userId),
+            isNull(schema.intents.archivedAt),
+          ),
+        )
+        .where(
+          and(
+            eq(schema.indexMembers.indexId, personalIndexId),
+            sql`'contact' = ANY(${schema.indexMembers.permissions})`,
+            isNull(schema.indexMembers.deletedAt),
+            isNull(schema.users.deletedAt),
+            sql`${schema.indexMembers.userId} != ${ownerId}`,
+          ),
+        )
+        .groupBy(schema.indexMembers.userId)
+        .orderBy(sql`MAX(${schema.intents.updatedAt}) DESC NULLS LAST`)
+        .limit(limit);
+
+      return rows.map((row) => ({
+        userId: row.userId,
+        latestIntentAt: row.latestIntentAt ? new Date(row.latestIntentAt).toISOString() : null,
+        intentCount: Number(row.intentCount) || 0,
+      }));
+    } catch (error) {
+      logger.error('ChatDatabaseAdapter.getContactsWithIntentFreshness error', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return [];
+    }
+  }
+
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -3682,7 +3750,7 @@ interface OpportunityRow {
   interpretation: schema.OpportunityInterpretation;
   context: schema.OpportunityContext;
   confidence: string;
-  status: 'latent' | 'draft' | 'pending' | 'viewed' | 'accepted' | 'rejected' | 'expired';
+  status: 'latent' | 'draft' | 'pending' | 'accepted' | 'rejected' | 'expired';
   createdAt: Date;
   updatedAt: Date;
   expiresAt: Date | null;
@@ -3695,7 +3763,7 @@ interface CreateOpportunityInput {
   interpretation: schema.OpportunityInterpretation;
   context: schema.OpportunityContext;
   confidence: string;
-  status?: 'latent' | 'draft' | 'pending' | 'viewed' | 'accepted' | 'rejected' | 'expired';
+  status?: 'latent' | 'draft' | 'pending' | 'accepted' | 'rejected' | 'expired';
   expiresAt?: Date;
 }
 
@@ -3831,7 +3899,7 @@ export class OpportunityDatabaseAdapter {
 
   async updateOpportunityStatus(
     id: string,
-    status: 'latent' | 'draft' | 'pending' | 'viewed' | 'accepted' | 'rejected' | 'expired'
+    status: 'latent' | 'draft' | 'pending' | 'accepted' | 'rejected' | 'expired'
   ): Promise<OpportunityRow | null> {
     const [row] = await db
       .update(opportunities)
@@ -3973,12 +4041,12 @@ export class OpportunityDatabaseAdapter {
 
   async findOverlappingOpportunities(
     actorUserIds: Id<'users'>[],
-    options?: { excludeStatuses?: ('latent' | 'draft' | 'pending' | 'viewed' | 'accepted' | 'rejected' | 'expired')[] }
+    options?: { excludeStatuses?: ('latent' | 'draft' | 'pending' | 'accepted' | 'rejected' | 'expired')[] }
   ): Promise<OpportunityRow[]> {
     if (actorUserIds.length === 0) return [];
     const mergedExcludeStatuses = [
       ...new Set([...(options?.excludeStatuses ?? [])]),
-    ] as ('latent' | 'draft' | 'pending' | 'viewed' | 'accepted' | 'rejected' | 'expired')[];
+    ] as ('latent' | 'draft' | 'pending' | 'accepted' | 'rejected' | 'expired')[];
     const statusCondition =
       mergedExcludeStatuses.length > 0
         ? notInArray(opportunities.status, mergedExcludeStatuses)
@@ -4849,12 +4917,32 @@ export const intentDatabaseAdapter = new IntentDatabaseAdapter();
 // Context-Bound Database Factories
 // ═══════════════════════════════════════════════════════════════════════════════
 
-import type { VectorStore } from '../lib/protocol/interfaces/embedder.interface';
-import type {
-  UserDatabase,
-  SystemDatabase,
-  SimilarIntent,
-} from '../lib/protocol/interfaces/database.interface';
+// ─────────────────────────────────────────────────────────────────────────────
+// Local types for context-bound database factories
+// (structurally aligned with lib/protocol/interfaces — no import coupling)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Minimal vector store contract used by createSystemDatabase for findSimilarIntentsInScope. */
+interface VectorStore {
+  search<T>(
+    queryVector: number[],
+    collection: string,
+    options?: { limit?: number; filter?: Record<string, unknown>; minScore?: number },
+  ): Promise<{ item: T; score: number }[]>;
+}
+
+/** Intent record with similarity score, returned by findSimilarIntentsInScope. */
+interface SimilarIntent {
+  id: string;
+  payload: string;
+  summary: string | null;
+  isIncognito: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+  userId: string;
+  archivedAt: Date | null;
+  similarity: number;
+}
 
 /**
  * Creates a UserDatabase bound to the authenticated user.
@@ -4864,7 +4952,36 @@ import type {
  * @param authUserId - The authenticated user's ID
  * @returns A UserDatabase bound to authUserId
  */
-export function createUserDatabase(db: ChatDatabaseAdapter, authUserId: string): UserDatabase {
+/**
+ * Role-based opportunity visibility check.
+ * Mirrors the Latent Opportunity Lifecycle visibility matrix:
+ * - Introducer/peer: always visible.
+ * - Patient/party: visible unless status is latent AND an introducer exists.
+ * - Agent: visible only for terminal statuses, or non-latent when no introducer.
+ */
+function canActorSeeOpportunity(
+  actors: Array<{ userId: string; role: string }>,
+  status: string,
+  userId: string,
+): boolean {
+  const hasIntroducer = actors.some((a) => a.role === 'introducer');
+  const userRoles = actors.filter((a) => a.userId === userId).map((a) => a.role);
+  if (userRoles.length === 0) return false;
+
+  return userRoles.some((role) => {
+    if (role === 'introducer' || role === 'peer') return true;
+    if (role === 'patient' || role === 'party')
+      return status !== 'latent' || !hasIntroducer;
+    if (role === 'agent')
+      return (
+        ['accepted', 'rejected', 'expired'].includes(status) ||
+        (status !== 'latent' && !hasIntroducer)
+      );
+    return false;
+  });
+}
+
+export function createUserDatabase(db: ChatDatabaseAdapter, authUserId: string) {
   return {
     authUserId,
 
@@ -4873,16 +4990,16 @@ export function createUserDatabase(db: ChatDatabaseAdapter, authUserId: string):
     // ─────────────────────────────────────────────────────────────────────────────
     getProfile: () => db.getProfile(authUserId),
     getProfileByUserId: () => db.getProfileByUserId(authUserId),
-    saveProfile: (profile) => db.saveProfile(authUserId, profile),
+    saveProfile: (profile: Parameters<ChatDatabaseAdapter['saveProfile']>[1]) => db.saveProfile(authUserId, profile),
     deleteProfile: () => db.deleteProfile(authUserId),
     getUser: () => db.getUser(authUserId),
-    updateUser: (data) => db.updateUser(authUserId, data),
+    updateUser: (data: Parameters<ChatDatabaseAdapter['updateUser']>[1]) => db.updateUser(authUserId, data),
 
     // ─────────────────────────────────────────────────────────────────────────────
     // Intent Operations
     // ─────────────────────────────────────────────────────────────────────────────
     getActiveIntents: () => db.getActiveIntents(authUserId),
-    getIntent: async (intentId) => {
+    getIntent: async (intentId: string) => {
       // Enforce ownership by checking userId on returned intent
       const intent = await db.getIntent(intentId);
       if (!intent) return null;
@@ -4891,27 +5008,34 @@ export function createUserDatabase(db: ChatDatabaseAdapter, authUserId: string):
       }
       return intent;
     },
-    createIntent: (data) => db.createIntent({ ...data, userId: authUserId }),
-    updateIntent: async (intentId, data) => {
+    createIntent: (data: Omit<Parameters<ChatDatabaseAdapter['createIntent']>[0], 'userId'>) => db.createIntent({ ...data, userId: authUserId }),
+    updateIntent: async (intentId: string, data: Parameters<ChatDatabaseAdapter['updateIntent']>[1]) => {
       const intent = await db.getIntent(intentId);
       if (!intent) throw new Error('Intent not found');
       if (intent.userId !== authUserId) throw new Error('Access denied: intent not owned by user');
       return db.updateIntent(intentId, data);
     },
-    archiveIntent: async (intentId) => {
+    archiveIntent: async (intentId: string) => {
       const intent = await db.getIntent(intentId);
       if (!intent) throw new Error('Intent not found');
       if (intent.userId !== authUserId) throw new Error('Access denied: intent not owned by user');
       return db.archiveIntent(intentId);
     },
-    findSimilarIntents: async (_embedding, _options) => {
+    findSimilarIntents: async (_embedding: number[], _options?: { limit?: number; threshold?: number }) => {
       // findSimilarIntents is not yet implemented on ChatDatabaseAdapter
       // This is a placeholder - would need vector search implementation
       log.warn('UserDatabase.findSimilarIntents called but not fully implemented');
-      return [];
+      return [] as SimilarIntent[];
     },
-    getIntentForIndexing: (intentId) => db.getIntentForIndexing(intentId),
-    associateIntentWithIndexes: async (intentId, indexIds) => {
+    getIntentForIndexing: async (intentId: string) => {
+      const intent = await db.getIntentForIndexing(intentId);
+      if (!intent) return null;
+      if (intent.userId !== authUserId) {
+        throw new Error('Access denied: intent not owned by user');
+      }
+      return intent;
+    },
+    associateIntentWithIndexes: async (intentId: string, indexIds: string[]) => {
       const intent = await db.getIntent(intentId);
       if (!intent) throw new Error('Intent not found');
       if (intent.userId !== authUserId) throw new Error('Access denied: intent not owned by user');
@@ -4919,20 +5043,30 @@ export function createUserDatabase(db: ChatDatabaseAdapter, authUserId: string):
         await db.assignIntentToIndex(intentId, indexId);
       }
     },
-    assignIntentToIndex: async (intentId, indexId, relevancyScore?) => {
+    assignIntentToIndex: async (intentId: string, indexId: string, relevancyScore?: number) => {
       const intent = await db.getIntent(intentId);
       if (!intent) throw new Error('Intent not found');
       if (intent.userId !== authUserId) throw new Error('Access denied: intent not owned by user');
       return db.assignIntentToIndex(intentId, indexId, relevancyScore);
     },
-    unassignIntentFromIndex: async (intentId, indexId) => {
+    unassignIntentFromIndex: async (intentId: string, indexId: string) => {
       const intent = await db.getIntent(intentId);
       if (!intent) throw new Error('Intent not found');
       if (intent.userId !== authUserId) throw new Error('Access denied: intent not owned by user');
       return db.unassignIntentFromIndex(intentId, indexId);
     },
-    getIndexIdsForIntent: (intentId) => db.getIndexIdsForIntent(intentId),
-    isIntentAssignedToIndex: (intentId, indexId) => db.isIntentAssignedToIndex(intentId, indexId),
+    getIndexIdsForIntent: async (intentId: string) => {
+      const intent = await db.getIntent(intentId);
+      if (!intent) throw new Error('Intent not found');
+      if (intent.userId !== authUserId) throw new Error('Access denied: intent not owned by user');
+      return db.getIndexIdsForIntent(intentId);
+    },
+    isIntentAssignedToIndex: async (intentId: string, indexId: string) => {
+      const intent = await db.getIntent(intentId);
+      if (!intent) throw new Error('Intent not found');
+      if (intent.userId !== authUserId) throw new Error('Access denied: intent not owned by user');
+      return db.isIntentAssignedToIndex(intentId, indexId);
+    },
 
     // ─────────────────────────────────────────────────────────────────────────────
     // Index Membership Operations
@@ -4940,40 +5074,58 @@ export function createUserDatabase(db: ChatDatabaseAdapter, authUserId: string):
     getIndexMemberships: () => db.getIndexMemberships(authUserId),
     getUserIndexIds: () => db.getUserIndexIds(authUserId),
     getOwnedIndexes: () => db.getOwnedIndexes(authUserId),
-    getIndexMembership: (indexId) => db.getIndexMembership(indexId, authUserId),
-    getIndexMemberContext: (indexId) => db.getIndexMemberContext(indexId, authUserId),
+    getIndexMembership: (indexId: string) => db.getIndexMembership(indexId, authUserId),
+    getIndexMemberContext: (indexId: string) => db.getIndexMemberContext(indexId, authUserId),
 
     // ─────────────────────────────────────────────────────────────────────────────
     // Index CRUD Operations
     // ─────────────────────────────────────────────────────────────────────────────
-    createIndex: (data) => db.createIndex(data),
-    updateIndexSettings: (indexId, data) => db.updateIndexSettings(indexId, authUserId, data),
-    softDeleteIndex: (indexId) => db.softDeleteIndex(indexId),
+    createIndex: (data: Parameters<ChatDatabaseAdapter['createIndex']>[0]) => db.createIndex(data),
+    updateIndexSettings: (indexId: string, data: Parameters<ChatDatabaseAdapter['updateIndexSettings']>[2]) => db.updateIndexSettings(indexId, authUserId, data),
+    softDeleteIndex: async (indexId: string) => {
+      const isOwner = await db.isIndexOwner(indexId, authUserId);
+      if (!isOwner) throw new Error('Access denied: not index owner');
+      const isPersonal = await db.isPersonalIndex(indexId);
+      if (isPersonal) throw new Error('Cannot delete personal index');
+      return db.softDeleteIndex(indexId);
+    },
 
     // ─────────────────────────────────────────────────────────────────────────────
     // Public Index Discovery
     // ─────────────────────────────────────────────────────────────────────────────
     getPublicIndexesNotJoined: () => db.getPublicIndexesNotJoined(authUserId),
-    joinPublicIndex: (indexId) => db.joinPublicIndex(indexId, authUserId),
+    joinPublicIndex: (indexId: string) => db.joinPublicIndex(indexId, authUserId),
 
     // ─────────────────────────────────────────────────────────────────────────────
     // Opportunity Operations
     // ─────────────────────────────────────────────────────────────────────────────
-    getOpportunitiesForUser: (options) => db.getOpportunitiesForUser(authUserId, options),
-    getOpportunity: (id) => db.getOpportunity(id),
-    updateOpportunityStatus: (id, status) => db.updateOpportunityStatus(id, status),
-    getAcceptedOpportunitiesBetweenActors: (counterpartUserId) =>
+    getOpportunitiesForUser: (options?: Parameters<ChatDatabaseAdapter['getOpportunitiesForUser']>[1]) => db.getOpportunitiesForUser(authUserId, options),
+    getOpportunity: async (id: string) => {
+      const opportunity = await db.getOpportunity(id);
+      if (!opportunity) return null;
+      if (!canActorSeeOpportunity(opportunity.actors, opportunity.status, authUserId))
+        throw new Error('Access denied: opportunity not visible to user');
+      return opportunity;
+    },
+    updateOpportunityStatus: async (id: string, status: Parameters<ChatDatabaseAdapter['updateOpportunityStatus']>[1]) => {
+      const opportunity = await db.getOpportunity(id);
+      if (!opportunity) throw new Error('Opportunity not found');
+      if (!canActorSeeOpportunity(opportunity.actors, opportunity.status, authUserId))
+        throw new Error('Access denied: opportunity not visible to user');
+      return db.updateOpportunityStatus(id, status);
+    },
+    getAcceptedOpportunitiesBetweenActors: (counterpartUserId: string) =>
       db.getAcceptedOpportunitiesBetweenActors(authUserId, counterpartUserId),
-    acceptSiblingOpportunities: (counterpartUserId, excludeOpportunityId) =>
+    acceptSiblingOpportunities: (counterpartUserId: string, excludeOpportunityId: string) =>
       db.acceptSiblingOpportunities(authUserId, counterpartUserId, excludeOpportunityId),
 
     // ─────────────────────────────────────────────────────────────────────────────
     // HyDE Operations
     // ─────────────────────────────────────────────────────────────────────────────
-    getHydeDocument: (sourceType, sourceId, strategy) => db.getHydeDocument(sourceType, sourceId, strategy),
-    getHydeDocumentsForSource: (sourceType, sourceId) => db.getHydeDocumentsForSource(sourceType, sourceId),
-    saveHydeDocument: (data) => db.saveHydeDocument(data),
-    deleteHydeDocumentsForSource: (sourceType, sourceId) => db.deleteHydeDocumentsForSource(sourceType, sourceId),
+    getHydeDocument: (sourceType: Parameters<ChatDatabaseAdapter['getHydeDocument']>[0], sourceId: string, strategy: string) => db.getHydeDocument(sourceType, sourceId, strategy),
+    getHydeDocumentsForSource: (sourceType: Parameters<ChatDatabaseAdapter['getHydeDocumentsForSource']>[0], sourceId: string) => db.getHydeDocumentsForSource(sourceType, sourceId),
+    saveHydeDocument: (data: Parameters<ChatDatabaseAdapter['saveHydeDocument']>[0]) => db.saveHydeDocument(data),
+    deleteHydeDocumentsForSource: (sourceType: Parameters<ChatDatabaseAdapter['deleteHydeDocumentsForSource']>[0], sourceId: string) => db.deleteHydeDocumentsForSource(sourceType, sourceId),
   };
 }
 
@@ -4992,7 +5144,7 @@ export function createSystemDatabase(
   authUserId: string,
   indexScope: string[],
   embedder?: VectorStore
-): SystemDatabase {
+) {
   /**
    * Verify that an indexId is within the allowed scope.
    * Throws if the index is not in scope.
@@ -5034,13 +5186,13 @@ export function createSystemDatabase(
     // ─────────────────────────────────────────────────────────────────────────────
     // Profile Operations (cross-user within scope)
     // ─────────────────────────────────────────────────────────────────────────────
-    getProfile: async (userId) => {
+    getProfile: async (userId: string) => {
       if (!(await verifySharedIndex(userId))) {
         throw new Error('Access denied: no shared index with user');
       }
       return db.getProfile(userId);
     },
-    getUser: async (userId) => {
+    getUser: async (userId: string) => {
       if (!(await verifySharedIndex(userId))) {
         throw new Error('Access denied: no shared index with user');
       }
@@ -5050,18 +5202,23 @@ export function createSystemDatabase(
     // ─────────────────────────────────────────────────────────────────────────────
     // Intent Operations (cross-user within scope)
     // ─────────────────────────────────────────────────────────────────────────────
-    getIntentsInIndex: async (indexId, options) => {
+    getIntentsInIndex: async (indexId: string, options?: { limit?: number; offset?: number }) => {
       verifyScope(indexId);
       return db.getIndexIntentsForMember(indexId, authUserId, options);
     },
-    getUserIntentsInIndex: async (userId, indexId) => {
+    getUserIntentsInIndex: async (userId: string, indexId: string) => {
       verifyScope(indexId);
       return db.getIntentsInIndexForMember(userId, indexId);
     },
-    getIntent: (intentId) => db.getIntent(intentId),
-    findSimilarIntentsInScope: async (embedding, options) => {
+    /**
+     * Retrieves an intent by ID without scope check.
+     * @remarks Intentionally unscoped -- used by agent graphs (e.g. opportunity evaluator,
+     * negotiation) that need cross-user intent access within the discovery pipeline.
+     */
+    getIntent: (intentId: string) => db.getIntent(intentId),
+    findSimilarIntentsInScope: async (embedding: number[], options?: { limit?: number; threshold?: number }) => {
       if (!embedder || indexScope.length === 0) {
-        return [];
+        return [] as SimilarIntent[];
       }
       const limit = options?.limit ?? 10;
       const threshold = options?.threshold ?? 0.7;
@@ -5090,28 +5247,48 @@ export function createSystemDatabase(
     // ─────────────────────────────────────────────────────────────────────────────
     // Index Membership Operations (cross-user within scope)
     // ─────────────────────────────────────────────────────────────────────────────
-    isIndexMember: (indexId, userId) => db.isIndexMember(indexId, userId),
-    isIndexOwner: (indexId, userId) => db.isIndexOwner(indexId, userId),
-    getIndexMembers: async (indexId) => {
+    /**
+     * Checks index membership without scope check.
+     * @remarks Intentionally unscoped -- used by agent graphs and tools that need to verify
+     * membership for any user (e.g. join flows, invitation acceptance).
+     */
+    isIndexMember: (indexId: string, userId: string) => db.isIndexMember(indexId, userId),
+    /**
+     * Checks index ownership without scope check.
+     * @remarks Intentionally unscoped -- used by agent graphs and tools that need to verify
+     * ownership for any user (e.g. permission checks during graph execution).
+     */
+    isIndexOwner: (indexId: string, userId: string) => db.isIndexOwner(indexId, userId),
+    getIndexMembers: async (indexId: string) => {
       verifyScope(indexId);
       return db.getIndexMembersForMember(indexId, authUserId);
     },
     getMembersFromScope: () => db.getMembersFromUserIndexes(authUserId as Id<'users'>),
-    addMemberToIndex: (indexId, userId, role) => db.addMemberToIndex(indexId, userId, role),
-    removeMemberFromIndex: (indexId, userId) => db.removeMemberFromIndex(indexId, userId),
+    /**
+     * Adds a member to an index without scope check.
+     * @remarks Intentionally unscoped -- used by join flows, invitation acceptance, and
+     * contact addition that operate outside the caller's current index scope.
+     */
+    addMemberToIndex: (indexId: string, userId: string, role: 'owner' | 'admin' | 'member') => db.addMemberToIndex(indexId, userId, role),
+    /**
+     * Removes a member from an index without scope check.
+     * @remarks Intentionally unscoped -- used by leave/kick flows and member removal
+     * handlers that operate across user boundaries.
+     */
+    removeMemberFromIndex: (indexId: string, userId: string) => db.removeMemberFromIndex(indexId, userId),
 
     // ─────────────────────────────────────────────────────────────────────────────
     // Index Operations (within scope)
     // ─────────────────────────────────────────────────────────────────────────────
-    getIndex: async (indexId) => {
+    getIndex: async (indexId: string) => {
       verifyScope(indexId);
       return db.getIndex(indexId);
     },
-    getIndexWithPermissions: async (indexId) => {
+    getIndexWithPermissions: async (indexId: string) => {
       verifyScope(indexId);
       return db.getIndexWithPermissions(indexId);
     },
-    getIndexMemberCount: async (indexId) => {
+    getIndexMemberCount: async (indexId: string) => {
       verifyScope(indexId);
       return db.getIndexMemberCount(indexId);
     },
@@ -5119,18 +5296,28 @@ export function createSystemDatabase(
     // ─────────────────────────────────────────────────────────────────────────────
     // Opportunity Operations (cross-user within scope)
     // ─────────────────────────────────────────────────────────────────────────────
-    createOpportunity: (data) => {
+    createOpportunity: (data: Parameters<ChatDatabaseAdapter['createOpportunity']>[0]) => {
       const indexId = data.context?.indexId;
       if (indexId) verifyScope(indexId);
       return db.createOpportunity(data);
     },
-    createOpportunityAndExpireIds: (data, expireIds) => db.createOpportunityAndExpireIds(data, expireIds),
-    getOpportunity: (id) => db.getOpportunity(id),
-    getOpportunitiesForIndex: async (indexId, options) => {
+    /**
+     * Creates an opportunity and expires previous ones atomically without scope check.
+     * @remarks Intentionally unscoped -- called by the discovery pipeline (negotiation
+     * finalization) which creates opportunities across user boundaries.
+     */
+    createOpportunityAndExpireIds: (data: Parameters<ChatDatabaseAdapter['createOpportunityAndExpireIds']>[0], expireIds: string[]) => db.createOpportunityAndExpireIds(data, expireIds),
+    /**
+     * Retrieves an opportunity by ID without scope check.
+     * @remarks Intentionally unscoped -- used by the negotiation graph and opportunity
+     * tools that need cross-actor access during the discovery pipeline.
+     */
+    getOpportunity: (id: string) => db.getOpportunity(id),
+    getOpportunitiesForIndex: async (indexId: string, options?: Parameters<ChatDatabaseAdapter['getOpportunitiesForIndex']>[1]) => {
       verifyScope(indexId);
       return db.getOpportunitiesForIndex(indexId, options);
     },
-    updateOpportunityStatus: async (id, status) => {
+    updateOpportunityStatus: async (id: string, status: Parameters<ChatDatabaseAdapter['updateOpportunityStatus']>[1]) => {
       const opportunity = await db.getOpportunity(id);
       if (!opportunity) throw new Error('Opportunity not found');
       const opportunityIndexId = opportunity.context?.indexId;
@@ -5138,27 +5325,42 @@ export function createSystemDatabase(
       verifyScope(opportunityIndexId);
       return db.updateOpportunityStatus(id, status);
     },
-    opportunityExistsBetweenActors: (actorIds, indexId) => {
+    opportunityExistsBetweenActors: (actorIds: string[], indexId: string) => {
       verifyScope(indexId);
       return db.opportunityExistsBetweenActors(actorIds, indexId);
     },
-    getOpportunityBetweenActors: (actorIds, indexId) => {
+    getOpportunityBetweenActors: (actorIds: string[], indexId: string) => {
       verifyScope(indexId);
       return db.getOpportunityBetweenActors(actorIds, indexId);
     },
-    findOverlappingOpportunities: (actorUserIds, options) => db.findOverlappingOpportunities(actorUserIds, options),
-    expireOpportunitiesByIntent: (intentId) => db.expireOpportunitiesByIntent(intentId),
-    expireOpportunitiesForRemovedMember: (indexId, userId) => db.expireOpportunitiesForRemovedMember(indexId, userId),
+    findOverlappingOpportunities: (actorUserIds: Parameters<ChatDatabaseAdapter['findOverlappingOpportunities']>[0], options?: Parameters<ChatDatabaseAdapter['findOverlappingOpportunities']>[1]) => db.findOverlappingOpportunities(actorUserIds, options),
+    /**
+     * Expires all opportunities linked to an intent without scope check.
+     * @remarks Intentionally unscoped -- called by intent archival event handlers
+     * that clean up opportunities when an intent is expired or archived.
+     */
+    expireOpportunitiesByIntent: (intentId: string) => db.expireOpportunitiesByIntent(intentId),
+    /**
+     * Expires opportunities for a removed member without scope check.
+     * @remarks Intentionally unscoped -- called by index membership removal event handlers
+     * that clean up opportunities when a member leaves or is kicked from an index.
+     */
+    expireOpportunitiesForRemovedMember: (indexId: string, userId: string) => db.expireOpportunitiesForRemovedMember(indexId, userId),
+    /**
+     * Expires stale opportunities without scope check.
+     * @remarks Intentionally unscoped -- called by scheduled cleanup jobs (cron)
+     * that operate system-wide, not scoped to any particular user.
+     */
     expireStaleOpportunities: () => db.expireStaleOpportunities(),
 
     // ─────────────────────────────────────────────────────────────────────────────
     // HyDE Operations (cross-user for opportunity matching)
     // ─────────────────────────────────────────────────────────────────────────────
-    getHydeDocument: (sourceType, sourceId, strategy) => db.getHydeDocument(sourceType, sourceId, strategy),
-    getHydeDocumentsForSource: (sourceType, sourceId) => db.getHydeDocumentsForSource(sourceType, sourceId),
-    saveHydeDocument: (data) => db.saveHydeDocument(data),
+    getHydeDocument: (sourceType: Parameters<ChatDatabaseAdapter['getHydeDocument']>[0], sourceId: string, strategy: string) => db.getHydeDocument(sourceType, sourceId, strategy),
+    getHydeDocumentsForSource: (sourceType: Parameters<ChatDatabaseAdapter['getHydeDocumentsForSource']>[0], sourceId: string) => db.getHydeDocumentsForSource(sourceType, sourceId),
+    saveHydeDocument: (data: Parameters<ChatDatabaseAdapter['saveHydeDocument']>[0]) => db.saveHydeDocument(data),
     deleteExpiredHydeDocuments: () => db.deleteExpiredHydeDocuments(),
-    getStaleHydeDocuments: (threshold) => db.getStaleHydeDocuments(threshold),
+    getStaleHydeDocuments: (threshold: Date) => db.getStaleHydeDocuments(threshold),
   };
 }
 
@@ -5830,7 +6032,7 @@ export class ConversationDatabaseAdapter {
    */
   async getNegotiationsByUser(
     userId: string,
-    opts?: { limit?: number; offset?: number; mutualWithUserId?: string; result?: 'consensus' | 'no_consensus' | 'in_progress' },
+    opts?: { limit?: number; offset?: number; mutualWithUserId?: string; result?: 'has_opportunity' | 'no_opportunity' | 'in_progress' },
   ): Promise<Array<Task & { artifact: Artifact | null }>> {
     const limit = opts?.limit ?? 10;
     const offset = opts?.offset ?? 0;
@@ -5857,10 +6059,10 @@ export class ConversationDatabaseAdapter {
           ),
         );
 
-    const resultFilter = opts?.result === 'consensus'
-      ? sql`(${schema.artifacts.parts}->0->>'kind' = 'data' AND (${schema.artifacts.parts}->0->'data'->>'consensus')::boolean = true)`
-      : opts?.result === 'no_consensus'
-        ? sql`(${schema.artifacts.parts}->0->>'kind' = 'data' AND (${schema.artifacts.parts}->0->'data'->>'consensus')::boolean = false)`
+    const resultFilter = opts?.result === 'has_opportunity'
+      ? sql`(${schema.artifacts.parts}->0->>'kind' = 'data' AND ((${schema.artifacts.parts}->0->'data'->>'hasOpportunity')::boolean = true OR (${schema.artifacts.parts}->0->'data'->>'consensus')::boolean = true))`
+      : opts?.result === 'no_opportunity'
+        ? sql`(${schema.artifacts.parts}->0->>'kind' = 'data' AND ((${schema.artifacts.parts}->0->'data'->>'hasOpportunity')::boolean = false OR (${schema.artifacts.parts}->0->'data'->>'consensus')::boolean = false))`
         : opts?.result === 'in_progress'
           ? and(isNull(schema.artifacts.id), inArray(schema.tasks.state, ['submitted', 'working', 'input_required']))
           : undefined;
