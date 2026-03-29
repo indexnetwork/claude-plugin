@@ -140,7 +140,7 @@ export async function runIntroducerDiscovery(
       // For each contact, we enqueue a discovery job using one of their intents
       // The opportunity graph will use onBehalfOfUserId to discover on behalf of the contact
       // while the userId (introducer) gets the introducer role
-      const jobId = `introducer-discovery:${userId}:${contact.userId}:${bucket}`;
+      const jobId = `introducer-discovery-${userId}-${contact.userId}-${bucket}`;
       try {
         await queue.addJob(
           {
