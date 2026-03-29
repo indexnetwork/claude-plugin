@@ -158,6 +158,9 @@ export async function runIntroducerDiscovery(
           logger.verbose(`[IntroducerDiscovery] Job skipped (duplicate) user=${userId} contact=${contact.userId}`);
           return false;
         }
+        logger.error(
+          `[IntroducerDiscovery] Job failed user=${userId} contact=${contact.userId}: ${message}`,
+        );
         throw err;
       }
     }),
