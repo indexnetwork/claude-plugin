@@ -668,6 +668,7 @@ export function createOpportunityTools(defineTool: DefineTool, deps: ToolDeps) {
           isGhost: opp.isGhost ?? false,
           score: opp.score,
           status: opp.status,
+          ...(opp.secondParty && { secondParty: opp.secondParty }),
         };
         return (
           CODE_FENCE + "opportunity\n" +
