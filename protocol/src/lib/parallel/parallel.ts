@@ -385,7 +385,7 @@ const profileEnrichmentSchema = {
             linkedin: { type: "string", description: "LinkedIn username only (the part after /in/ in the URL). NOT the full URL." },
             twitter: { type: "string", description: "Twitter/X username only (without @ symbol). NOT the full URL, NOT tweet URLs." },
             github: { type: "string", description: "GitHub username only. NOT the full URL." },
-            websites: { type: "array", items: { type: "string" }, description: "Only websites OWNED/CONTROLLED by this person (personal site, portfolio, blog they run). Exclude any third-party sites that merely mention them (news, company pages, aggregators, profiles on other platforms)." },
+            websites: { type: "array", items: { type: "string" }, maxItems: 2, description: "At most 2 personal websites OWNED/CONTROLLED by this person (personal site, portfolio, blog they run). Pick the most confident/representative ones. Exclude any third-party sites that merely mention them (news, company pages, aggregators, profiles on other platforms)." },
           },
         },
         confidentMatch: {
@@ -520,6 +520,9 @@ export async function enrichUserProfile(request: ParallelSearchRequestStruct): P
       }
       if (result.socials.github) {
         result.socials.github = extractHandle(result.socials.github, 'github');
+      }
+      if (result.socials.websites && result.socials.websites.length > 2) {
+        result.socials.websites = result.socials.websites.slice(0, 2);
       }
 
       logger.info('Parallel Chat API enrichment completed', {
