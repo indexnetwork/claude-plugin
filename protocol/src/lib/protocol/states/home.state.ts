@@ -71,6 +71,12 @@ export const HomeGraphState = Annotation.Root({
     default: () => 50,
   }),
 
+  /** When true, bypass presenter and categorizer Redis caches. */
+  noCache: Annotation<boolean>({
+    reducer: (curr, next) => next ?? curr,
+    default: () => false,
+  }),
+
   /** Raw opportunities visible to the viewer (after visibility filter). */
   opportunities: Annotation<Opportunity[]>({
     reducer: (curr, next) => next ?? curr,
