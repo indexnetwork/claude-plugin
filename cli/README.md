@@ -2,8 +2,8 @@
 
 Command-line interface for [Index Network](https://index.network). Chat with the AI agent, manage signals, and discover opportunities — all from your terminal.
 
-> **Status: v0.4.0**
-> Supports `login`, `chat`, `profile`, `intent` (signal management), and `opportunity` commands.
+> **Status: v0.5.0**
+> Supports `login`, `chat`, `profile`, `intent` (signal management), `opportunity`, and `network` commands.
 
 ## Quick Start
 
@@ -92,6 +92,21 @@ Status values: `pending`, `accepted`, `rejected`, `expired`.
 
 The `show` command displays a detailed card with parties (including valency roles: Helper, Seeker, Peer), reasoning, confidence, and presentation text.
 
+### `index network`
+
+Manage networks (communities). List, create, join, leave, and invite members.
+
+```bash
+index network list                     # List your networks
+index network create "My Network"      # Create a network
+index network create "AI" --prompt "AI researchers"  # Create with description
+index network show <id>                # Show details and members
+index network join <id>                # Join a public network
+index network leave <id>               # Leave a network
+index network invite <id> user@email   # Invite a user by email
+```
+
+
 ## Options
 
 | Flag | Short | Description |
@@ -103,6 +118,7 @@ The `show` command displays a detailed card with parties (including valency role
 | `--archived` | | Include archived signals (intent list) |
 | `--status <status>` | | Filter opportunities by status |
 | `--limit <n>` | | Limit number of results |
+| `--prompt <text>` | `-p` | Network description (for `network create`) |
 | `--help` | `-h` | Show help |
 | `--version` | `-v` | Show version |
 
@@ -124,19 +140,20 @@ bun test
 ```
 cli/
   src/
-    main.ts            Entry point, command routing, REPL loop
-    login.command.ts    OAuth flow with local callback server
-    chat.command.ts     SSE stream processor
-    output.ts           Terminal formatting, colors, markdown renderer
-    api.client.ts       Typed HTTP client for the protocol API
-    auth.store.ts       Credential persistence (~/.index/credentials.json)
-    args.parser.ts      CLI argument parser (Bun-native parseArgs)
-    sse.parser.ts       Server-Sent Events parser
+    main.ts              Entry point, command routing, REPL loop
+    login.command.ts     OAuth flow with local callback server
+    chat.command.ts      SSE stream processor
+    network.command.ts   Network subcommand handlers
+    output.ts            Terminal formatting, colors, markdown renderer
+    api.client.ts        Typed HTTP client for the protocol API
+    auth.store.ts        Credential persistence (~/.index/credentials.json)
+    args.parser.ts       CLI argument parser (Bun-native parseArgs)
+    sse.parser.ts        Server-Sent Events parser
 ```
 
 ## Roadmap
 
 Commands planned for future iterations:
 
-- `index network` — Manage indexes and memberships
+- ~~`index network` — Manage indexes and memberships~~ (shipped!)
 - `index conversation` — H2H and A2A messaging
