@@ -125,7 +125,7 @@ export const userProfiles = pgTable('user_profiles', {
 
 export const userNotificationSettings = pgTable('user_notification_settings', {
   id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
-  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  userId: text('user_id').notNull().unique().references(() => users.id, { onDelete: 'cascade' }),
   preferences: json('preferences').$type<NotificationPreferences>().default({
     connectionUpdates: true,
     weeklyNewsletter: true,
