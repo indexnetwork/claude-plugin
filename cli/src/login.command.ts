@@ -64,10 +64,9 @@ export async function handleLogin(
           await store.save({ token: sessionToken, apiUrl: baseUrl });
           resolveCallback({ success: true });
 
-          return new Response(
-            "<html><body><h2>Login successful!</h2><p>You can close this window and return to the terminal.</p></body></html>",
-            { headers: { "Content-Type": "text/html" } },
-          );
+          return new Response(callbackHtml("CLI authorized", "You can close this window and return to the terminal."), {
+            headers: { "Content-Type": "text/html" },
+          });
         }
 
         resolveCallback({
@@ -75,10 +74,10 @@ export async function handleLogin(
           error: "No session token received in callback.",
         });
 
-        return new Response(
-          "<html><body><h2>Login failed</h2><p>No session token received.</p></body></html>",
-          { headers: { "Content-Type": "text/html" }, status: 400 },
-        );
+        return new Response(callbackHtml("Authorization failed", "No session token received. Please try again."), {
+          headers: { "Content-Type": "text/html" },
+          status: 400,
+        });
       }
 
       return new Response("Not Found", { status: 404 });
@@ -88,11 +87,11 @@ export async function handleLogin(
   const port = server.port;
   const callbackUrl = `http://localhost:${port}/callback`;
 
-  // Construct the OAuth URL
-  // Better Auth social sign-in URL with callback redirect to our local server
+  // Construct the auth URL
+  // Default: session exchange page that converts existing browser session to CLI token
+  // Falls back to OAuth if no session exists (handled by the frontend page)
   const authUrl =
-    `${baseUrl}/api/auth/sign-in/social?provider=google` +
-    `&callbackURL=${encodeURIComponent(callbackUrl)}`;
+    `${baseUrl}/cli-auth?callback=${encodeURIComponent(callbackUrl)}`;
 
   // Set up timeout
   const timeout = setTimeout(() => {
@@ -129,4 +128,52 @@ export async function handleLogin(
     port,
     callbackPromise: wrappedPromise,
   };
+}
+
+/** Generate a styled HTML page for the CLI callback response. */
+function callbackHtml(title: string, message: string): string {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>${title} — Index</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Public Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: #FDFDFD;
+      color: #111;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+    }
+    .card {
+      text-align: center;
+      max-width: 400px;
+      padding: 2rem;
+    }
+    h1 {
+      font-size: 1.25rem;
+      font-weight: 600;
+      margin-bottom: 0.5rem;
+    }
+    p {
+      font-size: 0.875rem;
+      color: #666;
+      line-height: 1.5;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>${title}</h1>
+    <p>${message}</p>
+  </div>
+</body>
+</html>`;
 }

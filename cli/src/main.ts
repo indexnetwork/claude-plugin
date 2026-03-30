@@ -21,14 +21,15 @@ import { handleLogin } from "./login.command";
 import { renderSSEStream } from "./chat.command";
 import * as output from "./output";
 
-const DEFAULT_API_URL = "http://localhost:3001";
+const DEFAULT_API_URL = "http://localhost:3000";
 const VERSION = "0.1.0";
 
 const HELP_TEXT = `
 Index CLI v${VERSION}
 
 Usage:
-  index login [--api-url <url>]         Authenticate via browser OAuth
+  index login                           Authenticate via browser (uses existing session or OAuth)
+  index login --token <token>           Authenticate with a manually provided token
   index logout                          Clear stored session
   index chat [message]                  Chat with the AI agent (REPL if no message)
   index chat --list                     List chat sessions
@@ -38,6 +39,7 @@ Usage:
 
 Options:
   --api-url <url>     Override the API server URL (default: ${DEFAULT_API_URL})
+  --token <token>, -t Provide a bearer token directly (skips browser flow)
   --session <id>, -s  Resume a specific chat session
   --list, -l          List chat sessions
 `;
@@ -62,7 +64,7 @@ async function main(): Promise<void> {
       return;
 
     case "login":
-      await runLogin(args.apiUrl);
+      await runLogin(args.apiUrl, args.token);
       return;
 
     case "logout":
@@ -83,15 +85,28 @@ async function main(): Promise<void> {
 
 // ── Command handlers ─────────────────────────────────────────────────
 
-async function runLogin(apiUrlOverride?: string): Promise<void> {
+async function runLogin(apiUrlOverride?: string, manualToken?: string): Promise<void> {
   const store = new CredentialStore();
   const apiUrl = apiUrlOverride ?? DEFAULT_API_URL;
 
+  // Manual token flow: skip browser entirely
+  if (manualToken) {
+    await store.save({ token: manualToken, apiUrl });
+    try {
+      const client = new ApiClient(apiUrl, manualToken);
+      const user = await client.getMe();
+      output.success(`Logged in as ${user.name} (${user.email})`);
+    } catch {
+      output.success("Token stored. Could not verify — check with `index chat`.");
+    }
+    return;
+  }
+
+  // Browser flow: opens /cli-auth which exchanges existing session or starts OAuth
   output.info(`Authenticating with ${apiUrl}...`);
 
   const { authUrl, callbackPromise } = await handleLogin(apiUrl, store);
 
-  // Try to open the browser
   output.info("Opening browser for authentication...");
   output.dim(`If the browser does not open, visit:\n  ${authUrl}\n`);
 
@@ -114,7 +129,6 @@ async function runLogin(apiUrlOverride?: string): Promise<void> {
   const result = await callbackPromise;
 
   if (result.success) {
-    // Verify the token works
     try {
       const creds = await store.load();
       if (creds) {
