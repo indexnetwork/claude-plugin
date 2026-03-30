@@ -32,7 +32,7 @@ function isMeaningfulEnrichment(enrichment: Awaited<ReturnType<typeof enrichUser
 }
 
 export function createProfileTools(defineTool: DefineTool, deps: ToolDeps) {
-  const { userDb, systemDb, graphs } = deps;
+  const { userDb, systemDb, database, graphs } = deps;
 
   const readUserProfiles = defineTool({
     name: "read_user_profiles",
@@ -543,7 +543,20 @@ export function createProfileTools(defineTool: DefineTool, deps: ToolDeps) {
           completedAt: new Date().toISOString(),
         },
       });
-      logger.info("Onboarding completed", { userId: context.userId });
+
+      const autoJoinIds = (process.env.AUTO_JOIN_INDEX_IDS ?? '')
+        .split(',')
+        .map(id => id.trim())
+        .filter(Boolean);
+      for (const indexId of autoJoinIds) {
+        try {
+          await database.addMemberToIndex(indexId, context.userId, 'member');
+        } catch (err) {
+          logger.warn('Auto-join index failed (non-fatal)', { indexId, userId: context.userId, error: err instanceof Error ? err.message : String(err) });
+        }
+      }
+
+      logger.info("Onboarding completed", { userId: context.userId, autoJoinedIndexes: autoJoinIds.length });
       return success({ message: "Onboarding complete." });
     },
   });
