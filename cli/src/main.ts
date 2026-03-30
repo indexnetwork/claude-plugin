@@ -34,6 +34,7 @@ import { handleLogin } from "./login.command";
 import { renderSSEStream } from "./chat.command";
 import { handleProfile } from "./profile.command";
 import { handleIntent } from "./intent.command";
+import { handleOpportunity } from "./opportunity.command";
 import { handleNetwork } from "./network.command";
 import { handleConversation } from "./conversation.command";
 import * as output from "./output";
@@ -142,9 +143,15 @@ async function main(): Promise<void> {
       return;
     }
 
-    case "opportunity":
-      await runOpportunity(args.subcommand, args.targetId, args.status, args.limit, args.apiUrl);
+    case "opportunity": {
+      const client = await requireAuth(args.apiUrl);
+      await handleOpportunity(client, args.subcommand, {
+        targetId: args.targetId,
+        status: args.status,
+        limit: args.limit,
+      });
       return;
+    }
 
     case "network": {
       const client = await requireAuth(args.apiUrl);
@@ -335,100 +342,6 @@ async function runChatRepl(
 
   process.stderr.write("\n");
   output.dim("Goodbye!");
-}
-
-// ── Opportunity handlers ────────────────────────────────────────────
-
-const OPPORTUNITY_HELP = `
-Usage:
-  index opportunity list                List your opportunities
-  index opportunity list --status <s>   Filter by status (pending|accepted|rejected|expired)
-  index opportunity list --limit <n>    Limit results
-  index opportunity show <id>           Show full opportunity details
-  index opportunity accept <id>         Accept an opportunity
-  index opportunity reject <id>         Reject an opportunity
-`;
-
-async function runOpportunity(
-  subcommand?: string,
-  targetId?: string,
-  status?: string,
-  limit?: number,
-  apiUrlOverride?: string,
-): Promise<void> {
-  if (!subcommand) {
-    console.log(OPPORTUNITY_HELP);
-    return;
-  }
-
-  switch (subcommand) {
-    case "list":
-      await runOpportunityList(status, limit, apiUrlOverride);
-      return;
-
-    case "show":
-      if (!targetId) {
-        output.error("Missing opportunity ID. Usage: index opportunity show <id>", 1);
-        return;
-      }
-      await runOpportunityShow(targetId, apiUrlOverride);
-      return;
-
-    case "accept":
-      if (!targetId) {
-        output.error("Missing opportunity ID. Usage: index opportunity accept <id>", 1);
-        return;
-      }
-      await runOpportunityStatusUpdate(targetId, "accepted", apiUrlOverride);
-      return;
-
-    case "reject":
-      if (!targetId) {
-        output.error("Missing opportunity ID. Usage: index opportunity reject <id>", 1);
-        return;
-      }
-      await runOpportunityStatusUpdate(targetId, "rejected", apiUrlOverride);
-      return;
-
-    default:
-      output.error(`Unknown subcommand: ${subcommand}`, 1);
-      return;
-  }
-}
-
-async function runOpportunityList(
-  status?: string,
-  limit?: number,
-  apiUrlOverride?: string,
-): Promise<void> {
-  const client = await requireAuth(apiUrlOverride);
-
-  const opportunities = await client.listOpportunities({ status, limit });
-  output.heading("Opportunities");
-  output.opportunityTable(opportunities);
-  console.log();
-}
-
-async function runOpportunityShow(
-  id: string,
-  apiUrlOverride?: string,
-): Promise<void> {
-  const client = await requireAuth(apiUrlOverride);
-
-  const opportunity = await client.getOpportunity(id);
-  output.opportunityCard(opportunity);
-}
-
-async function runOpportunityStatusUpdate(
-  id: string,
-  status: "accepted" | "rejected",
-  apiUrlOverride?: string,
-): Promise<void> {
-  const client = await requireAuth(apiUrlOverride);
-
-  await client.updateOpportunityStatus(id, status);
-  const label = status === "accepted" ? "accepted" : "rejected";
-  output.success(`Opportunity ${label}.`);
 }
 
 // ── Stream helpers ──────────────────────────────────────────────────
