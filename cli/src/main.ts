@@ -19,11 +19,7 @@ import { handleNetwork } from "./network.command";
 import { handleConversation } from "./conversation.command";
 import * as output from "./output";
 
-const isProduction = process.env.NODE_ENV === "production";
-const DEFAULT_API_URL =
-  process.env.NDX_API_URL ?? (isProduction ? "https://api.index.network" : "http://localhost:3001");
-const DEFAULT_APP_URL =
-  process.env.NDX_APP_URL ?? (isProduction ? "https://index.network" : "http://localhost:3000");
+const DEFAULT_API_URL = "http://localhost:3000";
 const VERSION = "0.6.0";
 
 const HELP_TEXT = `
@@ -65,7 +61,6 @@ Usage:
 
 Options:
   --api-url <url>     Override the API server URL (default: ${DEFAULT_API_URL})
-  --app-url <url>     Override the frontend app URL (default: ${DEFAULT_APP_URL})
   --token <token>, -t Provide a bearer token directly (skips browser flow)
   --session <id>, -s  Resume a specific chat session
   --list, -l          List chat sessions
@@ -100,10 +95,9 @@ async function requireAuth(apiUrlOverride?: string): Promise<ApiClient> {
 /**
  * Handle the login command — supports both browser OAuth and manual token.
  */
-async function runLogin(apiUrlOverride?: string, manualToken?: string, appUrlOverride?: string): Promise<void> {
+async function runLogin(apiUrlOverride?: string, manualToken?: string): Promise<void> {
   const store = new CredentialStore();
   const apiUrl = apiUrlOverride ?? DEFAULT_API_URL;
-  const appUrl = appUrlOverride ?? DEFAULT_APP_URL;
 
   // Manual token flow: skip browser entirely
   if (manualToken) {
@@ -121,7 +115,7 @@ async function runLogin(apiUrlOverride?: string, manualToken?: string, appUrlOve
   // Browser flow: opens /cli-auth which exchanges existing session or starts OAuth
   output.info(`Authenticating with ${apiUrl}...`);
 
-  const { authUrl, callbackPromise } = await handleLogin(apiUrl, store, { appUrl });
+  const { authUrl, callbackPromise } = await handleLogin(apiUrl, store);
 
   output.info("Opening browser for authentication...");
   output.dim(`If the browser does not open, visit:\n  ${authUrl}\n`);
@@ -190,7 +184,7 @@ async function main(): Promise<void> {
       output.error(`Unknown command: ${args.unknown}`, 1);
       return;
     case "login":
-      await runLogin(args.apiUrl, args.token, args.appUrl);
+      await runLogin(args.apiUrl, args.token);
       return;
     case "logout":
       await runLogout();
