@@ -6,8 +6,11 @@
  * command. Everything is a conversation.
  */
 
+import { createInterface } from "node:readline/promises";
+
 import type { ApiClient } from "./api.client";
 import * as output from "./output";
+import { MarkdownRenderer } from "./output";
 
 // ── SSE stream types ────────────────────────────────────────────────
 
@@ -184,7 +187,11 @@ export async function renderSSEStream(
 
 const CONVERSATION_HELP = `
 Conversation Commands:
-  index conversation list                  List your conversations
+  index conversation                       Start an interactive AI chat (REPL)
+  index conversation "message"             One-shot message to the AI agent
+  index conversation --session <id>        Resume a specific chat session
+  index conversation sessions              List AI chat sessions
+  index conversation list                  List all conversations (H2A + H2H)
   index conversation with <user-id>        Open or resume a DM with a user
   index conversation show <id>             Show messages in a conversation
   index conversation show <id> --limit <n> Limit number of messages
@@ -192,26 +199,45 @@ Conversation Commands:
   index conversation stream                Listen for real-time events (SSE)
 `;
 
+/** Options for the conversation command. */
+export interface ConversationOptions {
+  limit?: number;
+  sessionId?: string;
+  message?: string;
+}
+
 /**
  * Route a conversation subcommand to the appropriate handler.
  *
+ * When no subcommand is given, starts the interactive REPL with the
+ * AI agent. When positional text is provided that does not match a
+ * known subcommand, it is treated as a one-shot message.
+ *
  * @param client - Authenticated API client.
- * @param subcommand - The subcommand (list, with, show, send, stream).
+ * @param subcommand - The subcommand (list, with, show, send, stream, sessions).
  * @param positionals - Positional arguments after the subcommand.
- * @param options - Additional options (e.g. limit).
+ * @param options - Additional options (e.g. limit, sessionId, message).
  */
 export async function handleConversation(
   client: ApiClient,
   subcommand: string | undefined,
   positionals: string[],
-  options?: { limit?: number },
+  options?: ConversationOptions,
 ): Promise<void> {
+  // No subcommand: start REPL or send one-shot message
   if (!subcommand) {
-    console.log(CONVERSATION_HELP);
+    if (options?.message) {
+      await chatOneShot(client, options.message, options.sessionId);
+    } else {
+      await chatRepl(client, options?.sessionId);
+    }
     return;
   }
 
   switch (subcommand) {
+    case "sessions":
+      await chatSessionsList(client);
+      return;
     case "list":
       await conversationList(client);
       return;
@@ -226,6 +252,9 @@ export async function handleConversation(
       return;
     case "stream":
       await conversationStream(client);
+      return;
+    case "help":
+      console.log(CONVERSATION_HELP);
       return;
     default:
       output.error(`Unknown conversation subcommand: ${subcommand}`, 1);
@@ -353,4 +382,183 @@ async function conversationStream(client: ApiClient): Promise<void> {
   } finally {
     reader.releaseLock();
   }
+}
+
+// ── H2A: Agent chat (REPL, one-shot, sessions) ────────────────────
+
+/**
+ * List all H2A chat sessions.
+ */
+async function chatSessionsList(client: ApiClient): Promise<void> {
+  const sessions = await client.listSessions();
+  output.heading("Chat Sessions");
+  output.sessionTable(sessions);
+  console.log();
+}
+
+/**
+ * Send a single message to the AI agent and print the streamed response.
+ */
+async function chatOneShot(
+  client: ApiClient,
+  message: string,
+  sessionId?: string,
+): Promise<void> {
+  const response = await client.streamChat({ message, sessionId });
+
+  if (!response.ok) {
+    handleStreamError(response);
+    return;
+  }
+
+  const result = await streamToTerminal(response);
+
+  if (result.error) {
+    output.error(result.error, 1);
+    return;
+  }
+
+  if (result.sessionId) {
+    output.dim(`\nSession: ${result.sessionId}`);
+  }
+}
+
+/**
+ * Enter an interactive REPL chat session with the AI agent.
+ */
+async function chatRepl(
+  client: ApiClient,
+  sessionId?: string,
+): Promise<void> {
+  let currentSessionId = sessionId;
+
+  output.chatHeader();
+
+  const PROMPT_STR = output.PROMPT_STR;
+
+  const rl = createInterface({
+    input: process.stdin,
+    output: process.stderr,
+    terminal: true,
+  });
+  rl.setPrompt(PROMPT_STR);
+  rl.prompt();
+
+  try {
+    for await (const line of rl) {
+      const input = line.trim();
+      if (!input) {
+        rl.prompt();
+        continue;
+      }
+      if (input === "exit" || input === "quit") break;
+
+      const response = await client.streamChat({
+        message: input,
+        sessionId: currentSessionId,
+      });
+
+      if (!response.ok) {
+        if (response.status === 401) {
+          output.error(
+            "Session expired. Run `index login` to re-authenticate.",
+            1,
+          );
+          return;
+        }
+        const body = (await response.json().catch(() => ({}))) as {
+          error?: string;
+        };
+        output.error(body.error ?? `HTTP ${response.status}`);
+        rl.prompt();
+        continue;
+      }
+
+      const result = await streamToTerminal(response);
+
+      if (result.error) {
+        output.error(result.error);
+      }
+
+      // Track session for continuity
+      if (result.sessionId) {
+        currentSessionId = result.sessionId;
+      }
+
+      process.stderr.write("\n");
+      rl.prompt();
+    }
+  } finally {
+    rl.close();
+  }
+
+  process.stderr.write("\n");
+  output.dim("Goodbye!");
+}
+
+// ── Stream helpers ──────────────────────────────────────────────────
+
+/**
+ * Stream an SSE response to the terminal with formatting.
+ * Handles status messages, tool activity, and markdown rendering.
+ */
+async function streamToTerminal(response: Response): Promise<StreamResult> {
+  let hasTokens = false;
+  const md = new MarkdownRenderer();
+  let lastToolDesc = "";
+
+  const result = await renderSSEStream(response, {
+    onToken(text) {
+      if (!hasTokens) {
+        output.clearStatus();
+        hasTokens = true;
+      }
+      md.write(text);
+      // Once tokens flow, clear last tool so it can show again after new text
+      lastToolDesc = "";
+    },
+    onStatus(msg) {
+      if (!hasTokens) {
+        output.status(msg);
+      }
+    },
+    onToolActivity(description, phase) {
+      if (phase === "start") {
+        const friendly = output.humanizeToolName(description);
+        // Skip if identical to the last tool line with no text in between
+        if (friendly === lastToolDesc) return;
+        lastToolDesc = friendly;
+        // Finalize any buffered markdown before the tool line
+        md.finalize();
+        hasTokens = false;
+        output.toolActivity(friendly);
+      }
+    },
+    onResponseReset(reason) {
+      md.reset(reason);
+      hasTokens = false;
+    },
+  });
+
+  md.finalize();
+  output.clearStatus();
+  if (hasTokens) {
+    console.log(); // newline after streamed tokens
+  }
+
+  return result;
+}
+
+/** Handle non-OK stream responses. */
+async function handleStreamError(response: Response): Promise<void> {
+  if (response.status === 401) {
+    output.error(
+      "Session expired or invalid. Run `index login` to re-authenticate.",
+      1,
+    );
+  }
+  const body = (await response.json().catch(() => ({}))) as {
+    error?: string;
+  };
+  output.error(body.error ?? `HTTP ${response.status}`, 1);
 }
