@@ -2,7 +2,7 @@
 
 Command-line interface for [Index Network](https://index.network). Chat with the AI agent, manage signals, and discover opportunities — all from your terminal.
 
-> **Status: v0.3.0**
+> **Status: v0.4.0**
 > Supports `login`, `chat`, `profile`, `intent` (signal management), and `opportunity` commands.
 
 ## Quick Start
