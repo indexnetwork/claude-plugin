@@ -1,4 +1,4 @@
-#!/usr/bin/env bun
+#!/usr/bin/env node
 /**
  * Index CLI — thin dispatcher that parses arguments, authenticates,
  * and delegates to the appropriate command handler module.
@@ -6,6 +6,8 @@
  * Each command lives in its own `*.command.ts` file following the
  * `handleX(client, ...)` pattern.
  */
+
+import { execFile } from "node:child_process";
 
 import { parseArgs } from "./args.parser";
 import { CredentialStore } from "./auth.store";
@@ -18,8 +20,9 @@ import { handleNetwork } from "./network.command";
 import { handleConversation } from "./conversation.command";
 import * as output from "./output";
 
-const DEFAULT_API_URL = "http://localhost:3000";
-const VERSION = "0.6.0";
+const DEFAULT_API_URL = "https://protocol.index.network";
+const DEFAULT_APP_URL = "https://index.network";
+const VERSION = "0.7.0";
 
 const HELP_TEXT = `
 Index CLI v${VERSION}
@@ -61,6 +64,7 @@ Usage:
 
 Options:
   --api-url <url>     Override the API server URL (default: ${DEFAULT_API_URL})
+  --app-url <url>     Override the app URL for login (default: ${DEFAULT_APP_URL})
   --token <token>, -t Provide a bearer token directly (skips browser flow)
   --session <id>, -s  Resume a specific chat session
   --archived          Include archived signals (intent list)
@@ -94,9 +98,10 @@ async function requireAuth(apiUrlOverride?: string): Promise<ApiClient> {
 /**
  * Handle the login command — supports both browser OAuth and manual token.
  */
-async function runLogin(apiUrlOverride?: string, manualToken?: string): Promise<void> {
+async function runLogin(apiUrlOverride?: string, appUrlOverride?: string, manualToken?: string): Promise<void> {
   const store = new CredentialStore();
   const apiUrl = apiUrlOverride ?? DEFAULT_API_URL;
+  const appUrl = appUrlOverride ?? DEFAULT_APP_URL;
 
   // Manual token flow: skip browser entirely
   if (manualToken) {
@@ -114,7 +119,7 @@ async function runLogin(apiUrlOverride?: string, manualToken?: string): Promise<
   // Browser flow: opens /cli-auth which exchanges existing session or starts OAuth
   output.info(`Authenticating with ${apiUrl}...`);
 
-  const { authUrl, callbackPromise } = await handleLogin(apiUrl, store);
+  const { authUrl, callbackPromise } = await handleLogin(apiUrl, appUrl, store);
 
   output.info("Opening browser for authentication...");
   output.dim(`If the browser does not open, visit:\n  ${authUrl}\n`);
@@ -128,7 +133,7 @@ async function runLogin(apiUrlOverride?: string, manualToken?: string): Promise<
           : null;
 
     if (opener) {
-      Bun.spawn([opener, authUrl], { stdout: "ignore", stderr: "ignore" });
+      execFile(opener, [authUrl], { stdio: "ignore" });
     }
   } catch {
     // Browser open failed — user can copy the URL manually.
@@ -183,7 +188,7 @@ async function main(): Promise<void> {
       output.error(`Unknown command: ${args.unknown}`, 1);
       return;
     case "login":
-      await runLogin(args.apiUrl, args.token);
+      await runLogin(args.apiUrl, args.appUrl, args.token);
       return;
     case "logout":
       await runLogout();
