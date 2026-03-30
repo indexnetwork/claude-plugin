@@ -49,17 +49,20 @@ function closeServer(server: Server): Promise<void> {
  * 5. Saves the received token to the credential store.
  *
  * @param apiUrl - The protocol server base URL.
+ * @param appUrl - The frontend app URL (serves the /cli-auth page).
  * @param store - The credential store instance.
  * @param options - Optional signal and timeout configuration.
  * @returns A handle with the auth URL and a promise for the result.
  */
 export async function handleLogin(
   apiUrl: string,
+  appUrl: string,
   store: CredentialStore,
   options: LoginOptions = {},
 ): Promise<LoginHandle> {
   const timeoutMs = options.timeoutMs ?? 120_000;
   const baseUrl = apiUrl.replace(/\/$/, "");
+  const baseAppUrl = appUrl.replace(/\/$/, "");
 
   let resolveCallback: (result: LoginResult) => void;
   const callbackPromise = new Promise<LoginResult>((resolve) => {
@@ -109,7 +112,7 @@ export async function handleLogin(
   // Default: session exchange page that converts existing browser session to CLI token
   // Falls back to OAuth if no session exists (handled by the frontend page)
   const authUrl =
-    `${baseUrl}/cli-auth?callback=${encodeURIComponent(callbackUrl)}`;
+    `${baseAppUrl}/cli-auth?callback=${encodeURIComponent(callbackUrl)}`;
 
   // Set up timeout
   const timeout = setTimeout(() => {
