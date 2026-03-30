@@ -194,6 +194,116 @@ export class ApiClient {
     return (await res.json()) as { success: boolean };
   }
 
+  // ── Network methods ─────────────────────────────────────────────
+
+  /**
+   * List networks (indexes) the authenticated user is a member of.
+   *
+   * @returns Array of network objects.
+   * @throws Error on auth failure or network error.
+   */
+  async listNetworks(): Promise<Network[]> {
+    const res = await this.get("/api/indexes");
+    const body = (await res.json()) as { indexes: Network[] };
+    return body.indexes;
+  }
+
+  /**
+   * Create a new network.
+   *
+   * @param title - The network title.
+   * @param prompt - Optional description/prompt for the network.
+   * @returns The created network object.
+   * @throws Error on auth failure or network error.
+   */
+  async createNetwork(title: string, prompt?: string): Promise<Network> {
+    const res = await this.post("/api/indexes", {
+      title,
+      ...(prompt ? { prompt } : {}),
+    });
+    const body = (await res.json()) as { index: Network };
+    return body.index;
+  }
+
+  /**
+   * Get a single network by ID with owner info and member count.
+   *
+   * @param id - The network ID.
+   * @returns The network object.
+   * @throws Error on auth failure or network error.
+   */
+  async getNetwork(id: string): Promise<Network> {
+    const res = await this.get(`/api/indexes/${id}`);
+    const body = (await res.json()) as { index: Network };
+    return body.index;
+  }
+
+  /**
+   * Get members of a network.
+   *
+   * @param id - The network ID.
+   * @returns Array of member objects.
+   * @throws Error on auth failure or network error.
+   */
+  async getNetworkMembers(id: string): Promise<NetworkMember[]> {
+    const res = await this.get(`/api/indexes/${id}/members`);
+    const body = (await res.json()) as { members: NetworkMember[] };
+    return body.members;
+  }
+
+  /**
+   * Join a public network.
+   *
+   * @param id - The network ID.
+   * @returns The joined network object.
+   * @throws Error on auth failure, forbidden, or network error.
+   */
+  async joinNetwork(id: string): Promise<Network> {
+    const res = await this.post(`/api/indexes/${id}/join`, {});
+    const body = (await res.json()) as { index: Network };
+    return body.index;
+  }
+
+  /**
+   * Leave a network.
+   *
+   * @param id - The network ID.
+   * @throws Error on auth failure, forbidden (owner), or network error.
+   */
+  async leaveNetwork(id: string): Promise<void> {
+    await this.post(`/api/indexes/${id}/leave`, {});
+  }
+
+  /**
+   * Search users by query string, optionally filtering by index membership.
+   *
+   * @param query - Search query (email or name).
+   * @param indexId - Optional network ID to exclude existing members.
+   * @returns Array of matching user objects.
+   * @throws Error on auth failure or network error.
+   */
+  async searchUsers(query: string, indexId?: string): Promise<SearchedUser[]> {
+    const params = new URLSearchParams({ q: query });
+    if (indexId) params.set("indexId", indexId);
+    const res = await this.get(`/api/indexes/search-users?${params.toString()}`);
+    const body = (await res.json()) as { users: SearchedUser[] };
+    return body.users;
+  }
+
+  /**
+   * Add a member to a network.
+   *
+   * @param networkId - The network ID.
+   * @param userId - The user ID to add.
+   * @returns Object with member info and message.
+   * @throws Error on auth failure, forbidden, or network error.
+   */
+  async addNetworkMember(networkId: string, userId: string): Promise<AddMemberResult> {
+    const res = await this.post(`/api/indexes/${networkId}/members`, { userId });
+    const body = (await res.json()) as AddMemberResult;
+    return body;
+  }
+
   // ── Private helpers ──────────────────────────────────────────────
 
   private async get(path: string): Promise<Response> {
@@ -391,4 +501,40 @@ export interface Opportunity {
   counterpartName?: string;
   createdAt?: string;
   updatedAt?: string;
+}
+
+/** A network (index) as returned by the API. */
+export interface Network {
+  id: string;
+  title: string;
+  prompt?: string | null;
+  joinPolicy?: string;
+  isPersonal?: boolean;
+  memberCount?: number;
+  createdAt?: string;
+  owner?: { id: string; name: string; email: string };
+  /** Role of the current user (from list endpoint). */
+  role?: string;
+}
+
+/** A member of a network. */
+export interface NetworkMember {
+  userId: string;
+  user: { id?: string; name: string; email: string; image?: string | null };
+  permissions: string[];
+  createdAt?: string;
+}
+
+/** A user returned from the search endpoint. */
+export interface SearchedUser {
+  id: string;
+  name: string;
+  email: string;
+  image?: string | null;
+}
+
+/** Result of adding a member to a network. */
+export interface AddMemberResult {
+  member: { userId: string };
+  message: string;
 }
