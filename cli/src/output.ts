@@ -761,6 +761,140 @@ function statusColor(st: string): string {
   }
 }
 
+// ── Network output ─────────────────────────────────────────────────
+
+/**
+ * Print a table of networks.
+ *
+ * @param networks - Array of network objects to display.
+ */
+export function networkTable(
+  networks: Array<{
+    id: string;
+    title: string;
+    memberCount?: number;
+    role?: string;
+    joinPolicy?: string;
+    createdAt?: string;
+  }>,
+): void {
+  if (networks.length === 0) {
+    dim("  No networks found.");
+    return;
+  }
+
+  const titleW = 30;
+  const membersW = 8;
+  const roleW = 10;
+  const policyW = 12;
+  const dateW = 18;
+
+  console.log(
+    `  ${BOLD}${"Title".padEnd(titleW)}  ${"Members".padEnd(membersW)}  ${"Role".padEnd(roleW)}  ${"Join Policy".padEnd(policyW)}  ${"Created".padEnd(dateW)}${RESET}`,
+  );
+  console.log(
+    `  ${GRAY}${"-".repeat(titleW)}  ${"-".repeat(membersW)}  ${"-".repeat(roleW)}  ${"-".repeat(policyW)}  ${"-".repeat(dateW)}${RESET}`,
+  );
+
+  for (const n of networks) {
+    const title = n.title.slice(0, titleW);
+    const members = String(n.memberCount ?? "-");
+    const role = n.role ?? "member";
+    const policy = (n.joinPolicy ?? "invite_only").replace("_", " ");
+    const date = n.createdAt
+      ? new Date(n.createdAt).toLocaleDateString("en-US", {
+          year: "numeric",
+          month: "short",
+          day: "numeric",
+        })
+      : "-";
+
+    console.log(
+      `  ${title.padEnd(titleW)}  ${members.padEnd(membersW)}  ${role.padEnd(roleW)}  ${policy.padEnd(policyW)}  ${GRAY}${date}${RESET}`,
+    );
+  }
+}
+
+/**
+ * Print a network detail card.
+ *
+ * @param network - Network object with details.
+ */
+export function networkCard(network: {
+  id: string;
+  title: string;
+  prompt?: string | null;
+  joinPolicy?: string;
+  memberCount?: number;
+  owner?: { name: string; email: string };
+}): void {
+  console.log();
+  console.log(`  ${BOLD}${network.title}${RESET}`);
+  console.log(`  ${GRAY}${"─".repeat(40)}${RESET}`);
+  console.log(`  ${GRAY}ID:${RESET}          ${network.id}`);
+  if (network.prompt) {
+    console.log(`  ${GRAY}Prompt:${RESET}      ${network.prompt}`);
+  }
+  console.log(`  ${GRAY}Join Policy:${RESET} ${(network.joinPolicy ?? "invite_only").replace("_", " ")}`);
+  console.log(`  ${GRAY}Members:${RESET}     ${network.memberCount ?? "-"}`);
+  if (network.owner) {
+    console.log(`  ${GRAY}Owner:${RESET}       ${network.owner.name} (${network.owner.email})`);
+  }
+  console.log();
+}
+
+/**
+ * Print a table of network members.
+ *
+ * @param members - Array of member objects.
+ */
+export function memberTable(
+  members: Array<{
+    user: { name: string; email: string };
+    permissions: string[];
+    createdAt?: string;
+  }>,
+): void {
+  if (members.length === 0) {
+    dim("  No members found.");
+    return;
+  }
+
+  const nameW = 24;
+  const emailW = 30;
+  const roleW = 10;
+  const dateW = 18;
+
+  console.log(
+    `  ${BOLD}${"Name".padEnd(nameW)}  ${"Email".padEnd(emailW)}  ${"Role".padEnd(roleW)}  ${"Joined".padEnd(dateW)}${RESET}`,
+  );
+  console.log(
+    `  ${GRAY}${"-".repeat(nameW)}  ${"-".repeat(emailW)}  ${"-".repeat(roleW)}  ${"-".repeat(dateW)}${RESET}`,
+  );
+
+  for (const m of members) {
+    const name = m.user.name.slice(0, nameW);
+    const email = m.user.email.slice(0, emailW);
+    const role = m.permissions.includes("owner")
+      ? "owner"
+      : m.permissions.includes("admin")
+        ? "admin"
+        : "member";
+    const date = m.createdAt
+      ? new Date(m.createdAt).toLocaleDateString("en-US", {
+          year: "numeric",
+          month: "short",
+          day: "numeric",
+        })
+      : "-";
+
+    console.log(
+      `  ${name.padEnd(nameW)}  ${email.padEnd(emailW)}  ${role.padEnd(roleW)}  ${GRAY}${date}${RESET}`,
+    );
+  }
+  }
+}
+
 // ── Tool descriptions ───────────────────────────────────────────────
 
 /** Human-friendly descriptions for protocol tools (mirrors frontend). */

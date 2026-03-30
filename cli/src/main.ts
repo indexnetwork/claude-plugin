@@ -19,6 +19,7 @@
  *   index opportunity show <id>    Show opportunity details
  *   index opportunity accept <id>  Accept an opportunity
  *   index opportunity reject <id>  Reject an opportunity
+ *   index network <subcommand>     Manage networks (list, create, show, join, leave, invite)
  *   index --help                   Show this help message
  *   index --version                Show version
  */
@@ -30,6 +31,7 @@ import { CredentialStore } from "./auth.store";
 import { ApiClient } from "./api.client";
 import { handleLogin } from "./login.command";
 import { renderSSEStream } from "./chat.command";
+import { handleNetwork } from "./network.command";
 import * as output from "./output";
 
 const DEFAULT_API_URL = "http://localhost:3000";
@@ -58,6 +60,12 @@ Usage:
   index opportunity show <id>           Show full opportunity details
   index opportunity accept <id>         Accept an opportunity
   index opportunity reject <id>         Reject an opportunity
+  index network list                    List your networks
+  index network create <name>           Create a new network
+  index network show <id>               Show network details and members
+  index network join <id>               Join a public network
+  index network leave <id>              Leave a network
+  index network invite <id> <email>     Invite a user by email
   index --help                          Show this help message
   index --version                       Show version
 
@@ -127,6 +135,14 @@ async function main(): Promise<void> {
     case "opportunity":
       await runOpportunity(args.subcommand, args.targetId, args.status, args.limit, args.apiUrl);
       return;
+
+    case "network": {
+      const client = await requireAuth(args.apiUrl);
+      await handleNetwork(client, args.subcommand, args.positionals ?? [], {
+        prompt: args.prompt,
+      });
+      return;
+    }
   }
 }
 
