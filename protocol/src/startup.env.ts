@@ -65,13 +65,16 @@ const envSchema = z.object({
 
   // 7. Email (Resend)
   RESEND_API_KEY: z.string().optional(),
-  ENABLE_EMAIL_TESTING: z.string().optional(),
+  EMAIL_PRODUCTION_MODE: z.string().optional(),
   TESTING_EMAIL_ADDRESS: z.string().email().optional(),
 
   // 8. Integrations
   COMPOSIO_API_KEY: z.string().optional(),
   UNSTRUCTURED_API_URL: z.string().url().optional(),
   PARALLELS_API_KEY: z.string().optional(),
+
+  // 10. Onboarding
+  AUTO_JOIN_INDEX_IDS: z.string().optional(),
 
   // 9. Observability
   LANGFUSE_PUBLIC_KEY: z.string().optional(),

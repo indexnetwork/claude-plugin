@@ -122,6 +122,10 @@ export const router = createBrowserRouter([
         lazy: () => import("@/app/oauth/callback/page"),
       },
       {
+        path: "/cli-auth",
+        lazy: () => import("@/app/cli-auth/page"),
+      },
+      {
         path: "/dev/intent-proposal",
         lazy: () => import("@/app/dev/intent-proposal/page"),
       },
