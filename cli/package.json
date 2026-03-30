@@ -5,7 +5,7 @@
   "license": "MIT",
   "type": "module",
   "bin": {
-    "index": "bin/index.js"
+    "index": "bin/index.cjs"
   },
   "files": [
     "bin/",

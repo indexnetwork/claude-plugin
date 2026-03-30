@@ -93,7 +93,7 @@ describe("main package.json", () => {
     const pkgPath = join(CLI_ROOT, "package.json");
     const raw = await readFile(pkgPath, "utf-8");
     const pkg = JSON.parse(raw);
-    expect(pkg.bin).toEqual({ index: "bin/index.js" });
+    expect(pkg.bin).toEqual({ index: "bin/index.cjs" });
   });
 
   it("includes files for publishing", async () => {
