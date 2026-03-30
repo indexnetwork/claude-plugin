@@ -1,7 +1,9 @@
-import { describe, it, expect, beforeAll, afterAll } from "bun:test";
+import { describe, it, expect, beforeAll, afterAll, beforeEach } from "bun:test";
 
 import { parseArgs } from "../src/args.parser";
 import { ApiClient } from "../src/api.client";
+import * as output from "../src/output";
+import type { Opportunity } from "../src/api.client";
 
 describe("opportunity argument parsing", () => {
   it("parses 'opportunity list' subcommand", () => {
@@ -174,6 +176,94 @@ describe("opportunity API client", () => {
       const result = await client.updateOpportunityStatus("opp-456", "accepted");
       expect(receivedBody.status).toBe("accepted");
       expect(result.status).toBe("accepted");
+    });
+  });
+});
+
+// ── Output renderer tests ─────────────────────────────────────────
+
+describe("opportunity output renderers", () => {
+  let captured: string;
+
+  beforeEach(() => {
+    captured = "";
+    // Intercept stdout and console.log to capture output
+    process.stdout.write = ((chunk: string | Uint8Array) => {
+      captured += typeof chunk === "string" ? chunk : new TextDecoder().decode(chunk);
+      return true;
+    }) as typeof process.stdout.write;
+    const origLog = console.log;
+    console.log = (...args: unknown[]) => {
+      captured += args.map(String).join(" ") + "\n";
+    };
+  });
+
+  describe("opportunityTable", () => {
+    it("renders a table with opportunity data", () => {
+      const opportunities: Opportunity[] = [
+        {
+          id: "o1",
+          status: "pending",
+          counterpartName: "Alice",
+          interpretation: { category: "Collaboration", confidence: 85 },
+          createdAt: "2026-03-30T10:00:00Z",
+        },
+      ];
+
+      output.opportunityTable(opportunities);
+      expect(captured).toContain("Alice");
+      expect(captured).toContain("Collaboration");
+      expect(captured).toContain("pending");
+      expect(captured).toContain("85%");
+    });
+
+    it("shows empty message when no opportunities", () => {
+      output.opportunityTable([]);
+      expect(captured).toContain("No opportunities found");
+    });
+  });
+
+  describe("opportunityCard", () => {
+    it("renders a detailed card with parties and roles", () => {
+      const opportunity: Opportunity = {
+        id: "o2",
+        status: "pending",
+        actors: [
+          { userId: "u1", name: "Bob", role: "patient" },
+          { userId: "u2", name: "Carol", role: "agent" },
+        ],
+        interpretation: {
+          category: "Mentoring",
+          reasoning: "Bob needs a mentor and Carol has mentoring experience.",
+          confidence: 90,
+        },
+        presentation: "A great opportunity for mentoring.",
+        createdAt: "2026-03-30T10:00:00Z",
+      };
+
+      output.opportunityCard(opportunity);
+      expect(captured).toContain("Bob");
+      expect(captured).toContain("Carol");
+      expect(captured).toContain("Seeker");  // patient -> Seeker
+      expect(captured).toContain("Helper");  // agent -> Helper
+      expect(captured).toContain("Mentoring");
+      expect(captured).toContain("Bob needs a mentor");
+    });
+
+    it("renders peer role correctly", () => {
+      const opportunity: Opportunity = {
+        id: "o3",
+        status: "pending",
+        actors: [
+          { userId: "u1", name: "Dan", role: "peer" },
+          { userId: "u2", name: "Eve", role: "peer" },
+        ],
+        interpretation: { category: "Partnership", confidence: 75 },
+        createdAt: "2026-03-30T10:00:00Z",
+      };
+
+      output.opportunityCard(opportunity);
+      expect(captured).toContain("Peer");
     });
   });
 });
