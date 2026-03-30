@@ -33,6 +33,7 @@ import { ApiClient } from "./api.client";
 import { handleLogin } from "./login.command";
 import { renderSSEStream } from "./chat.command";
 import { handleProfile } from "./profile.command";
+import { handleIntent } from "./intent.command";
 import { handleNetwork } from "./network.command";
 import { handleConversation } from "./conversation.command";
 import * as output from "./output";
@@ -130,9 +131,16 @@ async function main(): Promise<void> {
       return;
     }
 
-    case "intent":
-      await runIntent(args);
+    case "intent": {
+      const client = await requireAuth(args.apiUrl);
+      await handleIntent(client, args.subcommand, {
+        intentId: args.intentId,
+        intentContent: args.intentContent,
+        archived: args.archived,
+        limit: args.limit,
+      });
       return;
+    }
 
     case "opportunity":
       await runOpportunity(args.subcommand, args.targetId, args.status, args.limit, args.apiUrl);
@@ -155,16 +163,6 @@ async function main(): Promise<void> {
     }
   }
 }
-
-// ── Intent help text ────────────────────────────────────────────────
-
-const INTENT_HELP = `
-Usage:
-  index intent list [--archived] [--limit <n>]  List your signals
-  index intent show <id>                        Show signal details
-  index intent create <content>                 Create a signal from text
-  index intent archive <id>                     Archive a signal
-`;
 
 // ── Command handlers ─────────────────────────────────────────────────
 
@@ -231,67 +229,6 @@ async function runLogout(): Promise<void> {
   const store = new CredentialStore();
   await store.clear();
   output.success("Logged out. Session cleared.");
-}
-
-async function runIntent(args: import("./args.parser").ParsedCommand): Promise<void> {
-  if (!args.subcommand) {
-    console.log(INTENT_HELP);
-    return;
-  }
-
-  const client = await requireAuth(args.apiUrl);
-
-  switch (args.subcommand) {
-    case "list": {
-      const result = await client.listIntents({
-        archived: args.archived,
-        limit: args.limit,
-      });
-      output.heading("Signals");
-      output.intentTable(result.intents);
-      if (result.pagination.total > 0) {
-        output.dim(
-          `\n  Page ${result.pagination.page} of ${result.pagination.totalPages} (${result.pagination.total} total)`,
-        );
-      }
-      console.log();
-      return;
-    }
-
-    case "show": {
-      if (!args.intentId) {
-        output.error("Missing signal ID. Usage: index intent show <id>", 1);
-        return;
-      }
-      const intent = await client.getIntent(args.intentId);
-      output.intentCard(intent);
-      return;
-    }
-
-    case "create": {
-      if (!args.intentContent) {
-        output.error("Missing content. Usage: index intent create <content>", 1);
-        return;
-      }
-      output.info("Processing signal...");
-      const result = await client.processIntent(args.intentContent);
-      output.success("Signal processed successfully.");
-      if (result.message) {
-        output.dim(`  ${result.message}`);
-      }
-      return;
-    }
-
-    case "archive": {
-      if (!args.intentId) {
-        output.error("Missing signal ID. Usage: index intent archive <id>", 1);
-        return;
-      }
-      await client.archiveIntent(args.intentId);
-      output.success(`Signal ${args.intentId} archived.`);
-      return;
-    }
-  }
 }
 
 async function runChatList(apiUrlOverride?: string): Promise<void> {
