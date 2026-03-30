@@ -73,6 +73,9 @@ const envSchema = z.object({
   UNSTRUCTURED_API_URL: z.string().url().optional(),
   PARALLELS_API_KEY: z.string().optional(),
 
+  // 10. Onboarding
+  AUTO_JOIN_INDEX_IDS: z.string().optional(),
+
   // 9. Observability
   LANGFUSE_PUBLIC_KEY: z.string().optional(),
   LANGFUSE_SECRET_KEY: z.string().optional(),
