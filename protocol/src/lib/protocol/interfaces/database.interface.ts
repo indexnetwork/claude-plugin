@@ -1574,6 +1574,7 @@ export type ChatGraphCompositeDatabase = Pick<
   | 'getUser'
   | 'updateUser'
   | 'saveProfile'
+  | 'softDeleteGhost'
   // IntentGraph subgraph requirements (getActiveIntents already included)
   | 'createIntent'
   | 'updateIntent'
