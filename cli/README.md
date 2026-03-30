@@ -52,6 +52,16 @@ index chat --session <id> "hello"   # Resume + send message
 index chat --list                   # List past sessions
 ```
 
+### `index profile`
+
+View user profiles and trigger profile regeneration.
+
+```bash
+index profile                       # Show your own profile
+index profile show <user-id>        # Show another user's profile
+index profile sync                  # Regenerate your profile
+```
+
 ## Options
 
 | Flag | Short | Description |
@@ -97,6 +107,5 @@ Commands planned for future iterations:
 
 - `index intent` — Create, list, update, and delete signals
 - `index opportunity` — Browse and manage discovered opportunities
-- `index profile` — View and update your profile
 - `index network` — Manage indexes and memberships
 - `index conversation` — H2H and A2A messaging
