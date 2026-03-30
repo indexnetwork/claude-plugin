@@ -200,13 +200,13 @@ body {
 <div class="header">
   <h1>I N D E X  CLI</h1>
   <div class="subtitle">Complete output reference — every possible rendered response form</div>
-  <div class="version">v0.6.0</div>
+  <div class="version">v0.7.0</div>
 </div>
 
 <div class="nav" id="nav">
   <div class="nav-item active" data-target="help">Help & Version</div>
   <div class="nav-item" data-target="auth">Auth</div>
-  <div class="nav-item" data-target="chat">Chat</div>
+  <div class="nav-item" data-target="conversation">Conversation</div>
   <div class="nav-item" data-target="profile">Profile</div>
   <div class="nav-item" data-target="signals">Signals</div>
   <div class="nav-item" data-target="opportunities">Opportunities</div>
@@ -227,15 +227,21 @@ body {
     <div class="terminal full-width">
       <div class="terminal-bar"><div class="dots"><span class="dot dot-r"></span><span class="dot dot-y"></span><span class="dot dot-g"></span></div><span class="cmd">$ index --help</span></div>
       <div class="terminal-body">
-<span class="c-white">Index CLI v0.6.0</span>
+<span class="c-white">Index CLI v0.7.0</span>
 
 <span class="c-white bold">Usage:</span>
   index login                           Authenticate via browser (uses existing session or OAuth)
   index login --token &lt;token&gt;           Authenticate with a manually provided token
   index logout                          Clear stored session
-  index chat [message]                  Chat with the AI agent (REPL if no message)
-  index chat --list                     List chat sessions
-  index chat --session &lt;id&gt; [message]   Resume a specific session
+  index conversation                    Chat with the AI agent (interactive REPL)
+  index conversation "message"          One-shot message to the AI agent
+  index conversation --session &lt;id&gt;     Resume a specific chat session
+  index conversation sessions           List AI chat sessions
+  index conversation list               List all conversations (H2A + H2H)
+  index conversation with &lt;user-id&gt;     Open or resume a DM with a user
+  index conversation show &lt;id&gt;          Show messages in a conversation
+  index conversation send &lt;id&gt; &lt;msg&gt;    Send a message
+  index conversation stream             Listen for real-time events (SSE)
   index profile                         Show your profile
   index profile show &lt;user-id&gt;          Show another user's profile
   index profile sync                    Regenerate your profile
@@ -255,19 +261,14 @@ body {
   index network join &lt;id&gt;               Join a public network
   index network leave &lt;id&gt;              Leave a network
   index network invite &lt;id&gt; &lt;email&gt;     Invite a user by email
-  index conversation list                List your conversations
-  index conversation with &lt;user-id&gt;      Open or resume a DM with a user
-  index conversation show &lt;id&gt;           Show messages in a conversation
-  index conversation send &lt;id&gt; &lt;message&gt; Send a message
-  index conversation stream              Listen for real-time events (SSE)
   index --help                          Show this help message
   index --version                       Show version
 
 <span class="c-white bold">Options:</span>
-  --api-url &lt;url&gt;     Override the API server URL (default: http://localhost:3000)
+  --api-url &lt;url&gt;     Override the API server URL (default: https://protocol.index.network)
+  --app-url &lt;url&gt;     Override the app URL for login (default: https://index.network)
   --token &lt;token&gt;, -t Provide a bearer token directly (skips browser flow)
   --session &lt;id&gt;, -s  Resume a specific chat session
-  --list, -l          List chat sessions
   --archived          Include archived signals (intent list)
   --status &lt;status&gt;   Filter opportunities by status
   --limit &lt;n&gt;         Limit number of results</div>
@@ -275,7 +276,7 @@ body {
 
     <div class="terminal">
       <div class="terminal-bar"><div class="dots"><span class="dot dot-r"></span><span class="dot dot-y"></span><span class="dot dot-g"></span></div><span class="cmd">$ index --version</span></div>
-      <div class="terminal-body">0.6.0</div>
+      <div class="terminal-body">0.7.0</div>
     </div>
 
     <div class="terminal">
@@ -309,7 +310,7 @@ body {
 
     <div class="terminal">
       <div class="terminal-bar"><div class="dots"><span class="dot dot-r"></span><span class="dot dot-y"></span><span class="dot dot-g"></span></div><span class="cmd">$ index login --token invalid_token</span></div>
-      <div class="terminal-body"><span class="c-green bold">+</span> Token stored. Could not verify — check with <span class="c-white">`index chat`</span>.</div>
+      <div class="terminal-body"><span class="c-green bold">+</span> Token stored. Could not verify — check with <span class="c-white">`index conversation`</span>.</div>
     </div>
 
     <div class="terminal">
@@ -318,7 +319,7 @@ body {
     </div>
 
     <div class="terminal">
-      <div class="terminal-bar"><div class="dots"><span class="dot dot-r"></span><span class="dot dot-y"></span><span class="dot dot-g"></span></div><span class="cmd">$ index chat   (not logged in)</span></div>
+      <div class="terminal-bar"><div class="dots"><span class="dot dot-r"></span><span class="dot dot-y"></span><span class="dot dot-g"></span></div><span class="cmd">$ index conversation   (not logged in)</span></div>
       <div class="terminal-body"><span class="c-red"><span class="bold">error</span>: Not logged in. Run `index login` first.</span></div>
     </div>
 
@@ -332,16 +333,16 @@ body {
   </div>
 </div>
 
-<!-- ═══════ CHAT ═══════ -->
-<div class="section" id="chat">
-  <div class="section-title"><span class="dot" style="background:var(--cyan)"></span> Chat <span class="cmd-label chat">chat</span></div>
-  <div class="section-desc">REPL mode, one-shot messages, and session listing.</div>
+<!-- ═══════ CONVERSATION (AI Agent / H2A) ═══════ -->
+<div class="section" id="conversation">
+  <div class="section-title"><span class="dot" style="background:var(--cyan)"></span> Conversation <span class="cmd-label chat">conversation</span></div>
+  <div class="section-desc">AI agent REPL, one-shot messages, session management, and H2H direct messaging.</div>
 
   <div class="output-grid">
     <div class="terminal full-width">
-      <div class="terminal-bar"><div class="dots"><span class="dot dot-r"></span><span class="dot dot-y"></span><span class="dot dot-g"></span></div><span class="cmd">$ index chat   (REPL mode)</span></div>
+      <div class="terminal-bar"><div class="dots"><span class="dot dot-r"></span><span class="dot dot-y"></span><span class="dot dot-g"></span></div><span class="cmd">$ index conversation   (REPL mode)</span></div>
       <div class="terminal-body">
-  <span class="bold c-cyan">I N D E X</span>  <span class="c-gray">chat</span>
+  <span class="bold c-cyan">I N D E X</span>  <span class="c-gray">conversation</span>
   <span class="c-gray">─────────────────────────────────────</span>
   <span class="c-gray">Type your message. "exit" or Ctrl+C to quit.</span>
 
@@ -364,7 +365,7 @@ body {
     </div>
 
     <div class="terminal full-width">
-      <div class="terminal-bar"><div class="dots"><span class="dot dot-r"></span><span class="dot dot-y"></span><span class="dot dot-g"></span></div><span class="cmd">$ index chat "Tell me about my profile"</span></div>
+      <div class="terminal-bar"><div class="dots"><span class="dot dot-r"></span><span class="dot dot-y"></span><span class="dot dot-g"></span></div><span class="cmd">$ index conversation "Tell me about my profile"</span></div>
       <div class="terminal-body"><span class="c-orange">&gt; Reading your profile...</span>
 
 <span class="c-agent">Here's a summary of your profile:</span>
@@ -381,7 +382,16 @@ body {
     </div>
 
     <div class="terminal full-width">
-      <div class="terminal-bar"><div class="dots"><span class="dot dot-r"></span><span class="dot dot-y"></span><span class="dot dot-g"></span></div><span class="cmd">$ index chat --list</span></div>
+      <div class="terminal-bar"><div class="dots"><span class="dot dot-r"></span><span class="dot dot-y"></span><span class="dot dot-g"></span></div><span class="cmd">$ index conversation --session &lt;id&gt; "Follow up question"</span></div>
+      <div class="terminal-body"><span class="c-orange">&gt; Reading your profile...</span>
+
+<span class="c-agent">Continuing our discussion — here's what I found:</span>
+
+<span class="c-gray">Session: a1b2c3d4-e5f6-7890-abcd-ef1234567890</span></div>
+    </div>
+
+    <div class="terminal full-width">
+      <div class="terminal-bar"><div class="dots"><span class="dot dot-r"></span><span class="dot dot-y"></span><span class="dot dot-g"></span></div><span class="cmd">$ index conversation sessions</span></div>
       <div class="terminal-body">
 <span class="bold">Chat Sessions</span>
 
@@ -703,7 +713,7 @@ body {
 
 <!-- ═══════ STREAMING / MARKDOWN ═══════ -->
 <div class="section" id="streaming">
-  <div class="section-title"><span class="dot" style="background:var(--magenta)"></span> Streaming &amp; Markdown Rendering <span class="cmd-label data">chat SSE</span></div>
+  <div class="section-title"><span class="dot" style="background:var(--magenta)"></span> Streaming &amp; Markdown Rendering <span class="cmd-label data">conversation SSE</span></div>
   <div class="section-desc">All markdown primitives, special code blocks (intent_proposal, opportunity), response_reset, tool activity.</div>
 
   <div class="output-grid">
@@ -824,7 +834,7 @@ body {
 <span class="c-green bold">+</span> Opportunity accepted.
 <span class="c-green bold">+</span> Opportunity rejected.
 <span class="c-green bold">+</span> Message sent.
-<span class="c-green bold">+</span> Token stored. Could not verify — check with `index chat`.
+<span class="c-green bold">+</span> Token stored. Could not verify — check with `index conversation`.
 
 <span class="c-cyan">Authenticating with http://localhost:3000...</span>
 <span class="c-cyan">Opening browser for authentication...</span>
