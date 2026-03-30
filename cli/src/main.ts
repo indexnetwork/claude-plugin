@@ -25,7 +25,7 @@ import { renderSSEStream } from "./chat.command";
 import * as output from "./output";
 
 const DEFAULT_API_URL = "http://localhost:3000";
-const VERSION = "0.1.0";
+const VERSION = "0.2.0";
 
 const HELP_TEXT = `
 Index CLI v${VERSION}
