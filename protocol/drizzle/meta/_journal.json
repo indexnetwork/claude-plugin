@@ -204,6 +204,13 @@
       "when": 1774568315257,
       "tag": "0028_remove_opportunity_status_viewed",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1774887983541,
+      "tag": "0029_add_user_notification_settings_user_id_unique",
+      "breakpoints": true
     }
   ]
 }
