@@ -40,6 +40,7 @@ export const users = pgTable('users', {
   email: text('email').notNull(),
   emailVerified: boolean('email_verified').notNull().default(false),
   name: text('name').notNull(),
+  key: text('key'),
   avatar: text('avatar'),
   intro: text('intro'),
   location: text('location'),
@@ -56,6 +57,7 @@ export const users = pgTable('users', {
   deletedAt: timestamp('deleted_at'),
 }, (table) => ({
   usersEmailUnique: uniqueIndex('users_email_unique').on(table.email),
+  usersKeyUnique: uniqueIndex('users_key_unique').on(table.key),
 }));
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -232,6 +234,7 @@ export const intents = pgTable('intents', {
 export const indexes = pgTable('indexes', {
   id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
   title: text('title').notNull(),
+  key: text('key'),
   prompt: text('prompt'),
   imageUrl: text('image_url'),
   isPersonal: boolean('is_personal').default(false).notNull(),
@@ -247,7 +250,9 @@ export const indexes = pgTable('indexes', {
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
   deletedAt: timestamp('deleted_at'),
-});
+}, (table) => ({
+  indexesKeyUnique: uniqueIndex('indexes_key_unique').on(table.key),
+}));
 
 export const indexMembers = pgTable('index_members', {
   indexId: text('index_id').notNull().references(() => indexes.id),
