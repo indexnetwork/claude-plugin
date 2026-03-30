@@ -1,6 +1,7 @@
-import { describe, it, expect } from "bun:test";
+import { describe, it, expect, beforeAll, afterAll } from "bun:test";
 
 import { parseArgs } from "../src/args.parser";
+import { ApiClient } from "../src/api.client";
 
 describe("opportunity argument parsing", () => {
   it("parses 'opportunity list' subcommand", () => {
@@ -70,5 +71,109 @@ describe("opportunity argument parsing", () => {
     expect(result.command).toBe("opportunity");
     expect(result.subcommand).toBe("list");
     expect(result.apiUrl).toBe("http://example.com");
+  });
+});
+
+// ── API client tests ──────────────────────────────────────────────
+
+/** Minimal mock server for opportunity API tests. */
+function createMockServer() {
+  const handlers: Record<string, (req: Request) => Response | Promise<Response>> = {};
+
+  const server = Bun.serve({
+    port: 0,
+    fetch(req) {
+      const url = new URL(req.url);
+      // Match method + pathname (strip query params for matching)
+      const key = `${req.method} ${url.pathname}`;
+      const handler = handlers[key];
+      if (handler) return handler(req);
+      return new Response("Not Found", { status: 404 });
+    },
+  });
+
+  return {
+    server,
+    url: `http://localhost:${server.port}`,
+    on(method: string, path: string, handler: (req: Request) => Response | Promise<Response>) {
+      handlers[`${method} ${path}`] = handler;
+    },
+    stop() {
+      server.stop(true);
+    },
+  };
+}
+
+describe("opportunity API client", () => {
+  let mock: ReturnType<typeof createMockServer>;
+  let client: ApiClient;
+
+  beforeAll(() => {
+    mock = createMockServer();
+    client = new ApiClient(mock.url, "test-token");
+  });
+
+  afterAll(() => {
+    mock.stop();
+  });
+
+  describe("listOpportunities", () => {
+    it("returns opportunities from the API", async () => {
+      mock.on("GET", "/api/opportunities", () =>
+        Response.json({
+          opportunities: [
+            { id: "o1", status: "pending", interpretation: { category: "Collaboration", confidence: 85 } },
+            { id: "o2", status: "accepted", interpretation: { category: "Mentoring", confidence: 92 } },
+          ],
+        }),
+      );
+
+      const result = await client.listOpportunities();
+      expect(result).toHaveLength(2);
+      expect(result[0].id).toBe("o1");
+    });
+
+    it("passes status and limit query params", async () => {
+      let receivedUrl = "";
+      mock.on("GET", "/api/opportunities", (req) => {
+        receivedUrl = req.url;
+        return Response.json({ opportunities: [] });
+      });
+
+      await client.listOpportunities({ status: "pending", limit: 5 });
+      expect(receivedUrl).toContain("status=pending");
+      expect(receivedUrl).toContain("limit=5");
+    });
+  });
+
+  describe("getOpportunity", () => {
+    it("returns a single opportunity", async () => {
+      mock.on("GET", "/api/opportunities/opp-123", () =>
+        Response.json({
+          id: "opp-123",
+          status: "pending",
+          interpretation: { reasoning: "Good match", category: "Hiring", confidence: 88 },
+          actors: [],
+        }),
+      );
+
+      const result = await client.getOpportunity("opp-123");
+      expect(result.id).toBe("opp-123");
+      expect(result.interpretation.reasoning).toBe("Good match");
+    });
+  });
+
+  describe("updateOpportunityStatus", () => {
+    it("sends PATCH with status body", async () => {
+      let receivedBody: Record<string, unknown> = {};
+      mock.on("PATCH", "/api/opportunities/opp-456/status", async (req) => {
+        receivedBody = (await req.json()) as Record<string, unknown>;
+        return Response.json({ id: "opp-456", status: "accepted" });
+      });
+
+      const result = await client.updateOpportunityStatus("opp-456", "accepted");
+      expect(receivedBody.status).toBe("accepted");
+      expect(result.status).toBe("accepted");
+    });
   });
 });
