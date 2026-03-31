@@ -31,6 +31,7 @@ import {
 /** User data shape for profile card rendering. */
 export interface ProfileData {
   id: string;
+  key?: string | null;
   name: string | null;
   intro: string | null;
   avatar: string | null;
