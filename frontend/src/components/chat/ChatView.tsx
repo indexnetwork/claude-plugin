@@ -273,14 +273,20 @@ export default function ChatView({ userId, userName, userAvatar, isGhost = false
                     </div>
                   )}
                   <div className={cn('flex items-end gap-2', isOwn ? 'justify-end' : 'justify-start')}>
-                    {!isOwn && <UserAvatar avatar={userAvatar} id={userId} name={userName} size={32} className="flex-shrink-0" />}
+                    {!isOwn && (
+                      <Link to={`/u/${userId}`} className="flex-shrink-0">
+                        <UserAvatar avatar={userAvatar} id={userId} name={userName} size={32} />
+                      </Link>
+                    )}
                     <div className={cn('max-w-[70%] rounded-2xl px-4 py-2', isOwn ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-900')}>
                       <article className={cn('text-sm', isOwn && 'text-white')}>
                         <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
                       </article>
                     </div>
                     {isOwn && (
-                      <UserAvatar avatar={user?.avatar} id={user?.id} name={user?.name} size={32} className="flex-shrink-0" />
+                      <Link to={`/u/${user?.id}`} className="flex-shrink-0">
+                        <UserAvatar avatar={user?.avatar} id={user?.id} name={user?.name} size={32} />
+                      </Link>
                     )}
                   </div>
                 </div>
