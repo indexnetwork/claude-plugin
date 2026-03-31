@@ -1017,6 +1017,14 @@ export interface Database {
   getOpportunity(id: string): Promise<Opportunity | null>;
 
   /**
+   * Resolve an opportunity identifier (full UUID or short prefix) to a full UUID.
+   * @param idOrPrefix - Full UUID or short hex prefix
+   * @param userId - The user ID (for visibility scoping)
+   * @returns Resolved ID, ambiguous marker, or null if not found
+   */
+  resolveOpportunityId(idOrPrefix: string, userId: string): Promise<{ id: string } | { ambiguous: true } | null>;
+
+  /**
    * Get opportunities for a user (as any actor role).
    *
    * @param userId - User ID (actor userId)
@@ -1721,6 +1729,7 @@ export type OpportunityControllerDatabase = Pick<
   | 'getOpportunity'
   | 'getOpportunitiesForUser'
   | 'getOpportunitiesForIndex'
+  | 'resolveOpportunityId'
   | 'updateOpportunityStatus'
   | 'createOpportunity'
   | 'createOpportunityAndExpireIds'
