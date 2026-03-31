@@ -169,8 +169,25 @@ export class OpportunityService {
   }
 
   /**
+   * Resolve an opportunity identifier (full UUID or short prefix) to a full UUID.
+   * @param idOrPrefix - Full UUID or short hex prefix
+   * @param userId - The user ID (for visibility scoping)
+   * @returns Resolved ID, or error object with status
+   */
+  async resolveId(idOrPrefix: string, userId: string): Promise<{ id: string } | { error: string; status: number }> {
+    const result = await this.db.resolveOpportunityId(idOrPrefix, userId);
+    if (!result) {
+      return { error: 'Opportunity not found', status: 404 };
+    }
+    if ('ambiguous' in result) {
+      return { error: 'Ambiguous ID prefix, please provide more characters', status: 409 };
+    }
+    return { id: result.id };
+  }
+
+  /**
    * Get opportunities for a user with optional filters.
-   * 
+   *
    * @param userId - The user ID
    * @param options - Filter options (status, indexId, limit, offset)
    * @returns List of opportunities

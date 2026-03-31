@@ -141,12 +141,17 @@ export class IntentController {
   }
 
   /**
-   * Get a single intent by ID.
+   * Get a single intent by ID or short prefix.
    */
   @Get('/:id')
   @UseGuards(AuthGuard)
   async getById(_req: Request, user: AuthenticatedUser, params: { id: string }) {
-    const r = await intentService.getById(params.id, user.id);
+    const resolved = await intentService.resolveId(params.id, user.id);
+    if ('error' in resolved) {
+      return Response.json({ error: resolved.error }, { status: resolved.status });
+    }
+
+    const r = await intentService.getById(resolved.id, user.id);
 
     if (!r) {
       return Response.json({ error: 'Intent not found' }, { status: 404 });
@@ -163,13 +168,18 @@ export class IntentController {
   }
 
   /**
-   * Archive an intent.
+   * Archive an intent by ID or short prefix.
    */
   @Patch('/:id/archive')
   @UseGuards(AuthGuard)
   async archive(_req: Request, user: AuthenticatedUser, params: { id: string }) {
-    const result = await intentService.archive(params.id, user.id);
-    
+    const resolved = await intentService.resolveId(params.id, user.id);
+    if ('error' in resolved) {
+      return Response.json({ error: resolved.error }, { status: resolved.status });
+    }
+
+    const result = await intentService.archive(resolved.id, user.id);
+
     if (!result.success) {
       return Response.json({ error: result.error }, { status: 404 });
     }

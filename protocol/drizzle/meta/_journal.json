@@ -211,6 +211,13 @@
       "when": 1774887983541,
       "tag": "0029_add_user_notification_settings_user_id_unique",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1775145600000,
+      "tag": "0030_add_users_indexes_key",
+      "breakpoints": true
     }
   ]
 }
