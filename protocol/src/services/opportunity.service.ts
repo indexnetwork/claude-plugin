@@ -169,8 +169,25 @@ export class OpportunityService {
   }
 
   /**
+   * Resolve an opportunity identifier (full UUID or short prefix) to a full UUID.
+   * @param idOrPrefix - Full UUID or short hex prefix
+   * @param userId - The user ID (for visibility scoping)
+   * @returns Resolved ID, or error object with status
+   */
+  async resolveId(idOrPrefix: string, userId: string): Promise<{ id: string } | { error: string; status: number }> {
+    const result = await this.db.resolveOpportunityId(idOrPrefix, userId);
+    if (!result) {
+      return { error: 'Opportunity not found', status: 404 };
+    }
+    if ('ambiguous' in result) {
+      return { error: 'Ambiguous ID prefix, please provide more characters', status: 409 };
+    }
+    return { id: result.id };
+  }
+
+  /**
    * Get opportunities for a user with optional filters.
-   * 
+   *
    * @param userId - The user ID
    * @param options - Filter options (status, indexId, limit, offset)
    * @returns List of opportunities
@@ -185,8 +202,37 @@ export class OpportunityService {
     }
   ) {
     logger.verbose('[OpportunityService] Getting opportunities for user', { userId, options });
-    
-    return this.db.getOpportunitiesForUser(userId, options);
+
+    const rows = await this.db.getOpportunitiesForUser(userId, options);
+
+    // Resolve actor names in bulk for CLI/API consumers
+    const allUserIds = new Set<string>();
+    for (const opp of rows) {
+      for (const actor of opp.actors) {
+        allUserIds.add(actor.userId);
+      }
+    }
+    const userMap = new Map<string, string>();
+    const lookups = [...allUserIds].map(async (uid) => {
+      const user = await this.db.getUser(uid);
+      if (user?.name) userMap.set(uid, user.name);
+    });
+    await Promise.all(lookups);
+
+    return rows.map((opp) => {
+      const counterpart = opp.actors.find(
+        (a) => a.role !== 'introducer' && a.userId !== userId,
+      ) ?? opp.actors.find((a) => a.userId !== userId);
+      const enrichedActors = opp.actors.map((a) => ({
+        ...a,
+        name: userMap.get(a.userId) ?? undefined,
+      }));
+      return {
+        ...opp,
+        actors: enrichedActors,
+        counterpartName: counterpart ? (userMap.get(counterpart.userId) ?? undefined) : undefined,
+      };
+    });
   }
 
   /**

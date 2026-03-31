@@ -34,6 +34,7 @@ export interface StreamChatParams {
 /** Full user data from GET /api/users/:userId. */
 export interface UserData {
   id: string;
+  key?: string | null;
   name: string | null;
   intro: string | null;
   avatar: string | null;
@@ -142,6 +143,7 @@ export interface Opportunity {
 /** A network (index) as returned by the API. */
 export interface Network {
   id: string;
+  key?: string | null;
   title: string;
   prompt?: string | null;
   joinPolicy?: string;

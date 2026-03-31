@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { Controller, Get, Post, UseGuards } from '../lib/router/router.decorators';
+import { Controller, Get, Post, Put, UseGuards } from '../lib/router/router.decorators';
 import { AuthGuard } from '../guards/auth.guard';
 import type { AuthenticatedUser } from '../guards/auth.guard';
 import { userService } from '../services/user.service';
@@ -402,11 +402,39 @@ export class UserController {
     }
   }
 
+  /**
+   * PUT /users/me/key — update the authenticated user's key.
+   * @param req - Request with JSON body `{ key: string }`
+   * @param user - Authenticated user from AuthGuard
+   * @returns Updated user or validation error
+   */
+  @Put('/me/key')
+  @UseGuards(AuthGuard)
+  async updateKey(req: Request, user: AuthenticatedUser) {
+    let body: { key?: string };
+    try {
+      body = (await req.json()) as { key?: string };
+    } catch {
+      return Response.json({ error: 'Invalid JSON body' }, { status: 400 });
+    }
+
+    if (!body.key || typeof body.key !== 'string') {
+      return Response.json({ error: 'key is required' }, { status: 400 });
+    }
+
+    const result = await userService.updateKey(user.id, body.key);
+    if ('error' in result) {
+      return Response.json({ error: result.error }, { status: result.status });
+    }
+
+    return Response.json({ user: result.user });
+  }
+
   @Get('/:userId')
   @UseGuards(AuthGuard)
   async getUser(_req: Request, _user: AuthenticatedUser, params: { userId: string }) {
     logger.verbose('Get user requested', { userId: params.userId });
-    const user = await userService.findById(params.userId);
+    const user = await userService.findByIdOrKey(params.userId);
     if (!user) {
       return Response.json({ error: 'User not found' }, { status: 404 });
     }
@@ -414,6 +442,7 @@ export class UserController {
       user: {
         id: user.id,
         name: user.name,
+        key: user.key,
         intro: user.intro,
         avatar: user.avatar,
         location: user.location,

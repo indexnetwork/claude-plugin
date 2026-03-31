@@ -39,12 +39,14 @@ function TurnMessage({ turn, isLast }: { turn: NegotiationTurnSummary; isLast: b
   return (
     <div className="flex gap-3">
       <div className="flex flex-col items-center">
-        <UserAvatar
-          id={turn.speaker.id}
-          name={turn.speaker.name}
-          avatar={turn.speaker.avatar}
-          size={28}
-        />
+        <Link to={`/u/${turn.speaker.id}`}>
+          <UserAvatar
+            id={turn.speaker.id}
+            name={turn.speaker.name}
+            avatar={turn.speaker.avatar}
+            size={28}
+          />
+        </Link>
         {!isLast && <div className="w-px flex-1 bg-gray-200 mt-1" />}
       </div>
       <div className={`flex-1 pb-4 ${isLast ? "" : ""}`}>

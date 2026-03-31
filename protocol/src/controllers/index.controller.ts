@@ -274,8 +274,16 @@ export class IndexController {
   @UseGuards(AuthGuard)
   async joinPublicIndex(_req: Request, user: AuthenticatedUser, params: Record<string, string>) {
     try {
-      const index = await indexService.joinPublicIndex(params.id, user.id);
-      logger.verbose('User joined public index', { indexId: params.id, userId: user.id });
+      // Resolve key or UUID to actual index UUID
+      const resolvedId = await indexService.resolveIndexId(params.id);
+      if (!resolvedId) {
+        return new Response(JSON.stringify({ error: 'Index not found' }), {
+          status: 404,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      const index = await indexService.joinPublicIndex(resolvedId, user.id);
+      logger.verbose('User joined public index', { indexId: resolvedId, userId: user.id });
       return Response.json({ index });
     } catch (err: unknown) {
       const msg = errorMessage(err);
@@ -349,8 +357,15 @@ export class IndexController {
   @UseGuards(AuthGuard)
   async leaveIndex(_req: Request, user: AuthenticatedUser, params: Record<string, string>) {
     try {
-      await indexService.leaveIndex(params.id, user.id);
-      logger.verbose('User left index', { indexId: params.id, userId: user.id });
+      const resolvedId = await indexService.resolveIndexId(params.id);
+      if (!resolvedId) {
+        return new Response(JSON.stringify({ error: 'Index not found' }), {
+          status: 404,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      await indexService.leaveIndex(resolvedId, user.id);
+      logger.verbose('User left index', { indexId: resolvedId, userId: user.id });
       return Response.json({ success: true });
     } catch (err: unknown) {
       const msg = errorMessage(err);
@@ -425,14 +440,58 @@ export class IndexController {
   }
 
   /**
-   * Get a single index by ID with owner info and member count. Members-only.
+   * PUT /indexes/:id/key — update an index's key. Owner-only.
+   * @param req - Request with JSON body `{ key: string }`
+   * @param user - Authenticated user from AuthGuard
+   * @param params - Route params containing the index ID
+   * @returns Updated index or validation error
+   */
+  @Put('/:id/key')
+  @UseGuards(AuthGuard)
+  async updateKey(req: Request, user: AuthenticatedUser, params: Record<string, string>) {
+    let body: { key?: string };
+    try {
+      body = (await req.json()) as { key?: string };
+    } catch {
+      return Response.json({ error: 'Invalid JSON body' }, { status: 400 });
+    }
+
+    if (!body.key || typeof body.key !== 'string') {
+      return Response.json({ error: 'key is required' }, { status: 400 });
+    }
+
+    // Resolve idOrKey to actual UUID first
+    const resolvedId = await indexService.resolveIndexId(params.id);
+    if (!resolvedId) {
+      return Response.json({ error: 'Index not found' }, { status: 404 });
+    }
+
+    const result = await indexService.updateKey(resolvedId, user.id, body.key);
+    if ('error' in result) {
+      return Response.json({ error: result.error }, { status: result.status });
+    }
+
+    return Response.json(result);
+  }
+
+  /**
+   * Get a single index by ID or key with owner info and member count. Members-only.
    * IMPORTANT: This must come AFTER specific routes like /discovery/public and /:id/join.
    */
   @Get('/:id')
   @UseGuards(AuthGuard)
   async get(_req: Request, user: AuthenticatedUser, params: Record<string, string>) {
     try {
-      const index = await indexService.getIndexById(params.id, user.id);
+      // Resolve key to UUID if needed
+      const resolvedId = await indexService.resolveIndexId(params.id);
+      if (!resolvedId) {
+        return new Response(JSON.stringify({ error: 'Index not found' }), {
+          status: 404,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+
+      const index = await indexService.getIndexById(resolvedId, user.id);
       if (!index) {
         return new Response(JSON.stringify({ error: 'Index not found' }), {
           status: 404,

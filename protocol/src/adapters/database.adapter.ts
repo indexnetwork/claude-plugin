@@ -139,6 +139,7 @@ interface IntentListRow {
   id: string;
   payload: string;
   summary: string | null;
+  status: string | null;
   isIncognito: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -438,6 +439,7 @@ export class IntentDatabaseAdapter {
         id: schema.intents.id,
         payload: schema.intents.payload,
         summary: schema.intents.summary,
+        status: schema.intents.status,
         isIncognito: schema.intents.isIncognito,
         createdAt: schema.intents.createdAt,
         updatedAt: schema.intents.updatedAt,
@@ -461,6 +463,7 @@ export class IntentDatabaseAdapter {
       id: schema.intents.id,
       payload: schema.intents.payload,
       summary: schema.intents.summary,
+      status: schema.intents.status,
       isIncognito: schema.intents.isIncognito,
       createdAt: schema.intents.createdAt,
       updatedAt: schema.intents.updatedAt,
@@ -473,6 +476,30 @@ export class IntentDatabaseAdapter {
       .limit(1);
 
     return row[0] ?? null;
+  }
+
+  /**
+   * Resolve an intent ID from a full UUID or short prefix.
+   * @param idOrPrefix - Full UUID or prefix (e.g. first 8 chars)
+   * @param userId - The owning user's ID (for ownership scoping)
+   * @returns Object with resolved id, or null/ambiguous status
+   */
+  async resolveIntentId(idOrPrefix: string, userId: string): Promise<{ id: string } | { ambiguous: true } | null> {
+    const normalized = idOrPrefix.trim().toLowerCase();
+    const isFullUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(normalized);
+    if (isFullUuid) {
+      return { id: normalized };
+    }
+    const rows = await db.select({ id: schema.intents.id })
+      .from(schema.intents)
+      .where(and(
+        sql`${schema.intents.id} LIKE ${normalized + '%'}`,
+        eq(schema.intents.userId, userId),
+      ))
+      .limit(2);
+    if (rows.length === 0) return null;
+    if (rows.length > 1) return { ambiguous: true };
+    return { id: rows[0].id };
   }
 
   async isOwnedByUser(intentId: string, userId: string): Promise<boolean> {
@@ -1149,6 +1176,7 @@ export class ChatDatabaseAdapter {
       .select({
         id: schema.indexes.id,
         title: schema.indexes.title,
+        key: schema.indexes.key,
         prompt: schema.indexes.prompt,
         imageUrl: schema.indexes.imageUrl,
         permissions: schema.indexes.permissions,
@@ -1185,6 +1213,7 @@ export class ChatDatabaseAdapter {
         return {
           id: row.id,
           title: row.title,
+          key: row.key,
           prompt: row.prompt,
           imageUrl: row.imageUrl,
           permissions: row.permissions,
@@ -1969,6 +1998,46 @@ export class ChatDatabaseAdapter {
     };
   }
 
+  /**
+   * Find an index by its key (human-readable identifier).
+   * @param key - The index's key
+   * @returns Index record or null
+   */
+  async getIndexByKey(key: string) {
+    const rows = await db.select()
+      .from(indexes)
+      .where(and(eq(indexes.key, key), isNull(indexes.deletedAt)))
+      .limit(1);
+    return rows[0] ?? null;
+  }
+
+  /**
+   * Check if an index key already exists.
+   * @param key - The key to check
+   * @returns True if the key is taken
+   */
+  async indexKeyExists(key: string): Promise<boolean> {
+    const result = await db.select({ id: indexes.id })
+      .from(indexes)
+      .where(eq(indexes.key, key))
+      .limit(1);
+    return result.length > 0;
+  }
+
+  /**
+   * Update an index's key. Owner-only check should be done at the service level.
+   * @param indexId - The index ID
+   * @param key - The new key value
+   * @returns Updated index or null
+   */
+  async updateIndexKey(indexId: string, key: string) {
+    const result = await db.update(indexes)
+      .set({ key, updatedAt: new Date() })
+      .where(and(eq(indexes.id, indexId), isNull(indexes.deletedAt)))
+      .returning();
+    return result[0] ?? null;
+  }
+
   async createIndex(data: {
     title: string;
     prompt?: string | null;
@@ -2081,6 +2150,31 @@ export class ChatDatabaseAdapter {
 
   async deleteProfile(userId: string): Promise<void> {
     await db.delete(schema.userProfiles).where(eq(schema.userProfiles.userId, userId));
+  }
+
+  /**
+   * Resolve an index identifier (UUID or key) to a UUID.
+   * @param idOrKey - UUID or human-readable key
+   * @returns The index UUID, or null if not found
+   */
+  async resolveIndexId(idOrKey: string): Promise<string | null> {
+    const isFullUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(idOrKey);
+    if (isFullUuid) {
+      return idOrKey;
+    }
+    // Try key lookup first
+    const row = await this.getIndexByKey(idOrKey);
+    if (row) return row.id;
+    // Fall back to hex prefix matching
+    const isHexPrefix = /^[0-9a-f]+$/i.test(idOrKey);
+    if (isHexPrefix) {
+      const rows = await db.select({ id: indexes.id })
+        .from(indexes)
+        .where(and(sql`${indexes.id} LIKE ${idOrKey + '%'}`, isNull(indexes.deletedAt)))
+        .limit(2);
+      if (rows.length === 1) return rows[0].id;
+    }
+    return null;
   }
 
   // ─────────────────────────────────────────────────────────────────────────────
@@ -2245,6 +2339,7 @@ export class ChatDatabaseAdapter {
       .select({
         id: indexes.id,
         title: indexes.title,
+        key: indexes.key,
         prompt: indexes.prompt,
         imageUrl: indexes.imageUrl,
         permissions: indexes.permissions,
@@ -2279,6 +2374,7 @@ export class ChatDatabaseAdapter {
     return {
       id: row.id,
       title: row.title,
+      key: row.key,
       prompt: row.prompt,
       imageUrl: row.imageUrl,
       permissions: row.permissions,
@@ -2456,6 +2552,16 @@ export class ChatDatabaseAdapter {
   }
   async getOpportunity(id: string): Promise<OpportunityRow | null> {
     return this.opportunityAdapter.getOpportunity(id);
+  }
+  /**
+   * Resolve an opportunity ID from a full UUID or short prefix.
+   * Delegates to OpportunityDatabaseAdapter.
+   * @param idOrPrefix - Full UUID or prefix (e.g. first 8 chars)
+   * @param userId - The user ID (for visibility scoping)
+   * @returns Object with resolved id, or null/ambiguous status
+   */
+  async resolveOpportunityId(idOrPrefix: string, userId: string): Promise<{ id: string } | { ambiguous: true } | null> {
+    return this.opportunityAdapter.resolveOpportunityId(idOrPrefix, userId);
   }
   async getOpportunitiesForUser(
     userId: string,
@@ -3462,6 +3568,30 @@ export class OpportunityDatabaseAdapter {
     return row ? toOpportunityRow(row) : null;
   }
 
+  /**
+   * Resolve an opportunity ID from a full UUID or short prefix.
+   * @param idOrPrefix - Full UUID or prefix (e.g. first 8 chars)
+   * @param userId - The user ID (for visibility scoping via actors jsonb)
+   * @returns Object with resolved id, or null/ambiguous status
+   */
+  async resolveOpportunityId(idOrPrefix: string, userId: string): Promise<{ id: string } | { ambiguous: true } | null> {
+    const normalized = idOrPrefix.trim().toLowerCase();
+    const isFullUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(normalized);
+    if (isFullUuid) {
+      return { id: normalized };
+    }
+    const rows = await db.select({ id: opportunities.id })
+      .from(opportunities)
+      .where(and(
+        sql`${opportunities.id} LIKE ${normalized + '%'}`,
+        sql`${opportunities.actors}::jsonb @> ${JSON.stringify([{ userId }])}::jsonb`,
+      ))
+      .limit(2);
+    if (rows.length === 0) return null;
+    if (rows.length > 1) return { ambiguous: true };
+    return { id: rows[0].id };
+  }
+
   async getOpportunitiesForUser(
     userId: string,
     options?: { status?: string; indexId?: string; role?: string; limit?: number; offset?: number; conversationId?: string }
@@ -4126,6 +4256,59 @@ export class UserDatabaseAdapter {
   async deleteByEmail(email: string): Promise<void> {
     const u = await this.findByEmail(email);
     if (u) await this.deleteById(u.id);
+  }
+
+  /**
+   * Find user by key (human-readable identifier).
+   * @param key - The user's key
+   * @returns User record or null
+   */
+  async findByKey(key: string): Promise<typeof users.$inferSelect | null> {
+    const result = await db.select()
+      .from(users)
+      .where(eq(users.key, key))
+      .limit(1);
+    return result[0] ?? null;
+  }
+
+  /**
+   * Find user by ID or key. Detects UUID format to decide which column to query.
+   * @param idOrKey - UUID or human-readable key
+   * @returns User record or null
+   */
+  async findByIdOrKey(idOrKey: string): Promise<typeof users.$inferSelect | null> {
+    const isUuidFormat = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(idOrKey);
+    if (isUuidFormat) {
+      return this.findById(idOrKey);
+    }
+    return this.findByKey(idOrKey);
+  }
+
+  /**
+   * Check if a key already exists for any user.
+   * @param key - The key to check
+   * @returns True if the key is taken
+   */
+  async keyExists(key: string): Promise<boolean> {
+    const result = await db.select({ id: users.id })
+      .from(users)
+      .where(eq(users.key, key))
+      .limit(1);
+    return result.length > 0;
+  }
+
+  /**
+   * Update a user's key.
+   * @param userId - The user ID
+   * @param key - The new key value
+   * @returns Updated user or null
+   */
+  async updateKey(userId: string, key: string): Promise<typeof users.$inferSelect | null> {
+    const result = await db.update(users)
+      .set({ key, updatedAt: new Date() })
+      .where(eq(users.id, userId))
+      .returning();
+    return result[0] ?? null;
   }
 
   /**
@@ -5060,6 +5243,30 @@ export class ConversationDatabaseAdapter {
     });
 
     return { id, dmPair: null, lastMessageAt: null, createdAt: now, updatedAt: now };
+  }
+
+  /**
+   * Resolve a conversation ID from a full UUID or short prefix.
+   * @param idOrPrefix - Full UUID or prefix (e.g. first 8 chars)
+   * @param userId - The user ID (for participant scoping)
+   * @returns Object with resolved id, or null/ambiguous status
+   */
+  async resolveConversationId(idOrPrefix: string, userId: string): Promise<{ id: string } | { ambiguous: true } | null> {
+    const normalized = idOrPrefix.trim().toLowerCase();
+    const isFullUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(normalized);
+    if (isFullUuid) {
+      return { id: normalized };
+    }
+    const rows = await db.select({ id: schema.conversationParticipants.conversationId })
+      .from(schema.conversationParticipants)
+      .where(and(
+        sql`${schema.conversationParticipants.conversationId} LIKE ${normalized + '%'}`,
+        eq(schema.conversationParticipants.participantId, userId),
+      ))
+      .limit(2);
+    if (rows.length === 0) return null;
+    if (rows.length > 1) return { ambiguous: true };
+    return { id: rows[0].id };
   }
 
   /**

@@ -20,6 +20,23 @@ export class ConversationService {
   constructor(private db: ConversationDatabaseAdapter = conversationDatabaseAdapter) {}
 
   /**
+   * Resolve a conversation identifier (full UUID or short prefix) to a full UUID.
+   * @param idOrPrefix - Full UUID or short hex prefix
+   * @param userId - The user ID (for participant scoping)
+   * @returns Resolved ID, or error object with status
+   */
+  async resolveId(idOrPrefix: string, userId: string): Promise<{ id: string } | { error: string; status: number }> {
+    const result = await this.db.resolveConversationId(idOrPrefix, userId);
+    if (!result) {
+      return { error: 'Conversation not found', status: 404 };
+    }
+    if ('ambiguous' in result) {
+      return { error: 'Ambiguous ID prefix, please provide more characters', status: 409 };
+    }
+    return { id: result.id };
+  }
+
+  /**
    * Verifies a user is a participant in a conversation.
    * @param userId - User ID to verify
    * @param conversationId - Conversation ID
@@ -202,7 +219,7 @@ export class ConversationService {
       const { emailQueue } = await import('../queues/email.queue');
 
       const appUrl = process.env.APP_URL || 'https://index.network';
-      const replyUrl = `${appUrl}/onboarding?ref=invite`;
+      const replyUrl = `${appUrl}/onboarding?ref=invite&alpha=true`;
       const notifSettings = await this.db.getOrCreateNotificationSettings(recipient.id);
       const unsubscribeUrl = `${appUrl}/api/unsubscribe/${notifSettings.unsubscribeToken}`;
 
