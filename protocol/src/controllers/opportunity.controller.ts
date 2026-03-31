@@ -132,6 +132,7 @@ export class OpportunityController {
 
   /**
    * GET /opportunities/:id — get one opportunity with presentation for the viewer.
+   * Accepts full UUID or short ID prefix.
    */
   @Get('/:id')
   @UseGuards(AuthGuard)
@@ -145,10 +146,15 @@ export class OpportunityController {
       });
     }
 
-    const result = await opportunityService.getOpportunityWithPresentation(id, user.id);
-    
+    const resolved = await opportunityService.resolveId(id, user.id);
+    if ('error' in resolved) {
+      return Response.json({ error: resolved.error }, { status: resolved.status });
+    }
+
+    const result = await opportunityService.getOpportunityWithPresentation(resolved.id, user.id);
+
     if (!result) {
-      logger.verbose('Opportunity not found', { userId: user.id, opportunityId: id });
+      logger.verbose('Opportunity not found', { userId: user.id, opportunityId: resolved.id });
       return new Response(JSON.stringify({ error: 'Opportunity not found' }), {
         status: 404,
         headers: { 'Content-Type': 'application/json' },
@@ -156,7 +162,7 @@ export class OpportunityController {
     }
 
     if ('error' in result) {
-      logger.warn('Get opportunity error', { userId: user.id, opportunityId: id, error: result.error });
+      logger.warn('Get opportunity error', { userId: user.id, opportunityId: resolved.id, error: result.error });
       return new Response(JSON.stringify({ error: result.error }), {
         status: result.status as number,
         headers: { 'Content-Type': 'application/json' },
@@ -168,6 +174,7 @@ export class OpportunityController {
 
   /**
    * PATCH /opportunities/:id/status — update status (e.g. accepted, rejected).
+   * Accepts full UUID or short ID prefix.
    */
   @Patch('/:id/status')
   @UseGuards(AuthGuard)
@@ -178,6 +185,11 @@ export class OpportunityController {
         status: 400,
         headers: { 'Content-Type': 'application/json' },
       });
+    }
+
+    const resolved = await opportunityService.resolveId(id, user.id);
+    if ('error' in resolved) {
+      return Response.json({ error: resolved.error }, { status: resolved.status });
     }
     
     let body: { status?: string };
@@ -199,7 +211,7 @@ export class OpportunityController {
       });
     }
 
-    const result = await opportunityService.updateOpportunityStatus(id, status, user.id);
+    const result = await opportunityService.updateOpportunityStatus(resolved.id, status, user.id);
     
     if (result && 'error' in result) {
       return new Response(JSON.stringify({ error: result.error }), {
