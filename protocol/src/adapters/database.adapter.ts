@@ -1171,6 +1171,7 @@ export class ChatDatabaseAdapter {
       .select({
         id: schema.indexes.id,
         title: schema.indexes.title,
+        key: schema.indexes.key,
         prompt: schema.indexes.prompt,
         imageUrl: schema.indexes.imageUrl,
         permissions: schema.indexes.permissions,
@@ -1207,6 +1208,7 @@ export class ChatDatabaseAdapter {
         return {
           id: row.id,
           title: row.title,
+          key: row.key,
           prompt: row.prompt,
           imageUrl: row.imageUrl,
           permissions: row.permissions,
@@ -2317,6 +2319,7 @@ export class ChatDatabaseAdapter {
       .select({
         id: indexes.id,
         title: indexes.title,
+        key: indexes.key,
         prompt: indexes.prompt,
         imageUrl: indexes.imageUrl,
         permissions: indexes.permissions,
@@ -2351,6 +2354,7 @@ export class ChatDatabaseAdapter {
     return {
       id: row.id,
       title: row.title,
+      key: row.key,
       prompt: row.prompt,
       imageUrl: row.imageUrl,
       permissions: row.permissions,
