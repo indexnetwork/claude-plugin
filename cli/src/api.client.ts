@@ -22,6 +22,7 @@ import type {
   AddMemberResult,
   Conversation,
   ConversationMessage,
+  ToolResult,
 } from "./types";
 
 // Re-export all types for backward compatibility
@@ -47,6 +48,7 @@ export type {
   Conversation,
   MessagePart,
   ConversationMessage,
+  ToolResult,
 } from "./types";
 
 export class ApiClient {
@@ -449,6 +451,21 @@ export class ApiClient {
     }
 
     return res;
+  }
+
+  // ── Tool methods ────────────────────────────────────────────────
+
+  /**
+   * Invoke a tool by name via the HTTP tool API.
+   *
+   * @param toolName - Tool name (e.g. 'read_intents', 'create_intent').
+   * @param query - Tool-specific query parameters.
+   * @returns Parsed tool result.
+   * @throws Error on auth failure or network error.
+   */
+  async callTool(toolName: string, query: Record<string, unknown> = {}): Promise<ToolResult> {
+    const res = await this.post(`/api/tools/${toolName}`, { query });
+    return (await res.json()) as ToolResult;
   }
 
   // ── Private helpers ──────────────────────────────────────────────

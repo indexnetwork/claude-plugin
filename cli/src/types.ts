@@ -211,3 +211,13 @@ export interface ConversationMessage {
   createdAt: string;
   metadata?: Record<string, unknown>;
 }
+
+// ── Tool types ───────────────────────────────────────────────────────
+
+/** Generic result from POST /api/tools/:toolName. */
+export interface ToolResult {
+  success: boolean;
+  data?: Record<string, unknown>;
+  error?: string;
+  [key: string]: unknown;
+}
