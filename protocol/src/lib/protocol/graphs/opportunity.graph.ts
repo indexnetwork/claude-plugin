@@ -14,7 +14,7 @@
 
 import { StateGraph, START, END, Annotation } from '@langchain/langgraph';
 import type { Id } from '../../../types/common.types';
-import type { DebugMetaAgent } from '../../../types/chat-streaming.types';
+import type { DebugMetaAgent } from '../types/chat-streaming.types';
 import {
   OpportunityGraphState,
   type IndexedIntent,

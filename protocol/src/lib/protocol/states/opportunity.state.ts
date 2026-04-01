@@ -3,7 +3,7 @@ import type { Id } from '../../../types/common.types';
 import type { OpportunityStatus, Opportunity } from '../interfaces/database.interface';
 import type { Lens } from '../interfaces/embedder.interface';
 import type { EvaluatorEntity } from '../agents/opportunity.evaluator';
-import type { DebugMetaAgent } from '../../../types/chat-streaming.types';
+import type { DebugMetaAgent } from '../types/chat-streaming.types';
 
 /**
  * Opportunity Graph State (Linear Multi-Step Workflow)
