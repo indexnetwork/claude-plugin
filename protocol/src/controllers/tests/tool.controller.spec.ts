@@ -11,38 +11,71 @@ describe("ToolController Integration", () => {
   let controller: ToolController;
   const userAdapter = new UserDatabaseAdapter();
   let testUserId: string;
-  const testEmail = "test-tool-controller@example.com";
+  let testUserBId: string;
+  // Use unique emails per run to avoid FK constraint issues from prior runs
+  const runId = Date.now().toString(36);
+  const testEmailA = `test-tool-ctrl-${runId}@example.com`;
+  const testEmailB = `test-tool-ctrl-b-${runId}@example.com`;
 
   const mockUser = (): AuthenticatedUser => ({
     id: testUserId,
-    email: testEmail,
+    email: testEmailA,
     name: "Test Tool User",
   });
 
-  beforeAll(async () => {
-    // Clean up any leftover test user
-    const existing = await userAdapter.findByEmail(testEmail);
-    if (existing) {
-      await userAdapter.deleteByEmail(testEmail);
-    }
+  /** Helper to invoke a tool and return parsed JSON. */
+  async function invokeTool(toolName: string, query: Record<string, unknown> = {}) {
+    const req = new Request(`http://localhost/api/tools/${toolName}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query }),
+    });
+    const res = await controller.invoke(req, mockUser(), { toolName });
+    const data = await res.json() as Record<string, unknown>;
+    return { status: res.status, data };
+  }
 
-    const user = await userAdapter.create({
-      email: testEmail,
+  beforeAll(async () => {
+    const userA = await userAdapter.create({
+      email: testEmailA,
       name: "Test Tool User",
       intro: "Integration test user for ToolController",
     });
-    testUserId = user.id;
-    console.log(`Created test user: ${testUserId}`);
+    testUserId = userA.id;
+
+    const userB = await userAdapter.create({
+      email: testEmailB,
+      name: "Test Tool User B",
+      intro: "Second test user for CLI contract tests",
+    });
+    testUserBId = userB.id;
 
     controller = new ToolController();
+    console.log(`Created test users: A=${testUserId}, B=${testUserBId}`);
   });
 
   afterAll(async () => {
+    // Remove contacts and memberships created during tests before deleting users
     if (testUserId) {
-      await userAdapter.deleteById(testUserId);
-      console.log(`Deleted test user: ${testUserId}`);
+      try {
+        // Remove any contacts added during tests
+        const contacts = await invokeTool("list_contacts", {});
+        const contactList = ((contacts.data as Record<string, unknown>)?.contacts as Array<{ userId: string }>) ?? [];
+        for (const c of contactList) {
+          await invokeTool("remove_contact", { contactUserId: c.userId });
+        }
+      } catch { /* ignore cleanup errors */ }
     }
+
+    for (const id of [testUserId, testUserBId]) {
+      if (id) {
+        try { await userAdapter.deleteById(id); } catch { /* FK constraint — user has memberships */ }
+      }
+    }
+    console.log("Cleaned up test users");
   });
+
+  // ── Existing ToolController tests ──────────────────────────────
 
   test("GET /tools should list available tools", async () => {
     const req = new Request("http://localhost/api/tools");
@@ -68,17 +101,8 @@ describe("ToolController Integration", () => {
   }, 30_000);
 
   test("POST /tools/read_intents should return intents for user", async () => {
-    const req = new Request("http://localhost/api/tools/read_intents", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ query: {} }),
-    });
-
-    const res = await controller.invoke(req, mockUser(), { toolName: "read_intents" });
-    const data = await res.json();
-
-    expect(res.status).toBe(200);
-    // New user should have an empty intents list or a structured response
+    const { status, data } = await invokeTool("read_intents", {});
+    expect(status).toBe(200);
     expect(data).toBeDefined();
     console.log("read_intents result:", JSON.stringify(data).slice(0, 200));
   }, 60_000);
@@ -100,77 +124,36 @@ describe("ToolController Integration", () => {
   }, 60_000);
 
   test("POST /tools/list_contacts should return contacts for user", async () => {
-    const req = new Request("http://localhost/api/tools/list_contacts", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ query: {} }),
-    });
-
-    const res = await controller.invoke(req, mockUser(), { toolName: "list_contacts" });
-    const data = await res.json();
-
-    expect(res.status).toBe(200);
-    // New user should have an empty contacts list or structured response
+    const { status, data } = await invokeTool("list_contacts", {});
+    expect(status).toBe(200);
     expect(data).toBeDefined();
     console.log("list_contacts result:", JSON.stringify(data).slice(0, 200));
   }, 60_000);
 
   test("POST /tools/read_indexes should return indexes for user", async () => {
-    const req = new Request("http://localhost/api/tools/read_indexes", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ query: {} }),
-    });
-
-    const res = await controller.invoke(req, mockUser(), { toolName: "read_indexes" });
-    const data = await res.json();
-
-    expect(res.status).toBe(200);
+    const { status, data } = await invokeTool("read_indexes", {});
+    expect(status).toBe(200);
     expect(data).toBeDefined();
     console.log("read_indexes result:", JSON.stringify(data).slice(0, 200));
   }, 60_000);
 
   test("POST /tools/read_user_profiles should return profile data", async () => {
-    const req = new Request("http://localhost/api/tools/read_user_profiles", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ query: {} }),
-    });
-
-    const res = await controller.invoke(req, mockUser(), { toolName: "read_user_profiles" });
-    const data = await res.json();
-
-    expect(res.status).toBe(200);
+    const { status, data } = await invokeTool("read_user_profiles", {});
+    expect(status).toBe(200);
     expect(data).toBeDefined();
     console.log("read_user_profiles result:", JSON.stringify(data).slice(0, 200));
   }, 60_000);
 
   test("POST /tools/list_opportunities should return opportunities", async () => {
-    const req = new Request("http://localhost/api/tools/list_opportunities", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ query: {} }),
-    });
-
-    const res = await controller.invoke(req, mockUser(), { toolName: "list_opportunities" });
-    const data = await res.json();
-
-    expect(res.status).toBe(200);
+    const { status, data } = await invokeTool("list_opportunities", {});
+    expect(status).toBe(200);
     expect(data).toBeDefined();
     console.log("list_opportunities result:", JSON.stringify(data).slice(0, 200));
   }, 60_000);
 
   test("POST /tools/scrape_url should handle a URL", async () => {
-    const req = new Request("http://localhost/api/tools/scrape_url", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ query: { url: "https://example.com" } }),
-    });
-
-    const res = await controller.invoke(req, mockUser(), { toolName: "scrape_url" });
-    const data = await res.json();
-
-    expect(res.status).toBe(200);
+    const { status, data } = await invokeTool("scrape_url", { url: "https://example.com" });
+    expect(status).toBe(200);
     expect(data).toBeDefined();
     console.log("scrape_url result:", JSON.stringify(data).slice(0, 200));
   }, 60_000);
@@ -188,19 +171,214 @@ describe("ToolController Integration", () => {
   }, 60_000);
 
   test("POST /tools/read_intent_indexes without params should return validation error", async () => {
-    const req = new Request("http://localhost/api/tools/read_intent_indexes", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ query: {} }),
-    });
-
-    const res = await controller.invoke(req, mockUser(), { toolName: "read_intent_indexes" });
-    const data = await res.json() as { success: boolean; error?: string };
-
-    // Tool validates at handler level: returns error payload with 200 status
-    expect(res.status).toBe(200);
+    const { status, data } = await invokeTool("read_intent_indexes", {});
+    expect(status).toBe(200);
     expect(data.success).toBe(false);
-    expect(data.error).toContain("indexId or intentId");
+    expect(String(data.error)).toContain("indexId or intentId");
     console.log("read_intent_indexes result:", JSON.stringify(data).slice(0, 200));
   }, 60_000);
+
+  // ── CLI Tool Call Contracts ────────────────────────────────────
+  //
+  // Verifies the exact query shapes the CLI sends are accepted by
+  // real tool handlers. Catches fabricated field names that compile
+  // in TypeScript but fail silently at runtime.
+
+  describe("CLI tool call contracts", () => {
+
+    // ── Profile (CLI: profile search, show, create, update) ──────
+
+    test("read_user_profiles with query (CLI: profile search)", async () => {
+      const { status, data } = await invokeTool("read_user_profiles", { query: "nonexistent-xyz" });
+      expect(status).toBe(200);
+      expect(data.success).toBe(true);
+    }, 30_000);
+
+    test("read_user_profiles with userId (CLI: profile show via tool)", async () => {
+      const { status, data } = await invokeTool("read_user_profiles", { userId: testUserId });
+      expect(status).toBe(200);
+      expect(data.success).toBe(true);
+    }, 30_000);
+
+    // ── Intent (CLI: intent update, link, unlink, links) ─────────
+
+    test("update_intent with intentId + newDescription (CLI: intent update)", async () => {
+      const { status, data } = await invokeTool("update_intent", {
+        intentId: "00000000-0000-0000-0000-000000000000",
+        newDescription: "Updated description",
+      });
+      // Tool should accept the query shape (not 400/404 on schema)
+      expect(status).toBe(200);
+      expect(String(data.error ?? "")).not.toContain("Invalid query");
+    }, 60_000);
+
+    test("create_intent_index with intentId + indexId (CLI: intent link)", async () => {
+      const { status, data } = await invokeTool("create_intent_index", {
+        intentId: "00000000-0000-0000-0000-000000000000",
+        indexId: "00000000-0000-0000-0000-000000000000",
+      });
+      expect(status).toBe(200);
+      expect(String(data.error ?? "")).not.toContain("Invalid query");
+    }, 60_000);
+
+    test("delete_intent_index with intentId + indexId (CLI: intent unlink)", async () => {
+      const { status, data } = await invokeTool("delete_intent_index", {
+        intentId: "00000000-0000-0000-0000-000000000000",
+        indexId: "00000000-0000-0000-0000-000000000000",
+      });
+      expect(status).toBe(200);
+      expect(String(data.error ?? "")).not.toContain("Invalid query");
+    }, 60_000);
+
+    test("read_intent_indexes with intentId (CLI: intent links)", async () => {
+      const { status, data } = await invokeTool("read_intent_indexes", {
+        intentId: "00000000-0000-0000-0000-000000000000",
+      });
+      expect(status).toBe(200);
+      expect(String(data.error ?? "")).not.toContain("Invalid query");
+    }, 60_000);
+
+    // ── Opportunity (CLI: discover modes) ────────────────────────
+
+    test("create_opportunities with searchQuery (CLI: opportunity discover)", async () => {
+      const { status, data } = await invokeTool("create_opportunities", {
+        searchQuery: "AI engineer with privacy expertise",
+      });
+      expect(status).toBe(200);
+      expect(String(data.error ?? "")).not.toContain("Invalid query");
+    }, 120_000);
+
+    test("create_opportunities with targetUserId + searchQuery (CLI: discover --target)", async () => {
+      const { status, data } = await invokeTool("create_opportunities", {
+        targetUserId: testUserBId,
+        searchQuery: "collaborate on open-source tooling",
+      });
+      expect(status).toBe(200);
+      expect(String(data.error ?? "")).not.toContain("Invalid query");
+    }, 120_000);
+
+    test("create_opportunities with partyUserIds + entities (CLI: discover --introduce)", async () => {
+      const { status, data } = await invokeTool("create_opportunities", {
+        partyUserIds: [testUserId, testUserBId],
+        entities: [
+          {
+            userId: testUserId,
+            profile: { name: "User A", bio: "Engineer" },
+            intents: [{ intentId: "i1", payload: "Looking for collaborators" }],
+            indexId: "00000000-0000-0000-0000-000000000000",
+          },
+          {
+            userId: testUserBId,
+            profile: { name: "User B", bio: "Designer" },
+            intents: [{ intentId: "i2", payload: "Looking for engineers" }],
+            indexId: "00000000-0000-0000-0000-000000000000",
+          },
+        ],
+        hint: "both working on AI tools",
+      });
+      expect(status).toBe(200);
+      // May fail on permissions/membership, but NOT schema validation
+      expect(String(data.error ?? "")).not.toContain("Invalid query");
+    }, 120_000);
+
+    test("list_opportunities with empty query (CLI: opportunity list)", async () => {
+      const { status, data } = await invokeTool("list_opportunities", {});
+      expect(status).toBe(200);
+      expect(data.success).toBe(true);
+    }, 60_000);
+
+    // ── Network (CLI: network update, delete) ────────────────────
+
+    test("update_index with indexId + settings (CLI: network update)", async () => {
+      const { status, data } = await invokeTool("update_index", {
+        indexId: "00000000-0000-0000-0000-000000000000",
+        settings: { title: "New Name", prompt: "Updated description" },
+      });
+      expect(status).toBe(200);
+      expect(String(data.error ?? "")).not.toContain("Invalid query");
+    }, 60_000);
+
+    test("delete_index with indexId (CLI: network delete)", async () => {
+      const { status, data } = await invokeTool("delete_index", {
+        indexId: "00000000-0000-0000-0000-000000000000",
+      });
+      expect(status).toBe(200);
+      expect(String(data.error ?? "")).not.toContain("Invalid query");
+    }, 60_000);
+
+    // ── Contact (CLI: contact list, add, remove) ─────────────────
+
+    test("list_contacts with empty query (CLI: contact list)", async () => {
+      const { status, data } = await invokeTool("list_contacts", {});
+      expect(status).toBe(200);
+      expect(data.success).toBe(true);
+    }, 60_000);
+
+    test("add_contact with email + name (CLI: contact add)", async () => {
+      const { status, data } = await invokeTool("add_contact", {
+        email: "new-contact-test@example.com",
+        name: "New Contact",
+      });
+      expect(status).toBe(200);
+      expect(String(data.error ?? "")).not.toContain("Invalid query");
+    }, 60_000);
+
+    test("remove_contact with contactUserId (CLI: contact remove)", async () => {
+      const { status, data } = await invokeTool("remove_contact", {
+        contactUserId: "00000000-0000-0000-0000-000000000000",
+      });
+      expect(status).toBe(200);
+      expect(String(data.error ?? "")).not.toContain("Invalid query");
+    }, 60_000);
+
+    // ── Membership (CLI: introduce prerequisite calls) ───────────
+
+    test("read_index_memberships with userId (CLI: introduce step 1)", async () => {
+      const { status, data } = await invokeTool("read_index_memberships", {
+        userId: testUserId,
+      });
+      expect(status).toBe(200);
+      expect(data.success).toBe(true);
+    }, 60_000);
+
+    test("read_intents with userId + indexId (CLI: introduce step 2)", async () => {
+      const { status, data } = await invokeTool("read_intents", {
+        userId: testUserId,
+        indexId: "00000000-0000-0000-0000-000000000000",
+      });
+      expect(status).toBe(200);
+      // May fail on membership check, not schema
+      expect(String(data.error ?? "")).not.toContain("Invalid query");
+    }, 60_000);
+
+    // ── Scrape (CLI: scrape) ─────────────────────────────────────
+
+    test("scrape_url with url + objective (CLI: scrape)", async () => {
+      const { status, data } = await invokeTool("scrape_url", {
+        url: "https://example.com",
+        objective: "Extract main content",
+      });
+      expect(status).toBe(200);
+      expect(String(data.error ?? "")).not.toContain("Invalid query");
+    }, 60_000);
+
+    // ── Sync (CLI: sync) ─────────────────────────────────────────
+
+    test("all sync tools accept empty query (CLI: sync)", async () => {
+      const syncTools = ["read_user_profiles", "read_indexes", "read_intents", "list_contacts"];
+      for (const toolName of syncTools) {
+        const { status, data } = await invokeTool(toolName, {});
+        expect(status).toBe(200);
+        expect(data).toBeDefined();
+      }
+    }, 60_000);
+
+    // ── Onboarding (CLI: onboarding complete) ────────────────────
+
+    test("complete_onboarding with empty query (CLI: onboarding complete)", async () => {
+      const { status, data } = await invokeTool("complete_onboarding", {});
+      expect(status).toBe(200);
+      expect(String(data.error ?? "")).not.toContain("Invalid query");
+    }, 60_000);
+  });
 });
