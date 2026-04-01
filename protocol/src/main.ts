@@ -2,6 +2,7 @@ import './startup.env';
 
 import { ChatController } from './controllers/chat.controller';
 import { DebugController } from './controllers/debug.controller';
+import { ToolController } from './controllers/tool.controller';
 import { S3StorageAdapter } from './adapters/storage.adapter';
 import { IndexController } from './controllers/index.controller';
 import { IntentController } from './controllers/intent.controller';
@@ -142,6 +143,7 @@ controllerInstances.set(ConversationController, new ConversationController(new C
 const integrationAdapter = new ComposioIntegrationAdapter();
 controllerInstances.set(IntegrationController, new IntegrationController(integrationAdapter, new IntegrationService(integrationAdapter)));
 controllerInstances.set(DebugController, new DebugController());
+controllerInstances.set(ToolController, new ToolController());
 
 logger.info('Routes registered', { prefix: GLOBAL_PREFIX });
 
