@@ -28,10 +28,12 @@ The plugin resolves auth in this order:
 
 ## Install in Claude Code
 
-Load the plugin directly from this repository:
+```bash
+# Add the marketplace
+/plugin marketplace add indexnetwork/claude-plugin
 
-```
-/plugin install index-network@indexnetwork/claude-plugin
+# Install the plugin
+/plugin install index-network@indexnetwork-claude-plugin
 ```
 
 Or load locally during development:
