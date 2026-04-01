@@ -86,25 +86,37 @@ export async function handleOpportunity(
         output.error("Usage: index opportunity discover <query>", 1);
         return;
       }
-      output.info("Discovering opportunities...");
-      const toolQuery: Record<string, unknown> = {};
+
       if (options.introduce) {
-        toolQuery.mode = "introduction";
-        toolQuery.sourceUserId = options.introduce;
-        toolQuery.targetUserId = options.positionals?.[0];
+        const userA = options.introduce;
+        const userB = options.positionals?.[0];
+        if (!userB) {
+          output.error("Usage: index opportunity discover --introduce <userA> <userB>", 1);
+          return;
+        }
+        // Remaining positionals after userB serve as a hint for the introduction
+        const hint = options.positionals?.slice(1).join(" ") || undefined;
+        await discoverIntroduction(client, userA, userB, hint, options.json);
       } else if (options.target) {
-        toolQuery.mode = "direct";
-        toolQuery.targetUserId = options.target;
-        toolQuery.searchQuery = query;
+        output.info("Discovering opportunities...");
+        const result = await client.callTool("create_opportunities", {
+          targetUserId: options.target,
+          searchQuery: query,
+        });
+        if (options.json) { console.log(JSON.stringify(result)); return; }
+        if (!result.success) { output.error(result.error ?? "Discovery failed", 1); return; }
+        output.success("Discovery complete.");
+        const data = result.data as { message?: string };
+        if (data?.message) output.dim(`  ${data.message}`);
       } else {
-        toolQuery.searchQuery = query;
+        output.info("Discovering opportunities...");
+        const result = await client.callTool("create_opportunities", { searchQuery: query });
+        if (options.json) { console.log(JSON.stringify(result)); return; }
+        if (!result.success) { output.error(result.error ?? "Discovery failed", 1); return; }
+        output.success("Discovery complete.");
+        const data = result.data as { message?: string };
+        if (data?.message) output.dim(`  ${data.message}`);
       }
-      const result = await client.callTool("create_opportunities", toolQuery);
-      if (options.json) { console.log(JSON.stringify(result)); return; }
-      if (!result.success) { output.error(result.error ?? "Discovery failed", 1); return; }
-      output.success("Discovery complete.");
-      const data = result.data as { message?: string };
-      if (data?.message) output.dim(`  ${data.message}`);
       return;
     }
 
@@ -152,4 +164,91 @@ async function opportunityStatusUpdate(
   if (json) { console.log(JSON.stringify(result)); return; }
   const label = status === "accepted" ? "accepted" : "rejected";
   output.success(`Opportunity ${label}.`);
+}
+
+/**
+ * Gather profiles and intents for two users, find a shared index,
+ * then call create_opportunities in introduction mode.
+ */
+async function discoverIntroduction(
+  client: ApiClient,
+  userA: string,
+  userB: string,
+  hint?: string,
+  json?: boolean,
+): Promise<void> {
+  output.info("Gathering data for introduction...");
+
+  // Step 1: Find shared indexes between the two users
+  const [membershipsA, membershipsB] = await Promise.all([
+    client.callTool("read_index_memberships", { userId: userA }),
+    client.callTool("read_index_memberships", { userId: userB }),
+  ]);
+
+  if (!membershipsA.success || !membershipsB.success) {
+    const err = membershipsA.error ?? membershipsB.error ?? "Failed to read memberships";
+    if (json) { console.log(JSON.stringify({ success: false, error: err })); return; }
+    output.error(err, 1);
+    return;
+  }
+
+  const indexesA = ((membershipsA.data?.memberships ?? membershipsA.data?.indexes) as Array<{ indexId: string }>) ?? [];
+  const indexesB = ((membershipsB.data?.memberships ?? membershipsB.data?.indexes) as Array<{ indexId: string }>) ?? [];
+  const idsA = new Set(indexesA.map((m) => m.indexId));
+  const shared = indexesB.filter((m) => idsA.has(m.indexId));
+
+  if (shared.length === 0) {
+    const err = "No shared indexes found between these users. They must be members of at least one common network.";
+    if (json) { console.log(JSON.stringify({ success: false, error: err })); return; }
+    output.error(err, 1);
+    return;
+  }
+
+  const sharedIndexId = shared[0].indexId;
+  output.dim(`  Found shared network: ${sharedIndexId}`);
+
+  // Step 2: Gather profiles and intents in parallel
+  const [profileA, profileB, intentsA, intentsB] = await Promise.all([
+    client.callTool("read_user_profiles", { userId: userA }),
+    client.callTool("read_user_profiles", { userId: userB }),
+    client.callTool("read_intents", { userId: userA, indexId: sharedIndexId }),
+    client.callTool("read_intents", { userId: userB, indexId: sharedIndexId }),
+  ]);
+
+  const extractProfile = (result: { success: boolean; data?: Record<string, unknown> }) => {
+    if (!result.success || !result.data) return undefined;
+    // Single-user profile response has a profile object at top level or nested
+    const d = result.data as Record<string, unknown>;
+    if (d.profile) return d.profile as Record<string, unknown>;
+    // Multi-profile response (from query mode) — take first
+    const profiles = d.profiles as Array<{ profile?: Record<string, unknown> }> | undefined;
+    return profiles?.[0]?.profile;
+  };
+
+  const extractIntents = (result: { success: boolean; data?: Record<string, unknown> }) => {
+    if (!result.success || !result.data) return undefined;
+    const d = result.data as Record<string, unknown>;
+    return (d.intents as Array<{ intentId?: string; id?: string; payload: string; summary?: string }> | undefined)
+      ?.map((i) => ({ intentId: i.intentId ?? i.id ?? "", payload: i.payload, summary: i.summary }));
+  };
+
+  const entities = [
+    { userId: userA, profile: extractProfile(profileA), intents: extractIntents(intentsA), indexId: sharedIndexId },
+    { userId: userB, profile: extractProfile(profileB), intents: extractIntents(intentsB), indexId: sharedIndexId },
+  ];
+
+  output.dim("  Profiles and intents gathered. Creating introduction...");
+
+  // Step 3: Call create_opportunities with full entity data
+  const result = await client.callTool("create_opportunities", {
+    partyUserIds: [userA, userB],
+    entities,
+    ...(hint ? { hint } : {}),
+  });
+
+  if (json) { console.log(JSON.stringify(result)); return; }
+  if (!result.success) { output.error(result.error ?? "Introduction failed", 1); return; }
+  output.success("Introduction created.");
+  const data = result.data as { message?: string };
+  if (data?.message) output.dim(`  ${data.message}`);
 }

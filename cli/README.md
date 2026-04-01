@@ -189,11 +189,14 @@ index opportunity discover "collaborate on open-source LLM tooling" --target <us
 
 ### Scenario 3: Introduction
 
-Introduce two people you think should connect. You become the introducer — both parties see you as the connector.
+Introduce two people you think should connect. You become the introducer — both parties see you as the connector. The CLI automatically finds shared networks, gathers profiles and intents, then creates the introduction.
 
 ```bash
 # Introduce two users to each other
 index opportunity discover --introduce <user-id-a> <user-id-b>
+
+# Provide a reason for the introduction
+index opportunity discover --introduce <user-id-a> <user-id-b> "both working on privacy-preserving ML"
 ```
 
 ### Scenario 4: Review and act
