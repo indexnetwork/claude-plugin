@@ -3,9 +3,9 @@ import { config } from "dotenv";
 config({ path: '.env' });
 
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
-import { ToolController } from "../src/controllers/tool.controller";
-import { UserDatabaseAdapter } from "../src/adapters/database.adapter";
-import type { AuthenticatedUser } from "../src/guards/auth.guard";
+import { ToolController } from "../tool.controller";
+import { UserDatabaseAdapter } from "../../adapters/database.adapter";
+import type { AuthenticatedUser } from "../../guards/auth.guard";
 
 describe("ToolController Integration", () => {
   let controller: ToolController;
