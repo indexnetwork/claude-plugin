@@ -280,6 +280,7 @@ cli/
     contact.command.ts         Contact subcommand handlers
     scrape.command.ts          URL scraping command handler
     sync.command.ts            Context sync command handler
+    onboarding.command.ts      Onboarding command handler
     output/                    Terminal formatting, colors, markdown renderer
     api.client.ts              Typed HTTP client for the protocol API
     auth.store.ts              Credential persistence (~/.index/credentials.json)

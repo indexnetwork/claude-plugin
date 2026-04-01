@@ -61,6 +61,25 @@ bun run start                               # Start Vite preview server
 bun run lint                                # Run ESLint
 ```
 
+### CLI
+
+```bash
+cd cli
+bun src/main.ts conversation                # Run CLI directly with Bun (no build)
+bun run build                               # Build native binaries for all platforms
+bun test                                    # Run CLI tests
+```
+
+### Plugin (submodule)
+
+The `plugin/` directory is a git submodule pointing to `indexnetwork/claude-plugin`. After cloning, initialize it:
+
+```bash
+git submodule update --init                 # Fetch plugin source
+cd plugin
+npm install && npm run build                # Build the MCP server
+```
+
 ### Root
 
 ```bash
@@ -82,6 +101,8 @@ For full architecture details see `docs/design/architecture-overview.md` and `do
 index/
 ├── protocol/          # Backend API & Agent Engine (Bun, Express, TypeScript)
 ├── frontend/          # Vite + React Router v7 SPA with React 19
+├── cli/               # CLI client (@indexnetwork/cli) — Bun, TypeScript
+├── plugin/            # Claude plugin (MCP server, submodule → indexnetwork/claude-plugin)
 ├── docs/              # Project documentation (design/, domain/, guides/, specs/)
 └── scripts/           # Worktree helpers, hooks, dev launcher
 ```
