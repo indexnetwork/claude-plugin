@@ -159,10 +159,15 @@ async function opportunityStatusUpdate(
   status: "accepted" | "rejected",
   json?: boolean,
 ): Promise<void> {
-  const result = await client.updateOpportunityStatus(id, status);
+  // Resolve short ID to full UUID via REST read
+  const opportunity = await client.getOpportunity(id);
+  const result = await client.callTool("update_opportunity", {
+    opportunityId: opportunity.id,
+    status,
+  });
   if (json) { console.log(JSON.stringify(result)); return; }
-  const label = status === "accepted" ? "accepted" : "rejected";
-  output.success(`Opportunity ${label}.`);
+  if (!result.success) { output.error(result.error ?? `Failed to ${status === "accepted" ? "accept" : "reject"} opportunity`, 1); return; }
+  output.success(`Opportunity ${status === "accepted" ? "accepted" : "rejected"}.`);
 }
 
 /**

@@ -382,6 +382,44 @@ describe("CLI tool call contracts", () => {
       expect(mock.toolCalls).toHaveLength(2);
       expect(mock.toolCalls.every((c) => c.toolName === "read_index_memberships")).toBe(true);
     });
+
+    it("accept calls update_opportunity with status accepted (CLI: opportunity accept)", async () => {
+      mock.onRest("GET", "/api/opportunities/abc", () =>
+        Response.json({ id: "full-uuid-abc", status: "pending" }),
+      );
+      mock.setToolResponse("update_opportunity", { success: true, data: {} });
+
+      await handleOpportunity(client, "accept", {
+        targetId: "abc",
+        json: true,
+      });
+
+      expect(mock.toolCalls).toHaveLength(1);
+      expect(mock.toolCalls[0].toolName).toBe("update_opportunity");
+      expect(mock.toolCalls[0].query).toEqual({
+        opportunityId: "full-uuid-abc",
+        status: "accepted",
+      });
+    });
+
+    it("reject calls update_opportunity with status rejected (CLI: opportunity reject)", async () => {
+      mock.onRest("GET", "/api/opportunities/xyz", () =>
+        Response.json({ id: "full-uuid-xyz", status: "pending" }),
+      );
+      mock.setToolResponse("update_opportunity", { success: true, data: {} });
+
+      await handleOpportunity(client, "reject", {
+        targetId: "xyz",
+        json: true,
+      });
+
+      expect(mock.toolCalls).toHaveLength(1);
+      expect(mock.toolCalls[0].toolName).toBe("update_opportunity");
+      expect(mock.toolCalls[0].query).toEqual({
+        opportunityId: "full-uuid-xyz",
+        status: "rejected",
+      });
+    });
   });
 
   // ── Network ──────────────────────────────────────────────────────
