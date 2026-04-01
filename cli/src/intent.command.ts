@@ -83,15 +83,15 @@ export async function handleIntent(
         output.error("Missing content. Usage: index intent create <content>", 1);
         return;
       }
-      if (!options.json) {
-        output.info("Processing signal...");
-      }
-      const result = await client.processIntent(options.intentContent);
+      output.info("Processing signal...");
+      const result = await client.callTool("create_intent", {
+        description: options.intentContent,
+      });
       if (options.json) { console.log(JSON.stringify(result)); return; }
-      output.success("Signal processed successfully.");
-      if (result.message) {
-        output.dim(`  ${result.message}`);
-      }
+      if (!result.success) { output.error(result.error ?? "Failed to create signal", 1); return; }
+      output.success("Signal created.");
+      const data = result.data as { message?: string };
+      if (data?.message) output.dim(`  ${data.message}`);
       return;
     }
 

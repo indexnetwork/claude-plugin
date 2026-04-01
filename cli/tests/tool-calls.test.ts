@@ -159,6 +159,21 @@ describe("CLI tool call contracts", () => {
   // ── Intent ───────────────────────────────────────────────────────
 
   describe("intent", () => {
+    it("create calls create_intent with description (CLI: intent create)", async () => {
+      mock.setToolResponse("create_intent", { success: true, data: { message: "Intent created" } });
+
+      await handleIntent(client, "create", {
+        intentContent: "Looking for a CTO with AI experience",
+        json: true,
+      });
+
+      expect(mock.toolCalls).toHaveLength(1);
+      expect(mock.toolCalls[0].toolName).toBe("create_intent");
+      expect(mock.toolCalls[0].query).toEqual({
+        description: "Looking for a CTO with AI experience",
+      });
+    });
+
     it("update calls update_intent with intentId and newDescription", async () => {
       mock.setToolResponse("update_intent", { success: true, data: {} });
 
