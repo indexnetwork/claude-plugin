@@ -24,6 +24,12 @@ export async function runCli(
   auth: AuthConfig,
   timeout: number = DEFAULT_TIMEOUT_MS
 ): Promise<CliResult> {
+  // SECURITY NOTE: --token is visible in `ps aux` process listings.
+  // A safer approach would be to pass the token via an environment variable
+  // (e.g. INDEX_API_TOKEN), but the CLI's requireAuth() reads only from
+  // ~/.index/credentials.json and does not check environment variables for
+  // non-login commands. Until the CLI supports INDEX_API_TOKEN env auth,
+  // --token must remain a CLI argument.
   const args = [
     ...command,
     '--json',

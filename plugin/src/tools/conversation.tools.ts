@@ -1,12 +1,8 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import * as z from 'zod/v4';
-import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
-import { runCli, type CliResult } from '../cli-runner.js';
+import { runCli } from '../cli-runner.js';
 import type { AuthConfig } from '../auth.js';
-
-function toResult(cli: CliResult): CallToolResult {
-  return { content: [{ type: 'text', text: JSON.stringify(cli) }] };
-}
+import { toResult } from './shared.js';
 
 /**
  * Registers conversation tools with the MCP server.

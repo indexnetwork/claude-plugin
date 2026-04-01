@@ -7,7 +7,7 @@ export interface AuthConfig {
   apiUrl: string;
 }
 
-const DEFAULT_API_URL = 'https://api.index.network';
+const DEFAULT_API_URL = 'https://protocol.index.network';
 const CREDENTIALS_PATH = join(homedir(), '.index', 'credentials.json');
 
 /**
