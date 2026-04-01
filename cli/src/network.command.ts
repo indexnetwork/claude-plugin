@@ -159,11 +159,15 @@ async function networkUpdate(
     return;
   }
 
-  const query: Record<string, unknown> = { indexId: id };
-  if (options.title) query.title = options.title;
-  if (options.prompt) query.prompt = options.prompt;
+  const settings: Record<string, unknown> = {};
+  if (options.title) settings.title = options.title;
+  if (options.prompt) settings.prompt = options.prompt;
+  if (Object.keys(settings).length === 0) {
+    output.error("Provide at least --title or --prompt. Usage: index network update <id> [--title <t>] [--prompt <p>]", 1);
+    return;
+  }
 
-  const result = await client.callTool("update_index", query);
+  const result = await client.callTool("update_index", { indexId: id, settings });
   if (!result.success) {
     output.error(result.error ?? "Network update failed", 1);
     return;

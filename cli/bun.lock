@@ -1,0 +1,34 @@
+{
+  "lockfileVersion": 1,
+  "workspaces": {
+    "": {
+      "name": "@indexnetwork/cli",
+      "devDependencies": {
+        "@types/bun": "latest",
+      },
+      "optionalDependencies": {
+        "@indexnetwork/cli-darwin-arm64": "0.8.1",
+        "@indexnetwork/cli-darwin-x64": "0.8.1",
+        "@indexnetwork/cli-linux-arm64": "0.8.1",
+        "@indexnetwork/cli-linux-x64": "0.8.1",
+      },
+    },
+  },
+  "packages": {
+    "@indexnetwork/cli-darwin-arm64": ["@indexnetwork/cli-darwin-arm64@0.8.1", "", { "os": "darwin", "cpu": "arm64", "bin": { "index": "bin/index" } }, "sha512-gT6MxzXFX9zVIzgDUdujM6q6N07GfaRaaLS/Y+QHmE7OSDd6Kupw8qvbZrXvkhy4Sk/blO9UKLqPfPAe3dPnnw=="],
+
+    "@indexnetwork/cli-darwin-x64": ["@indexnetwork/cli-darwin-x64@0.8.1", "", { "os": "darwin", "cpu": "x64", "bin": { "index": "bin/index" } }, "sha512-yimGo+QLIo5AS8395tJ7EHZF0oMjuQ8kdgyrVx/i097Oz1gZ597atqeEeTFY6fhFk+fmE0m6aA42oP25OlLJ7Q=="],
+
+    "@indexnetwork/cli-linux-arm64": ["@indexnetwork/cli-linux-arm64@0.8.1", "", { "os": "linux", "cpu": "arm64", "bin": { "index": "bin/index" } }, "sha512-M3md4VSsk4H+np905GwZB26IFFs74vlWXDSTJzlbSBOrVsXucZgprrQEOlZQUkN2Kc0k9wRsTEOrjex9tKdJHg=="],
+
+    "@indexnetwork/cli-linux-x64": ["@indexnetwork/cli-linux-x64@0.8.1", "", { "os": "linux", "cpu": "x64", "bin": { "index": "bin/index" } }, "sha512-Gxx5+UpSPOTbXa2z8gCjtQoVoZ6lJc4wnT/9QrOJFSZ/KH7/GOl0QQz7CnXxM+ghX0VeMlLrulHwpYm4pENIgg=="],
+
+    "@types/bun": ["@types/bun@1.3.11", "", { "dependencies": { "bun-types": "1.3.11" } }, "sha512-5vPne5QvtpjGpsGYXiFyycfpDF2ECyPcTSsFBMa0fraoxiQyMJ3SmuQIGhzPg2WJuWxVBoxWJ2kClYTcw/4fAg=="],
+
+    "@types/node": ["@types/node@25.5.0", "", { "dependencies": { "undici-types": "~7.18.0" } }, "sha512-jp2P3tQMSxWugkCUKLRPVUpGaL5MVFwF8RDuSRztfwgN1wmqJeMSbKlnEtQqU8UrhTmzEmZdu2I6v2dpp7XIxw=="],
+
+    "bun-types": ["bun-types@1.3.11", "", { "dependencies": { "@types/node": "*" } }, "sha512-1KGPpoxQWl9f6wcZh57LvrPIInQMn2TQ7jsgxqpRzg+l0QPOFvJVH7HmvHo/AiPgwXy+/Thf6Ov3EdVn1vOabg=="],
+
+    "undici-types": ["undici-types@7.18.2", "", {}, "sha512-AsuCzffGHJybSaRrmr5eHr81mwJU3kjw6M+uprWvCXiNeN9SOGwQ3Jn8jb8m3Z6izVgknn1R0FTCEAP2QrLY/w=="],
+  }
+}

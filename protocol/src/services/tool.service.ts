@@ -45,6 +45,9 @@ const logger = log.service.from('tool');
 class ToolService {
   private embedder = new EmbedderAdapter();
   private scraper = new ScraperAdapter();
+  private cache = new RedisCacheAdapter();
+  private integration = new ComposioIntegrationAdapter();
+  private compiledGraphs: ToolDeps['graphs'] | null = null;
   private cachedToolList: Array<{ name: string; description: string; schema: Record<string, unknown> }> | null = null;
 
   /**
@@ -66,60 +69,23 @@ class ToolService {
     // Resolve user context
     const context = await resolveChatContext({ database, userId });
 
-    // Compile subgraphs (same order as createChatTools in tools/index.ts)
-    const intentGraph = new IntentGraphFactory(database, this.embedder, intentQueue).createGraph();
-    const profileGraph = new ProfileGraphFactory(database, this.embedder, this.scraper).createGraph();
-    const hydeCache = new RedisCacheAdapter();
-    const lensInferrer = new LensInferrer();
-    const hydeGenerator = new HydeGenerator();
-    const compiledHydeGraph = new HydeGraphFactory(
-      database as unknown as HydeGraphDatabase,
-      this.embedder,
-      hydeCache,
-      lensInferrer,
-      hydeGenerator,
-    ).createGraph();
-    const negotiationGraph = new NegotiationGraphFactory(
-      conversationDatabaseAdapter,
-      new NegotiationProposer(),
-      new NegotiationResponder(),
-    ).createGraph();
-    const opportunityGraph = new OpportunityGraphFactory(
-      database,
-      this.embedder,
-      compiledHydeGraph,
-      undefined, // evaluator (default)
-      undefined, // queueNotification
-      negotiationGraph,
-    ).createGraph();
-    const indexGraph = new IndexGraphFactory(database).createGraph();
-    const indexMembershipGraph = new IndexMembershipGraphFactory(database).createGraph();
-    const intentIndexGraph = new IntentIndexGraphFactory(database).createGraph();
+    // Get or compile graphs (cached across requests — graphs are stateless)
+    const graphs = this.getOrCompileGraphs(database);
 
-    // Create context-bound databases
+    // Create per-request context-bound databases
     const indexScope = context.userIndexes.map((m) => m.indexId);
     const userDb = createUserDatabase(database, userId);
     const systemDb = createSystemDatabase(database, userId, indexScope, this.embedder);
 
-    // Assemble deps
-    const cache = new RedisCacheAdapter();
-    const integration = new ComposioIntegrationAdapter();
     const toolDeps: ToolDeps = {
       database,
       userDb,
       systemDb,
       scraper: this.scraper,
       embedder: this.embedder,
-      cache,
-      integration,
-      graphs: {
-        profile: profileGraph,
-        intent: intentGraph,
-        index: indexGraph,
-        indexMembership: indexMembershipGraph,
-        intentIndex: intentIndexGraph,
-        opportunity: opportunityGraph,
-      },
+      cache: this.cache,
+      integration: this.integration,
+      graphs,
     };
 
     // Build registry and look up tool
@@ -158,9 +124,46 @@ class ToolService {
 
     logger.verbose('Building tool list (first call, will be cached)');
 
-    // Build a minimal deps object to enumerate tools.
-    // createToolRegistry only registers schemas/handlers; it doesn't call any DB methods.
     const database = chatDatabaseAdapter;
+    const graphs = this.getOrCompileGraphs(database);
+
+    // Dummy scoped databases — only used at handler execution time, not registration
+    const userDb = createUserDatabase(database, 'system');
+    const systemDb = createSystemDatabase(database, 'system', []);
+
+    const toolDeps: ToolDeps = {
+      database,
+      userDb,
+      systemDb,
+      scraper: this.scraper,
+      embedder: this.embedder,
+      cache: this.cache,
+      integration: this.integration,
+      graphs,
+    };
+
+    const registry = createToolRegistry(toolDeps);
+
+    this.cachedToolList = Array.from(registry.values()).map((t) => ({
+      name: t.name,
+      description: t.description,
+      schema: t.schema instanceof z.ZodType
+        ? JSON.parse(JSON.stringify((t.schema as z.ZodObject<z.ZodRawShape>).shape ? zodToJsonSchema(t.schema) : {}))
+        : {},
+    }));
+
+    return this.cachedToolList;
+  }
+
+  /**
+   * Compile all protocol graphs once and cache them.
+   * Graphs are stateless — user context is passed at invoke() time.
+   */
+  private getOrCompileGraphs(database: typeof chatDatabaseAdapter): ToolDeps['graphs'] {
+    if (this.compiledGraphs) return this.compiledGraphs;
+
+    logger.verbose('Compiling graphs (first call, will be cached)');
+
     const intentGraph = new IntentGraphFactory(database, this.embedder, intentQueue).createGraph();
     const profileGraph = new ProfileGraphFactory(database, this.embedder, this.scraper).createGraph();
     const hydeCache = new RedisCacheAdapter();
@@ -188,39 +191,16 @@ class ToolService {
     const indexMembershipGraph = new IndexMembershipGraphFactory(database).createGraph();
     const intentIndexGraph = new IntentIndexGraphFactory(database).createGraph();
 
-    // Dummy scoped databases — only used at handler execution time, not registration
-    const userDb = createUserDatabase(database, 'system');
-    const systemDb = createSystemDatabase(database, 'system', []);
-
-    const toolDeps: ToolDeps = {
-      database,
-      userDb,
-      systemDb,
-      scraper: this.scraper,
-      embedder: this.embedder,
-      cache: new RedisCacheAdapter(),
-      integration: new ComposioIntegrationAdapter(),
-      graphs: {
-        profile: profileGraph,
-        intent: intentGraph,
-        index: indexGraph,
-        indexMembership: indexMembershipGraph,
-        intentIndex: intentIndexGraph,
-        opportunity: opportunityGraph,
-      },
+    this.compiledGraphs = {
+      profile: profileGraph,
+      intent: intentGraph,
+      index: indexGraph,
+      indexMembership: indexMembershipGraph,
+      intentIndex: intentIndexGraph,
+      opportunity: opportunityGraph,
     };
 
-    const registry = createToolRegistry(toolDeps);
-
-    this.cachedToolList = Array.from(registry.values()).map((t) => ({
-      name: t.name,
-      description: t.description,
-      schema: t.schema instanceof z.ZodType
-        ? JSON.parse(JSON.stringify((t.schema as z.ZodObject<z.ZodRawShape>).shape ? zodToJsonSchema(t.schema) : {}))
-        : {},
-    }));
-
-    return this.cachedToolList;
+    return this.compiledGraphs;
   }
 }
 

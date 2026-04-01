@@ -85,5 +85,14 @@ export async function handleContact(
       }
       return;
     }
+    default: {
+      if (options.json) {
+        console.log(JSON.stringify({ error: `Unknown subcommand: ${subcommand}` }));
+      } else {
+        output.error(`Unknown subcommand: ${subcommand}`);
+        console.log(CONTACT_HELP);
+      }
+      return;
+    }
   }
 }

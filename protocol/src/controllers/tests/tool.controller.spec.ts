@@ -202,4 +202,4 @@ describe("ToolController Integration", () => {
     expect(data).toBeDefined();
     console.log("read_intent_indexes result:", JSON.stringify(data).slice(0, 200));
   }, 60_000);
-}, 120_000);
+});

@@ -22,7 +22,7 @@ export async function handleSync(
   client: ApiClient,
   options: { json?: boolean },
 ): Promise<void> {
-  output.info("Syncing context...");
+  if (!options.json) output.info("Syncing context...");
 
   const [profile, networks, intents, contacts] = await Promise.all([
     client.callTool("read_user_profiles", {}),
@@ -45,7 +45,7 @@ export async function handleSync(
   }
 
   const dir = join(homedir(), ".index");
-  mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, "context.json"), JSON.stringify(context, null, 2));
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  writeFileSync(join(dir, "context.json"), JSON.stringify(context, null, 2), { mode: 0o600 });
   output.success("Context synced to ~/.index/context.json");
 }
