@@ -68,7 +68,7 @@ import { negotiateCandidates, type NegotiationCandidate } from "./negotiation.gr
 import type { NegotiationGraphLike } from "../states/negotiation.state";
 import { protocolLogger, withCallLogging } from '../support/protocol.logger';
 import { timed } from '../support/performance';
-import { requestContext } from "../../request-context";
+import { requestContext } from "../support/request-context";
 
 const logger = protocolLogger('OpportunityGraph');
 

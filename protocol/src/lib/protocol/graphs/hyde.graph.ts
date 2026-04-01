@@ -16,7 +16,7 @@ import type { HydeCache } from '../interfaces/cache.interface';
 import { HYDE_DEFAULT_CACHE_TTL } from '../agents/hyde.strategies';
 import { protocolLogger } from '../support/protocol.logger';
 import { timed } from '../support/performance';
-import { requestContext } from '../../request-context';
+import { requestContext } from "../support/request-context";
 
 const logger = protocolLogger("HyDEGraphFactory");
 

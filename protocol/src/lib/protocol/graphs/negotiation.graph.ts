@@ -1,6 +1,6 @@
 import { StateGraph } from "@langchain/langgraph";
 
-import { requestContext, type TraceEmitter } from "../../request-context";
+import { requestContext, type TraceEmitter } from "../support/request-context";
 import type { NegotiationDatabase } from "../interfaces/database.interface";
 import { NegotiationGraphState, type NegotiationTurn, type NegotiationOutcome, type UserNegotiationContext, type SeedAssessment, type NegotiationGraphLike } from "../states/negotiation.state";
 import { protocolLogger } from "../support/protocol.logger";

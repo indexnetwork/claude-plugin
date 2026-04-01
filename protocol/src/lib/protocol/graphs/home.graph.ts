@@ -29,7 +29,7 @@ import { resolveHomeSectionIcon, DEFAULT_HOME_SECTION_ICON } from '../support/lu
 import { getPrimaryActionLabel, SECONDARY_ACTION_LABEL } from '../support/opportunity.constants';
 import { protocolLogger } from '../support/protocol.logger';
 import { timed } from '../support/performance';
-import { requestContext } from '../../request-context';
+import { requestContext } from "../support/request-context";
 
 const logger = protocolLogger('HomeGraph');
 

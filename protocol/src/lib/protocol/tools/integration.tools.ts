@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import type { DefineTool, ToolDeps } from './tool.helpers';
 import { success, error } from './tool.helpers';
-import { requestContext } from '../../request-context';
+import { requestContext } from "../support/request-context";
 import { log } from '../../../lib/log';
 import { IntegrationService } from '../../../services/integration.service';
 

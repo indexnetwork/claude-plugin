@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { requestContext } from "../../request-context";
+import { requestContext } from "../support/request-context";
 import { enrichUserProfile } from "../../../lib/parallel/parallel";
 
 import type { DefineTool, ToolDeps } from "./tool.helpers";
