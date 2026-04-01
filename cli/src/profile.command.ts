@@ -11,10 +11,14 @@ import * as output from "./output";
 
 const PROFILE_HELP = `
 Usage:
-  index profile                      Show your profile
-  index profile show <user-id>       Show another user's profile
-  index profile sync                 Regenerate your profile
-  index profile search <query>       Search user profiles
+  index profile                                   Show your profile
+  index profile show <user-id>                    Show another user's profile
+  index profile sync                              Regenerate your profile
+  index profile search <query>                    Search user profiles
+  index profile create [--linkedin <url>] [--github <url>] [--twitter <url>]
+                                                  Create your profile from social URLs
+  index profile update <action> [--details <text>]
+                                                  Update your profile
 `;
 
 /**
@@ -28,8 +32,23 @@ export async function handleProfile(
   client: ApiClient,
   subcommand: string | undefined,
   positionals: string[],
-  options: { json?: boolean } = {},
+  options: { json?: boolean; linkedin?: string; github?: string; twitter?: string; details?: string } = {},
 ): Promise<void> {
+  if (subcommand === "create") {
+    await profileCreate(client, options);
+    return;
+  }
+
+  if (subcommand === "update") {
+    const action = positionals.join(" ");
+    if (!action) {
+      output.error("Usage: index profile update <action> [--details <text>]", 1);
+      return;
+    }
+    await profileUpdate(client, action, options.details);
+    return;
+  }
+
   if (subcommand === "sync") {
     await profileSync(client);
     return;
@@ -95,4 +114,52 @@ async function profileSync(client: ApiClient): Promise<void> {
   output.info("Regenerating profile...");
   await client.syncProfile();
   output.success("Profile regeneration triggered. It may take a moment to complete.");
+}
+
+/**
+ * Create a user profile from social URLs.
+ *
+ * @param client - Authenticated API client.
+ * @param options - Social URL options (linkedin, github, twitter).
+ */
+async function profileCreate(
+  client: ApiClient,
+  options: { linkedin?: string; github?: string; twitter?: string },
+): Promise<void> {
+  output.info("Creating profile...");
+  const query: Record<string, unknown> = { confirm: true };
+  if (options.linkedin) query.linkedinUrl = options.linkedin;
+  if (options.github) query.githubUrl = options.github;
+  if (options.twitter) query.twitterUrl = options.twitter;
+
+  const result = await client.callTool("create_user_profile", query);
+  if (!result.success) {
+    output.error(result.error ?? "Profile creation failed", 1);
+    return;
+  }
+  output.success("Profile created.");
+}
+
+/**
+ * Update the user's profile with a natural-language action.
+ *
+ * @param client - Authenticated API client.
+ * @param action - The update action description.
+ * @param details - Optional additional details.
+ */
+async function profileUpdate(
+  client: ApiClient,
+  action: string,
+  details?: string,
+): Promise<void> {
+  output.info("Updating profile...");
+  const query: Record<string, unknown> = { action };
+  if (details) query.details = details;
+
+  const result = await client.callTool("update_user_profile", query);
+  if (!result.success) {
+    output.error(result.error ?? "Profile update failed", 1);
+    return;
+  }
+  output.success("Profile updated.");
 }

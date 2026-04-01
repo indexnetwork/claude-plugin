@@ -20,6 +20,7 @@ import { handleNetwork } from "./network.command";
 import { handleConversation } from "./conversation.command";
 import { handleContact } from "./contact.command";
 import { handleScrape } from "./scrape.command";
+import { handleSync } from "./sync.command";
 import * as output from "./output";
 
 const DEFAULT_API_URL = "https://protocol.index.network";
@@ -46,6 +47,10 @@ Usage:
   index profile show <user-id>          Show another user's profile
   index profile sync                    Regenerate your profile
   index profile search <query>          Search user profiles
+  index profile create [--linkedin <url>] [--github <url>] [--twitter <url>]
+                                        Create your profile from social URLs
+  index profile update <action> [--details <text>]
+                                        Update your profile
   index intent list [--archived] [--limit <n>]  List your signals
   index intent show <id>               Show signal details
   index intent create <content>        Create a signal from natural language
@@ -64,6 +69,9 @@ Usage:
   index network list                    List your networks
   index network create <name>           Create a new network
   index network show <id>               Show network details and members
+  index network update <id> [--title <t>] [--prompt <p>]
+                                        Update a network
+  index network delete <id>             Delete a network
   index network join <id>               Join a public network
   index network leave <id>              Leave a network
   index network invite <id> <email>     Invite a user by email
@@ -72,6 +80,9 @@ Usage:
   index contact remove <email>          Remove a contact
   index contact import --gmail          Import contacts from Gmail
   index scrape <url>                    Extract content from a URL
+  index onboarding complete             Mark onboarding as complete
+  index sync                            Sync context to ~/.index/context.json
+  index sync --json                     Output synced context to stdout
   index --help                          Show this help message
   index --version                       Show version
 
@@ -89,6 +100,11 @@ Options:
   --objective <text>  Objective for scrape command
   --target <uid>      Target user for opportunity discover
   --introduce <uid>   Source user for introduction discovery
+  --linkedin <url>    LinkedIn URL for profile create
+  --github <url>      GitHub URL for profile create
+  --twitter <url>     Twitter URL for profile create
+  --title <text>      Title for network update
+  --details <text>    Details for profile update
 `;
 
 // ── Auth helper ──────────────────────────────────────────────────────
@@ -222,8 +238,16 @@ async function main(): Promise<void> {
       await handleProfile(
         client,
         args.subcommand,
-        args.subcommand === "search" ? (args.positionals ?? []) : (args.userId ? [args.userId] : []),
-        { json: args.json },
+        args.subcommand === "search" || args.subcommand === "update"
+          ? (args.positionals ?? [])
+          : (args.userId ? [args.userId] : []),
+        {
+          json: args.json,
+          linkedin: args.linkedin,
+          github: args.github,
+          twitter: args.twitter,
+          details: args.details,
+        },
       );
       return;
     case "intent":
@@ -250,6 +274,7 @@ async function main(): Promise<void> {
     case "network":
       await handleNetwork(client, args.subcommand, args.positionals ?? [], {
         prompt: args.prompt,
+        title: args.title,
       });
       return;
     case "conversation":
@@ -271,6 +296,21 @@ async function main(): Promise<void> {
         json: args.json,
         objective: args.objective,
       });
+      return;
+    case "onboarding":
+      if (args.subcommand === "complete") {
+        const result = await client.callTool("complete_onboarding", {});
+        if (!result.success) {
+          output.error(result.error ?? "Onboarding completion failed", 1);
+        } else {
+          output.success("Onboarding completed.");
+        }
+      } else {
+        output.error("Usage: index onboarding complete", 1);
+      }
+      return;
+    case "sync":
+      await handleSync(client, { json: args.json });
       return;
   }
 }

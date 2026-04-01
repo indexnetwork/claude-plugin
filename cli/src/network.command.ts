@@ -15,6 +15,9 @@ Network Commands:
   index network create <name>            Create a new network
   index network create <name> --prompt   Create with a description
   index network show <id|key>            Show network details and members
+  index network update <id> [--title <t>] [--prompt <p>]
+                                         Update a network
+  index network delete <id>              Delete a network
   index network join <id|key>            Join a public network
   index network leave <id|key>           Leave a network
   index network invite <id|key> <email>  Invite a user by email
@@ -32,7 +35,7 @@ export async function handleNetwork(
   client: ApiClient,
   subcommand: string | undefined,
   positionals: string[],
-  options: { prompt?: string },
+  options: { prompt?: string; title?: string },
 ): Promise<void> {
   if (!subcommand) {
     console.log(NETWORK_HELP);
@@ -54,6 +57,12 @@ export async function handleNetwork(
       return;
     case "leave":
       await networkLeave(client, positionals[0]);
+      return;
+    case "update":
+      await networkUpdate(client, positionals[0], options);
+      return;
+    case "delete":
+      await networkDelete(client, positionals[0]);
       return;
     case "invite":
       await networkInvite(client, positionals[0], positionals[1]);
@@ -135,6 +144,48 @@ async function networkLeave(client: ApiClient, id: string | undefined): Promise<
 
   await client.leaveNetwork(id);
   output.success("Left network.");
+}
+
+/**
+ * Update a network's title and/or prompt.
+ */
+async function networkUpdate(
+  client: ApiClient,
+  id: string | undefined,
+  options: { title?: string; prompt?: string },
+): Promise<void> {
+  if (!id) {
+    output.error("Usage: index network update <id> [--title <t>] [--prompt <p>]", 1);
+    return;
+  }
+
+  const query: Record<string, unknown> = { indexId: id };
+  if (options.title) query.title = options.title;
+  if (options.prompt) query.prompt = options.prompt;
+
+  const result = await client.callTool("update_index", query);
+  if (!result.success) {
+    output.error(result.error ?? "Network update failed", 1);
+    return;
+  }
+  output.success("Network updated.");
+}
+
+/**
+ * Delete a network.
+ */
+async function networkDelete(client: ApiClient, id: string | undefined): Promise<void> {
+  if (!id) {
+    output.error("Usage: index network delete <id>", 1);
+    return;
+  }
+
+  const result = await client.callTool("delete_index", { indexId: id });
+  if (!result.success) {
+    output.error(result.error ?? "Network deletion failed", 1);
+    return;
+  }
+  output.success("Network deleted.");
 }
 
 /**
