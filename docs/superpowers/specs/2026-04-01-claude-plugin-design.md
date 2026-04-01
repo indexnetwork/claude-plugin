@@ -43,7 +43,7 @@ All CLI commands support `--json` for machine-readable output. Without the flag,
 |---|---|---|
 | `read_intents` | `index intent list [--index <id>] [--archived] --json` | `read_intents` |
 | `create_intent` | `index intent create <description> --json` | `create_intent` |
-| `update_intent` | `index intent update <id> <description> --json` | `update_intent` |
+| `update_intent` | `index intent update <id> <content> --json` | `update_intent` |
 | `delete_intent` | `index intent archive <id> --json` | `delete_intent` |
 | `create_intent_index` | `index intent link <intentId> <networkId> --json` | `create_intent_index` |
 | `read_intent_indexes` | `index intent links <intentId> --json` | `read_intent_indexes` |
