@@ -1,0 +1,37 @@
+name: Sync submodule pointer in index repo
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout index repo
+        uses: actions/checkout@v4
+        with:
+          repository: indexnetwork/index
+          ref: dev
+          token: ${{ secrets.INDEX_REPO_TOKEN }}
+          submodules: false
+
+      - name: Update plugin submodule pointer
+        run: |
+          git submodule update --init plugin
+          cd plugin
+          git fetch origin main
+          git checkout origin/main
+          cd ..
+
+      - name: Commit and push if changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add plugin
+          if git diff --cached --quiet; then
+            echo "Submodule already up to date"
+          else
+            git commit -m "chore: sync plugin submodule to $(cd plugin && git rev-parse --short HEAD)"
+            git push
+          fi
