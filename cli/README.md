@@ -73,6 +73,9 @@ View user profiles and trigger profile regeneration.
 index profile                       # Show your own profile
 index profile show <user-id>        # Show another user's profile
 index profile sync                  # Regenerate your profile
+index profile search <query>        # Search profiles by name or keyword
+index profile create                # Generate profile from social links
+index profile update <details>      # Update profile details
 ```
 
 ### `index intent`
@@ -85,7 +88,11 @@ index intent list --archived                # Include archived signals
 index intent list --limit 5                 # Limit to 5 results
 index intent show <id>                      # Show full signal details
 index intent create "Looking for a CTO"     # Create from natural language
+index intent update <id> "revised text"     # Update a signal (runs full pipeline)
 index intent archive <id>                   # Archive a signal
+index intent link <id> <network-id>         # Link a signal to a network
+index intent unlink <id> <network-id>       # Unlink a signal from a network
+index intent links <id>                     # List networks linked to a signal
 ```
 
 ### `index opportunity`
@@ -99,6 +106,9 @@ index opportunity list --limit 5           # Limit results
 index opportunity show <id>                # Show full details
 index opportunity accept <id>              # Accept an opportunity
 index opportunity reject <id>              # Reject an opportunity
+index opportunity discover "query"         # Discover opportunities by search
+index opportunity discover --target <id>   # Discover with a specific user
+index opportunity discover --introduce <a> <b>  # Introduce two users
 ```
 
 Status values: `pending`, `accepted`, `rejected`, `expired`.
@@ -112,9 +122,41 @@ index network list                     # List your networks
 index network create "My Network"      # Create a network
 index network create "AI" --prompt "AI researchers"  # Create with description
 index network show <id>                # Show details and members
+index network update <id> --title "New Name"  # Update a network
+index network delete <id>              # Delete a network
 index network join <id>                # Join a public network
 index network leave <id>               # Leave a network
 index network invite <id> user@email   # Invite a user by email
+```
+
+### `index contact`
+
+Manage your contacts. Add, list, remove, or import contacts.
+
+```bash
+index contact list                     # List your contacts
+index contact add user@email           # Add a contact by email
+index contact add user@email --name "Name"  # Add with display name
+index contact remove user@email        # Remove a contact
+index contact import --gmail           # Import contacts from Gmail
+```
+
+### `index scrape`
+
+Scrape and extract content from a URL.
+
+```bash
+index scrape https://example.com                    # Scrape a URL
+index scrape https://example.com --objective "..."   # Scrape with focus
+```
+
+### `index sync`
+
+Sync all user context (profile, networks, intents, contacts) to a local file.
+
+```bash
+index sync                             # Sync to ~/.index/context.json
+index sync --json                      # Output to stdout as JSON
 ```
 
 ## Options
@@ -129,6 +171,13 @@ index network invite <id> user@email   # Invite a user by email
 | `--status <status>` | | Filter opportunities by status |
 | `--limit <n>` | | Limit number of results |
 | `--prompt <text>` | `-p` | Network description (for `network create`) |
+| `--title <text>` | | Network title (for `network update`) |
+| `--name <name>` | | Display name (for `contact add`) |
+| `--gmail` | | Import from Gmail (for `contact import`) |
+| `--target <id>` | | Target user ID (for `opportunity discover`) |
+| `--introduce <id>` | | Introduce two users (for `opportunity discover`) |
+| `--objective <text>` | | Focus objective (for `scrape`) |
+| `--json` | | Output raw JSON to stdout |
 | `--help` | `-h` | Show help |
 | `--version` | `-v` | Show version |
 
@@ -170,6 +219,9 @@ cli/
     intent.command.ts          Intent (signal) subcommand handlers
     opportunity.command.ts     Opportunity subcommand handlers
     network.command.ts         Network subcommand handlers
+    contact.command.ts         Contact subcommand handlers
+    scrape.command.ts          URL scraping command handler
+    sync.command.ts            Context sync command handler
     output/                    Terminal formatting, colors, markdown renderer
     api.client.ts              Typed HTTP client for the protocol API
     auth.store.ts              Credential persistence (~/.index/credentials.json)

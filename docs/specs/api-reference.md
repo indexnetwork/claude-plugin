@@ -28,6 +28,7 @@ Complete reference for all HTTP endpoints exposed by the protocol server. All ro
 - [Storage](#storage)
 - [Subscribe](#subscribe)
 - [Unsubscribe](#unsubscribe)
+- [Tools](#tools)
 - [User](#user)
 - [Queue Monitoring (Dev Only)](#queue-monitoring-dev-only)
 
@@ -1990,6 +1991,95 @@ Get a user by ID.
   }
 }
 ```
+
+---
+
+## Tools
+
+**Controller prefix**: `/tools`
+
+The Tool API exposes the same handlers used by the ChatAgent as direct HTTP endpoints. This enables external clients (CLI, plugins, third-party integrations) to invoke protocol tools without going through the LLM chat loop.
+
+### GET /api/tools
+
+List all available tools with their names, descriptions, and input schemas.
+
+**Auth**: `AuthGuard`
+
+**Response**:
+```json
+{
+  "tools": [
+    {
+      "name": "read_intents",
+      "description": "Read user's intents with optional filters.",
+      "schema": { "type": "object", "properties": { ... } }
+    }
+  ]
+}
+```
+
+### POST /api/tools/:toolName
+
+Invoke a tool by name with a JSON query body.
+
+**Auth**: `AuthGuard`
+
+**Path params**:
+- `toolName` — Name of the tool to invoke (e.g. `read_intents`, `create_opportunities`)
+
+**Request body**:
+```json
+{
+  "query": { ... }
+}
+```
+
+The `query` object is validated against the tool's Zod schema. If omitted or unparsable, defaults to `{}`.
+
+**Response** (success): Tool-specific JSON result with `200` status.
+
+**Error responses**:
+- `400` — Invalid request body or query validation failure
+- `401` — Missing or invalid auth token
+- `403` — User not found or deactivated
+- `404` — Tool not found (`Tool "xyz" not found. Available tools: ...`)
+- `500` — Internal error during tool execution
+
+### Available Tools
+
+Tools are organized by domain. Each tool has its own input schema (see `GET /api/tools` for full schemas).
+
+| Tool | Domain | Description |
+|------|--------|-------------|
+| `read_user_profiles` | Profile | Read user profiles (own or by query) |
+| `create_user_profile` | Profile | Generate profile from social links or bio |
+| `update_user_profile` | Profile | Update profile details |
+| `complete_onboarding` | Profile | Mark onboarding complete |
+| `read_intents` | Intent | List user's intents with optional filters |
+| `create_intent` | Intent | Create a new intent from natural language |
+| `update_intent` | Intent | Update an intent (runs full graph pipeline) |
+| `delete_intent` | Intent | Archive/delete an intent |
+| `create_intent_index` | Intent | Link an intent to an index |
+| `read_intent_indexes` | Intent | List indexes linked to an intent |
+| `delete_intent_index` | Intent | Unlink an intent from an index |
+| `read_indexes` | Index | List user's indexes |
+| `read_index_memberships` | Index | List members of an index |
+| `update_index` | Index | Update index settings (title, prompt) |
+| `create_index` | Index | Create a new index |
+| `delete_index` | Index | Delete an index |
+| `create_index_membership` | Index | Add a member to an index |
+| `delete_index_membership` | Index | Remove a member from an index |
+| `create_opportunities` | Opportunity | Discover opportunities (search, target, introduce) |
+| `list_opportunities` | Opportunity | List user's opportunities with filters |
+| `update_opportunity` | Opportunity | Accept or reject an opportunity |
+| `list_contacts` | Contact | List user's contacts |
+| `add_contact` | Contact | Add a contact by email |
+| `remove_contact` | Contact | Remove a contact |
+| `import_contacts` | Contact | Import contacts from file/integration |
+| `import_gmail_contacts` | Integration | Import contacts from Gmail via Composio |
+| `scrape_url` | Utility | Scrape and extract content from a URL |
+| `read_docs` | Utility | Read protocol documentation |
 
 ---
 

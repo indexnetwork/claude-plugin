@@ -124,12 +124,22 @@ index conversation with <user-id>
 | `index conversation with <user-id>` | Open or resume a DM |
 | `index profile` | Show your profile |
 | `index profile sync` | Regenerate your profile |
+| `index profile search <query>` | Search profiles by name |
 | `index intent list` | List your signals |
 | `index intent create <content>` | Create a signal |
+| `index intent update <id> <text>` | Update a signal |
+| `index intent link <id> <network>` | Link a signal to a network |
 | `index opportunity list` | List your opportunities |
 | `index opportunity accept/reject <id>` | Act on an opportunity |
+| `index opportunity discover <query>` | Discover new opportunities |
 | `index network list` | List your networks |
 | `index network create <name>` | Create a network |
+| `index network update <id>` | Update a network |
+| `index network delete <id>` | Delete a network |
+| `index contact list` | List your contacts |
+| `index contact add <email>` | Add a contact by email |
+| `index scrape <url>` | Scrape content from a URL |
+| `index sync` | Sync context to ~/.index/context.json |
 
 For the full command reference and rendered output examples, see [cli/cli-output-reference.html](cli/cli-output-reference.html).
 
