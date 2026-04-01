@@ -11,7 +11,26 @@ import type { EmbeddingGenerator } from '../../interfaces/embedder.interface';
 import type { HydeCache } from '../../interfaces/cache.interface';
 import { HydeGenerator } from '../../agents/hyde.generator';
 import { LensInferrer } from '../../agents/lens.inferrer';
-import { EmbedderAdapter } from '../../../../adapters/embedder.adapter';
+import type { EmbeddingGenerator } from '../../interfaces/embedder.interface';
+
+/** Real embedder for smartest integration tests — calls OpenRouter embeddings API. */
+function createTestEmbedder(): EmbeddingGenerator {
+  return {
+    async generate(text: string | string[], dimensions = 2000): Promise<number[] | number[][]> {
+      const apiKey = process.env.OPENROUTER_API_KEY;
+      if (!apiKey) throw new Error('OPENROUTER_API_KEY required for smartest tests');
+      const inputs = Array.isArray(text) ? text : [text];
+      const response = await fetch('https://openrouter.ai/api/v1/embeddings', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: 'openai/text-embedding-3-small', input: inputs, dimensions }),
+      });
+      const data = await response.json() as { data: Array<{ embedding: number[] }> };
+      const embeddings = data.data.map(d => d.embedding);
+      return inputs.length === 1 ? embeddings[0] : embeddings;
+    },
+  };
+}
 
 describe('HydeGraph', () => {
   let mockDatabase: HydeGraphDatabase;
@@ -210,7 +229,7 @@ describe('HydeGraph', () => {
             factory: () => {
               const generator = new HydeGenerator();
               const inferrer = new LensInferrer();
-              const embedder = new EmbedderAdapter();
+              const embedder = createTestEmbedder();
               const factory = new HydeGraphFactory(mockDb, embedder, mockCache, inferrer, generator);
               return factory.createGraph();
             },
