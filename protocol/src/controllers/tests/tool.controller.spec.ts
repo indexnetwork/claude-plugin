@@ -380,5 +380,46 @@ describe("ToolController Integration", () => {
       expect(status).toBe(200);
       expect(String(data.error ?? "")).not.toContain("Invalid query");
     }, 60_000);
+
+    test("create_intent with description (CLI: intent create)", async () => {
+      const { status, data } = await invokeTool("create_intent", {
+        description: "Looking for a CTO with AI experience",
+      });
+      expect(status).toBe(200);
+      expect(String(data.error ?? "")).not.toContain("Invalid query");
+    }, 60_000);
+
+    test("delete_intent with intentId (CLI: intent archive)", async () => {
+      const { status, data } = await invokeTool("delete_intent", {
+        intentId: "00000000-0000-0000-0000-000000000000",
+      });
+      expect(status).toBe(200);
+      expect(String(data.error ?? "")).not.toContain("Invalid query");
+    }, 60_000);
+
+    test("update_opportunity with opportunityId + status (CLI: opportunity accept)", async () => {
+      const { status, data } = await invokeTool("update_opportunity", {
+        opportunityId: "00000000-0000-0000-0000-000000000000",
+        status: "accepted",
+      });
+      expect(status).toBe(200);
+      expect(String(data.error ?? "")).not.toContain("Invalid query");
+    }, 60_000);
+
+    test("create_user_profile with confirm (CLI: profile sync - no profile)", async () => {
+      const { status, data } = await invokeTool("create_user_profile", {
+        confirm: true,
+      });
+      expect(status).toBe(200);
+      expect(String(data.error ?? "")).not.toContain("Invalid query");
+    }, 60_000);
+
+    test("update_user_profile with action (CLI: profile sync - has profile)", async () => {
+      const { status, data } = await invokeTool("update_user_profile", {
+        action: "regenerate",
+      });
+      expect(status).toBe(200);
+      expect(String(data.error ?? "")).not.toContain("Invalid query");
+    }, 60_000);
   });
 });
