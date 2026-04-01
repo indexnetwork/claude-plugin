@@ -120,8 +120,11 @@ export async function handleIntent(
         output.error("Missing signal ID. Usage: index intent archive <id>", 1);
         return;
       }
-      await client.archiveIntent(options.intentId);
-      if (options.json) { console.log(JSON.stringify({ success: true })); return; }
+      // Resolve short ID to full UUID via REST read
+      const intent = await client.getIntent(options.intentId);
+      const result = await client.callTool("delete_intent", { intentId: intent.id });
+      if (options.json) { console.log(JSON.stringify(result)); return; }
+      if (!result.success) { output.error(result.error ?? "Failed to archive signal", 1); return; }
       output.success(`Signal ${options.intentId} archived.`);
       return;
     }

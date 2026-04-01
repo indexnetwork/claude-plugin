@@ -240,6 +240,22 @@ describe("CLI tool call contracts", () => {
       expect(mock.toolCalls[0].toolName).toBe("read_intent_indexes");
       expect(mock.toolCalls[0].query).toEqual({ intentId: "intent-123" });
     });
+
+    it("archive calls delete_intent with intentId (CLI: intent archive)", async () => {
+      mock.onRest("GET", "/api/intents/abc123", () =>
+        Response.json({ intent: { id: "full-uuid-abc123", payload: "test", status: "active" } }),
+      );
+      mock.setToolResponse("delete_intent", { success: true, data: {} });
+
+      await handleIntent(client, "archive", {
+        intentId: "abc123",
+        json: true,
+      });
+
+      expect(mock.toolCalls).toHaveLength(1);
+      expect(mock.toolCalls[0].toolName).toBe("delete_intent");
+      expect(mock.toolCalls[0].query).toEqual({ intentId: "full-uuid-abc123" });
+    });
   });
 
   // ── Opportunity ──────────────────────────────────────────────────
