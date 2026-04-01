@@ -330,3 +330,22 @@ Use `gh` CLI to create PRs into `upstream/dev`. Description as changelog: New Fe
 ### Implementation via Subagents in Worktrees
 
 When executing implementation plans, **always use subagent-driven development with worktree isolation** (`isolation: "worktree"`). This keeps `dev` stable and allows parallel independent tasks. Combine the `superpowers:subagent-driven-development` and `superpowers:using-git-worktrees` skills.
+
+### Receiving Code Review (`/receiving-code-review`)
+
+When handling CodeRabbitAI reviews on PRs, follow this workflow:
+
+1. **Fetch unresolved conversations**: Use `gh api` to list all review comments on the PR. Focus on unresolved conversation threads from CodeRabbitAI.
+2. **Evaluate each conversation**: For each unresolved thread, decide whether a code fix is actually needed:
+   - **Fix needed**: Implement the fix, push, and let the resolved code speak for itself.
+   - **No fix needed**: Reply in the comment thread with technical reasoning for why the current code is correct (e.g., YAGNI, reviewer lacks context, breaks existing patterns). Use `gh api repos/{owner}/{repo}/pulls/{pr}/comments/{id}/replies` to reply inline.
+3. **Resolve all conversations**: Every conversation must be resolved (either by fixing or by responding with reasoning) before the PR can merge. Zero unresolved conversations is the merge gate.
+
+**Key commands:**
+```bash
+# List PR review comments (filter for unresolved)
+gh api repos/{owner}/{repo}/pulls/{pr}/comments
+
+# Reply to a specific review comment thread
+gh api repos/{owner}/{repo}/pulls/{pr}/comments/{comment_id}/replies -f body="..."
+```
