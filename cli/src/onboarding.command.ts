@@ -18,6 +18,7 @@ Onboarding Commands:
  * @param client - Authenticated API client.
  * @param subcommand - The subcommand (complete).
  * @param options - Additional options (json).
+ * @returns Resolves when the subcommand completes.
  */
 export async function handleOnboarding(
   client: ApiClient,

@@ -227,6 +227,10 @@ export async function handleConversation(
 ): Promise<void> {
   // No subcommand: start REPL or send one-shot message
   if (!subcommand) {
+    if (options?.json) {
+      output.error("`--json` requires an explicit conversation subcommand.", 1);
+      return;
+    }
     if (options?.message) {
       await chatOneShot(client, options.message, options.sessionId);
     } else {

@@ -104,7 +104,7 @@ export async function handleIntent(
         output.error("Missing content. Usage: index intent update <id> <content>", 1);
         return;
       }
-      output.info("Updating signal...");
+      if (!options.json) output.info("Updating signal...");
       const result = await client.callTool("update_intent", {
         intentId: options.intentId,
         newDescription: options.intentContent,

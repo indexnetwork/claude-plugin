@@ -279,13 +279,6 @@ export function parseArgs(args: string[]): ParsedCommand {
     }
   }
 
-  // Onboarding command: only "complete" subcommand supported
-  if (result.command === "onboarding") {
-    if (positionals[0] === "complete") {
-      result.subcommand = "complete";
-    }
-  }
-
   return result;
 }
 

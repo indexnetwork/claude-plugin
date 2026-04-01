@@ -21,6 +21,7 @@ import { handleConversation } from "./conversation.command";
 import { handleContact } from "./contact.command";
 import { handleScrape } from "./scrape.command";
 import { handleSync } from "./sync.command";
+import { handleOnboarding } from "./onboarding.command";
 import * as output from "./output";
 
 const DEFAULT_API_URL = "https://protocol.index.network";
@@ -300,16 +301,7 @@ async function main(): Promise<void> {
       });
       return;
     case "onboarding":
-      if (args.subcommand === "complete") {
-        const result = await client.callTool("complete_onboarding", {});
-        if (!result.success) {
-          output.error(result.error ?? "Onboarding completion failed", 1);
-        } else {
-          output.success("Onboarding completed.");
-        }
-      } else {
-        output.error("Usage: index onboarding complete", 1);
-      }
+      await handleOnboarding(client, args.subcommand, { json: args.json });
       return;
     case "sync":
       await handleSync(client, { json: args.json });

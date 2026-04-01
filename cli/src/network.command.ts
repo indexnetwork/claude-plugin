@@ -59,10 +59,10 @@ export async function handleNetwork(
       await networkLeave(client, positionals[0], options.json);
       return;
     case "update":
-      await networkUpdate(client, positionals[0], options);
+      await networkUpdate(client, positionals[0], options, options.json);
       return;
     case "delete":
-      await networkDelete(client, positionals[0]);
+      await networkDelete(client, positionals[0], options.json);
       return;
     case "invite":
       await networkInvite(client, positionals[0], positionals[1], options.json);
@@ -173,6 +173,7 @@ async function networkUpdate(
   client: ApiClient,
   id: string | undefined,
   options: { title?: string; prompt?: string },
+  json?: boolean,
 ): Promise<void> {
   if (!id) {
     output.error("Usage: index network update <id> [--title <t>] [--prompt <p>]", 1);
@@ -188,6 +189,7 @@ async function networkUpdate(
   }
 
   const result = await client.callTool("update_index", { indexId: id, settings });
+  if (json) { console.log(JSON.stringify(result)); return; }
   if (!result.success) {
     output.error(result.error ?? "Network update failed", 1);
     return;
@@ -198,13 +200,14 @@ async function networkUpdate(
 /**
  * Delete a network.
  */
-async function networkDelete(client: ApiClient, id: string | undefined): Promise<void> {
+async function networkDelete(client: ApiClient, id: string | undefined, json?: boolean): Promise<void> {
   if (!id) {
     output.error("Usage: index network delete <id>", 1);
     return;
   }
 
   const result = await client.callTool("delete_index", { indexId: id });
+  if (json) { console.log(JSON.stringify(result)); return; }
   if (!result.success) {
     output.error(result.error ?? "Network deletion failed", 1);
     return;

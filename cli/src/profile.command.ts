@@ -36,7 +36,7 @@ export async function handleProfile(
   options: { json?: boolean; linkedin?: string; github?: string; twitter?: string; details?: string } = {},
 ): Promise<void> {
   if (subcommand === "create") {
-    await profileCreate(client, options);
+    await profileCreate(client, options, options?.json);
     return;
   }
 
@@ -46,7 +46,7 @@ export async function handleProfile(
       output.error("Usage: index profile update <action> [--details <text>]", 1);
       return;
     }
-    await profileUpdate(client, action, options.details);
+    await profileUpdate(client, action, options.details, options?.json);
     return;
   }
 
@@ -144,14 +144,16 @@ async function profileSync(client: ApiClient, json?: boolean): Promise<void> {
 async function profileCreate(
   client: ApiClient,
   options: { linkedin?: string; github?: string; twitter?: string },
+  json?: boolean,
 ): Promise<void> {
-  output.info("Creating profile...");
+  if (!json) output.info("Creating profile...");
   const query: Record<string, unknown> = { confirm: true };
   if (options.linkedin) query.linkedinUrl = options.linkedin;
   if (options.github) query.githubUrl = options.github;
   if (options.twitter) query.twitterUrl = options.twitter;
 
   const result = await client.callTool("create_user_profile", query);
+  if (json) { console.log(JSON.stringify(result)); return; }
   if (!result.success) {
     output.error(result.error ?? "Profile creation failed", 1);
     return;
@@ -170,12 +172,14 @@ async function profileUpdate(
   client: ApiClient,
   action: string,
   details?: string,
+  json?: boolean,
 ): Promise<void> {
-  output.info("Updating profile...");
+  if (!json) output.info("Updating profile...");
   const query: Record<string, unknown> = { action };
   if (details) query.details = details;
 
   const result = await client.callTool("update_user_profile", query);
+  if (json) { console.log(JSON.stringify(result)); return; }
   if (!result.success) {
     output.error(result.error ?? "Profile update failed", 1);
     return;

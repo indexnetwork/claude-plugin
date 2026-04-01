@@ -86,7 +86,6 @@ export async function handleOpportunity(
         output.error("Usage: index opportunity discover <query>", 1);
         return;
       }
-
       if (options.introduce) {
         const userA = options.introduce;
         const userB = options.positionals?.[0];
@@ -98,7 +97,7 @@ export async function handleOpportunity(
         const hint = options.positionals?.slice(1).join(" ") || undefined;
         await discoverIntroduction(client, userA, userB, hint, options.json);
       } else if (options.target) {
-        output.info("Discovering opportunities...");
+        if (!options.json) output.info("Discovering opportunities...");
         const result = await client.callTool("create_opportunities", {
           targetUserId: options.target,
           searchQuery: query,
@@ -109,7 +108,7 @@ export async function handleOpportunity(
         const data = result.data as { message?: string };
         if (data?.message) output.dim(`  ${data.message}`);
       } else {
-        output.info("Discovering opportunities...");
+        if (!options.json) output.info("Discovering opportunities...");
         const result = await client.callTool("create_opportunities", { searchQuery: query });
         if (options.json) { console.log(JSON.stringify(result)); return; }
         if (!result.success) { output.error(result.error ?? "Discovery failed", 1); return; }
