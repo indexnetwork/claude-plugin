@@ -72,12 +72,10 @@ bun test                                    # Run CLI tests
 
 ### Plugin (submodule)
 
-The `plugin/` directory is a git submodule pointing to `indexnetwork/claude-plugin`. After cloning, initialize it:
+The `plugin/` directory is a git submodule pointing to `indexnetwork/claude-plugin`. It contains **skills only** (markdown files) — no code, no build step. After cloning, initialize it:
 
 ```bash
 git submodule update --init                 # Fetch plugin source
-cd plugin
-npm install && npm run build                # Build the MCP server
 ```
 
 ### Root
@@ -102,7 +100,7 @@ index/
 ├── protocol/          # Backend API & Agent Engine (Bun, Express, TypeScript)
 ├── frontend/          # Vite + React Router v7 SPA with React 19
 ├── cli/               # CLI client (@indexnetwork/cli) — Bun, TypeScript
-├── plugin/            # Claude plugin (MCP server, submodule → indexnetwork/claude-plugin)
+├── plugin/            # Claude plugin (skills-only, submodule → indexnetwork/claude-plugin)
 ├── docs/              # Project documentation (design/, domain/, guides/, specs/)
 └── scripts/           # Worktree helpers, hooks, dev launcher
 ```
