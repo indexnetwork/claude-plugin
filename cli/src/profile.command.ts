@@ -129,7 +129,7 @@ async function profileShow(client: ApiClient, userId: string, json?: boolean): P
 async function profileSync(client: ApiClient, json?: boolean): Promise<void> {
   if (!json) output.info("Regenerating profile...");
   // Check if profile exists
-  const check = await client.callTool("read_user_profiles", { userId: "me" });
+  const check = await client.callTool("read_user_profiles", {});
   const hasProfile = check.success && (check.data as Record<string, unknown>)?.hasProfile;
 
   let result;

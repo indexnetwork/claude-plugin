@@ -83,7 +83,7 @@ export async function handleIntent(
         output.error("Missing content. Usage: index intent create <content>", 1);
         return;
       }
-      output.info("Processing signal...");
+      if (!options.json) output.info("Processing signal...");
       const result = await client.callTool("create_intent", {
         description: options.intentContent,
       });
