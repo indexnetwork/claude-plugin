@@ -27,7 +27,7 @@ Usage:
  *
  * @param client - Authenticated API client.
  * @param subcommand - The subcommand (list, show, accept, reject).
- * @param options - Additional options (targetId, status, limit).
+ * @param options - Additional options (targetId, status, limit, json).
  */
 export async function handleOpportunity(
   client: ApiClient,
