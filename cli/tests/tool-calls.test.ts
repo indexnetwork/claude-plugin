@@ -154,6 +154,38 @@ describe("CLI tool call contracts", () => {
       expect(mock.toolCalls[0].toolName).toBe("update_user_profile");
       expect(mock.toolCalls[0].query).toEqual({ action: "add Python to skills", details: "expert level" });
     });
+
+    it("sync calls create_user_profile when no profile exists (CLI: profile sync)", async () => {
+      mock.setToolResponse("read_user_profiles", {
+        success: true,
+        data: { hasProfile: false },
+      });
+      mock.setToolResponse("create_user_profile", { success: true, data: {} });
+
+      await handleProfile(client, "sync", [], { json: true });
+
+      const toolNames = mock.toolCalls.map((c) => c.toolName);
+      expect(toolNames).toContain("read_user_profiles");
+      expect(toolNames).toContain("create_user_profile");
+      const createCall = mock.toolCalls.find((c) => c.toolName === "create_user_profile")!;
+      expect(createCall.query).toEqual({ confirm: true });
+    });
+
+    it("sync calls update_user_profile when profile exists (CLI: profile sync)", async () => {
+      mock.setToolResponse("read_user_profiles", {
+        success: true,
+        data: { hasProfile: true, profile: { name: "Test", bio: "Engineer" } },
+      });
+      mock.setToolResponse("update_user_profile", { success: true, data: {} });
+
+      await handleProfile(client, "sync", [], { json: true });
+
+      const toolNames = mock.toolCalls.map((c) => c.toolName);
+      expect(toolNames).toContain("read_user_profiles");
+      expect(toolNames).toContain("update_user_profile");
+      const updateCall = mock.toolCalls.find((c) => c.toolName === "update_user_profile")!;
+      expect(updateCall.query).toEqual({ action: "regenerate" });
+    });
   });
 
   // ── Intent ───────────────────────────────────────────────────────
