@@ -1,6 +1,6 @@
 /** Config */
 import { config } from "dotenv";
-config({ path: '.env' });
+config({ path: '.env.test' });
 
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import { ToolController } from "../tool.controller";
@@ -175,7 +175,7 @@ describe("ToolController Integration", () => {
     console.log("scrape_url result:", JSON.stringify(data).slice(0, 200));
   }, 60_000);
 
-  test("POST /tools with invalid body should return 400", async () => {
+  test("POST /tools with invalid JSON body should fallback to empty query and succeed", async () => {
     const req = new Request("http://localhost/api/tools/read_intents", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -183,11 +183,11 @@ describe("ToolController Integration", () => {
     });
 
     const res = await controller.invoke(req, mockUser(), { toolName: "read_intents" });
-    // The controller treats unparsable JSON as empty body, so it should still work with default query
+    // Controller treats unparsable JSON as empty body {}, so tool executes with default query
     expect(res.status).toBe(200);
   }, 60_000);
 
-  test("POST /tools/read_intent_indexes without intentId should handle gracefully", async () => {
+  test("POST /tools/read_intent_indexes without params should return validation error", async () => {
     const req = new Request("http://localhost/api/tools/read_intent_indexes", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -195,11 +195,12 @@ describe("ToolController Integration", () => {
     });
 
     const res = await controller.invoke(req, mockUser(), { toolName: "read_intent_indexes" });
-    const data = await res.json();
+    const data = await res.json() as { success: boolean; error?: string };
 
-    // Should return 200 (tool handles missing params internally) or 400 for validation
-    expect([200, 400]).toContain(res.status);
-    expect(data).toBeDefined();
+    // Tool validates at handler level: returns error payload with 200 status
+    expect(res.status).toBe(200);
+    expect(data.success).toBe(false);
+    expect(data.error).toContain("indexId or intentId");
     console.log("read_intent_indexes result:", JSON.stringify(data).slice(0, 200));
   }, 60_000);
 });
