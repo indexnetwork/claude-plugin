@@ -122,16 +122,30 @@ async function profileShow(client: ApiClient, userId: string, json?: boolean): P
 
 /**
  * Trigger profile regeneration for the authenticated user.
+ *
+ * Checks whether a profile exists via `read_user_profiles`, then calls
+ * `create_user_profile` or `update_user_profile` accordingly.
  */
 async function profileSync(client: ApiClient, json?: boolean): Promise<void> {
-  if (!json) {
-    output.info("Regenerating profile...");
-  }
-  const result = await client.syncProfile();
-  if (json) {
-    console.log(JSON.stringify(result));
+  if (!json) output.info("Regenerating profile...");
+  // Check if profile exists
+  const check = await client.callTool("read_user_profiles", {});
+  if (!check.success) {
+    if (json) { console.log(JSON.stringify(check)); return; }
+    output.error(check.error ?? "Failed to check profile status", 1);
     return;
   }
+  const hasProfile = (check.data as Record<string, unknown>)?.hasProfile;
+
+  let result;
+  if (hasProfile) {
+    result = await client.callTool("update_user_profile", { action: "regenerate" });
+  } else {
+    result = await client.callTool("create_user_profile", { confirm: true });
+  }
+
+  if (json) { console.log(JSON.stringify(result)); return; }
+  if (!result.success) { output.error(result.error ?? "Profile regeneration failed", 1); return; }
   output.success("Profile regeneration triggered. It may take a moment to complete.");
 }
 

@@ -45,12 +45,6 @@ export interface UserData {
   updatedAt: string | null;
 }
 
-/** Result from POST /api/profiles/sync. */
-export interface SyncProfileResult {
-  success: boolean;
-  [key: string]: unknown;
-}
-
 // ── Intent types ────────────────────────────────────────────────────
 
 /** An intent as returned by the API. */

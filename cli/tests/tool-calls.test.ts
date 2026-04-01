@@ -154,11 +154,58 @@ describe("CLI tool call contracts", () => {
       expect(mock.toolCalls[0].toolName).toBe("update_user_profile");
       expect(mock.toolCalls[0].query).toEqual({ action: "add Python to skills", details: "expert level" });
     });
+
+    it("sync calls create_user_profile when no profile exists (CLI: profile sync)", async () => {
+      mock.setToolResponse("read_user_profiles", {
+        success: true,
+        data: { hasProfile: false },
+      });
+      mock.setToolResponse("create_user_profile", { success: true, data: {} });
+
+      await handleProfile(client, "sync", [], { json: true });
+
+      const toolNames = mock.toolCalls.map((c) => c.toolName);
+      expect(toolNames).toContain("read_user_profiles");
+      expect(toolNames).toContain("create_user_profile");
+      const createCall = mock.toolCalls.find((c) => c.toolName === "create_user_profile")!;
+      expect(createCall.query).toEqual({ confirm: true });
+    });
+
+    it("sync calls update_user_profile when profile exists (CLI: profile sync)", async () => {
+      mock.setToolResponse("read_user_profiles", {
+        success: true,
+        data: { hasProfile: true, profile: { name: "Test", bio: "Engineer" } },
+      });
+      mock.setToolResponse("update_user_profile", { success: true, data: {} });
+
+      await handleProfile(client, "sync", [], { json: true });
+
+      const toolNames = mock.toolCalls.map((c) => c.toolName);
+      expect(toolNames).toContain("read_user_profiles");
+      expect(toolNames).toContain("update_user_profile");
+      const updateCall = mock.toolCalls.find((c) => c.toolName === "update_user_profile")!;
+      expect(updateCall.query).toEqual({ action: "regenerate" });
+    });
   });
 
   // ── Intent ───────────────────────────────────────────────────────
 
   describe("intent", () => {
+    it("create calls create_intent with description (CLI: intent create)", async () => {
+      mock.setToolResponse("create_intent", { success: true, data: { message: "Intent created" } });
+
+      await handleIntent(client, "create", {
+        intentContent: "Looking for a CTO with AI experience",
+        json: true,
+      });
+
+      expect(mock.toolCalls).toHaveLength(1);
+      expect(mock.toolCalls[0].toolName).toBe("create_intent");
+      expect(mock.toolCalls[0].query).toEqual({
+        description: "Looking for a CTO with AI experience",
+      });
+    });
+
     it("update calls update_intent with intentId and newDescription", async () => {
       mock.setToolResponse("update_intent", { success: true, data: {} });
 
@@ -224,6 +271,22 @@ describe("CLI tool call contracts", () => {
       expect(mock.toolCalls).toHaveLength(1);
       expect(mock.toolCalls[0].toolName).toBe("read_intent_indexes");
       expect(mock.toolCalls[0].query).toEqual({ intentId: "intent-123" });
+    });
+
+    it("archive calls delete_intent with intentId (CLI: intent archive)", async () => {
+      mock.onRest("GET", "/api/intents/abc123", () =>
+        Response.json({ intent: { id: "full-uuid-abc123", payload: "test", status: "active" } }),
+      );
+      mock.setToolResponse("delete_intent", { success: true, data: {} });
+
+      await handleIntent(client, "archive", {
+        intentId: "abc123",
+        json: true,
+      });
+
+      expect(mock.toolCalls).toHaveLength(1);
+      expect(mock.toolCalls[0].toolName).toBe("delete_intent");
+      expect(mock.toolCalls[0].query).toEqual({ intentId: "full-uuid-abc123" });
     });
   });
 
@@ -350,6 +413,44 @@ describe("CLI tool call contracts", () => {
       // Should only have the 2 membership lookups
       expect(mock.toolCalls).toHaveLength(2);
       expect(mock.toolCalls.every((c) => c.toolName === "read_index_memberships")).toBe(true);
+    });
+
+    it("accept calls update_opportunity with status accepted (CLI: opportunity accept)", async () => {
+      mock.onRest("GET", "/api/opportunities/abc", () =>
+        Response.json({ id: "full-uuid-abc", status: "pending" }),
+      );
+      mock.setToolResponse("update_opportunity", { success: true, data: {} });
+
+      await handleOpportunity(client, "accept", {
+        targetId: "abc",
+        json: true,
+      });
+
+      expect(mock.toolCalls).toHaveLength(1);
+      expect(mock.toolCalls[0].toolName).toBe("update_opportunity");
+      expect(mock.toolCalls[0].query).toEqual({
+        opportunityId: "full-uuid-abc",
+        status: "accepted",
+      });
+    });
+
+    it("reject calls update_opportunity with status rejected (CLI: opportunity reject)", async () => {
+      mock.onRest("GET", "/api/opportunities/xyz", () =>
+        Response.json({ id: "full-uuid-xyz", status: "pending" }),
+      );
+      mock.setToolResponse("update_opportunity", { success: true, data: {} });
+
+      await handleOpportunity(client, "reject", {
+        targetId: "xyz",
+        json: true,
+      });
+
+      expect(mock.toolCalls).toHaveLength(1);
+      expect(mock.toolCalls[0].toolName).toBe("update_opportunity");
+      expect(mock.toolCalls[0].query).toEqual({
+        opportunityId: "full-uuid-xyz",
+        status: "rejected",
+      });
     });
   });
 
