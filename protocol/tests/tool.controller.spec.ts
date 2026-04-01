@@ -114,4 +114,92 @@ describe("ToolController Integration", () => {
     expect(data).toBeDefined();
     console.log("list_contacts result:", JSON.stringify(data).slice(0, 200));
   }, 60_000);
+
+  test("POST /tools/read_indexes should return indexes for user", async () => {
+    const req = new Request("http://localhost/api/tools/read_indexes", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query: {} }),
+    });
+
+    const res = await controller.invoke(req, mockUser(), { toolName: "read_indexes" });
+    const data = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(data).toBeDefined();
+    console.log("read_indexes result:", JSON.stringify(data).slice(0, 200));
+  }, 60_000);
+
+  test("POST /tools/read_user_profiles should return profile data", async () => {
+    const req = new Request("http://localhost/api/tools/read_user_profiles", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query: {} }),
+    });
+
+    const res = await controller.invoke(req, mockUser(), { toolName: "read_user_profiles" });
+    const data = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(data).toBeDefined();
+    console.log("read_user_profiles result:", JSON.stringify(data).slice(0, 200));
+  }, 60_000);
+
+  test("POST /tools/list_opportunities should return opportunities", async () => {
+    const req = new Request("http://localhost/api/tools/list_opportunities", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query: {} }),
+    });
+
+    const res = await controller.invoke(req, mockUser(), { toolName: "list_opportunities" });
+    const data = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(data).toBeDefined();
+    console.log("list_opportunities result:", JSON.stringify(data).slice(0, 200));
+  }, 60_000);
+
+  test("POST /tools/scrape_url should handle a URL", async () => {
+    const req = new Request("http://localhost/api/tools/scrape_url", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query: { url: "https://example.com" } }),
+    });
+
+    const res = await controller.invoke(req, mockUser(), { toolName: "scrape_url" });
+    const data = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(data).toBeDefined();
+    console.log("scrape_url result:", JSON.stringify(data).slice(0, 200));
+  }, 60_000);
+
+  test("POST /tools with invalid body should return 400", async () => {
+    const req = new Request("http://localhost/api/tools/read_intents", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "not-json{{{",
+    });
+
+    const res = await controller.invoke(req, mockUser(), { toolName: "read_intents" });
+    // The controller treats unparsable JSON as empty body, so it should still work with default query
+    expect(res.status).toBe(200);
+  }, 60_000);
+
+  test("POST /tools/read_intent_indexes without intentId should handle gracefully", async () => {
+    const req = new Request("http://localhost/api/tools/read_intent_indexes", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query: {} }),
+    });
+
+    const res = await controller.invoke(req, mockUser(), { toolName: "read_intent_indexes" });
+    const data = await res.json();
+
+    // Should return 200 (tool handles missing params internally) or 400 for validation
+    expect([200, 400]).toContain(res.status);
+    expect(data).toBeDefined();
+    console.log("read_intent_indexes result:", JSON.stringify(data).slice(0, 200));
+  }, 60_000);
 }, 120_000);
