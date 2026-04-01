@@ -30,6 +30,8 @@ Silently run `which index`. If the CLI is not found, tell the user:
 >
 > `!npm install -g @indexnetwork/cli`
 >
+> (or if you use Bun: `!bun install -g @indexnetwork/cli`)
+>
 > Then authenticate:
 >
 > `!index login`
