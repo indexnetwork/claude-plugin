@@ -26,7 +26,7 @@ Usage:
  *
  * @param client - Authenticated API client.
  * @param subcommand - The subcommand (list, show, create, archive).
- * @param options - Additional options (intentId, intentContent, archived, limit).
+ * @param options - Additional options (intentId, intentContent, archived, limit, json).
  */
 export async function handleIntent(
   client: ApiClient,
@@ -83,7 +83,9 @@ export async function handleIntent(
         output.error("Missing content. Usage: index intent create <content>", 1);
         return;
       }
-      output.info("Processing signal...");
+      if (!options.json) {
+        output.info("Processing signal...");
+      }
       const result = await client.processIntent(options.intentContent);
       if (options.json) { console.log(JSON.stringify(result)); return; }
       output.success("Signal processed successfully.");
