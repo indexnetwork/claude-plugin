@@ -105,11 +105,19 @@ index conversation "What opportunities do I have?"
 # Browse your signals
 index intent list
 
-# Review pending opportunities
-index opportunity list
+# Discover opportunities by search
+index opportunity discover "looking for an AI engineer"
 
-# Message another user
-index conversation with <user-id>
+# Propose a direct connection with someone
+index profile search "Jane Smith"
+index opportunity discover "collaborate on LLM tooling" --target <user-id>
+
+# Introduce two people
+index opportunity discover --introduce <user-id-a> <user-id-b>
+
+# Review and accept
+index opportunity list --status pending
+index opportunity accept <id>
 ```
 
 ### Commands

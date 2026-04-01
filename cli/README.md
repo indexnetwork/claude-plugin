@@ -159,6 +159,61 @@ index sync                             # Sync to ~/.index/context.json
 index sync --json                      # Output to stdout as JSON
 ```
 
+## Examples: Opportunity Discovery
+
+The `opportunity discover` command supports multiple modes for creating connections.
+
+### Scenario 1: Search-based discovery
+
+Find people whose intents match a search query. The protocol runs HyDE-powered semantic search across your networks.
+
+```bash
+# Find collaborators for a project
+index opportunity discover "looking for an AI engineer with privacy expertise"
+
+# Scope discovery to a specific network
+index opportunity discover "need a React developer" --target <network-id>
+```
+
+### Scenario 2: Direct connection
+
+Propose an opportunity with a specific person. Use when you already know who you want to connect with.
+
+```bash
+# First, find the user
+index profile search "Jane Smith"
+
+# Then create a direct opportunity with them
+index opportunity discover "collaborate on open-source LLM tooling" --target <user-id>
+```
+
+### Scenario 3: Introduction
+
+Introduce two people you think should connect. You become the introducer — both parties see you as the connector.
+
+```bash
+# Introduce two users to each other
+index opportunity discover --introduce <user-id-a> <user-id-b>
+```
+
+### Scenario 4: Review and act
+
+After discovery creates draft opportunities, review and accept/reject them.
+
+```bash
+# List pending opportunities
+index opportunity list --status pending
+
+# See full details (reasoning, scores, mutual intents)
+index opportunity show <id>
+
+# Accept — starts a conversation thread
+index opportunity accept <id>
+
+# Or reject
+index opportunity reject <id>
+```
+
 ## Options
 
 | Flag | Short | Description |
