@@ -45,12 +45,6 @@ export interface UserData {
   updatedAt: string | null;
 }
 
-/** Result from POST /api/profiles/sync. */
-export interface SyncProfileResult {
-  success: boolean;
-  [key: string]: unknown;
-}
-
 // ── Intent types ────────────────────────────────────────────────────
 
 /** An intent as returned by the API. */
@@ -210,4 +204,14 @@ export interface ConversationMessage {
   parts: MessagePart[];
   createdAt: string;
   metadata?: Record<string, unknown>;
+}
+
+// ── Tool types ───────────────────────────────────────────────────────
+
+/** Generic result from POST /api/tools/:toolName. */
+export interface ToolResult {
+  success: boolean;
+  data?: Record<string, unknown>;
+  error?: string;
+  [key: string]: unknown;
 }

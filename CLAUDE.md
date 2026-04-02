@@ -61,6 +61,23 @@ bun run start                               # Start Vite preview server
 bun run lint                                # Run ESLint
 ```
 
+### CLI
+
+```bash
+cd cli
+bun src/main.ts conversation                # Run CLI directly with Bun (no build)
+bun run build                               # Build native binaries for all platforms
+bun test                                    # Run CLI tests
+```
+
+### Plugin (submodule)
+
+The `plugin/` directory is a git submodule pointing to `indexnetwork/claude-plugin`. It contains **skills only** (markdown files) — no code, no build step. After cloning, initialize it:
+
+```bash
+git submodule update --init                 # Fetch plugin source
+```
+
 ### Root
 
 ```bash
@@ -82,6 +99,8 @@ For full architecture details see `docs/design/architecture-overview.md` and `do
 index/
 ├── protocol/          # Backend API & Agent Engine (Bun, Express, TypeScript)
 ├── frontend/          # Vite + React Router v7 SPA with React 19
+├── cli/               # CLI client (@indexnetwork/cli) — Bun, TypeScript
+├── plugin/            # Claude plugin (skills-only, submodule → indexnetwork/claude-plugin)
 ├── docs/              # Project documentation (design/, domain/, guides/, specs/)
 └── scripts/           # Worktree helpers, hooks, dev launcher
 ```
@@ -121,7 +140,7 @@ Strict layering: **Controllers -> Services -> Adapters**. Dependencies always po
 
 1. **Controllers** import **services** (or protocol graph factories). Must not import adapters.
 2. **Services** import **adapters** for data access. Must not import other services -- use events, queues, or shared lib for cross-service orchestration.
-3. **Protocol layer** (`lib/protocol/`) receives adapters via **constructor injection** through interfaces in `src/lib/protocol/interfaces/`. Never imports adapters directly.
+3. **Protocol layer** (`lib/protocol/`) is fully self-contained — zero imports from parent directories. Receives adapters via **constructor injection** through interfaces in `src/lib/protocol/interfaces/`. The **composition root** (`src/protocol-init.ts`) wires concrete adapters via `createDefaultProtocolDeps()`.
 4. **Adapters** must not import from `src/lib/protocol/interfaces/` -- they define their own aligned types.
 
 ### Template Files
@@ -291,7 +310,40 @@ Use `gh` CLI to create PRs into `upstream/dev`. Description as changelog: New Fe
 
 ### Finishing a Branch
 
-1. Update CLAUDE.md if structural changes were introduced
-2. Merge into dev: `git checkout dev && git merge <branch-name>`
-3. Push both remotes: `git push upstream dev && git push origin dev`
-4. Clean up: delete branch and remove worktree
+1. Update all relevant documentation:
+   - `CLAUDE.md` — if structural or architectural changes were introduced
+   - `README.md` files — any affected package READMEs
+   - `docs/specs/` — API and CLI specs
+   - `docs/guides/` — setup and usage guides
+   - `docs/domain/` — domain concept docs
+   - `docs/design/` — architecture and deep-dive docs
+2. Bump package versions following [Semantic Versioning 2.0.0](https://semver.org/) for all affected packages
+3. Merge into dev: `git checkout dev && git merge <branch-name>`
+4. Push both remotes: `git push upstream dev && git push origin dev`
+5. If the CLI package (`cli/`) was updated: create a git tag (`vX.Y.Z`) with release notes so the NPM package gets published
+6. Clean up: delete branch and remove worktree
+
+## Superpowers Workflow
+
+### Implementation via Subagents in Worktrees
+
+When executing implementation plans, **always use subagent-driven development with worktree isolation** (`isolation: "worktree"`). This keeps `dev` stable and allows parallel independent tasks. Combine the `superpowers:subagent-driven-development` and `superpowers:using-git-worktrees` skills.
+
+### Receiving Code Review (`/receiving-code-review`)
+
+When handling CodeRabbitAI reviews on PRs, follow this workflow:
+
+1. **Fetch unresolved conversations**: Use `gh api` to list all review comments on the PR. Focus on unresolved conversation threads from CodeRabbitAI.
+2. **Evaluate each conversation**: For each unresolved thread, decide whether a code fix is actually needed:
+   - **Fix needed**: Implement the fix, push, and let the resolved code speak for itself.
+   - **No fix needed**: Reply in the comment thread with technical reasoning for why the current code is correct (e.g., YAGNI, reviewer lacks context, breaks existing patterns). Use `gh api repos/{owner}/{repo}/pulls/{pr}/comments/{id}/replies` to reply inline.
+3. **Resolve all conversations**: Every conversation must be resolved (either by fixing or by responding with reasoning) before the PR can merge. Zero unresolved conversations is the merge gate.
+
+**Key commands:**
+```bash
+# List PR review comments (filter for unresolved)
+gh api repos/{owner}/{repo}/pulls/{pr}/comments
+
+# Reply to a specific review comment thread
+gh api repos/{owner}/{repo}/pulls/{pr}/comments/{comment_id}/replies -f body="..."
+```

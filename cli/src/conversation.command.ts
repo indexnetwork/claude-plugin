@@ -204,6 +204,7 @@ export interface ConversationOptions {
   limit?: number;
   sessionId?: string;
   message?: string;
+  json?: boolean;
 }
 
 /**
@@ -226,6 +227,10 @@ export async function handleConversation(
 ): Promise<void> {
   // No subcommand: start REPL or send one-shot message
   if (!subcommand) {
+    if (options?.json) {
+      output.error("`--json` requires an explicit conversation subcommand.", 1);
+      return;
+    }
     if (options?.message) {
       await chatOneShot(client, options.message, options.sessionId);
     } else {
@@ -236,19 +241,19 @@ export async function handleConversation(
 
   switch (subcommand) {
     case "sessions":
-      await chatSessionsList(client);
+      await chatSessionsList(client, options?.json);
       return;
     case "list":
-      await conversationList(client);
+      await conversationList(client, options?.json);
       return;
     case "with":
-      await conversationWith(client, positionals[0]);
+      await conversationWith(client, positionals[0], options?.json);
       return;
     case "show":
-      await conversationShow(client, positionals[0], options?.limit);
+      await conversationShow(client, positionals[0], options?.limit, options?.json);
       return;
     case "send":
-      await conversationSend(client, positionals[0], positionals.slice(1));
+      await conversationSend(client, positionals[0], positionals.slice(1), options?.json);
       return;
     case "stream":
       await conversationStream(client);
@@ -264,9 +269,13 @@ export async function handleConversation(
 /**
  * List conversations for the authenticated user.
  */
-async function conversationList(client: ApiClient): Promise<void> {
+async function conversationList(client: ApiClient, json?: boolean): Promise<void> {
   const conversations = await client.listConversations();
 
+  if (json) {
+    console.log(JSON.stringify(conversations));
+    return;
+  }
   output.heading("Conversations");
   output.conversationTable(conversations);
   console.log();
@@ -275,13 +284,17 @@ async function conversationList(client: ApiClient): Promise<void> {
 /**
  * Get or create a DM with a peer user.
  */
-async function conversationWith(client: ApiClient, userId: string | undefined): Promise<void> {
+async function conversationWith(client: ApiClient, userId: string | undefined, json?: boolean): Promise<void> {
   if (!userId) {
     output.error("Usage: index conversation with <user-id>", 1);
     return;
   }
 
   const conversation = await client.getOrCreateDM(userId);
+  if (json) {
+    console.log(JSON.stringify(conversation));
+    return;
+  }
   output.conversationCard(conversation);
 }
 
@@ -292,6 +305,7 @@ async function conversationShow(
   client: ApiClient,
   id: string | undefined,
   limit?: number,
+  json?: boolean,
 ): Promise<void> {
   if (!id) {
     output.error("Usage: index conversation show <id>", 1);
@@ -300,6 +314,10 @@ async function conversationShow(
 
   const messages = await client.getMessages(id, { limit: limit ?? 20 });
 
+  if (json) {
+    console.log(JSON.stringify(messages));
+    return;
+  }
   output.heading("Messages");
   output.messageList(messages);
 }
@@ -311,6 +329,7 @@ async function conversationSend(
   client: ApiClient,
   id: string | undefined,
   messageParts: string[],
+  json?: boolean,
 ): Promise<void> {
   if (!id) {
     output.error("Usage: index conversation send <id> <message>", 1);
@@ -324,6 +343,10 @@ async function conversationSend(
 
   const text = messageParts.join(" ");
   const msg = await client.sendMessage(id, text);
+  if (json) {
+    console.log(JSON.stringify(msg));
+    return;
+  }
   output.success(`Message sent (${msg.id})`);
 }
 
@@ -389,8 +412,12 @@ async function conversationStream(client: ApiClient): Promise<void> {
 /**
  * List all H2A chat sessions.
  */
-async function chatSessionsList(client: ApiClient): Promise<void> {
+async function chatSessionsList(client: ApiClient, json?: boolean): Promise<void> {
   const sessions = await client.listSessions();
+  if (json) {
+    console.log(JSON.stringify(sessions));
+    return;
+  }
   output.heading("Chat Sessions");
   output.sessionTable(sessions);
   console.log();

@@ -1,5 +1,7 @@
 import { betterAuth } from "better-auth";
 import { magicLink, bearer, jwt } from "better-auth/plugins";
+import { apiKey } from "@better-auth/api-key";
+import { oauthProvider } from "@better-auth/oauth-provider";
 
 import { log } from "../log";
 
@@ -110,6 +112,19 @@ export function createAuth(deps: AuthDeps) {
           }),
         },
       }),
+      // Cast needed: @better-auth/core version mismatch between plugins (1.5.6) and
+      // root lockfile (1.4.18) causes incompatible Plugin types. Runtime is fine.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      apiKey({
+        enableSessionForAPIKeys: true,
+      }) as any,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      oauthProvider({
+        loginPage: "/login",
+        consentPage: "/oauth/consent",
+        allowDynamicClientRegistration: true,
+        allowUnauthenticatedClientRegistration: true,
+      }) as any,
     ],
     advanced: {
       defaultCookieAttributes: {

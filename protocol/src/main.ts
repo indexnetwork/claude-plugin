@@ -2,6 +2,7 @@ import './startup.env';
 
 import { ChatController } from './controllers/chat.controller';
 import { DebugController } from './controllers/debug.controller';
+import { ToolController } from './controllers/tool.controller';
 import { S3StorageAdapter } from './adapters/storage.adapter';
 import { IndexController } from './controllers/index.controller';
 import { IntentController } from './controllers/intent.controller';
@@ -28,6 +29,7 @@ import { AuthDatabaseAdapter } from './adapters/auth.adapter';
 import { getCorsHeaders, getTrustedOrigins } from './lib/cors';
 import { sendMagicLinkEmail } from './lib/email/magic-link.handler';
 import { adminQueuesApp } from './controllers/queues.controller';
+import { mcpHandler } from './controllers/mcp.handler';
 import { getStats } from './lib/performance';
 // Bootstrap queue workers and HyDE crons (only in this process, not in CLI e.g. db:seed)
 import { intentQueue } from './queues/intent.queue';
@@ -142,6 +144,7 @@ controllerInstances.set(ConversationController, new ConversationController(new C
 const integrationAdapter = new ComposioIntegrationAdapter();
 controllerInstances.set(IntegrationController, new IntegrationController(integrationAdapter, new IntegrationService(integrationAdapter)));
 controllerInstances.set(DebugController, new DebugController());
+controllerInstances.set(ToolController, new ToolController());
 
 logger.info('Routes registered', { prefix: GLOBAL_PREFIX });
 
@@ -199,6 +202,11 @@ Bun.serve({
       '/api/auth/revoke-session', '/api/auth/revoke-other-sessions',
       '/api/auth/update-user',
       '/api/auth/token', '/api/auth/jwks',
+      // API key management
+      '/api/auth/api-key',
+      // OAuth 2.1 provider
+      '/oauth2/',
+      '/.well-known/oauth-authorization-server',
     ];
     const isBetterAuthRoute = betterAuthPaths.some(p => url.pathname.startsWith(p));
     if (isBetterAuthRoute) {
@@ -206,6 +214,11 @@ Bun.serve({
       const newHeaders = new Headers(res.headers);
       Object.entries(corsHeaders).forEach(([key, value]) => newHeaders.set(key, value));
       return new Response(res.body, { status: res.status, statusText: res.statusText, headers: newHeaders });
+    }
+
+    // MCP Streamable HTTP endpoint (OPTIONS already handled globally above)
+    if (url.pathname === '/mcp' || url.pathname.startsWith('/mcp/')) {
+      return mcpHandler(req, corsHeaders);
     }
 
     // Iterate over controllers and routes to find a match.
