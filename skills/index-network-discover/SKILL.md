@@ -1,67 +1,71 @@
 ---
 name: index-network-discover
-description: Use when the user asks to find people, explore opportunities, get introductions, or discover matches for their needs.
+description: Find relevant people, discover opportunities, look up specific individuals, and facilitate introductions between others.
 ---
 
-# Discovery
+# Discovery & Connections
 
-Help users find relevant people through opportunity discovery.
+## Pattern 1: User wants to find connections (default for connection-seeking)
 
-## Prerequisites
+For open-ended requests ("find me a mentor", "who needs a React dev", "I want to meet people in AI", "looking for investors"):
 
-The parent skill (index-network) has already verified CLI availability and auth. Context has been gathered silently.
+**CRITICAL: DO NOT create an intent first. Discovery comes FIRST.**
 
-## Modes
+- Call `create_opportunities` with `searchQuery` set to the user's request IMMEDIATELY
+- Do NOT call `create_intent` unless the user **explicitly** asks to "create", "save", "add", or "remember" a signal
+- Phrases like "looking for X", "find me X", "I want to meet X" are discovery requests — NOT intent creation requests
+- If the tool returns `suggestIntentCreationForVisibility: true` and `suggestedIntentDescription`, after presenting results ask: "Would you also like to create a signal for this so others can find you?" If yes, call `create_intent`. Ask only once per conversation.
+- When all results are exhausted, suggest the user create a signal so others can discover them. Do not offer to "show more".
 
-- **Open discovery** — User describes what they need:
+**Network scoping**: When the user says "in my network", "from my contacts", "people I know", pass the user's **personal index ID** as `indexId`. The personal index (`isPersonal: true` in their memberships) contains their contacts.
 
-  ```
-  index opportunity discover "<query>" --json
-  ```
+## Pattern 1a: Connect with a specific mentioned person
 
-- **Targeted discovery** — User names a specific person. Use their user ID:
+When the user mentions a specific person AND wants to connect ("what can I do with X", "connect me with X"):
 
-  ```
-  index opportunity discover "<query>" --target <user-id> --json
-  ```
+1. Call `read_user_profiles` with the person's userId if known, or `query` with their name
+2. Call `read_index_memberships` for that user to find shared indexes
+3. If no shared indexes: tell the user you can't find a connection path
+4. Call `create_opportunities` with `targetUserId` and `searchQuery` describing why they'd connect
+5. Present the result
 
-- **Introduction** — User wants to connect two people:
+Do NOT call `read_intents` before `create_opportunities` here — the tool fetches intents internally.
 
-  ```
-  index opportunity discover --introduce <user-id-1> <user-id-2> --json
-  ```
+## Pattern 2: Look up a specific person by name
 
-Note: Discovery can take up to 3 minutes. Let the user know you're looking.
+When the user asks about someone ("find [name]", "who is [name]?"):
 
-## Process
+- Call `read_user_profiles` with `query` set to the name
+- **One match**: present their profile naturally
+- **Multiple matches**: list and ask user to clarify
+- **No matches**: tell the user you couldn't find anyone by that name in their network
+- If user then wants to connect, use Pattern 1a
 
-1. Understand what the user is looking for. If vague, help them refine it into a clear query.
-2. Run the appropriate discovery command.
-3. Present results conversationally — highlight why each match is relevant, what the confidence score means, and what the opportunity reasoning says.
-4. If the user wants to act on an opportunity:
+## Pattern 3: Introduce two people
 
-   ```
-   index opportunity accept <id> --json
-   ```
+**An introduction is always between exactly two people.** You MUST gather all context before calling `create_opportunities`.
 
-   If they want to skip:
+1. `read_index_memberships` for person A and person B → find shared indexes
+2. If no shared indexes: tell user they're not in any shared community
+3. `read_user_profiles` for both
+4. For each shared index: `read_intents` for both users in that index
+5. Summarize: "Here's what I found about A and B..."
+6. `create_opportunities` with `partyUserIds=[A,B]`, `entities` (each party's profile + intents + shared indexId), and `hint` (user's reason)
 
-   ```
-   index opportunity reject <id> --json
-   ```
+If the user names only one person ("who should I introduce to @Person"):
+- Call `create_opportunities` with `introTargetUserId` and optional `searchQuery`
+- Do NOT use partyUserIds — the system finds connections automatically
+- **Never suggest signal creation in introducer flows** — the query reflects the other person's needs, not the user's
 
-## Managing Opportunities
+## Opportunity Status
 
-- List pending/accepted/rejected:
+- Draft or latent opportunities can be sent: call `update_opportunity` with `status='pending'`
+- Status translation: draft/latent → "draft", pending → "sent", accepted → "connected"
+- "pending" sends a notification — not a message or invite
+- "accepted" adds a contact — for ghost users, the invite email is sent only when the user opens a chat
 
-  ```
-  index opportunity list --status <status> --json
-  ```
+## Rules
 
-- Show full details:
-
-  ```
-  index opportunity show <id> --json
-  ```
-
-- Help the user understand the actors, interpretation, and reasoning behind each opportunity.
+- **Discovery first, intent as follow-up.** Never lead with `create_intent` for connection-seeking requests.
+- Only call `create_opportunities` for: discovery, introductions, or direct connection with a specific person.
+- Only describe what the tool response confirms happened. Never claim you sent invites or messages.
