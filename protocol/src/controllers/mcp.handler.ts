@@ -38,6 +38,7 @@ import { intentQueue } from '../queues/intent.queue';
 import type { ToolDeps } from '../lib/protocol/tools/tool.helpers';
 import type { McpAuthResolver } from '../lib/protocol/interfaces/auth.interface';
 import { createMcpServer } from '../lib/protocol/mcp/mcp.server';
+import type { ScopedDepsFactory } from '../lib/protocol/mcp/mcp.server';
 import { log } from '../lib/log';
 
 const logger = log.server.from('mcp');
@@ -202,7 +203,16 @@ function getOrCreateMcpServer(): McpServer {
     graphs,
   };
 
-  mcpServer = createMcpServer(toolDeps, authResolver);
+  const scopedDepsFactory: ScopedDepsFactory = {
+    create(userId: string, indexScope: string[]) {
+      return {
+        userDb: createUserDatabase(database, userId),
+        systemDb: createSystemDatabase(database, userId, indexScope, embedder),
+      };
+    },
+  };
+
+  mcpServer = createMcpServer(toolDeps, authResolver, scopedDepsFactory);
   logger.info('MCP server initialized');
   return mcpServer;
 }

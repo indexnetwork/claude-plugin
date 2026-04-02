@@ -13,11 +13,6 @@ import type { McpAuthResolver } from '../interfaces/auth.interface';
 import type { ToolDeps } from '../tools/tool.helpers';
 import { resolveChatContext } from '../tools/tool.helpers';
 import { createToolRegistry } from '../tools/tool.registry';
-import {
-  chatDatabaseAdapter,
-  createUserDatabase,
-  createSystemDatabase,
-} from '../../../adapters/database.adapter';
 import { protocolLogger } from '../support/protocol.logger';
 
 const logger = protocolLogger('McpServer');
@@ -71,14 +66,29 @@ function zodToJsonSchema(schema: z.ZodType): Record<string, unknown> {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 /**
+ * Factory for creating per-request scoped database instances.
+ * Injected from the controller/handler layer to keep the protocol layer
+ * free of direct adapter imports.
+ */
+export interface ScopedDepsFactory {
+  /** Creates scoped userDb and systemDb for the given user and index scope. */
+  create(userId: string, indexScope: string[]): Pick<ToolDeps, 'userDb' | 'systemDb'>;
+}
+
+/**
  * Creates an MCP server with all protocol tools registered.
  * Tools resolve auth per-request via the HTTP request available in ServerContext.
  *
  * @param deps - Shared tool dependencies (graphs, database, embedder, etc.)
  * @param authResolver - Resolves authenticated user ID from the HTTP request
+ * @param scopedDepsFactory - Factory for creating per-request scoped databases
  * @returns A configured McpServer ready to be connected to a transport
  */
-export function createMcpServer(deps: ToolDeps, authResolver: McpAuthResolver): McpServer {
+export function createMcpServer(
+  deps: ToolDeps,
+  authResolver: McpAuthResolver,
+  scopedDepsFactory: ScopedDepsFactory,
+): McpServer {
   const server = new McpServer({
     name: 'index-network',
     version: '1.0.0',
@@ -113,16 +123,14 @@ export function createMcpServer(deps: ToolDeps, authResolver: McpAuthResolver): 
           const userId = await authResolver.resolveUserId(httpReq);
 
           // Resolve chat context for the user
-          const database = chatDatabaseAdapter;
-          const context = await resolveChatContext({ database, userId });
+          const context = await resolveChatContext({ database: deps.database, userId });
 
-          // Build per-request scoped databases
+          // Build per-request scoped databases via injected factory
           const indexScope = context.userIndexes.map((m) => m.indexId);
-          const userDb = createUserDatabase(database, userId);
-          const systemDb = createSystemDatabase(database, userId, indexScope, deps.embedder);
+          const scopedDbs = scopedDepsFactory.create(userId, indexScope);
 
           // Override deps with per-request scoped databases
-          const requestDeps: ToolDeps = { ...deps, userDb, systemDb };
+          const requestDeps: ToolDeps = { ...deps, ...scopedDbs };
 
           // Re-create registry with per-request deps for scoped database access
           const requestRegistry = createToolRegistry(requestDeps);
