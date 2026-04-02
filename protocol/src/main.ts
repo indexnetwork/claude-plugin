@@ -29,6 +29,7 @@ import { AuthDatabaseAdapter } from './adapters/auth.adapter';
 import { getCorsHeaders, getTrustedOrigins } from './lib/cors';
 import { sendMagicLinkEmail } from './lib/email/magic-link.handler';
 import { adminQueuesApp } from './controllers/queues.controller';
+import { mcpHandler } from './controllers/mcp.handler';
 import { getStats } from './lib/performance';
 // Bootstrap queue workers and HyDE crons (only in this process, not in CLI e.g. db:seed)
 import { intentQueue } from './queues/intent.queue';
@@ -213,6 +214,14 @@ Bun.serve({
       const newHeaders = new Headers(res.headers);
       Object.entries(corsHeaders).forEach(([key, value]) => newHeaders.set(key, value));
       return new Response(res.body, { status: res.status, statusText: res.statusText, headers: newHeaders });
+    }
+
+    // MCP Streamable HTTP endpoint
+    if (url.pathname === '/mcp' || url.pathname.startsWith('/mcp/')) {
+      if (method === 'OPTIONS') {
+        return new Response(null, { status: 204, headers: corsHeaders });
+      }
+      return mcpHandler(req, corsHeaders);
     }
 
     // Iterate over controllers and routes to find a match.
