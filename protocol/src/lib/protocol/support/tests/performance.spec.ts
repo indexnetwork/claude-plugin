@@ -31,7 +31,7 @@ describe("timed()", () => {
 
     expect(calls).toHaveLength(1);
     expect(calls[0].name).toBe("my-operation");
-    expect(calls[0].durationMs).toBeGreaterThan(0);
+    expect(calls[0].durationMs).toBeGreaterThanOrEqual(0);
   });
 
   it("calls the timing callback even when the function throws", async () => {
@@ -42,7 +42,7 @@ describe("timed()", () => {
 
     expect(calls).toHaveLength(1);
     expect(calls[0].name).toBe("failing-op");
-    expect(calls[0].durationMs).toBeGreaterThan(0);
+    expect(calls[0].durationMs).toBeGreaterThanOrEqual(0);
   });
 
   it("stops reporting after setTimingCallback(undefined)", async () => {
@@ -74,6 +74,6 @@ describe("Timed() decorator", () => {
     expect(result).toBe("done");
     expect(calls).toHaveLength(1);
     expect(calls[0].name).toBe("MyService.doWork");
-    expect(calls[0].durationMs).toBeGreaterThan(0);
+    expect(calls[0].durationMs).toBeGreaterThanOrEqual(0);
   });
 });

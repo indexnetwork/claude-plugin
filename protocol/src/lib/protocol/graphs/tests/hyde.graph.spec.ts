@@ -15,15 +15,22 @@ import { LensInferrer } from '../../agents/lens.inferrer';
 /** Real embedder for smartest integration tests — calls OpenRouter embeddings API. */
 function createTestEmbedder(): EmbeddingGenerator {
   return {
-    async generate(text: string | string[], dimensions = 2000): Promise<number[] | number[][]> {
+    async generate(text: string | string[], dimensions?: number): Promise<number[] | number[][]> {
       const apiKey = process.env.OPENROUTER_API_KEY;
       if (!apiKey) throw new Error('OPENROUTER_API_KEY required for smartest tests');
       const inputs = Array.isArray(text) ? text : [text];
       const response = await fetch('https://openrouter.ai/api/v1/embeddings', {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: 'openai/text-embedding-3-small', input: inputs, dimensions }),
+        body: JSON.stringify({
+          model: 'openai/text-embedding-3-small',
+          input: inputs,
+          ...(dimensions !== undefined ? { dimensions } : {}),
+        }),
       });
+      if (!response.ok) {
+        throw new Error(`OpenRouter embeddings request failed: ${response.status} ${await response.text()}`);
+      }
       const data = await response.json() as { data: Array<{ embedding: number[] }> };
       const embeddings = data.data.map(d => d.embedding);
       return inputs.length === 1 ? embeddings[0] : embeddings;
@@ -185,7 +192,7 @@ describe('HydeGraph', () => {
       error: z.string().optional(),
     });
 
-    it('invoke with intent text returns embeddings (Smartest: real LLM + embedder, schema)', async () => {
+    it.skipIf(!process.env.OPENROUTER_API_KEY)('invoke with intent text returns embeddings (Smartest: real LLM + embedder, schema)', async () => {
       const cacheStore: Record<string, unknown> = {};
       const mockDb: HydeGraphDatabase = {
         getHydeDocument: async () => null,
