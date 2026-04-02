@@ -1,0 +1,162 @@
+/**
+ * MCP Server Factory — creates an McpServer instance with all protocol tools
+ * registered from the existing tool registry. Each tool invocation resolves
+ * auth from the HTTP request, builds a ResolvedToolContext, and delegates
+ * to the raw tool handler.
+ */
+
+import { z } from 'zod';
+import { McpServer, fromJsonSchema } from '@modelcontextprotocol/server';
+import type { ServerContext, JsonSchemaType } from '@modelcontextprotocol/server';
+
+import type { McpAuthResolver } from '../interfaces/auth.interface';
+import type { ToolDeps } from '../tools/tool.helpers';
+import { resolveChatContext } from '../tools/tool.helpers';
+import { createToolRegistry } from '../tools/tool.registry';
+import {
+  chatDatabaseAdapter,
+  createUserDatabase,
+  createSystemDatabase,
+} from '../../../adapters/database.adapter';
+import { protocolLogger } from '../support/protocol.logger';
+
+const logger = protocolLogger('McpServer');
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ZOD 3 → JSON SCHEMA CONVERSION
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Minimal Zod-to-JSON-Schema conversion for MCP tool registration.
+ * Converts Zod 3.x schemas to plain JSON Schema objects that can be
+ * wrapped with `fromJsonSchema()` for MCP SDK compatibility.
+ */
+function zodToJsonSchema(schema: z.ZodType): Record<string, unknown> {
+  if (schema instanceof z.ZodObject) {
+    const shape = schema.shape;
+    const properties: Record<string, unknown> = {};
+    const required: string[] = [];
+    for (const [key, value] of Object.entries(shape)) {
+      const zodValue = value as z.ZodType;
+      properties[key] = zodToJsonSchema(zodValue);
+      if (!(zodValue instanceof z.ZodOptional) && !(zodValue instanceof z.ZodDefault)) {
+        required.push(key);
+      }
+    }
+    return { type: 'object', properties, ...(required.length ? { required } : {}) };
+  }
+  if (schema instanceof z.ZodString) return { type: 'string' };
+  if (schema instanceof z.ZodNumber) return { type: 'number' };
+  if (schema instanceof z.ZodBoolean) return { type: 'boolean' };
+  if (schema instanceof z.ZodArray) {
+    return { type: 'array', items: zodToJsonSchema((schema as z.ZodArray<z.ZodType>).element) };
+  }
+  if (schema instanceof z.ZodOptional) {
+    return zodToJsonSchema((schema as z.ZodOptional<z.ZodType>).unwrap());
+  }
+  if (schema instanceof z.ZodDefault) {
+    return zodToJsonSchema((schema as z.ZodDefault<z.ZodType>).removeDefault());
+  }
+  if (schema instanceof z.ZodEnum) {
+    return { type: 'string', enum: (schema as z.ZodEnum<[string, ...string[]]>).options };
+  }
+  if (schema instanceof z.ZodRecord) {
+    return { type: 'object', additionalProperties: true };
+  }
+  return { type: 'object' };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// MCP SERVER FACTORY
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Creates an MCP server with all protocol tools registered.
+ * Tools resolve auth per-request via the HTTP request available in ServerContext.
+ *
+ * @param deps - Shared tool dependencies (graphs, database, embedder, etc.)
+ * @param authResolver - Resolves authenticated user ID from the HTTP request
+ * @returns A configured McpServer ready to be connected to a transport
+ */
+export function createMcpServer(deps: ToolDeps, authResolver: McpAuthResolver): McpServer {
+  const server = new McpServer({
+    name: 'index-network',
+    version: '1.0.0',
+  });
+
+  const registry = createToolRegistry(deps);
+
+  for (const [toolName, toolDef] of registry) {
+    // Convert Zod 3 schema to JSON Schema, then wrap with fromJsonSchema
+    // for MCP SDK's StandardSchemaWithJSON compatibility
+    const jsonSchema = zodToJsonSchema(toolDef.schema) as JsonSchemaType;
+    const mcpSchema = fromJsonSchema(jsonSchema);
+
+    server.registerTool(
+      toolName,
+      {
+        description: toolDef.description,
+        inputSchema: mcpSchema,
+      },
+      async (args: unknown, ctx: ServerContext) => {
+        try {
+          // Extract the original HTTP request from the MCP server context
+          const httpReq = ctx.http?.req;
+          if (!httpReq) {
+            return {
+              content: [{ type: 'text' as const, text: JSON.stringify({ error: 'No HTTP request available in MCP context' }) }],
+              isError: true,
+            };
+          }
+
+          // Resolve authenticated user
+          const userId = await authResolver.resolveUserId(httpReq);
+
+          // Resolve chat context for the user
+          const database = chatDatabaseAdapter;
+          const context = await resolveChatContext({ database, userId });
+
+          // Build per-request scoped databases
+          const indexScope = context.userIndexes.map((m) => m.indexId);
+          const userDb = createUserDatabase(database, userId);
+          const systemDb = createSystemDatabase(database, userId, indexScope, deps.embedder);
+
+          // Override deps with per-request scoped databases
+          const requestDeps: ToolDeps = { ...deps, userDb, systemDb };
+
+          // Re-create registry with per-request deps for scoped database access
+          const requestRegistry = createToolRegistry(requestDeps);
+          const requestTool = requestRegistry.get(toolName);
+
+          if (!requestTool) {
+            return {
+              content: [{ type: 'text' as const, text: JSON.stringify({ error: `Tool "${toolName}" not found` }) }],
+              isError: true,
+            };
+          }
+
+          // Validate input against the original Zod schema
+          const parseResult = (toolDef.schema as z.ZodType).safeParse(args);
+          const validatedArgs = parseResult.success ? parseResult.data : args;
+
+          // Execute the tool handler
+          const result = await requestTool.handler({ context, query: validatedArgs });
+
+          return {
+            content: [{ type: 'text' as const, text: result }],
+          };
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          logger.error(`MCP tool "${toolName}" failed`, { error: message });
+          return {
+            content: [{ type: 'text' as const, text: JSON.stringify({ error: message }) }],
+            isError: true,
+          };
+        }
+      },
+    );
+  }
+
+  logger.verbose(`MCP server created with ${registry.size} tools`);
+  return server;
+}
