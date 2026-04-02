@@ -482,10 +482,10 @@ export function createStreamEvent<T extends ChatStreamEvent>(
   data: Omit<T, "type" | "sessionId" | "timestamp">,
 ): T {
   return {
+    ...data,
     type,
     sessionId,
     timestamp: new Date().toISOString(),
-    ...data,
   } as T;
 }
 
@@ -580,8 +580,8 @@ export function createDoneEvent(
   options?: CreateDoneEventOptions,
 ): DoneEvent {
   return createStreamEvent<DoneEvent>("done", sessionId, {
-    response,
     ...options,
+    response,
   });
 }
 

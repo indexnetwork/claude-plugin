@@ -294,7 +294,7 @@ export function createMockProtocolDeps(overrides?: Partial<ProtocolDeps>): Proto
     cache: { get: async () => null, set: async () => {}, delete: async () => false, exists: async () => false, mget: async () => [], deleteByPattern: async () => 0 },
     hydeCache: { get: async () => null, set: async () => {}, delete: async () => false, exists: async () => false },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    integration: { createSession: async () => ({}) as any, executeToolAction: async () => ({ successful: true }), listConnections: async () => [], getAuthUrl: async () => ({ redirectUrl: "" }), disconnect: async () => ({ success: true }) } as unknown as ProtocolDeps["integration"],
+    integration: { createSession: async () => ({ toolkits: async () => ({ items: [] }), authorize: async () => ({ redirectUrl: "" }) }), executeToolAction: async () => ({ successful: true }), listConnections: async () => [], getAuthUrl: async () => ({ redirectUrl: "" }), disconnect: async () => ({ success: true }) } as unknown as ProtocolDeps["integration"],
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     intentQueue: { addGenerateHydeJob: async () => ({}), addDeleteHydeJob: async () => ({}) } as any,
     contactService: { importContacts: async () => ({ imported: 0, skipped: 0, newContacts: 0, existingContacts: 0, details: [] }), listContacts: async () => [], addContact: async () => ({ userId: "", isNew: false, isGhost: false }), removeContact: async () => {} } as unknown as ProtocolDeps["contactService"],
