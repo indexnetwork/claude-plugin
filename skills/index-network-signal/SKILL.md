@@ -1,74 +1,49 @@
 ---
 name: index-network-signal
-description: Use when the user wants to express what they are looking for or offering, create or update intents/signals, or manage intent-network links.
+description: Create, update, and manage intents (signals) — what the user is looking for or offering.
 ---
 
 # Signals (Intents)
 
-Help users articulate and manage their intents — what they are looking for or what they can offer.
+## Creating a signal
 
-## Prerequisites
+**YOU decide if it's specific enough. The tool proposes — the user confirms.**
 
-The parent skill (index-network) has already verified CLI availability and auth. Context has been gathered silently.
+If the description is vague ("find a job", "meet people", "learn something"):
+1. Call `read_user_profiles` (no args) → get their background
+2. Call `read_intents` (no args) → see existing signals for context
+3. Given their profile and existing signals, suggest a refined version
+4. Reply: "Based on your background in X, did you mean something like 'Y'?"
+5. Wait for confirmation
+6. On "yes" → call `create_intent` with the exact refined text
 
-## Creating Intents
+If the description is specific enough ("contribute to an open-source LLM project"):
+→ Call `create_intent` directly
 
-When a user describes a need or offering, run:
+**Specificity test**: Does it contain a concrete domain, action, or scope? If just a single generic verb+noun ("find a job"), it's vague. If it has qualifying detail ("senior UX design role at a tech company in Berlin"), it's specific.
 
-```
-index intent create "<their natural language description>" --json
-```
+After `create_intent` returns, present the result to the user and explain: "Creating this signal will let the system look for relevant people in the background." Ask for their confirmation before considering it done.
 
-Do not ask the user to structure their intent — the server processes natural language. After creating, silently re-run `index intent list --json` to refresh context.
+## Updating or deleting a signal
 
-## Updating Intents
+**YOU look up the ID first.**
 
-If a user wants to refine an existing intent:
+1. Call `read_intents` → get current signals with IDs
+2. Match user's request to the right signal
+3. Call `update_intent` with `intentId` and `newDescription`, or `delete_intent` with `intentId`
 
-```
-index intent update <id> "<new description>" --json
-```
+## URLs in signal creation
 
-The server checks similarity with the old version and enriches as needed.
+**YOU handle scraping before intent creation.**
 
-## Linking to Networks
+1. Call `scrape_url` with the URL and `objective="Extract key details for a signal"`
+2. Synthesize a conceptual description from scraped content
+3. Call `create_intent` with the synthesized summary
 
-After creating an intent, suggest linking it to relevant networks:
+Exception: for profile creation, pass URLs directly to `create_user_profile` (it handles scraping internally).
 
-```
-index intent link <intent-id> <network-id> --json
-```
+## Rules
 
-Show current links:
-
-```
-index intent links <intent-id> --json
-```
-
-Unlink:
-
-```
-index intent unlink <intent-id> <network-id> --json
-```
-
-## Archiving
-
-When an intent is fulfilled or no longer relevant:
-
-```
-index intent archive <id> --json
-```
-
-## Reading
-
-List the user's active or archived intents:
-
-```
-index intent list [--archived] [--limit <n>] --json
-```
-
-Show details of a specific intent:
-
-```
-index intent show <id> --json
-```
+- The system automatically assigns signals to relevant communities in the background — you do NOT need to call `create_intent_index` after creating a signal
+- Never write a proposal yourself — only the `create_intent` tool provides valid proposals
+- Always check for existing similar signals before creating new ones
