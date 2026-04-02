@@ -1,102 +1,58 @@
 ---
 name: index-network-connect
-description: Use when the user wants to manage networks (create, join, leave, invite), manage contacts (add, remove, import), or handle community memberships.
+description: Manage networks (communities), contacts, and memberships. Join, create, or explore communities. Add or import contacts.
 ---
 
 # Networks & Contacts
 
-Help users manage their communities and personal network.
+## Exploring a community
 
-## Prerequisites
+1. Start from context gathered at setup (user's memberships are already known)
+2. Call `read_indexes` if you need full index details (title, prompt)
+3. Call `read_intents` with `indexId` to see what members are looking for
+4. Call `read_index_memberships` with `indexId` to see who's in it
+5. Synthesize: community purpose, active needs, member composition
 
-The parent skill (index-network) has already verified CLI availability and auth. Context has been gathered silently.
+### When to mention community/index
 
-## Networks
+Community membership is background — handle it without talking about indexes unless the user asks. Only mention communities when:
+- Post-onboarding sign-up to a community
+- User explicitly asked about their communities
+- User wants to leave one
+- Owner is changing settings
 
-List networks:
+Otherwise use neutral language ("where you're connected", "people you're connected with").
 
-```
-index network list --json
-```
+## Creating a community
 
-Create a new network:
+Call `create_index` with `title` and optionally `prompt` (the community's purpose — guides how signals are evaluated within it).
 
-```
-index network create "<name>" --prompt "<purpose>" --json
-```
+## Managing membership
 
-When creating a network, help the user write a good prompt — it guides how the system evaluates intents within that community.
+- **Add someone**: `create_index_membership` with `userId` and `indexId`
+- **Remove someone**: `delete_index_membership` with `userId` and `indexId`
+- **List members**: `read_index_memberships` with `indexId`
 
-Update network title or prompt (owner only):
+## Finding shared context between two users
 
-```
-index network update <id> --title "<new title>" --prompt "<new prompt>" --json
-```
-
-Delete a network (owner only):
-
-```
-index network delete <id> --json
-```
-
-Show network members:
-
-```
-index network show <id> --json
-```
-
-Invite someone by email:
-
-```
-index network invite <id> <email> --json
-```
-
-Join a public network:
-
-```
-index network join <id> --json
-```
-
-Leave a network:
-
-```
-index network leave <id> --json
-```
+1. `read_index_memberships` for yourself → your communities
+2. `read_index_memberships` for the other user → their communities
+3. Intersect the index IDs
+4. For each shared community: `read_intents` with that `indexId`
+5. `read_user_profiles` for the other user
+6. Synthesize: what overlaps, where they could collaborate
 
 ## Contacts
 
-List contacts:
+### Import from Gmail
+Call `import_gmail_contacts`:
+- **Not connected**: returns `requiresAuth: true` + `authUrl` — share the URL
+- **Connected**: imports directly and returns stats
 
-```
-index contact list --json
-```
+Ghost users are contacts without accounts — they're enriched with public data and can appear in opportunity discovery once enriched.
 
-Add someone by email (creates a ghost user if they are not on the platform):
-
-```
-index contact add <email> --json
-```
-
-Remove a contact:
-
-```
-index contact remove <email> --json
-```
-
-Bulk import:
-
-```
-index contact import --json
-```
-
-Import from Gmail (opens browser for OAuth):
-
-```
-index contact import --gmail --json
-```
-
-## Join Policies
-
-Networks have join policies: `public` (anyone can join) or `invite_only` (requires invitation). When a user asks to join a network, check the policy first by running `index network show <id> --json`.
-
-After any network or contact mutation, silently re-run the relevant list command to refresh context.
+### Manual management
+- **Add**: `add_contact` with `email` and optional `name`
+- **List**: `list_contacts`
+- **Remove**: `remove_contact` with `contactId`
+- **Bulk import**: `import_contacts` with a `contacts` array and `source`
