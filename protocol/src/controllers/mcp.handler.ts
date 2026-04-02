@@ -150,6 +150,7 @@ const authResolver: McpAuthResolver = {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ key: apiKey }),
+          signal: AbortSignal.timeout(5000),
         });
         if (!verifyRes.ok) {
           throw new Error(`API key verification failed: ${verifyRes.status}`);
@@ -221,22 +222,30 @@ function getOrCreateMcpServer(): McpServer {
 // TRANSPORT (created once, reused across requests)
 // ═══════════════════════════════════════════════════════════════════════════════
 
-let mcpTransport: WebStandardStreamableHTTPServerTransport | null = null;
+let mcpTransportPromise: Promise<WebStandardStreamableHTTPServerTransport> | null = null;
 
 /**
  * Creates or returns the cached transport, connected to the MCP server.
- * The transport is stateless (no session tracking) — each request is independent.
+ * Caches the promise (not the result) to prevent concurrent cold-start
+ * requests from grabbing a half-initialized transport.
  */
-async function getOrCreateTransport(): Promise<WebStandardStreamableHTTPServerTransport> {
-  if (mcpTransport) return mcpTransport;
+function getOrCreateTransport(): Promise<WebStandardStreamableHTTPServerTransport> {
+  if (mcpTransportPromise) return mcpTransportPromise;
 
-  const server = getOrCreateMcpServer();
-  mcpTransport = new WebStandardStreamableHTTPServerTransport({
-    sessionIdGenerator: undefined,
-  });
-  await server.connect(mcpTransport);
-  logger.info('MCP transport connected');
-  return mcpTransport;
+  mcpTransportPromise = (async () => {
+    const server = getOrCreateMcpServer();
+    const transport = new WebStandardStreamableHTTPServerTransport({
+      sessionIdGenerator: undefined,
+    });
+    await server.connect(transport);
+    logger.info('MCP transport connected');
+    return transport;
+  })();
+
+  // Reset on failure so next request retries
+  mcpTransportPromise.catch(() => { mcpTransportPromise = null; });
+
+  return mcpTransportPromise;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -275,10 +284,19 @@ export async function mcpHandler(
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     logger.error('MCP handler error', { error: message });
+
+    // Map auth errors to proper HTTP status codes
+    const isAuthError =
+      message.includes('Authentication required') ||
+      message.includes('Invalid or expired access token') ||
+      message.includes('Invalid API key') ||
+      message.includes('API key authentication failed') ||
+      message.includes('API key verification failed');
+
     return new Response(
       JSON.stringify({ error: message }),
       {
-        status: 500,
+        status: isAuthError ? 401 : 500,
         headers: { 'Content-Type': 'application/json', ...corsHeaders },
       },
     );
