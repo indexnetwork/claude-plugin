@@ -11,7 +11,6 @@ import type { EmbeddingGenerator } from '../../interfaces/embedder.interface';
 import type { HydeCache } from '../../interfaces/cache.interface';
 import { HydeGenerator } from '../../agents/hyde.generator';
 import { LensInferrer } from '../../agents/lens.inferrer';
-import type { EmbeddingGenerator } from '../../interfaces/embedder.interface';
 
 /** Real embedder for smartest integration tests — calls OpenRouter embeddings API. */
 function createTestEmbedder(): EmbeddingGenerator {

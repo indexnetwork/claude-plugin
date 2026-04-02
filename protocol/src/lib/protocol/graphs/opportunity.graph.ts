@@ -343,7 +343,7 @@ export class OpportunityGraphFactory {
             // Chat path: score query against target indexes in parallel
             try {
               const indexer = new IntentIndexer();
-              const scopeAgentTimings: import('../../../types/chat-streaming.types').DebugMetaAgent[] = [];
+              const scopeAgentTimings: DebugMetaAgent[] = [];
               const scorableIndexes = targetIndexes.filter(ti => ti.title !== 'Unknown');
               const scoringPromises = scorableIndexes.map(async (ti) => {
                 try {

@@ -10,6 +10,7 @@ import { shouldEnrichGhostDisplayNameFromParallel } from "../support/profile.enr
 import { protocolLogger } from "../support/protocol.logger";
 import { timed } from "../support/performance";
 import { requestContext } from "../support/request-context";
+import type { DebugMetaAgent } from "../types/chat-streaming.types";
 
 const logger = protocolLogger("ProfileGraphFactory");
 
@@ -552,7 +553,7 @@ export class ProfileGraphFactory {
           inputLength: state.input.length
         });
 
-        const agentTimingsAccum: import('../../../types/chat-streaming.types').DebugMetaAgent[] = [];
+        const agentTimingsAccum: DebugMetaAgent[] = [];
 
         try {
           // If updating existing profile, include it in the input for context
@@ -679,7 +680,7 @@ export class ProfileGraphFactory {
           profileName: state.profile.identity.name
         });
 
-        const agentTimingsAccum: import('../../../types/chat-streaming.types').DebugMetaAgent[] = [];
+        const agentTimingsAccum: DebugMetaAgent[] = [];
 
         try {
           const profileString = JSON.stringify(state.profile, null, 2);

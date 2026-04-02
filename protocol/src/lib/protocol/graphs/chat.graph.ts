@@ -57,8 +57,8 @@ export class ChatGraphFactory {
     private database: ChatGraphCompositeDatabase,
     private embedder: Embedder,
     private scraper: Scraper,
-    private chatSession?: ChatSessionReader,
-    private protocolDeps?: ProtocolDeps,
+    private chatSession: ChatSessionReader,
+    private protocolDeps: ProtocolDeps,
   ) {
     this.streamingService = new ChatStreamer(
       (sessionId, maxMessages) => this.loadSessionContext(sessionId, maxMessages),
@@ -105,9 +105,7 @@ export class ChatGraphFactory {
     });
 
     try {
-      const messages = this.chatSession
-        ? await this.chatSession.getSessionMessages(sessionId, maxMessages)
-        : [];
+      const messages = await this.chatSession.getSessionMessages(sessionId, maxMessages);
 
       if (messages.length === 0) {
         logger.verbose("No previous messages found", { sessionId });
@@ -212,13 +210,13 @@ export class ChatGraphFactory {
         const runLoop = async () => {
           const indexId = state.indexId;
           const agent = await ChatAgent.create({
+            ...protocolDeps,
             userId: state.userId,
             database,
             embedder,
             scraper,
             indexId,
             sessionId: state.sessionId,
-            ...(protocolDeps ?? {}),
           } as import("../tools/tool.helpers").ToolContext);
           // Direct streaming writer - emit events immediately instead of buffering
           const directWriter = (data: unknown) => {

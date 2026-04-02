@@ -305,18 +305,20 @@ export async function negotiateCandidates(
 }
 
 /**
- * Creates a default negotiation graph with real services and agents.
+ * Creates a negotiation graph with the provided dependencies.
+ * @param deps.database - Conversation database adapter
+ * @param deps.proposer - Agent that proposes negotiation terms
+ * @param deps.responder - Agent that responds to negotiation proposals
  */
-export function createDefaultNegotiationGraph() {
-  // Lazy imports to avoid circular dependencies
-  const { conversationDatabaseAdapter } = require("../../../adapters/database.adapter");
-  const { NegotiationProposer } = require("../agents/negotiation.proposer");
-  const { NegotiationResponder } = require("../agents/negotiation.responder");
-
+export function createDefaultNegotiationGraph(deps: {
+  database: NegotiationDatabase;
+  proposer: NegotiationAgentLike;
+  responder: NegotiationAgentLike;
+}) {
   const factory = new NegotiationGraphFactory(
-    conversationDatabaseAdapter,
-    new NegotiationProposer(),
-    new NegotiationResponder(),
+    deps.database,
+    deps.proposer,
+    deps.responder,
   );
   return factory.createGraph();
 }
