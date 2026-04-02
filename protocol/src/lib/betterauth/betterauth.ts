@@ -116,6 +116,8 @@ export function createAuth(deps: AuthDeps) {
         enableSessionForAPIKeys: true,
       }),
       oauthProvider({
+        loginPage: "/login",
+        consentPage: "/oauth/consent",
         allowDynamicClientRegistration: true,
         allowUnauthenticatedClientRegistration: true,
       }),
