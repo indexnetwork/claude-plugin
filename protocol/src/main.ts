@@ -201,6 +201,11 @@ Bun.serve({
       '/api/auth/revoke-session', '/api/auth/revoke-other-sessions',
       '/api/auth/update-user',
       '/api/auth/token', '/api/auth/jwks',
+      // API key management
+      '/api/auth/api-key',
+      // OAuth 2.1 provider
+      '/oauth2/',
+      '/.well-known/oauth-authorization-server',
     ];
     const isBetterAuthRoute = betterAuthPaths.some(p => url.pathname.startsWith(p));
     if (isBetterAuthRoute) {
