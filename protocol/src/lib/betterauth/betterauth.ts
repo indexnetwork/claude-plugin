@@ -123,7 +123,7 @@ export function createAuth(deps: AuthDeps) {
         loginPage: "/login",
         consentPage: "/oauth/consent",
         allowDynamicClientRegistration: true,
-        allowUnauthenticatedClientRegistration: true,
+        allowUnauthenticatedClientRegistration: false,
       }) as any,
     ],
     advanced: {
