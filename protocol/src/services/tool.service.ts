@@ -14,7 +14,7 @@ import {
 import { EmbedderAdapter } from '../adapters/embedder.adapter';
 import { ScraperAdapter } from '../adapters/scraper.adapter';
 import { RedisCacheAdapter } from '../adapters/cache.adapter';
-import { IntentGraphFactory, ProfileGraphFactory, OpportunityGraphFactory, HydeGraphFactory, IndexGraphFactory, IndexMembershipGraphFactory, IntentIndexGraphFactory, NegotiationGraphFactory, HydeGenerator, LensInferrer, NegotiationProposer, NegotiationResponder, resolveChatContext, createToolRegistry } from '@indexnetwork/protocol';
+import { IntentGraphFactory, ProfileGraphFactory, OpportunityGraphFactory, HydeGraphFactory, NetworkGraphFactory, NetworkMembershipGraphFactory, IntentNetworkGraphFactory, NegotiationGraphFactory, HydeGenerator, LensInferrer, NegotiationProposer, NegotiationResponder, resolveChatContext, createToolRegistry } from '@indexnetwork/protocol';
 import type { HydeGraphDatabase, ToolDeps, ContactServiceAdapter, IntegrationAdapter } from '@indexnetwork/protocol';
 import { intentQueue } from '../queues/intent.queue';
 import { enrichUserProfile } from '../lib/parallel/parallel';
@@ -183,9 +183,9 @@ export class ToolService {
       undefined,
       negotiationGraph,
     ).createGraph();
-    const indexGraph = new IndexGraphFactory(database).createGraph();
-    const indexMembershipGraph = new IndexMembershipGraphFactory(database).createGraph();
-    const intentIndexGraph = new IntentIndexGraphFactory(database).createGraph();
+    const indexGraph = new NetworkGraphFactory(database).createGraph();
+    const indexMembershipGraph = new NetworkMembershipGraphFactory(database).createGraph();
+    const intentIndexGraph = new IntentNetworkGraphFactory(database).createGraph();
 
     this.compiledGraphs = {
       profile: profileGraph,
