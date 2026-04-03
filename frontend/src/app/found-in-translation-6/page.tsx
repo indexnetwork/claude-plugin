@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router';
 import Header from '@/components/Header';
+import Footer from '@/components/Footer';
 
 // ── Found in Translation -1: Superstudio / Continuous Monument ──
 // Inspired by Superstudio's 1969 Continuous Monument: a white megastructure
@@ -28,6 +29,11 @@ const KF = `
     color: #000 !important;
     border: none !important;
   }
+  .fit-footer footer { background: rgba(0,0,0,0.45) !important; }
+  .fit-footer a, .fit-footer p, .fit-footer span, .fit-footer label { color: rgba(255,255,255,0.75) !important; }
+  .fit-footer input { background: rgba(255,255,255,0.1) !important; border-color: rgba(255,255,255,0.25) !important; color: #fff !important; }
+  .fit-footer input::placeholder { color: rgba(255,255,255,0.4) !important; }
+  .fit-footer svg { color: rgba(255,255,255,0.75) !important; }
 `;
 
 const SANS = "'Public Sans', -apple-system, BlinkMacSystemFont, sans-serif";
@@ -1029,18 +1035,9 @@ Evaluating opportunities — Evaluated 25 candidate(s) - 11.59s`}
 
       <div style={{ position: 'relative' }}>
         <img src="/found-in-translation/ambient.png" alt="Ambient" style={{ display: 'block', width: '100%', height: 'auto' }} />
-        <footer style={{ position: 'absolute', bottom: 0, left: 0, right: 0, display: 'grid', gridTemplateColumns: '1fr 1fr', borderTop: '1px solid rgba(255,255,255,0.2)', background: 'rgba(0,0,0,0.4)' }}>
-          <div style={{ padding: '1.5rem 2rem', borderRight: '1px solid rgba(255,255,255,0.15)', fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.65rem', letterSpacing: '0.1em', color: '#fff' }}>
-            <Link to="/" style={{ color: '#fff', textDecoration: 'none' }}>Index Network</Link>
-            <span style={{ color: 'rgba(255,255,255,0.5)', marginLeft: '0.75rem' }}>&copy; 2026</span>
-          </div>
-          <div style={{ padding: '1.5rem 2rem', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '1.5rem', fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.65rem', letterSpacing: '0.1em' }}>
-            <a href="https://x.com/indexnetwork_" target="_blank" rel="noopener noreferrer" style={{ color: '#fff', textDecoration: 'none' }}>X</a>
-            <a href="https://linkedin.com/company/indexnetwork" target="_blank" rel="noopener noreferrer" style={{ color: '#fff', textDecoration: 'none' }}>LinkedIn</a>
-            <a href="https://github.com/indexnetwork/index" target="_blank" rel="noopener noreferrer" style={{ color: '#fff', textDecoration: 'none' }}>GitHub</a>
-            <Link to="/" style={{ color: '#fff', textDecoration: 'none' }}>← Back to Home</Link>
-          </div>
-        </footer>
+        <div className="fit-footer" style={{ position: 'absolute', bottom: 0, left: 0, right: 0 }}>
+          <Footer />
+        </div>
       </div>
     </div>
   );
