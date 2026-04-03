@@ -82,7 +82,7 @@ export class ToolController {
       }
 
       return new Response(
-        JSON.stringify({ error: message }),
+        JSON.stringify({ error: 'Internal server error' }),
         { status: 500, headers: { 'Content-Type': 'application/json' } },
       );
     }
@@ -104,7 +104,7 @@ export class ToolController {
       const message = err instanceof Error ? err.message : String(err);
       logger.error('Tool list failed', { error: message });
       return new Response(
-        JSON.stringify({ error: message }),
+        JSON.stringify({ error: 'Internal server error' }),
         { status: 500, headers: { 'Content-Type': 'application/json' } },
       );
     }
