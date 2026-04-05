@@ -674,6 +674,87 @@ function LandingPage() {
           </div>
         </section>
 
+        {/* From the Letters — connected blog posts */}
+        <section className="border-b border-[#E5E5E5] bg-white px-6 lg:px-12">
+          <div className="max-w-[960px] mx-auto py-16">
+            <div className="flex items-end justify-between mb-10">
+              <h2 className="text-[32px] md:text-[36px] font-garamond font-normal text-black leading-tight">
+                From the Letters
+              </h2>
+              <a
+                href="/blog"
+                className="hidden sm:inline text-[13px] text-[#999] hover:text-black transition-colors no-underline pb-1 border-b border-[#E5E5E5] hover:border-black"
+                style={{ fontFamily: "'Public Sans', system-ui, sans-serif" }}
+              >
+                All letters →
+              </a>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-px bg-[#E5E5E5]">
+              {/* The Magic Factory */}
+              <a
+                href="/blog/the-magic-factory"
+                className="group no-underline bg-white flex flex-col"
+              >
+                <div className="w-full aspect-[4/3] overflow-hidden bg-[#f5f5f5]">
+                  <video
+                    src="/blog/the-magic-factory/magic-factory-white.mp4"
+                    className="w-full h-full object-cover group-hover:scale-[1.03] transition-transform duration-700 ease-out"
+                    autoPlay
+                    muted
+                    loop
+                    playsInline
+                  />
+                </div>
+                <div className="flex flex-col flex-1 p-6 lg:p-8">
+                  <p className="font-garamond text-[28px] lg:text-[32px] leading-tight text-black mb-3 group-hover:text-[#041729] transition-colors">
+                    The Magic Factory
+                  </p>
+                  <p
+                    className="text-[14px] text-[#666] leading-relaxed mb-6 flex-1"
+                    style={{ fontFamily: "'Public Sans', system-ui, sans-serif" }}
+                  >
+                    What it looks like when opportunity becomes programmable.
+                  </p>
+                  <div className="flex items-center gap-2 text-[13px] text-black/40 group-hover:text-black transition-colors" style={{ fontFamily: "'Public Sans', system-ui, sans-serif" }}>
+                    <span>Read</span>
+                    <svg width="12" height="12" viewBox="0 0 10 10" fill="none"><path d="M2 8L8 2M8 2H3M8 2V7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                  </div>
+                </div>
+              </a>
+
+              {/* Intent is the New Search */}
+              <a
+                href="/blog/intent-is-the-new-search"
+                className="group no-underline bg-white flex flex-col"
+              >
+                <div className="w-full aspect-[4/3] overflow-hidden bg-[#f5f5f5]">
+                  <img
+                    src="/blog/intent-is-the-new-search/search.jpg"
+                    alt="Intent is the New Search"
+                    className="w-full h-full object-cover group-hover:scale-[1.03] transition-transform duration-700 ease-out"
+                  />
+                </div>
+                <div className="flex flex-col flex-1 p-6 lg:p-8">
+                  <p className="font-garamond text-[28px] lg:text-[32px] leading-tight text-black mb-3 group-hover:text-[#041729] transition-colors">
+                    Intent is the New Search
+                  </p>
+                  <p
+                    className="text-[14px] text-[#666] leading-relaxed mb-6 flex-1"
+                    style={{ fontFamily: "'Public Sans', system-ui, sans-serif" }}
+                  >
+                    On declaring what you&apos;re trying to do clearly enough that the right people can route themselves to you.
+                  </p>
+                  <div className="flex items-center gap-2 text-[13px] text-black/40 group-hover:text-black transition-colors" style={{ fontFamily: "'Public Sans', system-ui, sans-serif" }}>
+                    <span>Read</span>
+                    <svg width="12" height="12" viewBox="0 0 10 10" fill="none"><path d="M2 8L8 2M8 2H3M8 2V7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                  </div>
+                </div>
+              </a>
+            </div>
+          </div>
+        </section>
+
         {/* Open Source Section */}
         <section
           className="w-full py-16 px-6 lg:px-12 relative overflow-hidden"
