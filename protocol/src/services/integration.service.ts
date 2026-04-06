@@ -3,10 +3,7 @@ import type { IntegrationAdapter } from '@indexnetwork/protocol';
 import { ChatDatabaseAdapter } from '../adapters/database.adapter';
 
 import { deduplicateContacts, getPreset } from '../lib/dedup/dedup';
-
-// TODO: fix layering violation — services should not import other services directly; use events or queues
-// eslint-disable-next-line boundaries/dependencies
-import { contactService, type ImportResult } from './contact.service';
+import type { ContactImporter, ImportResult } from '../types/integrations.types';
 
 const logger = log.service.from('IntegrationService');
 
@@ -37,7 +34,11 @@ type Toolkit = 'gmail' | 'slack';
 export class IntegrationService {
   private db: ChatDatabaseAdapter;
 
-  constructor(private adapter: IntegrationAdapter, db?: ChatDatabaseAdapter) {
+  constructor(
+    private adapter: IntegrationAdapter,
+    private contactImporter: ContactImporter,
+    db?: ChatDatabaseAdapter,
+  ) {
     this.db = db ?? new ChatDatabaseAdapter();
   }
 
@@ -82,10 +83,10 @@ export class IntegrationService {
     if (contacts.length === 0) return empty;
 
     if (isPersonal) {
-      return contactService.importContacts(userId, contacts);
+      return this.contactImporter.importContacts(userId, contacts);
     }
 
-    const resolved = await contactService.resolveUsers(userId, contacts);
+    const resolved = await this.contactImporter.resolveUsers(userId, contacts);
     if (resolved.userIds.length === 0) {
       return { ...empty, skipped: resolved.skipped };
     }

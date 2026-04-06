@@ -9,31 +9,27 @@ import {
   WebStandardStreamableHTTPServerTransport,
 } from '@modelcontextprotocol/server';
 
-// TODO: fix layering violation — controller should not import from init layer
-// eslint-disable-next-line boundaries/dependencies
 import { createDefaultProtocolDeps } from '../protocol-init';
 
-// TODO: fix layering violation — controller should not import protocol directly
-// eslint-disable-next-line boundaries/dependencies
 import { IntentGraphFactory, ProfileGraphFactory, OpportunityGraphFactory, HydeGraphFactory, IndexGraphFactory, IndexMembershipGraphFactory, IntentIndexGraphFactory, NegotiationGraphFactory, HydeGenerator, LensInferrer, NegotiationProposer, NegotiationResponder, createMcpServer } from '@indexnetwork/protocol';
 import type { HydeGraphDatabase, ToolDeps, McpAuthResolver, ScopedDepsFactory } from '@indexnetwork/protocol';
-// eslint-disable-next-line boundaries/dependencies
-// eslint-disable-next-line boundaries/dependencies
-// eslint-disable-next-line boundaries/dependencies
-// eslint-disable-next-line boundaries/dependencies
-// eslint-disable-next-line boundaries/dependencies
-// eslint-disable-next-line boundaries/dependencies
-// eslint-disable-next-line boundaries/dependencies
-// eslint-disable-next-line boundaries/dependencies
-// eslint-disable-next-line boundaries/dependencies
-// eslint-disable-next-line boundaries/dependencies
-// eslint-disable-next-line boundaries/dependencies
-// eslint-disable-next-line boundaries/dependencies
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
 
-// eslint-disable-next-line boundaries/dependencies
-// eslint-disable-next-line boundaries/dependencies
-// eslint-disable-next-line boundaries/dependencies
-// eslint-disable-next-line boundaries/dependencies
+ 
+ 
+ 
+ 
 import { BASE_URL } from '../lib/betterauth/betterauth';
 import { log } from '../lib/log';
 
@@ -113,8 +109,8 @@ const authResolver: McpAuthResolver = {
           const msg = err instanceof Error ? err.message : String(err);
           const isTransport = msg.includes('fetch') || msg.includes('ECONNREFUSED') ||
             msg.includes('timeout') || msg.includes('NetworkError');
-          if (isTransport) throw new Error(`JWKS transport error: ${msg}`);
-          throw new Error(`Invalid or expired access token: ${msg}`);
+          if (isTransport) throw new Error(`JWKS transport error: ${msg}`, { cause: err });
+          throw new Error(`Invalid or expired access token: ${msg}`, { cause: err });
         }
       } else {
         // Opaque token path: issued by the mcp() plugin via OAuth flow
@@ -129,7 +125,7 @@ const authResolver: McpAuthResolver = {
           }
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
-          throw new Error(`MCP token lookup failed: ${msg}`);
+          throw new Error(`MCP token lookup failed: ${msg}`, { cause: err });
         }
         throw new Error('Invalid or expired access token');
       }
@@ -150,7 +146,7 @@ const authResolver: McpAuthResolver = {
         throw new Error(data.error || 'Invalid API key');
       } catch (err) {
         if (err instanceof Error && err.message.startsWith('API key verification failed')) throw err;
-        throw new Error(`API key authentication failed: ${err instanceof Error ? err.message : String(err)}`);
+        throw new Error(`API key authentication failed: ${err instanceof Error ? err.message : String(err)}`, { cause: err });
       }
     }
 

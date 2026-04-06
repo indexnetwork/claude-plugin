@@ -3,6 +3,7 @@ import './startup.env';
 import { ChatController } from './controllers/chat.controller';
 import { DebugController } from './controllers/debug.controller';
 import { ToolController } from './controllers/tool.controller';
+import { ToolService } from './services/tool.service';
 import { S3StorageAdapter } from './adapters/storage.adapter';
 import { IndexController } from './controllers/index.controller';
 import { IntentController } from './controllers/intent.controller';
@@ -12,6 +13,7 @@ import { AuthController } from './controllers/auth.controller';
 import { ProfileController } from './controllers/profile.controller';
 import { UserController } from './controllers/user.controller';
 import { StorageController } from './controllers/storage.controller';
+import { StorageService } from './services/storage.service';
 import { SubscribeController } from './controllers/subscribe.controller';
 import { UnsubscribeController } from './controllers/unsubscribe.controller';
 import { fileService } from './services/file.service';
@@ -21,7 +23,7 @@ import { TaskService } from './services/task.service';
 import { IntegrationController } from './controllers/integration.controller';
 import { ComposioIntegrationAdapter } from './adapters/integration.adapter';
 import { IntegrationService } from './services/integration.service';
-import path from 'path';
+import { contactService } from './services/contact.service';
 import { RouteRegistry } from './lib/router/router.decorators';
 import { log } from './lib/log';
 import { createAuth } from './lib/betterauth/betterauth';
@@ -137,14 +139,15 @@ controllerInstances.set(LinkController, new LinkController());
 controllerInstances.set(OpportunityController, new OpportunityController());
 controllerInstances.set(IndexOpportunityController, new IndexOpportunityController());
 controllerInstances.set(UserController, new UserController());
-controllerInstances.set(StorageController, new StorageController(storageAdapter));
+controllerInstances.set(StorageController, new StorageController(new StorageService(storageAdapter)));
 controllerInstances.set(SubscribeController, new SubscribeController());
 controllerInstances.set(UnsubscribeController, new UnsubscribeController());
 controllerInstances.set(ConversationController, new ConversationController(new ConversationService(), new TaskService()));
 const integrationAdapter = new ComposioIntegrationAdapter();
-controllerInstances.set(IntegrationController, new IntegrationController(integrationAdapter, new IntegrationService(integrationAdapter)));
+controllerInstances.set(IntegrationController, new IntegrationController(integrationAdapter, new IntegrationService(integrationAdapter, contactService)));
 controllerInstances.set(DebugController, new DebugController());
-controllerInstances.set(ToolController, new ToolController());
+const toolService = new ToolService(contactService, new IntegrationService(integrationAdapter, contactService));
+controllerInstances.set(ToolController, new ToolController(toolService));
 
 logger.info('Routes registered', { prefix: GLOBAL_PREFIX });
 
@@ -263,7 +266,7 @@ Bun.serve({
             // Execute Guards
             const guards = RouteRegistry.getGuards(target, route.methodName);
             logger.verbose('Guards found', { count: guards.length });
-            let guardResult: any = null;
+            let guardResult: unknown = null;
 
             for (const guard of guards) {
               logger.verbose('Executing guard', { guard: guard.name || 'anonymous' });
@@ -293,13 +296,13 @@ Bun.serve({
             // Otherwise assume JSON
             return Response.json(result, { headers: corsHeaders });
 
-          } catch (error: any) {
+          } catch (error: unknown) {
             logger.error('Error handling request', {
               method,
               path: fullPath,
-              error: error?.message ?? String(error),
+              error: error instanceof Error ? error.message : String(error),
             });
-            const message = error.message || 'Internal Server Error';
+            const message = error instanceof Error ? error.message : 'Internal Server Error';
             // Map common auth errors
             if (message === 'Access token required' || message === 'Invalid or expired access token') {
               return new Response(JSON.stringify({ error: message }), { status: 401, headers: { 'Content-Type': 'application/json', ...corsHeaders } });

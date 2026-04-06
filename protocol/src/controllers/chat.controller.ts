@@ -11,8 +11,6 @@ import {
 } from "../lib/router/router.decorators";
 import { chatSessionService } from "../services/chat.service";
 import { fileService } from "../services/file.service";
-// TODO: fix layering violation — controller should not import protocol directly
-// eslint-disable-next-line boundaries/dependencies
 import { SuggestionGenerator } from '@indexnetwork/protocol';
 import {
   createDoneEvent,
@@ -59,7 +57,7 @@ export class ChatController {
   @UseGuards(AuthGuard)
   async message(req: Request, user: AuthenticatedUser) {
     // 1. Parse request body for message
-    let messageContent: string = "";
+    let messageContent: string;
     try {
       const body = (await req.json()) as { message?: string };
       messageContent = body.message || "";
@@ -254,7 +252,7 @@ export class ChatController {
           // Use context-aware streaming to load previous messages
           // checkpointer is PostgresSaver from the local install; the package expects
           // BaseCheckpointSaver from the root install — structurally identical at runtime.
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
           for await (const event of factory.streamChatEventsWithContext(
             {
               userId: user.id,
@@ -264,6 +262,7 @@ export class ChatController {
               indexId: indexIdForStream,
               prefillMessages: body.prefillMessages,
             },
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             checkpointer as any,
             req.signal,
           )) {

@@ -7,11 +7,9 @@ import { userService } from '../services/user.service';
 import { contactService } from '../services/contact.service';
 import { TaskService } from '../services/task.service';
 import { NegotiationService } from '../services/negotiation.service';
-// TODO: fix layering violation — controller should not import protocol directly
-// eslint-disable-next-line boundaries/dependencies
 import { NegotiationInsightsGenerator } from '@indexnetwork/protocol';
 import type { NegotiationDigest } from '@indexnetwork/protocol';
-// eslint-disable-next-line boundaries/dependencies
+ 
 import { log } from '../lib/log';
 
 const logger = log.controller.from('user');
