@@ -5,8 +5,7 @@
   "workspaces": ["packages/*"],
   "scripts": {
     "dev": "bash scripts/dev.sh",
-    "dev:evaluator": "cd evaluator && bun run dev",
-    "dev:frontend": "cd frontend && bun run dev",
+"dev:frontend": "cd frontend && bun run dev",
     "dev:protocol": "cd protocol && bun run dev",
     "build": "bun run build:protocol && bun run build:frontend",
     "build:frontend": "cd frontend && bun install && bun run build",
