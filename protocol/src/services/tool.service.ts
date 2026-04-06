@@ -14,16 +14,9 @@ import {
 import { EmbedderAdapter } from '../adapters/embedder.adapter';
 import { ScraperAdapter } from '../adapters/scraper.adapter';
 import { RedisCacheAdapter } from '../adapters/cache.adapter';
-import { ComposioIntegrationAdapter } from '../adapters/integration.adapter';
-
 import { IntentGraphFactory, ProfileGraphFactory, OpportunityGraphFactory, HydeGraphFactory, IndexGraphFactory, IndexMembershipGraphFactory, IntentIndexGraphFactory, NegotiationGraphFactory, HydeGenerator, LensInferrer, NegotiationProposer, NegotiationResponder, resolveChatContext, createToolRegistry } from '@indexnetwork/protocol';
-import type { HydeGraphDatabase, ToolDeps } from '@indexnetwork/protocol';
+import type { HydeGraphDatabase, ToolDeps, ContactServiceAdapter, IntegrationAdapter } from '@indexnetwork/protocol';
 import { intentQueue } from '../queues/intent.queue';
-// TODO: fix layering violation — services should not import other services directly; use events or queues
-// eslint-disable-next-line boundaries/dependencies
-import { contactService } from './contact.service';
-// eslint-disable-next-line boundaries/dependencies
-import { IntegrationService } from './integration.service';
 import { enrichUserProfile } from '../lib/parallel/parallel';
 
 import { log } from '../lib/log';
@@ -34,14 +27,18 @@ const logger = log.service.from('tool');
  * Manages direct HTTP invocation of chat tools.
  * Resolves user context, compiles graphs, builds tool deps, and executes tool handlers.
  */
-class ToolService {
+export class ToolService {
   private embedder = new EmbedderAdapter();
   private scraper = new ScraperAdapter();
   private cache = new RedisCacheAdapter();
-  private integration = new ComposioIntegrationAdapter();
-  private integrationService = new IntegrationService(this.integration);
   private compiledGraphs: ToolDeps['graphs'] | null = null;
   private cachedToolList: Array<{ name: string; description: string; schema: Record<string, unknown> }> | null = null;
+
+  constructor(
+    private contactService: ContactServiceAdapter,
+    private integrationImporter: ToolDeps['integrationImporter'],
+    private integration: IntegrationAdapter,
+  ) {}
 
   /**
    * Invoke a single tool by name for the given user.
@@ -78,8 +75,8 @@ class ToolService {
       embedder: this.embedder,
       cache: this.cache,
       integration: this.integration,
-      contactService,
-      integrationImporter: this.integrationService,
+      contactService: this.contactService,
+      integrationImporter: this.integrationImporter,
       enricher: { enrichUserProfile },
       graphs,
     };
@@ -135,8 +132,8 @@ class ToolService {
       embedder: this.embedder,
       cache: this.cache,
       integration: this.integration,
-      contactService,
-      integrationImporter: this.integrationService,
+      contactService: this.contactService,
+      integrationImporter: this.integrationImporter,
       enricher: { enrichUserProfile },
       graphs,
     };
@@ -242,5 +239,3 @@ function zodToJsonSchema(schema: z.ZodType): Record<string, unknown> {
   return { type: 'unknown' };
 }
 
-/** Singleton tool service instance. */
-export const toolService = new ToolService();

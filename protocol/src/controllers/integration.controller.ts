@@ -1,6 +1,3 @@
-// TODO: fix layering violation — controller should not import protocol directly
-// eslint-disable-next-line boundaries/dependencies
-import type { IntegrationAdapter } from '@indexnetwork/protocol';
 import type { IntegrationService } from '../services/integration.service';
 
 import { AuthGuard, type AuthenticatedUser } from '../guards/auth.guard';
@@ -23,7 +20,6 @@ function isAllowedToolkit(t: string): t is AllowedToolkit {
 @Controller('/integrations')
 export class IntegrationController {
   constructor(
-    private adapter: IntegrationAdapter,
     private integrationService: IntegrationService,
   ) {}
 
@@ -38,11 +34,11 @@ export class IntegrationController {
     const url = new URL(req.url);
     const indexId = url.searchParams.get('indexId');
 
-    const connections = await this.adapter.listConnections(user.id);
+    const connections = await this.integrationService.listConnections(user.id);
 
     if (indexId) {
       const linked = await this.integrationService.getLinkedIntegrations(user.id, indexId);
-      const linkedToolkits = new Set(linked.map(l => l.toolkit));
+      const linkedToolkits = new Set(linked.map((l) => l.toolkit));
       return {
         connections: connections.filter(c => linkedToolkits.has(c.toolkit)),
       };
@@ -63,7 +59,7 @@ export class IntegrationController {
     }
     const baseUrl = (process.env.FRONTEND_URL || process.env.APP_URL || '').replace(/\/$/, '');
     const callbackUrl = `${baseUrl}/oauth/callback`;
-    const result = await this.adapter.getAuthUrl(user.id, params.toolkit, callbackUrl);
+    const result = await this.integrationService.getAuthUrl(user.id, params.toolkit, callbackUrl);
     return result;
   }
 
@@ -145,13 +141,13 @@ export class IntegrationController {
   @Delete('/:id')
   @UseGuards(AuthGuard)
   async disconnect(_req: Request, user: AuthenticatedUser, params: { id: string }) {
-    const connections = await this.adapter.listConnections(user.id);
+    const connections = await this.integrationService.listConnections(user.id);
     const conn = connections.find((c) => c.id === params.id);
     if (!conn) {
       return new Response(JSON.stringify({ error: 'Connection not found' }), { status: 404 });
     }
     await this.integrationService.cleanupConnectionLinks(conn.id);
-    const result = await this.adapter.disconnect(conn.id);
+    const result = await this.integrationService.disconnect(conn.id);
     return result;
   }
 }

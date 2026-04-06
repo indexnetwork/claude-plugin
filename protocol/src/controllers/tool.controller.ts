@@ -8,9 +8,7 @@ import { z } from 'zod';
 
 import { Controller, Post, Get, UseGuards } from '../lib/router/router.decorators';
 import { AuthGuard, type AuthenticatedUser } from '../guards/auth.guard';
-import { toolService } from '../services/tool.service';
-// TODO: fix layering violation — controller should not import protocol directly
-// eslint-disable-next-line boundaries/dependencies
+import { ToolService } from '../services/tool.service';
 import { ChatContextAccessError } from '@indexnetwork/protocol';
 import { log } from '../lib/log';
 
@@ -27,6 +25,8 @@ const InvokeSchema = z.object({
  */
 @Controller('/tools')
 export class ToolController {
+  constructor(private toolService: ToolService) {}
+
   /**
    * Invoke a tool by name.
    * @param req - Request with JSON body matching InvokeSchema
@@ -56,7 +56,7 @@ export class ToolController {
     }
 
     try {
-      const result = await toolService.invokeTool(user.id, toolName, parsed.data.query);
+      const result = await this.toolService.invokeTool(user.id, toolName, parsed.data.query);
       return Response.json(result);
     } catch (err) {
       if (err instanceof ChatContextAccessError) {
@@ -100,7 +100,7 @@ export class ToolController {
     logger.verbose('Tool list requested');
 
     try {
-      const tools = await toolService.listTools();
+      const tools = await this.toolService.listTools();
       return Response.json({ tools });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

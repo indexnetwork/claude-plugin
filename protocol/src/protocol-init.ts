@@ -35,7 +35,7 @@ import type { ProtocolDeps } from '@indexnetwork/protocol';
  */
 export function createDefaultProtocolDeps(): ProtocolDeps {
   const integration = new ComposioIntegrationAdapter();
-  const integrationService = new IntegrationService(integration);
+  const integrationService = new IntegrationService(integration, contactService);
   const embedder = new EmbedderAdapter();
   const scraper = new ScraperAdapter();
 

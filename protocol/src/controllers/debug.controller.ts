@@ -1,9 +1,7 @@
-import { eq, and, sql, desc, asc, inArray, min, max, count } from 'drizzle-orm';
+import { eq, and, sql, desc, asc, min, max, count } from 'drizzle-orm';
 
 import db from '../lib/drizzle/drizzle';
 import { log } from '../lib/log';
-// TODO: fix layering violation — controller should not import protocol directly
-// eslint-disable-next-line boundaries/dependencies
 import { canUserSeeOpportunity, isActionableForViewer } from '@indexnetwork/protocol';
 import { Controller, Get, Post, UseGuards } from '../lib/router/router.decorators';
 import {

@@ -5,9 +5,7 @@ import { v4 as uuidv4 } from 'uuid';
 
 import { AuthGuard, type AuthenticatedUser } from '../guards/auth.guard';
 import { Controller, Delete, Get, Post, UseGuards } from '../lib/router/router.decorators';
-// TODO: fix layering violation — controller should not import adapters directly
-// eslint-disable-next-line boundaries/dependencies
-import { S3StorageAdapter } from '../adapters/storage.adapter';
+import { StorageService } from '../services/storage.service';
 import { fileService } from '../services/file.service';
 import { validateFileByMetadata, FILE_SIZE_LIMITS } from '../lib/uploads.config';
 import { normalizeExtension } from '../lib/storage.utils';
@@ -15,11 +13,6 @@ import { log } from '../lib/log';
 import type { FileRecord } from '../types';
 
 const logger = log.controller.from('storage');
-
-const PRESIGNED_URL_EXPIRATION = parseInt(
-  process.env.PRESIGNED_URL_EXPIRATION_SECONDS || '3600',
-  10
-);
 
 type ParsedFile = { filename: string; mimeType: string; buffer: Buffer };
 
@@ -97,7 +90,7 @@ function parseMultipartFile(
  */
 @Controller('/storage')
 export class StorageController {
-  constructor(private storage: S3StorageAdapter) {}
+  constructor(private storage: StorageService) {}
 
   // ─────────────────────────────────────────────────────────────────────────
   // Library Files (Private, Auth Required)
@@ -386,8 +379,8 @@ export class StorageController {
           'Cache-Control': 'public, max-age=31536000, immutable',
         },
       });
-    } catch (error: any) {
-      logger.error('Failed to serve public file', { key, error: error.message });
+    } catch (error: unknown) {
+      logger.error('Failed to serve public file', { key, error: error instanceof Error ? error.message : String(error) });
       return new Response('Not Found', { status: 404 });
     }
   }
