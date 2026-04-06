@@ -4,7 +4,11 @@ config({ path: '.env.test' });
 
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import { ToolController } from "../tool.controller";
+import { ToolService } from "../../services/tool.service";
 import { UserDatabaseAdapter } from "../../adapters/database.adapter";
+import { ComposioIntegrationAdapter } from "../../adapters/integration.adapter";
+import { contactService } from "../../services/contact.service";
+import { IntegrationService } from "../../services/integration.service";
 import type { AuthenticatedUser } from "../../guards/auth.guard";
 
 describe("ToolController Integration", () => {
@@ -50,7 +54,10 @@ describe("ToolController Integration", () => {
     });
     testUserBId = userB.id;
 
-    controller = new ToolController();
+    const integrationAdapter = new ComposioIntegrationAdapter();
+    const integrationService = new IntegrationService(integrationAdapter, contactService);
+    const toolService = new ToolService(contactService, integrationService, integrationAdapter);
+    controller = new ToolController(toolService);
     console.log(`Created test users: A=${testUserId}, B=${testUserBId}`);
   });
 

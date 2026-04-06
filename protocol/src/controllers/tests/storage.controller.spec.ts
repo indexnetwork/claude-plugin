@@ -5,16 +5,16 @@
 import { config } from "dotenv";
 config({ path: '.env.test' });
 
-import { describe, test, expect, beforeAll, afterAll, mock } from "bun:test";
+import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import { StorageController } from "../storage.controller";
 import type { AuthenticatedUser } from "../../guards/auth.guard";
 import { UserDatabaseAdapter, FileDatabaseAdapter } from "../../adapters/database.adapter";
-import { S3StorageAdapter } from "../../adapters/storage.adapter";
+import { StorageService } from "../../services/storage.service";
 
 const uploadedFiles = new Map<string, Buffer>();
 
 const mockStorage = {
-  async uploadFile(buffer: Buffer, userId: string, fileId: string, extension: string, contentType: string) {
+  async uploadFile(buffer: Buffer, userId: string, fileId: string, extension: string, _contentType: string) {
     const key = `files/${userId}/${fileId}.${extension}`;
     uploadedFiles.set(key, buffer);
     return key;
@@ -24,12 +24,12 @@ const mockStorage = {
     if (!buffer) throw new Error(`File not found: ${key}`);
     return buffer;
   },
-  async uploadAvatar(buffer: Buffer, userId: string, extension: string, contentType: string) {
+  async uploadAvatar(buffer: Buffer, userId: string, extension: string, _contentType: string) {
     const key = `avatars/${userId}/mock.${extension}`;
     uploadedFiles.set(key, buffer);
     return key;
   },
-  async uploadIndexImage(buffer: Buffer, userId: string, extension: string, contentType: string) {
+  async uploadIndexImage(buffer: Buffer, userId: string, extension: string, _contentType: string) {
     const key = `index-images/${userId}/mock.${extension}`;
     uploadedFiles.set(key, buffer);
     return key;
@@ -37,7 +37,7 @@ const mockStorage = {
   async getPresignedUrl(key: string, expiresIn: number) {
     return `https://mock-s3.example.com/${key}?presigned=true&expires=${expiresIn}`;
   },
-} as unknown as S3StorageAdapter;
+} as unknown as StorageService;
 
 describe("StorageController Integration", () => {
   const controller = new StorageController(mockStorage);
