@@ -166,6 +166,27 @@ export class IntegrationService {
   }
 
   /**
+   * List all connected accounts for a user.
+   */
+  async listConnections(userId: string) {
+    return this.adapter.listConnections(userId);
+  }
+
+  /**
+   * Get OAuth URL for connecting a toolkit.
+   */
+  async getAuthUrl(userId: string, toolkit: string, callbackUrl: string) {
+    return this.adapter.getAuthUrl(userId, toolkit, callbackUrl);
+  }
+
+  /**
+   * Disconnect a Composio connected account.
+   */
+  async disconnect(connectedAccountId: string) {
+    return this.adapter.disconnect(connectedAccountId);
+  }
+
+  /**
    * Remove all index links for a Composio connected account.
    * Called when the user fully disconnects their Composio connection.
    *

@@ -144,9 +144,10 @@ controllerInstances.set(SubscribeController, new SubscribeController());
 controllerInstances.set(UnsubscribeController, new UnsubscribeController());
 controllerInstances.set(ConversationController, new ConversationController(new ConversationService(), new TaskService()));
 const integrationAdapter = new ComposioIntegrationAdapter();
-controllerInstances.set(IntegrationController, new IntegrationController(integrationAdapter, new IntegrationService(integrationAdapter, contactService)));
+const integrationService = new IntegrationService(integrationAdapter, contactService);
+controllerInstances.set(IntegrationController, new IntegrationController(integrationService));
 controllerInstances.set(DebugController, new DebugController());
-const toolService = new ToolService(contactService, new IntegrationService(integrationAdapter, contactService));
+const toolService = new ToolService(contactService, integrationService, integrationAdapter);
 controllerInstances.set(ToolController, new ToolController(toolService));
 
 logger.info('Routes registered', { prefix: GLOBAL_PREFIX });

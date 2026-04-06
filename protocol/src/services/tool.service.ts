@@ -14,10 +14,8 @@ import {
 import { EmbedderAdapter } from '../adapters/embedder.adapter';
 import { ScraperAdapter } from '../adapters/scraper.adapter';
 import { RedisCacheAdapter } from '../adapters/cache.adapter';
-import { ComposioIntegrationAdapter } from '../adapters/integration.adapter';
-
 import { IntentGraphFactory, ProfileGraphFactory, OpportunityGraphFactory, HydeGraphFactory, IndexGraphFactory, IndexMembershipGraphFactory, IntentIndexGraphFactory, NegotiationGraphFactory, HydeGenerator, LensInferrer, NegotiationProposer, NegotiationResponder, resolveChatContext, createToolRegistry } from '@indexnetwork/protocol';
-import type { HydeGraphDatabase, ToolDeps, ContactServiceAdapter } from '@indexnetwork/protocol';
+import type { HydeGraphDatabase, ToolDeps, ContactServiceAdapter, IntegrationAdapter } from '@indexnetwork/protocol';
 import { intentQueue } from '../queues/intent.queue';
 import { enrichUserProfile } from '../lib/parallel/parallel';
 
@@ -33,13 +31,13 @@ export class ToolService {
   private embedder = new EmbedderAdapter();
   private scraper = new ScraperAdapter();
   private cache = new RedisCacheAdapter();
-  private integration = new ComposioIntegrationAdapter();
   private compiledGraphs: ToolDeps['graphs'] | null = null;
   private cachedToolList: Array<{ name: string; description: string; schema: Record<string, unknown> }> | null = null;
 
   constructor(
     private contactService: ContactServiceAdapter,
     private integrationImporter: ToolDeps['integrationImporter'],
+    private integration: IntegrationAdapter,
   ) {}
 
   /**
