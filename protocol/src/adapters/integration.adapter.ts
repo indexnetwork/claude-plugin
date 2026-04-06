@@ -1,5 +1,3 @@
-import type { StructuredToolInterface } from '@langchain/core/tools';
-
 import { getComposioClient, getAuthConfigMap } from '../lib/composio/composio.client';
 import { log } from '../lib/log';
 
@@ -9,7 +7,7 @@ import { log } from '../lib/log';
 
 /** Session for interacting with an external integration platform. */
 export interface IntegrationSession {
-  tools(): Promise<StructuredToolInterface[]>;
+  tools(): Promise<unknown[]>;
   authorize(toolkit: string): Promise<{ redirectUrl: string; waitForConnection(timeout?: number): Promise<unknown> }>;
   toolkits(): Promise<{ items: Array<{ slug: string; name: string; connection?: { connectedAccount?: { id: string } } }> }>;
 }

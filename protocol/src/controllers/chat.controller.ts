@@ -252,6 +252,9 @@ export class ChatController {
           let debugMeta: { graph: string; iterations: number; tools: unknown[] } | undefined;
 
           // Use context-aware streaming to load previous messages
+          // checkpointer is PostgresSaver from the local install; the package expects
+          // BaseCheckpointSaver from the root install — structurally identical at runtime.
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           for await (const event of factory.streamChatEventsWithContext(
             {
               userId: user.id,
@@ -261,7 +264,7 @@ export class ChatController {
               indexId: indexIdForStream,
               prefillMessages: body.prefillMessages,
             },
-            checkpointer,
+            checkpointer as any,
             req.signal,
           )) {
             if (event) {
