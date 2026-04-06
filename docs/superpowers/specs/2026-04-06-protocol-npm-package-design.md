@@ -130,6 +130,8 @@ export function createModel(agent: keyof ReturnType<typeof getModelConfig>, conf
 }
 ```
 
+`getModelName()` receives the same treatment — it calls `getModelConfig(config)` internally rather than reading the static const.
+
 `ModelConfig` is threaded through `ToolContext` so `createChatTools()` can pass it down to agents. The internal `protocol/` app continues to work with zero changes — it never passes `ModelConfig`, so everything falls through to `process.env` as today.
 
 ---
@@ -205,7 +207,7 @@ CI builds and publishes `packages/protocol` before building `protocol/`. Publish
 5. Update all imports in `protocol/src/` from `../lib/protocol/...` to `@indexnetwork/protocol`
 6. Add `"packages/*"` to root `package.json` workspaces
 7. Build `packages/protocol` and verify type output
-8. Publish `@indexnetwork/protocol@0.1.0` to NPM
+8. Publish `@indexnetwork/protocol@0.1.0` to NPM (requires `NPM_TOKEN` secret in CI)
 9. Add `"@indexnetwork/protocol": "0.1.0"` to `protocol/package.json` and install
 10. Verify `protocol/` builds and tests pass end-to-end
 
