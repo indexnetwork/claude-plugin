@@ -16,7 +16,7 @@ Index Network is a private, intent-driven discovery protocol built on autonomous
 ### Protocol (Backend)
 
 ```bash
-cd protocol
+cd backend
 
 # Development
 bun run dev                                 # Start dev server with hot reload (Bun.serve, port 3001)
@@ -147,7 +147,7 @@ For full architecture details see `docs/design/architecture-overview.md` and `do
 
 ```
 index/
-├── protocol/          # Backend API & Agent Engine (Bun, Express, TypeScript)
+├── backend/           # Backend API & Agent Engine (Bun, Express, TypeScript)
 ├── packages/
 │   ├── protocol/      # @indexnetwork/protocol NPM package — subtree → indexnetwork/protocol
 │   ├── cli/           # @indexnetwork/cli — Bun, TypeScript — subtree → indexnetwork/cli
@@ -176,9 +176,9 @@ index/
 - `src/queues/` - BullMQ job queue definitions
 - `src/events/` - Event emitters (intent events, index membership events)
 - `src/cli/` - CLI and maintenance scripts
-- `packages/protocol/` - `@indexnetwork/protocol` NPM package — the agent graphs, interfaces, and tools layer. Published independently; `protocol/` imports it as a versioned NPM dependency.
+- `packages/protocol/` - `@indexnetwork/protocol` NPM package — the agent graphs, interfaces, and tools layer. Published independently; `backend/` imports it as a versioned NPM dependency.
 
-**Entry point**: `protocol/src/main.ts` -- Bun native server on port 3001, controllers registered via `RouteRegistry`.
+**Entry point**: `backend/src/main.ts` -- Bun native server on port 3001, controllers registered via `RouteRegistry`.
 
 For full agent/graph/controller listings see `docs/design/protocol-deep-dive.md` and `docs/specs/api-reference.md`.
 
@@ -206,9 +206,9 @@ Strict layering: **Controllers -> Services -> Adapters**. Dependencies always po
 
 Consult before adding or changing code in each layer:
 
-- `protocol/src/controllers/controller.template.md`
-- `protocol/src/services/service.template.md`
-- `protocol/src/queues/queue.template.md`
+- `backend/src/controllers/controller.template.md`
+- `backend/src/services/service.template.md`
+- `backend/src/queues/queue.template.md`
 - `packages/protocol/src/agents/agent.template.md` (if exists)
 
 ## Important Patterns
@@ -262,7 +262,7 @@ PORT=3001
 NODE_ENV=development
 ```
 
-### Optional (see `protocol/env.example` for full list)
+### Optional (see `backend/env.example` for full list)
 
 `REDIS_URL`, `RESEND_API_KEY`, `UNSTRUCTURED_API_URL`, `COMPOSIO_API_KEY`, `LANGFUSE_PUBLIC_KEY`/`LANGFUSE_SECRET_KEY`, `SENTRY_DSN`, `PARALLELS_API_KEY`, `APP_URL`
 
@@ -273,19 +273,19 @@ Frontend: see `frontend/.env.example`. **Auth origin (`invalid_origin`)**: ensur
 Always target specific test files rather than running the full suite. `bun test` in protocol is slow.
 
 ```bash
-cd protocol
+cd backend
 bun test path/to/test.ts                   # Run specific test (PREFERRED)
 bun test --watch                            # Watch mode
 bun test                                    # Run ALL tests (avoid unless necessary)
 ```
 
-**Test locations**: `protocol/tests/` (integration/E2E), `protocol/src/lib/*/tests/` (unit tests).
+**Test locations**: `backend/tests/` (integration/E2E), `backend/src/lib/*/tests/` (unit tests).
 
 **Standards**: Load env at top before imports. Import from `bun:test` (destructured). Use `describe` grouping. Set timeouts (agent: 30s, graph: 60s, LLM: 120s). Clean up in `afterAll`. Mock externals. Test success and error paths. Never commit without running affected tests.
 
 ## Database Workflow
 
-**Schema location**: `protocol/src/schemas/database.schema.ts`. Drizzle client: `protocol/src/lib/drizzle/drizzle.ts`.
+**Schema location**: `backend/src/schemas/database.schema.ts`. Drizzle client: `backend/src/lib/drizzle/drizzle.ts`.
 
 ### Migration Naming
 
@@ -297,7 +297,7 @@ Examples: `0000_initial_schema.sql`, `0001_add_chat_session_share_token.sql`, `0
 
 ### Schema Change Checklist
 
-1. Edit `protocol/src/schemas/database.schema.ts`
+1. Edit `backend/src/schemas/database.schema.ts`
 2. `bun run db:generate`
 3. Rename the `.sql` file and update `_journal.json` tag
 4. `bun run db:migrate`
