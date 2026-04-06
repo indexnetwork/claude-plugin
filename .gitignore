@@ -27,6 +27,11 @@ AGENTS.md
 *.report.md
 
 # ===================
+# Dependencies
+# ===================
+node_modules/
+
+# ===================
 # Git & Version Control
 # ===================
 .worktrees/
