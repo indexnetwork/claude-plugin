@@ -11,7 +11,7 @@ import {
 
 import { createDefaultProtocolDeps } from '../protocol-init';
 
-import { IntentGraphFactory, ProfileGraphFactory, OpportunityGraphFactory, HydeGraphFactory, NetworkGraphFactory, NetworkMembershipGraphFactory, IntentNetworkGraphFactory, NegotiationGraphFactory, HydeGenerator, LensInferrer, NegotiationProposer, NegotiationResponder, createMcpServer } from '@indexnetwork/protocol';
+import { IntentGraphFactory, ProfileGraphFactory, OpportunityGraphFactory, HydeGraphFactory, NetworkGraphFactory, NetworkMembershipGraphFactory, IntentNetworkGraphFactory, NegotiationGraphFactory, HydeGenerator, LensInferrer, NegotiationProposer, NegotiationResponder, IntentIndexer, createMcpServer } from '@indexnetwork/protocol';
 import type { HydeGraphDatabase, ToolDeps, McpAuthResolver, ScopedDepsFactory } from '@indexnetwork/protocol';
 
  
@@ -56,7 +56,7 @@ function getOrCompileGraphs(deps: ReturnType<typeof createDefaultProtocolDeps>):
   ).createGraph();
   const indexGraph = new NetworkGraphFactory(database).createGraph();
   const indexMembershipGraph = new NetworkMembershipGraphFactory(database).createGraph();
-  const intentIndexGraph = new IntentNetworkGraphFactory(database).createGraph();
+  const intentIndexGraph = new IntentNetworkGraphFactory(database, new IntentIndexer()).createGraph();
 
   compiledGraphs = {
     profile: profileGraph,
