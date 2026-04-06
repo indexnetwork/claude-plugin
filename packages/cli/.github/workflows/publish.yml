@@ -1,4 +1,4 @@
-# Publish @indexnetwork/protocol to npm on every push to main.
+# Publish @indexnetwork/cli to npm on every push to main.
 # Reads version from package.json — npm silently skips if already published.
 #
 # Requires: GitHub repo secret INDEX_REPO_TOKEN (npm automation token).
