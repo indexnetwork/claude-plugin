@@ -11,11 +11,8 @@ import {
 import { ChatDatabaseAdapter } from '../adapters/database.adapter';
 import { EmbedderAdapter } from '../adapters/embedder.adapter';
 import { RedisCacheAdapter } from '../adapters/cache.adapter';
-import type { OpportunityGraphDatabase, HydeGraphDatabase } from '../lib/protocol/interfaces/database.interface';
-import { OpportunityGraphFactory } from '../lib/protocol/graphs/opportunity.graph';
-import { HydeGraphFactory } from '../lib/protocol/graphs/hyde.graph';
-import { HydeGenerator } from '../lib/protocol/agents/hyde.generator';
-import { LensInferrer } from '../lib/protocol/agents/lens.inferrer';
+import { OpportunityGraphFactory, HydeGraphFactory, HydeGenerator, LensInferrer } from '@indexnetwork/protocol';
+import type { OpportunityGraphDatabase, HydeGraphDatabase } from '@indexnetwork/protocol';
 
 /** Preflight diagnostics gathered before running discovery. */
 export interface DiscoveryPreflight {

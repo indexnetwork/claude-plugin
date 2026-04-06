@@ -4,7 +4,7 @@ config({ path: ".env.test", override: true });
 
 import { describe, it, expect, mock, beforeEach } from "bun:test";
 
-import type { OpportunityCache } from "../../lib/protocol/interfaces/cache.interface";
+import type { OpportunityCache } from '@indexnetwork/protocol';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Module mocks — must be set up before importing OpportunityService

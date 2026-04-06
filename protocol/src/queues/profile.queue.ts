@@ -4,7 +4,7 @@ import { QueueFactory } from '../lib/bullmq/bullmq';
 import { ProfileDatabaseAdapter } from '../adapters/database.adapter';
 import { EmbedderAdapter } from '../adapters/embedder.adapter';
 import { ScraperAdapter } from '../adapters/scraper.adapter';
-import { ProfileGraphFactory } from '../lib/protocol/graphs/profile.graph';
+import { ProfileGraphFactory } from '@indexnetwork/protocol';
 
 /** BullMQ queue name for profile HyDE (ensure profile + HyDE) jobs. */
 export const QUEUE_NAME = 'profile-hyde-queue';

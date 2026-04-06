@@ -26,7 +26,7 @@ import { chatSessionService } from "./services/chat.service";
 import { contactService } from "./services/contact.service";
 import { IntegrationService } from "./services/integration.service";
 import { enrichUserProfile } from "./lib/parallel/parallel";
-import type { ProtocolDeps } from "./lib/protocol/tools/tool.helpers";
+import type { ProtocolDeps } from '@indexnetwork/protocol';
 
 /**
  * Create the default ProtocolDeps wired to concrete adapters/services.

@@ -3,10 +3,8 @@ import { log } from '../lib/log';
 import { ChatDatabaseAdapter } from '../adapters/database.adapter';
 import { EmbedderAdapter } from '../adapters/embedder.adapter';
 import { RedisCacheAdapter } from '../adapters/cache.adapter';
-import type { HydeGraphDatabase } from '../lib/protocol/interfaces/database.interface';
-import { HydeGraphFactory } from '../lib/protocol/graphs/hyde.graph';
-import { HydeGenerator } from '../lib/protocol/agents/hyde.generator';
-import { LensInferrer } from '../lib/protocol/agents/lens.inferrer';
+import { HydeGraphFactory, HydeGenerator, LensInferrer } from '@indexnetwork/protocol';
+import type { HydeGraphDatabase } from '@indexnetwork/protocol';
 
 /** Age in ms after which HyDE documents are considered stale (30 days). Used for weekly refresh. */
 const STALE_HYDE_DAYS_MS = 30 * 24 * 60 * 60 * 1000;

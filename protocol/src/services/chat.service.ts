@@ -2,14 +2,11 @@ import { log } from '../lib/log';
 import { conversationDatabaseAdapter, ConversationDatabaseAdapter, ChatDatabaseAdapter } from '../adapters/database.adapter';
 import { EmbedderAdapter } from '../adapters/embedder.adapter';
 import { ScraperAdapter } from '../adapters/scraper.adapter';
-import { ChatGraphFactory } from '../lib/protocol/graphs/chat.graph';
+import { ChatGraphFactory, ChatTitleGenerator } from '@indexnetwork/protocol';
+import type { ChatGraphCompositeDatabase, Embedder, Scraper } from '@indexnetwork/protocol';
 import { getCheckpointer } from '../adapters/checkpointer.adapter';
-import { ChatTitleGenerator } from '../lib/protocol/agents/chat.title.generator';
 import { HumanMessage } from '@langchain/core/messages';
 import type { PostgresSaver } from '@langchain/langgraph-checkpoint-postgres';
-import type { ChatGraphCompositeDatabase } from '../lib/protocol/interfaces/database.interface';
-import type { Embedder } from '../lib/protocol/interfaces/embedder.interface';
-import type { Scraper } from '../lib/protocol/interfaces/scraper.interface';
 
 const logger = log.service.from("ChatSessionService");
 

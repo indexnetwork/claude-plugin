@@ -4,7 +4,7 @@ config({ path: ".env.test", override: true });
 
 import { describe, it, expect, mock, beforeEach } from "bun:test";
 
-import type { Opportunity, OpportunityControllerDatabase } from "../../lib/protocol/interfaces/database.interface";
+import type { Opportunity, OpportunityControllerDatabase } from '@indexnetwork/protocol';
 import { OpportunityService } from "../opportunity.service";
 
 // ─────────────────────────────────────────────────────────────────────────────

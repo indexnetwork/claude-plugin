@@ -1,24 +1,11 @@
 import { EventEmitter } from 'events';
 import { log } from '../lib/log';
 import type { Id } from '../types/common.types';
-import type { OpportunityControllerDatabase, OpportunityGraphDatabase, HydeGraphDatabase, HomeGraphDatabase, CreateOpportunityData, Opportunity, OpportunityActor, OpportunityStatus } from '../lib/protocol/interfaces/database.interface';
-import type { Embedder } from '../lib/protocol/interfaces/embedder.interface';
-import type { HydeCache, OpportunityCache } from '../lib/protocol/interfaces/cache.interface';
-import { OpportunityGraphFactory } from '../lib/protocol/graphs/opportunity.graph';
-import { HydeGraphFactory } from '../lib/protocol/graphs/hyde.graph';
-import { HomeGraphFactory } from '../lib/protocol/graphs/home.graph';
-import { MaintenanceGraphFactory, type MaintenanceGraphDatabase, type MaintenanceGraphCache, type MaintenanceGraphQueue } from '../lib/protocol/graphs/maintenance.graph';
-import { HydeGenerator } from '../lib/protocol/agents/hyde.generator';
-import { LensInferrer } from '../lib/protocol/agents/lens.inferrer';
+import { OpportunityGraphFactory, HydeGraphFactory, HomeGraphFactory, MaintenanceGraphFactory, type MaintenanceGraphDatabase, type MaintenanceGraphCache, type MaintenanceGraphQueue, HydeGenerator, LensInferrer, presentOpportunity, type UserInfo, canUserSeeOpportunity, validateOpportunityActors, persistOpportunities, getPrimaryActionLabel, OpportunityPresenter, gatherPresenterContext, type PresenterDatabase, stripUuids, stripIntroducerMentions } from '@indexnetwork/protocol';
+import type { OpportunityControllerDatabase, OpportunityGraphDatabase, HydeGraphDatabase, HomeGraphDatabase, CreateOpportunityData, Opportunity, OpportunityActor, OpportunityStatus, Embedder, HydeCache, OpportunityCache } from '@indexnetwork/protocol';
 import { ChatDatabaseAdapter } from '../adapters/database.adapter';
 import { EmbedderAdapter } from '../adapters/embedder.adapter';
 import { RedisCacheAdapter } from '../adapters/cache.adapter';
-import { presentOpportunity, type UserInfo } from '../lib/protocol/support/opportunity.presentation';
-import { canUserSeeOpportunity, validateOpportunityActors } from '../lib/protocol/support/opportunity.utils';
-import { persistOpportunities } from '../lib/protocol/support/opportunity.persist';
-import { getPrimaryActionLabel } from '../lib/protocol/support/opportunity.constants';
-import { OpportunityPresenter, gatherPresenterContext, type PresenterDatabase } from '../lib/protocol/agents/opportunity.presenter';
-import { stripUuids, stripIntroducerMentions } from '../lib/protocol/support/opportunity.sanitize';
 import { opportunityQueue } from '../queues/opportunity.queue';
 
 const logger = log.service.from("OpportunityService");
@@ -667,7 +654,7 @@ export class OpportunityService {
       this.db.getActiveIntents(counterpart.userId).then(intents => intents.map(i => i.payload)),
     ]);
 
-    const { generateInviteMessage: generate } = await import('../lib/protocol/agents/invite.generator');
+    const { generateInviteMessage: generate } = await import('@indexnetwork/protocol');
 
     const result = await generate({
       recipientName: recipient.name ?? 'there',

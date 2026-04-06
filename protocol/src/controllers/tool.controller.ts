@@ -11,7 +11,7 @@ import { AuthGuard, type AuthenticatedUser } from '../guards/auth.guard';
 import { toolService } from '../services/tool.service';
 // TODO: fix layering violation — controller should not import protocol directly
 // eslint-disable-next-line boundaries/dependencies
-import { ChatContextAccessError } from '../lib/protocol/tools/tool.helpers';
+import { ChatContextAccessError } from '@indexnetwork/protocol';
 import { log } from '../lib/log';
 
 const logger = log.controller.from('tool');

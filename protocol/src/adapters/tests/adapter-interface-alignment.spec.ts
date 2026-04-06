@@ -20,7 +20,7 @@ import { describe, it, expect } from 'bun:test';
 import type {
   Cache as ProtocolCache,
   CacheOptions as ProtocolCacheOptions,
-} from '../../lib/protocol/interfaces/cache.interface';
+} from '@indexnetwork/protocol';
 
 import type {
   LensEmbedding as ProtocolLensEmbedding,
@@ -29,7 +29,7 @@ import type {
   HydeCandidate as ProtocolHydeCandidate,
   VectorSearchResult as ProtocolVectorSearchResult,
   VectorStoreOption as ProtocolVectorStoreOption,
-} from '../../lib/protocol/interfaces/embedder.interface';
+} from '@indexnetwork/protocol';
 
 import type {
   IntegrationAdapter as ProtocolIntegrationAdapter,
@@ -37,12 +37,12 @@ import type {
   IntegrationSessionOptions as ProtocolIntegrationSessionOptions,
   ToolActionResponse as ProtocolToolActionResponse,
   IntegrationConnection as ProtocolIntegrationConnection,
-} from '../../lib/protocol/interfaces/integration.interface';
+} from '@indexnetwork/protocol';
 
 import type {
   UserDatabase as ProtocolUserDatabase,
   SystemDatabase as ProtocolSystemDatabase,
-} from '../../lib/protocol/interfaces/database.interface';
+} from '@indexnetwork/protocol';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Adapter local types (the structurally-aligned copies)
