@@ -3,7 +3,7 @@ title: "Protocol Deep Dive"
 type: design
 tags: [protocol, langgraph, agents, graphs, tools, hyde, opportunity, intent, profile, negotiation]
 created: 2026-03-26
-updated: 2026-03-26
+updated: 2026-04-06
 ---
 
 # Protocol Deep Dive
@@ -12,7 +12,7 @@ This document is a standalone, implementation-focused guide to the AI/agent syst
 
 ## 1. Overview
 
-The protocol layer lives at `protocol/src/lib/protocol/` and is the engine behind every AI-driven operation in the system. It sits between the service/controller HTTP layer above and the database/queue infrastructure below:
+The protocol layer lives at `packages/protocol/src/` (the `@indexnetwork/protocol` package) and is the engine behind every AI-driven operation in the system. It sits between the service/controller HTTP layer above and the database/queue infrastructure below:
 
 ```
 Controllers (HTTP)
@@ -26,12 +26,12 @@ Adapters (database, embedder, cache, queue, scraper)
 Infrastructure (PostgreSQL + pgvector, Redis, OpenRouter LLMs)
 ```
 
-The protocol layer never imports adapters directly. All infrastructure dependencies are injected through interfaces defined in `src/lib/protocol/interfaces/` (database, embedder, cache, queue, scraper, storage). This makes every graph and agent testable with mocks.
+The protocol layer never imports adapters directly. All infrastructure dependencies are injected through interfaces defined in `packages/protocol/src/interfaces/` (database, embedder, cache, queue, scraper, storage). This makes every graph and agent testable with mocks.
 
 ### Directory structure
 
 ```
-protocol/src/lib/protocol/
+packages/protocol/src/
   graphs/           11 LangGraph state machines ({domain}.graph.ts)
   states/           11 graph state definitions ({domain}.state.ts)
   agents/           Flat, domain-prefixed AI agents
@@ -267,7 +267,7 @@ The graph creates an A2A conversation, alternates between proposer and responder
 
 ## 4. Agent Catalog
 
-All agents live in `protocol/src/lib/protocol/agents/`. They are pure (no direct DB access) and use `createModel()` from `model.config.ts` for LLM configuration.
+All agents live in `packages/protocol/src/agents/`. They are pure (no direct DB access) and use `createModel()` from `model.config.ts` for LLM configuration.
 
 ### 4.1 ChatAgent
 
@@ -547,7 +547,7 @@ When enabled, high-scoring candidates enter bilateral negotiation via the Negoti
 
 ### Persistence
 
-Surviving opportunities are persisted with status `latent`. They become visible to users but require explicit action ("send") to promote to `pending` status. The full status lifecycle is: `latent -> pending -> viewed -> accepted | rejected | expired`.
+Surviving opportunities are persisted with status `latent`. They become visible to users but require explicit action ("send") to promote to `pending` status. The full status lifecycle is: `latent -> draft -> pending -> accepted | rejected | expired`.
 
 ## 8. Intent Lifecycle
 
@@ -672,7 +672,7 @@ Each graph node accumulates `agentTimings` (array of `{ name, durationMs }`) in 
 
 ## 11. Model Configuration
 
-All LLM model settings are centralized in `protocol/src/lib/protocol/agents/model.config.ts`.
+All LLM model settings are centralized in `packages/protocol/src/agents/model.config.ts`.
 
 ### MODEL_CONFIG registry
 
