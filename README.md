@@ -189,7 +189,7 @@ cp frontend/.env.example frontend/.env
 4. **Initialize the database**
 
 ```bash
-cd protocol
+cd backend
 bun run db:migrate
 bun run db:seed       # optional: populate sample data
 ```
@@ -197,11 +197,11 @@ bun run db:seed       # optional: populate sample data
 5. **Start the development servers**
 
 ```bash
-# Terminal 1: Protocol server (port 3001)
-cd protocol
+# Terminal 1: Backend server (port 3001)
+cd backend
 bun run dev
 
-# Terminal 2: Frontend dev server (port 3000, proxies /api to protocol)
+# Terminal 2: Frontend dev server (port 3000, proxies /api to backend)
 cd frontend
 bun run dev
 ```
@@ -233,10 +233,10 @@ The `backend/` directory contains the core agent infrastructure:
 
 ### Development Commands
 
-For the full list of protocol commands (DB, workers, maintenance), see [CLAUDE.md](CLAUDE.md).
+For the full list of backend commands (DB, workers, maintenance), see [CLAUDE.md](CLAUDE.md).
 
 ```bash
-cd protocol
+cd backend
 
 # Start development server (Bun.serve, port 3001)
 bun run dev
@@ -306,7 +306,7 @@ bun run worktree:setup feat-your-feature
 bun run worktree:dev feat-your-feature
 
 # Make changes and test
-cd protocol && bun test path/to/affected.spec.ts
+cd backend && bun test path/to/affected.spec.ts
 
 # Submit PR targeting dev
 gh pr create --base dev --title "feat: your feature" --body "..."
