@@ -146,8 +146,10 @@ const mockGatherPresenterContext = mock(() =>
   })
 );
 
-// Mock the presenter module
-mock.module("../../lib/protocol/agents/opportunity.presenter", () => ({
+// Mock the presenter module — spread real module to preserve all other exports
+const realProtocol = await import("@indexnetwork/protocol");
+mock.module("@indexnetwork/protocol", () => ({
+  ...realProtocol,
   OpportunityPresenter: class {
     present = mockPresent;
     presentHomeCard = mock(() => {
@@ -181,7 +183,7 @@ const { OpportunityService } = await import("../opportunity.service");
 function createService(rows: Opportunity[]) {
   const service = new OpportunityService();
   // Override the db methods used by getChatContext
-  (service as any).db = {
+  (service as unknown as Record<string, unknown>).db = {
     getAcceptedOpportunitiesBetweenActors: mock(() => Promise.resolve(rows)),
     getUser: mock(() => Promise.resolve(peerUser)),
   };
