@@ -1,7 +1,5 @@
 import '../src/startup.env';
 import { describe, it, expect } from 'bun:test';
-import { McpServer } from '@modelcontextprotocol/server';
-
 import { createMcpServer } from '@indexnetwork/protocol';
 import { createToolRegistry } from '@indexnetwork/protocol';
 import type { ToolDeps } from '@indexnetwork/protocol';
@@ -51,7 +49,9 @@ const mockScopedDepsFactory: ScopedDepsFactory = {
 describe('MCP Server Factory', () => {
   it('creates an McpServer instance', () => {
     const server = createMcpServer(mockDeps, mockAuthResolver, mockScopedDepsFactory);
-    expect(server).toBeInstanceOf(McpServer);
+    // Check structural shape — instanceof fails across dual module installs
+    expect(server).toHaveProperty('server');
+    expect(typeof (server as { connect?: unknown }).connect).toBe('function');
   });
 
   it('registers the same tools as createToolRegistry', () => {
