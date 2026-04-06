@@ -11,11 +11,13 @@ sync_subtree() {
   local remote="$2"
   local range="$3"
 
+  # "$prefix/" (trailing slash) is intentional — git log treats it as a directory filter
   if ! git log --oneline "$range" -- "$prefix/" 2>/dev/null | grep -q .; then
     return
   fi
 
   echo "[pre-push] $prefix/ changed — syncing to $remote..."
+  # Pushes to 'main' — all three subtree remotes use 'main' as their default branch
   if git subtree push --prefix="$prefix" "$remote" main; then
     echo "[pre-push] ✓ synced to $remote"
   else

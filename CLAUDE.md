@@ -90,7 +90,7 @@ git push upstream protocol-vX.Y.Z
 
 ### Subtrees
 
-Three packages are git subtrees tracked to external repos. **Syncing is automatic** — the `scripts/hooks/pre-push` hook detects commits touching each prefix and runs `git subtree push` whenever you push `dev` to `upstream`.
+The following packages are git subtrees tracked to external repos. **Syncing is automatic** — the `scripts/hooks/pre-push` hook detects commits touching each prefix and runs `git subtree push` whenever you push `dev` to `upstream`.
 
 #### packages/claude-plugin/ → indexnetwork/claude-plugin
 
