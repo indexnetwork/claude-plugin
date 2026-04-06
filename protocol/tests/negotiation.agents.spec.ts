@@ -2,9 +2,9 @@ import { config } from "dotenv";
 config({ path: ".env.development" });
 
 import { describe, it, expect } from "bun:test";
-import { NegotiationProposer } from "../src/lib/protocol/agents/negotiation.proposer";
-import { NegotiationResponder } from "../src/lib/protocol/agents/negotiation.responder";
-import type { UserNegotiationContext, SeedAssessment, NegotiationTurn } from "../src/lib/protocol/states/negotiation.state";
+import { NegotiationProposer } from "@indexnetwork/protocol";
+import { NegotiationResponder } from "@indexnetwork/protocol";
+import type { UserNegotiationContext, SeedAssessment, NegotiationTurn } from "@indexnetwork/protocol";
 
 const sourceUser: UserNegotiationContext = {
   id: "user-source",

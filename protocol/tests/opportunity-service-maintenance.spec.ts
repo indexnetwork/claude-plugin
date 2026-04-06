@@ -32,7 +32,7 @@ describe('OpportunityService maintenance wiring', () => {
 
   it('MaintenanceGraphFactory can be constructed with injected deps', async () => {
     const { MaintenanceGraphFactory } = await import(
-      '../src/lib/protocol/graphs/maintenance.graph'
+      '@indexnetwork/protocol'
     );
 
     const mockDb = {

@@ -2,9 +2,9 @@ import { config } from "dotenv";
 config({ path: ".env.development" });
 
 import { describe, it, expect } from "bun:test";
-import { NegotiationGraphFactory } from "../src/lib/protocol/graphs/negotiation.graph";
-import { NegotiationProposer } from "../src/lib/protocol/agents/negotiation.proposer";
-import { NegotiationResponder } from "../src/lib/protocol/agents/negotiation.responder";
+import { NegotiationGraphFactory } from "@indexnetwork/protocol";
+import { NegotiationProposer } from "@indexnetwork/protocol";
+import { NegotiationResponder } from "@indexnetwork/protocol";
 import { ConversationService } from "../src/services/conversation.service";
 import { TaskService } from "../src/services/task.service";
 

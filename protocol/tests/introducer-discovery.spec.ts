@@ -12,7 +12,7 @@ import {
   type IntroducerDiscoveryDatabase,
   type IntroducerDiscoveryQueue,
   type ContactWithIntents,
-} from '../src/lib/protocol/support/introducer.discovery';
+} from '@indexnetwork/protocol';
 
 describe('IntroducerDiscovery', () => {
   const userId = 'user-introducer';

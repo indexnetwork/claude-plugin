@@ -2,7 +2,7 @@ import { config } from "dotenv";
 config({ path: ".env.development" });
 
 import { describe, it, expect, mock } from "bun:test";
-import type { NegotiationGraphLike } from "../src/lib/protocol/states/negotiation.state";
+import type { NegotiationGraphLike } from "@indexnetwork/protocol";
 
 describe("Opportunity Graph — Negotiation Integration", () => {
   it("negotiateNode filters candidates by negotiation outcome", async () => {
@@ -23,7 +23,7 @@ describe("Opportunity Graph — Negotiation Integration", () => {
       }),
     };
 
-    const { negotiateCandidates } = await import("../src/lib/protocol/graphs/negotiation.graph");
+    const { negotiateCandidates } = await import("@indexnetwork/protocol");
 
     const candidates = [
       { userId: "candidate-1", score: 78, reasoning: "OK", valencyRole: "Peer" },

@@ -7,7 +7,7 @@ import {
   type MaintenanceGraphDatabase,
   type MaintenanceGraphCache,
   type MaintenanceGraphQueue,
-} from '../src/lib/protocol/graphs/maintenance.graph';
+} from '@indexnetwork/protocol';
 
 describe('MaintenanceGraph — Introducer Discovery', () => {
   const userId = 'test-user';
