@@ -2,7 +2,7 @@ import { config } from 'dotenv';
 config({ path: '.env.development' });
 
 import { describe, it, expect } from 'bun:test';
-import { classifyOpportunity, FEED_SOFT_TARGETS } from '../src/lib/protocol/support/opportunity.utils';
+import { classifyOpportunity, FEED_SOFT_TARGETS } from '@indexnetwork/protocol';
 
 describe('classifyOpportunity', () => {
   const viewerId = 'user-1';

@@ -4,12 +4,8 @@ import { QueueFactory } from '../lib/bullmq/bullmq';
 import { ChatDatabaseAdapter } from '../adapters/database.adapter';
 import { EmbedderAdapter } from '../adapters/embedder.adapter';
 import { RedisCacheAdapter } from '../adapters/cache.adapter';
-import type { HydeGraphDatabase } from '../lib/protocol/interfaces/database.interface';
-import type { IntentGraphQueue } from '../lib/protocol/interfaces/queue.interface';
-import { HydeGraphFactory } from '../lib/protocol/graphs/hyde.graph';
-import { HydeGenerator } from '../lib/protocol/agents/hyde.generator';
-import { LensInferrer } from '../lib/protocol/agents/lens.inferrer';
-import { IntentIndexer } from '../lib/protocol/agents/intent.indexer';
+import { HydeGraphFactory, HydeGenerator, LensInferrer, IntentIndexer } from '@indexnetwork/protocol';
+import type { HydeGraphDatabase, IntentGraphQueue } from '@indexnetwork/protocol';
 import { opportunityQueue } from './opportunity.queue';
 
 /** BullMQ queue name for intent HyDE generation and deletion jobs. */

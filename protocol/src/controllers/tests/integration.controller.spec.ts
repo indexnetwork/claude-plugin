@@ -9,7 +9,7 @@ config({ path: '.env.test' });
 import { describe, test, expect, beforeEach } from "bun:test";
 import { IntegrationController } from "../integration.controller";
 import type { AuthenticatedUser } from "../../guards/auth.guard";
-import type { IntegrationAdapter, IntegrationConnection, IntegrationSession } from "../../lib/protocol/interfaces/integration.interface";
+import type { IntegrationAdapter, IntegrationConnection, IntegrationSession } from '@indexnetwork/protocol';
 import { IntegrationService } from "../../services/integration.service";
 import type { ChatDatabaseAdapter } from "../../adapters/database.adapter";
 

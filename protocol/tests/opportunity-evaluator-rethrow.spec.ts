@@ -3,8 +3,8 @@ config({ path: '.env.test', override: true });
 
 import { describe, expect, it } from 'bun:test';
 
-import { OpportunityEvaluator } from '../src/lib/protocol/agents/opportunity.evaluator';
-import type { EvaluatorInput } from '../src/lib/protocol/agents/opportunity.evaluator';
+import { OpportunityEvaluator } from '@indexnetwork/protocol';
+import type { EvaluatorInput } from '@indexnetwork/protocol';
 
 describe('OpportunityEvaluator — rethrow on error', () => {
   it('invokeEntityBundle rethrows LLM errors instead of returning []', async () => {

@@ -2,7 +2,7 @@ import { config } from 'dotenv';
 config({ path: '.env.development' });
 
 import { describe, it, expect } from 'bun:test';
-import { selectByComposition } from '../src/lib/protocol/support/opportunity.utils';
+import { selectByComposition } from '@indexnetwork/protocol';
 
 describe('selectByComposition', () => {
   const viewerId = 'user-1';

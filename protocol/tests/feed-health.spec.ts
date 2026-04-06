@@ -2,7 +2,7 @@ import { config } from 'dotenv';
 config({ path: '.env.development' });
 
 import { describe, it, expect } from 'bun:test';
-import { computeFeedHealth, type FeedHealthInput } from '../src/lib/protocol/support/feed.health';
+import { computeFeedHealth, type FeedHealthInput } from '@indexnetwork/protocol';
 
 describe('computeFeedHealth', () => {
   const now = Date.now();

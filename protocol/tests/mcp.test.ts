@@ -2,11 +2,11 @@ import '../src/startup.env';
 import { describe, it, expect } from 'bun:test';
 import { McpServer } from '@modelcontextprotocol/server';
 
-import { createMcpServer } from '../src/lib/protocol/mcp/mcp.server';
-import { createToolRegistry } from '../src/lib/protocol/tools/tool.registry';
-import type { ToolDeps } from '../src/lib/protocol/tools/tool.helpers';
-import type { McpAuthResolver } from '../src/lib/protocol/interfaces/auth.interface';
-import type { ScopedDepsFactory } from '../src/lib/protocol/mcp/mcp.server';
+import { createMcpServer } from '@indexnetwork/protocol';
+import { createToolRegistry } from '@indexnetwork/protocol';
+import type { ToolDeps } from '@indexnetwork/protocol';
+import type { McpAuthResolver } from '@indexnetwork/protocol';
+import type { ScopedDepsFactory } from '@indexnetwork/protocol';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // MOCK DEPENDENCIES

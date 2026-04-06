@@ -27,12 +27,8 @@ import * as schema from '../schemas/database.schema';
 import { ChatDatabaseAdapter } from '../adapters/database.adapter';
 import { EmbedderAdapter } from '../adapters/embedder.adapter';
 import { RedisCacheAdapter } from '../adapters/cache.adapter';
-import type { HydeGraphDatabase, OpportunityGraphDatabase } from '../lib/protocol/interfaces/database.interface';
-import type { Embedder } from '../lib/protocol/interfaces/embedder.interface';
-import type { HydeCache } from '../lib/protocol/interfaces/cache.interface';
-import { HydeGraphFactory } from '../lib/protocol/graphs/hyde.graph';
-import { HydeGenerator } from '../lib/protocol/agents/hyde.generator';
-import { LensInferrer } from '../lib/protocol/agents/lens.inferrer';
+import { HydeGraphFactory, HydeGenerator, LensInferrer } from '@indexnetwork/protocol';
+import type { HydeGraphDatabase, OpportunityGraphDatabase, Embedder, HydeCache } from '@indexnetwork/protocol';
 import { opportunityQueue } from '../queues/opportunity.queue';
 
 import { TESTER_PERSONAS } from './test-data';

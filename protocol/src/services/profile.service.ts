@@ -1,8 +1,6 @@
 import { log } from '../lib/log';
-import type { ProfileGraphDatabase } from '../lib/protocol/interfaces/database.interface';
-import type { Scraper } from '../lib/protocol/interfaces/scraper.interface';
-import type { Embedder } from '../lib/protocol/interfaces/embedder.interface';
-import { ProfileGraphFactory } from '../lib/protocol/graphs/profile.graph';
+import { ProfileGraphFactory } from '@indexnetwork/protocol';
+import type { ProfileGraphDatabase, Scraper, Embedder } from '@indexnetwork/protocol';
 import { ProfileDatabaseAdapter } from '../adapters/database.adapter';
 import { EmbedderAdapter } from '../adapters/embedder.adapter';
 import { ScraperAdapter } from '../adapters/scraper.adapter';

@@ -1,5 +1,5 @@
 import { log } from '../lib/log';
-import type { IntegrationAdapter } from '../lib/protocol/interfaces/integration.interface';
+import type { IntegrationAdapter } from '@indexnetwork/protocol';
 import { ChatDatabaseAdapter } from '../adapters/database.adapter';
 
 import { deduplicateContacts, getPreset } from '../lib/dedup/dedup';

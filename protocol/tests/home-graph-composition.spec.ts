@@ -2,7 +2,7 @@ import { config } from 'dotenv';
 config({ path: '.env.development' });
 
 import { describe, it, expect } from 'bun:test';
-import { selectByComposition } from '../src/lib/protocol/support/opportunity.utils';
+import { selectByComposition } from '@indexnetwork/protocol';
 
 /**
  * Tests that home graph's load step uses selectByComposition instead of plain .slice().

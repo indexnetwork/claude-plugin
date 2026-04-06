@@ -16,19 +16,8 @@ import { ScraperAdapter } from '../adapters/scraper.adapter';
 import { RedisCacheAdapter } from '../adapters/cache.adapter';
 import { ComposioIntegrationAdapter } from '../adapters/integration.adapter';
 
-import { IntentGraphFactory } from '../lib/protocol/graphs/intent.graph';
-import { ProfileGraphFactory } from '../lib/protocol/graphs/profile.graph';
-import { OpportunityGraphFactory } from '../lib/protocol/graphs/opportunity.graph';
-import { HydeGraphFactory } from '../lib/protocol/graphs/hyde.graph';
-import { IndexGraphFactory } from '../lib/protocol/graphs/index.graph';
-import { IndexMembershipGraphFactory } from '../lib/protocol/graphs/index_membership.graph';
-import { IntentIndexGraphFactory } from '../lib/protocol/graphs/intent_index.graph';
-import { NegotiationGraphFactory } from '../lib/protocol/graphs/negotiation.graph';
-import { HydeGenerator } from '../lib/protocol/agents/hyde.generator';
-import { LensInferrer } from '../lib/protocol/agents/lens.inferrer';
-import { NegotiationProposer } from '../lib/protocol/agents/negotiation.proposer';
-import { NegotiationResponder } from '../lib/protocol/agents/negotiation.responder';
-import type { HydeGraphDatabase } from '../lib/protocol/interfaces/database.interface';
+import { IntentGraphFactory, ProfileGraphFactory, OpportunityGraphFactory, HydeGraphFactory, IndexGraphFactory, IndexMembershipGraphFactory, IntentIndexGraphFactory, NegotiationGraphFactory, HydeGenerator, LensInferrer, NegotiationProposer, NegotiationResponder, resolveChatContext, createToolRegistry } from '@indexnetwork/protocol';
+import type { HydeGraphDatabase, ToolDeps } from '@indexnetwork/protocol';
 import { intentQueue } from '../queues/intent.queue';
 // TODO: fix layering violation — services should not import other services directly; use events or queues
 // eslint-disable-next-line boundaries/dependencies
@@ -37,9 +26,6 @@ import { contactService } from './contact.service';
 import { IntegrationService } from './integration.service';
 import { enrichUserProfile } from '../lib/parallel/parallel';
 
-import type { ToolDeps } from '../lib/protocol/tools/tool.helpers';
-import { resolveChatContext } from '../lib/protocol/tools/tool.helpers';
-import { createToolRegistry } from '../lib/protocol/tools/tool.registry';
 import { log } from '../lib/log';
 
 const logger = log.service.from('tool');

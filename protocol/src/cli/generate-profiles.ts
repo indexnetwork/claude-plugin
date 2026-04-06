@@ -9,7 +9,7 @@ import { and, isNull, sql } from 'drizzle-orm';
 import db, { closeDb } from '../lib/drizzle/drizzle';
 import { userProfiles, users } from '../schemas/database.schema';
 import { setLevel } from '../lib/log';
-import { ProfileGraphFactory } from '../lib/protocol/graphs/profile.graph';
+import { ProfileGraphFactory } from '@indexnetwork/protocol';
 import { ProfileDatabaseAdapter } from '../adapters/database.adapter';
 import { EmbedderAdapter } from '../adapters/embedder.adapter';
 import { ScraperAdapter } from '../adapters/scraper.adapter';

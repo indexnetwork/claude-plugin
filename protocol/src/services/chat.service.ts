@@ -2,14 +2,11 @@ import { log } from '../lib/log';
 import { conversationDatabaseAdapter, ConversationDatabaseAdapter, ChatDatabaseAdapter } from '../adapters/database.adapter';
 import { EmbedderAdapter } from '../adapters/embedder.adapter';
 import { ScraperAdapter } from '../adapters/scraper.adapter';
-import { ChatGraphFactory } from '../lib/protocol/graphs/chat.graph';
-import { getCheckpointer } from '../lib/protocol/support/chat.checkpointer';
-import { ChatTitleGenerator } from '../lib/protocol/agents/chat.title.generator';
+import { ChatGraphFactory, ChatTitleGenerator } from '@indexnetwork/protocol';
+import type { ChatGraphCompositeDatabase, Embedder, Scraper } from '@indexnetwork/protocol';
+import { getCheckpointer } from '../adapters/checkpointer.adapter';
 import { HumanMessage } from '@langchain/core/messages';
 import type { PostgresSaver } from '@langchain/langgraph-checkpoint-postgres';
-import type { ChatGraphCompositeDatabase } from '../lib/protocol/interfaces/database.interface';
-import type { Embedder } from '../lib/protocol/interfaces/embedder.interface';
-import type { Scraper } from '../lib/protocol/interfaces/scraper.interface';
 
 const logger = log.service.from("ChatSessionService");
 
@@ -53,6 +50,7 @@ export class ChatSessionService {
   private get factory(): ChatGraphFactory {
     if (!this._factory) {
       // Lazy import to avoid circular dependency (protocol-init imports this service).
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
       const { createDefaultProtocolDeps } = require('../protocol-init');
       const protocolDeps = createDefaultProtocolDeps();
       this._factory = new ChatGraphFactory(this.graphDb, this.embedder, this.scraper, this, protocolDeps);

@@ -1,6 +1,6 @@
 import { log } from '../lib/log';
-import type { IntentGraphDatabase } from '../lib/protocol/interfaces/database.interface';
-import { IntentGraphFactory } from '../lib/protocol/graphs/intent.graph';
+import { IntentGraphFactory } from '@indexnetwork/protocol';
+import type { IntentGraphDatabase } from '@indexnetwork/protocol';
 import { IntentDatabaseAdapter, intentDatabaseAdapter } from '../adapters/database.adapter';
 import { EmbedderAdapter } from '../adapters/embedder.adapter';
 import { intentQueue } from '../queues/intent.queue';

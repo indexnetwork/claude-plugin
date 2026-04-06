@@ -2,7 +2,7 @@ import { config } from 'dotenv';
 config({ path: '.env.development' });
 
 import { describe, it, expect, mock } from 'bun:test';
-import { MaintenanceGraphFactory } from '../src/lib/protocol/graphs/maintenance.graph';
+import { MaintenanceGraphFactory } from '@indexnetwork/protocol';
 
 describe('MaintenanceGraph', () => {
   const userId = 'test-user';

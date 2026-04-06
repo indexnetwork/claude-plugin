@@ -1,10 +1,8 @@
 import { log } from '../lib/log';
 import { IntentDatabaseAdapter, intentDatabaseAdapter } from '../adapters/database.adapter';
 import { ChatDatabaseAdapter, conversationDatabaseAdapter } from '../adapters/database.adapter';
-import { createDefaultNegotiationGraph } from '../lib/protocol/graphs/negotiation.graph';
-import { NegotiationProposer } from '../lib/protocol/agents/negotiation.proposer';
-import { NegotiationResponder } from '../lib/protocol/agents/negotiation.responder';
-import type { UserNegotiationContext } from '../lib/protocol/states/negotiation.state';
+import { createDefaultNegotiationGraph, NegotiationProposer, NegotiationResponder } from '@indexnetwork/protocol';
+import type { UserNegotiationContext } from '@indexnetwork/protocol';
 
 const logger = log.service.from('NegotiationService');
 
