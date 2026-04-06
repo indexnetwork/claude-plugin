@@ -16,8 +16,8 @@ postgres/
 # ===================
 # Temporary Files & Uploads
 # ===================
-protocol/temp-uploads/
-protocol/.xmtp/
+backend/temp-uploads/
+backend/.xmtp/
 txt/
 
 # ===================
