@@ -8,7 +8,7 @@ updated: 2026-04-06
 
 # Getting Started
 
-This guide walks you through setting up a local development environment for Index Network from scratch. By the end you will have the protocol server (port 3001) and the frontend dev server running locally, connected to a seeded PostgreSQL database.
+This guide walks you through setting up a local development environment for Index Network from scratch. By the end you will have the backend server (port 3001) and the frontend dev server running locally, connected to a seeded PostgreSQL database.
 
 ## Prerequisites
 
@@ -158,7 +158,7 @@ See `backend/.env.example` for the full list with inline comments.
 
 ### Frontend environment variables (frontend/.env)
 
-The frontend needs no configuration for local development. The Vite dev server proxies `/api/*` requests to the protocol server on port 3001 automatically.
+The frontend needs no configuration for local development. The Vite dev server proxies `/api/*` requests to the backend server on port 3001 automatically.
 
 For production builds you would set:
 
@@ -374,7 +374,7 @@ The app's origin is not in the allowed list. Set `TRUSTED_ORIGINS` in `backend/.
 TRUSTED_ORIGINS=http://localhost:3000
 ```
 
-Restart the protocol server after changing this value.
+Restart the backend server after changing this value.
 
 ### pgvector extension missing
 
@@ -393,7 +393,7 @@ If you see `ECONNREFUSED` errors related to Redis:
 
 1. Verify Redis is running: `redis-cli ping` should return `PONG`.
 2. If Redis is on a non-default host/port, set `REDIS_URL` in `backend/.env`.
-3. The protocol server will start without Redis, but job queues and caching will not function.
+3. The backend server will start without Redis, but job queues and caching will not function.
 
 ### Migrations out of sync
 
@@ -426,4 +426,4 @@ Or change the backend port via the `PORT` variable in `backend/.env`.
 
 ### Frontend proxy not reaching protocol
 
-Make sure the protocol server is running on port 3001 before starting the frontend. The Vite dev server proxies `/api/*` to `http://localhost:3001`. If you changed the backend port, update `frontend/vite.config.ts` accordingly.
+Make sure the backend server is running on port 3001 before starting the frontend. The Vite dev server proxies `/api/*` to `http://localhost:3001`. If you changed the backend port, update `frontend/vite.config.ts` accordingly.
