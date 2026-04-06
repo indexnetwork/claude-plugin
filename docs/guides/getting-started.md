@@ -3,7 +3,7 @@ title: "Getting Started"
 type: guide
 tags: [getting-started, setup, onboarding, development, environment]
 created: 2026-03-26
-updated: 2026-03-26
+updated: 2026-04-06
 ---
 
 # Getting Started
@@ -67,7 +67,10 @@ bun install
 ```
 index/
 ├── protocol/          # Backend API and agent engine (Bun, Express, TypeScript)
+├── packages/
+│   └── protocol/      # @indexnetwork/protocol NPM package (graphs, agents, tools)
 ├── frontend/          # Vite + React Router v7 SPA (React 19, Tailwind CSS 4)
+├── cli/               # CLI client (@indexnetwork/cli) — Bun, TypeScript
 ├── scripts/           # Worktree helpers, hooks, dev launcher
 ├── package.json       # Root workspace config
 └── CLAUDE.md          # Comprehensive project reference
@@ -90,7 +93,7 @@ Open `protocol/.env` and fill in the required values:
 
 ```bash
 # PostgreSQL connection
-DATABASE_URL=postgresql://username:password@localhost:5432/index_dev
+DATABASE_URL=postgresql://username:password@localhost:5432/protocol_db
 
 # Authentication secret (generate a strong random value)
 BETTER_AUTH_SECRET=$(openssl rand -base64 32)
@@ -113,6 +116,12 @@ TRUSTED_ORIGINS=http://localhost:3000
 **Optional (features degrade gracefully when absent):**
 
 ```bash
+# Protocol base URL for auth callbacks and email links (required in production)
+# BASE_URL=https://protocol.example.com
+
+# Frontend URL for notification links (required in production)
+# FRONTEND_URL=https://index.network
+
 # Redis (defaults to localhost:6379 if omitted)
 # REDIS_URL=redis://localhost:6379
 
@@ -133,10 +142,16 @@ TRUSTED_ORIGINS=http://localhost:3000
 # Document parsing
 # UNSTRUCTURED_API_URL=...
 
+# Web crawling and profile extraction
+# PARALLELS_API_KEY=...
+
 # Observability
 # LANGFUSE_PUBLIC_KEY=...
 # LANGFUSE_SECRET_KEY=...
 # SENTRY_DSN=...
+
+# Logging (default: debug in dev, info in prod)
+# LOG_LEVEL=debug
 ```
 
 See `protocol/.env.example` for the full list with inline comments.
@@ -156,13 +171,13 @@ VITE_PROTOCOL_URL=https://protocol.example.com
 ### 1. Create the database
 
 ```bash
-createdb index_dev
+createdb protocol_db
 ```
 
 Or via psql:
 
 ```sql
-CREATE DATABASE index_dev;
+CREATE DATABASE protocol_db;
 ```
 
 ### 2. Enable pgvector
@@ -170,7 +185,7 @@ CREATE DATABASE index_dev;
 Connect to the new database and enable the extension:
 
 ```bash
-psql index_dev -c 'CREATE EXTENSION IF NOT EXISTS vector;'
+psql protocol_db -c 'CREATE EXTENSION IF NOT EXISTS vector;'
 ```
 
 ### 3. Run migrations
@@ -283,15 +298,6 @@ http://localhost:3001/dev/queues/
 
 This shows all BullMQ job queues, their status, and lets you retry failed jobs or clear queues.
 
-### Background workers
-
-```bash
-cd protocol
-
-bun run integration-worker    # Integration sync worker
-bun run social-worker         # Social media sync worker
-```
-
 ## Git workflow
 
 ### Worktrees
@@ -375,7 +381,7 @@ Restart the protocol server after changing this value.
 If migrations fail with an error about the `vector` type:
 
 ```bash
-psql index_dev -c 'CREATE EXTENSION IF NOT EXISTS vector;'
+psql protocol_db -c 'CREATE EXTENSION IF NOT EXISTS vector;'
 bun run db:migrate
 ```
 
