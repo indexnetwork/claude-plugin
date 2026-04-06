@@ -3,7 +3,7 @@
  * One-time backfill: rename `consensus` to `hasOpportunity` in negotiation
  * outcome artifacts (JSONB `parts` column).
  *
- * Usage: bun run protocol/src/cli/backfill-consensus-to-has-opportunity.ts [--dry-run]
+ * Usage: bun run backend/src/cli/backfill-consensus-to-has-opportunity.ts [--dry-run]
  *
  * With --dry-run, reports how many rows would be updated without modifying data.
  */
