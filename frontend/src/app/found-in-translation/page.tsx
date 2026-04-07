@@ -375,7 +375,7 @@ function MonumentCanvas() {
 // ── ARCH CALLOUT ────────────────────────────────────────────────
 function ArchCallout({ children }: { children: React.ReactNode }) {
   return (
-    <div data-fade style={{ margin: '4rem 0', border: '3px solid #000', padding: '3rem 3.5rem', background: '#000', color: '#fff', position: 'relative' }}>
+    <div data-fade style={{ margin: '4rem 0', border: '1.5px solid #aaa', padding: '3rem 3.5rem', background: '#000', color: '#fff', position: 'relative' }}>
       <p style={{ fontFamily: SANS, fontWeight: 900, fontSize: 'clamp(1.4rem,3.5vw,2.6rem)', lineHeight: 1.1, letterSpacing: '-0.01em', textTransform: 'uppercase', margin: 0 }}>{children}</p>
       {[{ top: 8, left: 8 }, { top: 8, right: 8 }, { bottom: 8, left: 8 }, { bottom: 8, right: 8 }].map((pos, i) => (
         <div key={i} style={{ position: 'absolute', width: 12, height: 12, border: '2px solid #fff', ...pos }} />
@@ -388,7 +388,7 @@ function ArchCallout({ children }: { children: React.ReactNode }) {
 // Architectural elevation of two humans with intent lattice between them
 function ConversationFig() {
   return (
-    <figure data-fade style={{ margin: '3rem 0', border: '3px solid #000', position: 'relative', background: '#fff', overflow: 'hidden' }}>
+    <figure data-fade style={{ margin: '3rem 0', border: '1.5px solid #aaa', position: 'relative', background: '#fff', overflow: 'hidden' }}>
       <svg viewBox="0 0 960 340" width="100%" style={{ display: 'block' }} aria-label="Fig. 01 — Two humans. Intent: latent.">
         {[{ x: 8, y: 8, r: true, b: false }, { x: 952, y: 8, r: false, b: false }, { x: 8, y: 332, r: true, b: true }, { x: 952, y: 332, r: false, b: true }].map(({ x, y, r, b }, i) => (
           <g key={i}>
@@ -469,7 +469,7 @@ function SearchFrustrationFig() {
   }
 
   return (
-    <figure data-fade style={{ margin: '3rem 0', border: '3px solid #000', background: '#fff', overflow: 'hidden' }}>
+    <figure data-fade style={{ margin: '3rem 0', border: '1.5px solid #aaa', background: '#fff', overflow: 'hidden' }}>
       <svg viewBox="0 0 980 320" width="100%" style={{ display: 'block' }} aria-label="Fig. 02 — The futility of search.">
         {[{ x: 8, y: 8 }, { x: 972, y: 8 }, { x: 8, y: 312 }, { x: 972, y: 312 }].map(({ x, y }, i) => (
           <g key={i}>
@@ -536,7 +536,7 @@ function MonumentElevation({ label }: { label: string }) {
   const figXs = [120, 320, 580, 900, 1220, 1480, 1700];
 
   return (
-    <div data-fade style={{ margin: '4rem -2rem', borderTop: '3px solid #000', borderBottom: '3px solid #000', overflow: 'hidden', background: '#fff', position: 'relative' }}>
+    <div data-fade style={{ margin: '4rem -2rem', borderTop: '1.5px solid #aaa', borderBottom: '1.5px solid #aaa', overflow: 'hidden', background: '#fff', position: 'relative' }}>
       <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ display: 'block' }} aria-label={label}>
         <rect x="0" y={monTop} width={W} height={groundY - monTop} fill="white" stroke="none" />
 
@@ -594,7 +594,7 @@ function MonumentElevation({ label }: { label: string }) {
 // ── FIG 03: CLI ERA ──────────────────────────────────────────────
 function InterfaceEvolutionFig() {
   return (
-    <figure data-fade style={{ margin: '2rem 0', border: '3px solid #000', overflow: 'hidden' }}>
+    <figure data-fade style={{ margin: '2rem 0', border: '1.5px solid #aaa', overflow: 'hidden' }}>
       <img src="/found-in-translation/CLI.png" alt="CLI era terminal" style={{ display: 'block', width: '100%', height: 'auto' }} />
     </figure>
   );
@@ -603,7 +603,7 @@ function InterfaceEvolutionFig() {
 // ── FIG 04: GUI ERA ──────────────────────────────────────────────
 function GuiEraFig() {
   return (
-    <figure data-fade style={{ margin: '2rem 0', border: '3px solid #000', overflow: 'hidden' }}>
+    <figure data-fade style={{ margin: '2rem 0', border: '1.5px solid #aaa', overflow: 'hidden' }}>
       <img src="/found-in-translation/GUI.jpg" alt="GUI era interface" style={{ display: 'block', width: '100%', height: 'auto' }} />
     </figure>
   );
@@ -612,7 +612,7 @@ function GuiEraFig() {
 // ── FIG 05: BEFORE / AFTER ──────────────────────────────────────
 function BeforeAfterFig() {
   return (
-    <figure data-fade style={{ margin: '2rem 0', border: '3px solid #000', background: '#f5f4f0', overflow: 'hidden' }}>
+    <figure data-fade style={{ margin: '2rem 0', border: '1.5px solid #aaa', background: '#f5f4f0', overflow: 'hidden' }}>
       <svg viewBox="0 0 800 260" width="100%" style={{ display: 'block' }} aria-label="Before and after: keyword search vs expressive intent">
         {/* backgrounds first */}
         <rect x="0" y="0" width="400" height="260" fill="#f5f4f0" />
@@ -620,9 +620,15 @@ function BeforeAfterFig() {
 
         {/* left content */}
         <text x="40" y="52" fontFamily="'IBM Plex Mono', monospace" fontSize="9" letterSpacing="2" fill="#aaa">BEFORE</text>
-        <rect x="40" y="68" width="320" height="44" rx="3" fill="#fff" stroke="#ccc" strokeWidth="1.5" />
-        <text x="56" y="91" fontFamily="'IBM Plex Mono', monospace" fontSize="11" fill="#888" fontStyle="italic">&quot;creative technologist open to</text>
-        <text x="56" y="106" fontFamily="'IBM Plex Mono', monospace" fontSize="11" fill="#888" fontStyle="italic">opportunities nyc b2b saas&quot;</text>
+        {/* keyword tags */}
+        <rect x="40" y="66" width="152" height="24" rx="12" fill="#fff" stroke="#ccc" strokeWidth="1.5" />
+        <text x="116" y="82" fontFamily="'IBM Plex Mono', monospace" fontSize="10" fill="#999" textAnchor="middle">creative technologist</text>
+        <rect x="200" y="66" width="140" height="24" rx="12" fill="#fff" stroke="#ccc" strokeWidth="1.5" />
+        <text x="270" y="82" fontFamily="'IBM Plex Mono', monospace" fontSize="10" fill="#999" textAnchor="middle">software engineers</text>
+        <rect x="40" y="98" width="50" height="24" rx="12" fill="#fff" stroke="#ccc" strokeWidth="1.5" />
+        <text x="65" y="114" fontFamily="'IBM Plex Mono', monospace" fontSize="10" fill="#999" textAnchor="middle">nyc</text>
+        <rect x="98" y="98" width="56" height="24" rx="12" fill="#fff" stroke="#ccc" strokeWidth="1.5" />
+        <text x="126" y="114" fontFamily="'IBM Plex Mono', monospace" fontSize="10" fill="#999" textAnchor="middle">saas</text>
 
         {/* right content */}
         <text x="440" y="52" fontFamily="'IBM Plex Mono', monospace" fontSize="9" letterSpacing="2" fill="#aaa">NOW</text>
@@ -668,7 +674,7 @@ function AgentNetworkPlan() {
   ];
 
   return (
-    <figure data-fade style={{ margin: '3rem 0', border: '3px solid #000', background: '#fff', overflow: 'hidden' }}>
+    <figure data-fade style={{ margin: '3rem 0', border: '1.5px solid #aaa', background: '#fff', overflow: 'hidden' }}>
       <svg viewBox="0 0 800 490" width="100%" style={{ display: 'block' }} aria-label="Agent network — plan view">
         {Array.from({ length: 26 }, (_, row) =>
           Array.from({ length: 17 }, (_, col) => (
@@ -740,7 +746,7 @@ function AgentNetworkPlan() {
 // ── STRUCTURE CARD ──────────────────────────────────────────────
 function StructureCard({ title, sub, body }: { title: string; sub: string; body: string }) {
   return (
-    <div data-fade style={{ border: '3px solid #000', padding: '2rem', background: '#fff', position: 'relative' }}>
+    <div data-fade style={{ border: '1.5px solid #aaa', padding: '2rem', background: '#fff', position: 'relative' }}>
       <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.55rem', letterSpacing: '0.25em', textTransform: 'uppercase', marginBottom: '1rem', color: '#666' }}>{sub}</div>
       <div style={{ fontFamily: SANS, fontWeight: 900, fontSize: 'clamp(1.6rem,3vw,2.2rem)', letterSpacing: '-0.02em', textTransform: 'uppercase', marginBottom: '1rem', color: '#000', lineHeight: 1 }}>{title}</div>
       <p style={{ fontFamily: SANS, fontSize: '0.85rem', lineHeight: 1.7, color: '#333', margin: 0 }}>{body}</p>
@@ -810,7 +816,7 @@ export default function FoundInTranslationPage() {
         <div style={{ height: '100%', width: `${progress * 100}%`, background: '#000', transition: 'width 0.1s linear' }} />
       </div>
 
-      <section style={{ position: 'relative', minHeight: '100vh', overflow: 'hidden', borderBottom: '3px solid #000', display: 'flex', flexDirection: 'column' }}>
+      <section style={{ position: 'relative', minHeight: '100vh', overflow: 'hidden', borderBottom: '1.5px solid #aaa', display: 'flex', flexDirection: 'column' }}>
         <div className="fit-header" style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 10, background: 'linear-gradient(to bottom, rgba(0,0,0,0.45) 0%, transparent 100%)' }}>
           <div className="max-w-7xl mx-auto px-4">
             <Header showHeaderButtons forcePublicView />
@@ -880,7 +886,7 @@ Evaluating opportunities — Evaluated 25 candidate(s) - 11.59s`}
       </div>
 
       <div style={{ ...WRAP, padding: '0 2rem' }}>
-        <figure data-fade style={{ margin: '2rem 0', border: '3px solid #000', background: '#fff', overflow: 'hidden' }}>
+        <figure data-fade style={{ margin: '2rem 0', border: '1.5px solid #aaa', background: '#fff', overflow: 'hidden' }}>
           <img
             src="/found-in-translation/diagram1.jpeg"
             alt="Two people in conversation diagram"
@@ -901,7 +907,7 @@ Evaluating opportunities — Evaluated 25 candidate(s) - 11.59s`}
         </h2>
       </div>
 
-      <div style={{ ...WRAP, padding: '1rem 2rem 3rem' }}>
+      <div style={{ ...WRAP, padding: '1rem 2rem 1rem' }}>
         <p data-fade style={P}>It starts with the center of how we make sense of things: the brain.</p>
         <p data-fade style={P}>The brain runs two parallel systems: one habitual, one intentional.</p>
         <p data-fade style={P}>The habitual is the reactive side. It&apos;s what hits snooze at 8:10, 8:19, and 8:28am.</p>
@@ -909,11 +915,11 @@ Evaluating opportunities — Evaluated 25 candidate(s) - 11.59s`}
         <p data-fade style={P}>As anyone who&apos;s ever looked for a new job knows, having the intent to switch jobs is easy. Expressing it in a way that&apos;s legible to others and successful in actually getting it is a different story.</p>
         <p data-fade style={P}>Of course, we try. We build and inhabit semantic structures together to achieve our goals. Or, we use our words.</p>
       </div>
-      <div data-fade style={{ maxWidth: 1000, margin: '0 auto', padding: '1.5rem 2rem 3rem', textAlign: 'center' }}>
+      <div data-fade style={{ maxWidth: 1000, margin: '0 auto', padding: '0.2rem 2rem 1rem', textAlign: 'center' }}>
         <p style={{ fontFamily: SANS, fontWeight: 700, fontSize: 'clamp(1rem,2vw,1.5rem)', color: '#1e1c19', lineHeight: 1.4, letterSpacing: '-0.01em', margin: '0 auto' }}>
           &ldquo;When we say that meanings materialize, we mean that sensemaking is, importantly, an issue of language, talk, and communication. Situations, organizations, and environments are talked into existence.&rdquo;
         </p>
-        <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.85rem', letterSpacing: '0.1em', color: '#888', margin: '2rem 0 0', lineHeight: 1.6 }}>Andrew Hinton<br />Understanding Context: Environment, Language, and Information Architecture (2014)</div>
+        <div style={{ fontFamily: "'Public Sans', system-ui, sans-serif", fontSize: '0.82rem', letterSpacing: '0.03em', color: '#888', margin: '0.75rem 0 0', lineHeight: 1.7, whiteSpace: 'nowrap' }}>Understanding Context: Environment, Language, and Information Architecture (2014) — Andrew Hinton</div>
       </div>
       <div style={{ ...WRAP, padding: '1rem 2rem 1rem' }}>
         <p data-fade style={P}>Over time, tools expanded the scope of opportunity. From telegraphs to telephones, command line interfaces (CLI) to graphic user interfaces (GUI), oh my! Now language could travel. But there was always a caveat:</p>
@@ -958,15 +964,6 @@ Evaluating opportunities — Evaluated 25 candidate(s) - 11.59s`}
         <p data-fade style={P}>For the first time, systems can engage with the model-based, context-sensitive layer of human decision-making: the layer where intent actually lives. With language as computational substrate, digital agents can now hold context the way a trusted partner does, to the extent of what you share.</p>
         <p data-fade style={P}>This redistributes influence. While platforms once brokered most of our professional connections, their grip loosens when the work is distributed among individual agents, navigating the highways of the open internet.</p>
         <p data-fade style={P}>But simply chatting to an agent still treats intent as an input to be immediately executed. Unlocking hidden opportunity requires a broader system of coordination, like a <em>&ldquo;have your agent call my agent&rdquo;</em> system.</p>
-      </div>
-
-      <div style={{ ...WRAP, padding: '0 2rem' }}>
-        <figure data-fade style={{ margin: '2rem 0', border: '3px solid #000', background: '#fff', overflow: 'hidden' }}>
-          <img src="/found-in-translation/diagram3.png" alt="Agent coordination diagram" style={{ display: 'block', width: '100%' }} />
-        </figure>
-      </div>
-
-      <div style={{ ...WRAP, padding: '1.5rem 2rem 0' }}>
         <p data-fade style={P}>It&apos;s not about a better matching algorithm, but reconsidering the way we think about finding our others. Say you&apos;re Zendaya on the lookout for your next Oscar-winning gig. You have a heart to heart with your agent, who then goes out to scope and gossip with the other agents on what&apos;s possible.</p>
         <p data-fade style={P}>What that system correctly factors in is—sometimes opportunities need privacy before visibility. They need space to take shape, a place to putter around before parading outside on external platforms. This is where agents can protect early privacy, or share interests selectively as appropriate.</p>
         <p data-fade style={P}>With the agentic web growing, we&apos;re also seeing agents congregate around their own water coolers to loiter and gossip on behalf of their users. Built by humans, they mirror human dynamics—sharing some things with close peers and broadcasting others to the larger networks.</p>
