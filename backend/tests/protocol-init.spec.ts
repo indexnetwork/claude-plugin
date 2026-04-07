@@ -1,5 +1,5 @@
 import { config } from 'dotenv';
-config({ path: '.env.development' });
+config({ path: '.env.test' });
 
 import { describe, it, expect, mock, afterAll } from "bun:test";
 

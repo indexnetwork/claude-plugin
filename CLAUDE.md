@@ -209,7 +209,7 @@ Consult before adding or changing code in each layer:
 - `backend/src/controllers/controller.template.md`
 - `backend/src/services/service.template.md`
 - `backend/src/queues/queue.template.md`
-- `packages/protocol/src/agents/agent.template.md` (if exists)
+
 
 ## Important Patterns
 
