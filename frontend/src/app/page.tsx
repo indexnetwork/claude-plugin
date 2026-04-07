@@ -559,7 +559,7 @@ function LandingPage() {
         <section
           className="relative overflow-hidden border-y border-[#E5E5E5] bg-[#041729]"
         >
-          <a href="/found-in-translation-6" target="_blank" rel="noopener noreferrer" className="relative block cursor-pointer">
+          <a href="/found-in-translation" target="_blank" rel="noopener noreferrer" className="relative block cursor-pointer">
             <img
               src="/found-in-translation/found-in-translation-1-hero.png"
               alt="Found in Translation hero visual"

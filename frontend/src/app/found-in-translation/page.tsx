@@ -594,20 +594,8 @@ function MonumentElevation({ label }: { label: string }) {
 // ── FIG 03: CLI ERA ──────────────────────────────────────────────
 function InterfaceEvolutionFig() {
   return (
-    <figure data-fade style={{ margin: '2rem 0', border: '3px solid #000', background: '#0a0a0a', overflow: 'hidden' }}>
-      <svg viewBox="0 0 800 320" width="100%" style={{ display: 'block' }} aria-label="CLI era terminal">
-        <rect x="0" y="0" width="800" height="32" fill="#1a1a1a" />
-        {['#e74c3c', '#f39c12', '#27ae60'].map((c, i) => (
-          <circle key={c} cx={20 + i * 22} cy="16" r="7" fill={c} />
-        ))}
-        {['$ find_job --role "engineer"', '$ filter --skill "rust"', '$ apply --cv resume.pdf', '> No match found.', '█'].map((line, i) => (
-          <text key={i} x="40" y={72 + i * 36} fontFamily="'IBM Plex Mono', monospace" fontSize="16" fill={i === 3 ? '#666' : '#c8b448'}>
-            {line}
-          </text>
-        ))}
-        <line x1="0" y1="308" x2="800" y2="308" stroke="white" strokeWidth="0.5" opacity="0.1" />
-        <text x="20" y="318" fontFamily="'IBM Plex Mono', monospace" fontSize="9" letterSpacing="2" fill="white" opacity="0.3">CLI ERA — EXPLICIT. EXACTING. ISOLATING.</text>
-      </svg>
+    <figure data-fade style={{ margin: '2rem 0', border: '3px solid #000', overflow: 'hidden' }}>
+      <img src="/found-in-translation/CLI.png" alt="CLI era terminal" style={{ display: 'block', width: '100%', height: 'auto' }} />
     </figure>
   );
 }
@@ -615,29 +603,8 @@ function InterfaceEvolutionFig() {
 // ── FIG 04: GUI ERA ──────────────────────────────────────────────
 function GuiEraFig() {
   return (
-    <figure data-fade style={{ margin: '2rem 0', border: '3px solid #000', background: '#e8e8e8', overflow: 'hidden' }}>
-      <svg viewBox="0 0 800 320" width="100%" style={{ display: 'block' }} aria-label="GUI era interface">
-        <rect x="0" y="0" width="800" height="32" fill="#c0c0c0" />
-        {['#e74c3c', '#f39c12', '#27ae60'].map((c, i) => (
-          <circle key={c} cx={20 + i * 22} cy="16" r="7" fill={c} />
-        ))}
-        <text x="400" y="20" textAnchor="middle" fontFamily="'IBM Plex Mono', monospace" fontSize="11" fill="#555">JobBoard v2.0</text>
-        <rect x="40" y="52" width="720" height="36" rx="4" fill="#fff" stroke="#aaa" strokeWidth="1.5" />
-        <text x="60" y="75" fontFamily="'IBM Plex Mono', monospace" fontSize="13" fill="#bbb">Search jobs...</text>
-        <rect x="680" y="58" width="72" height="24" rx="3" fill="#555" />
-        <text x="716" y="74" textAnchor="middle" fontFamily="'IBM Plex Mono', monospace" fontSize="11" fill="#fff">Search</text>
-        {[0, 1, 2].map((i) => (
-          <g key={i}>
-            <rect x="40" y={104 + i * 62} width="720" height="52" rx="3" fill="#fff" stroke="#ccc" strokeWidth="1" />
-            <rect x="56" y={114 + i * 62} width="140" height="10" rx="2" fill="#ccc" />
-            <rect x="56" y={130 + i * 62} width="220" height="8" rx="2" fill="#ddd" />
-            <rect x="600" y={116 + i * 62} width="80" height="24" rx="3" fill="#d0d0d0" stroke="#bbb" strokeWidth="1" />
-            <text x="640" y={132 + i * 62} textAnchor="middle" fontFamily="'IBM Plex Mono', monospace" fontSize="9" fill="#888">Apply</text>
-          </g>
-        ))}
-        <line x1="0" y1="308" x2="800" y2="308" stroke="black" strokeWidth="0.5" opacity="0.15" />
-        <text x="20" y="318" fontFamily="'IBM Plex Mono', monospace" fontSize="9" letterSpacing="2" fill="black" opacity="0.3">GUI ERA — ACCESSIBLE. SHALLOW. DECONTEXTUALIZED.</text>
-      </svg>
+    <figure data-fade style={{ margin: '2rem 0', border: '3px solid #000', overflow: 'hidden' }}>
+      <img src="/found-in-translation/GUI.jpg" alt="GUI era interface" style={{ display: 'block', width: '100%', height: 'auto' }} />
     </figure>
   );
 }
@@ -799,6 +766,36 @@ export default function FoundInTranslationPage() {
   const progress = useScrollProgress();
   useFadeIn(pageRef as React.RefObject<HTMLElement>);
 
+  useEffect(() => {
+    const prevTitle = document.title;
+    document.title = 'Found in Translation | Index Network';
+
+    const setMeta = (name: string, content: string, attr = 'name') => {
+      let el = document.querySelector(`meta[${attr}="${name}"]`) as HTMLMetaElement | null;
+      if (!el) {
+        el = document.createElement('meta');
+        el.setAttribute(attr, name);
+        document.head.appendChild(el);
+      }
+      el.setAttribute('content', content);
+      return el;
+    };
+
+    const description = 'Some things find you. Most don\'t. That is, until language became our new interface and agents became our calling cards.';
+    const url = 'https://index.network/found-in-translation';
+
+    setMeta('description', description);
+    setMeta('og:title', 'Found in Translation | Index Network', 'property');
+    setMeta('og:description', description, 'property');
+    setMeta('og:url', url, 'property');
+    setMeta('twitter:title', 'Found in Translation | Index Network');
+    setMeta('twitter:description', description);
+
+    return () => {
+      document.title = prevTitle;
+    };
+  }, []);
+
   const P: React.CSSProperties = {
     fontFamily: SANS,
     fontSize: 'max(18px, 1.2rem)', lineHeight: 1.4, color: '#222', marginBottom: '0.8rem',
@@ -892,11 +889,8 @@ Evaluating opportunities — Evaluated 25 candidate(s) - 11.59s`}
         </figure>
       </div>
 
-      <div style={{ ...WRAP, padding: '1rem 2rem' }}>
+      <div style={{ ...WRAP, padding: '1rem 2rem 0' }}>
         <p data-fade style={P}>You might sleep on your vague desires, wake up, and start searching for someone who might just share your flavor of weird.</p>
-      </div>
-
-      <div style={{ ...WRAP, padding: '2rem 2rem 0' }}>
         <p data-fade style={P}>You would think it gets easier—that technology was meant to help the stars align and show us the idea at the tip of our tongue, or deliver us the role that doesn&apos;t exist yet, or the investor who gets it.</p>
         <p data-fade style={P}>For most of computing history, there was no system elastic enough to hold that kind of ambiguity in our careers. It makes sense. The next opportunity ahead is often illegible to ourselves—until it arrives as the email we&apos;ve been waiting for.</p>
       </div>
