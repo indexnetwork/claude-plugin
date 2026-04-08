@@ -164,7 +164,7 @@ export const oauthConsents = pgTable('oauth_consent', {
 export const apikeys = pgTable('apikey', {
   id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
   key: text('key').notNull(),
-  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  userId: text('user_id').references(() => users.id, { onDelete: 'cascade' }),
   referenceId: text('reference_id'),
   configId: text('config_id').default('default'),
   name: text('name'),
