@@ -253,6 +253,22 @@
       "when": 1743724800000,
       "tag": "0035_backfill_opportunity_jsonb",
       "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1743724800000,
+      "tag": "0035_backfill_opportunity_jsonb",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1744100000000,
+      "tag": "0036_add_webhooks_table",
+      "breakpoints": true
     }
+  ]
+}
   ]
 }

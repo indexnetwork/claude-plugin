@@ -374,6 +374,25 @@ export type Link = typeof linksTable.$inferSelect;
 export type NewLink = typeof linksTable.$inferInsert;
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// Webhooks
+// ═══════════════════════════════════════════════════════════════════════════════
+
+export const webhooks = pgTable('webhooks', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  url: text('url').notNull(),
+  secret: text('secret').notNull(),
+  events: text('events').array().notNull(),
+  active: boolean('active').notNull().default(true),
+  description: text('description'),
+  failureCount: integer('failure_count').notNull().default(0),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  userIdIdx: index('webhooks_user_id_idx').on(table.userId),
+}));
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // Relations
 // ═══════════════════════════════════════════════════════════════════════════════
 
@@ -494,5 +513,7 @@ export type PersonalNetwork = typeof personalNetworks.$inferSelect;
 export type NewPersonalNetwork = typeof personalNetworks.$inferInsert;
 export type NetworkIntegration = typeof networkIntegrations.$inferSelect;
 export type NewNetworkIntegration = typeof networkIntegrations.$inferInsert;
+export type Webhook = typeof webhooks.$inferSelect;
+export type NewWebhook = typeof webhooks.$inferInsert;
 
 export * from './conversation.schema';
