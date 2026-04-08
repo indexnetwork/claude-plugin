@@ -40,9 +40,14 @@ import { notificationQueue } from './queues/notification.queue';
 import { hydeQueue } from './queues/hyde.queue';
 import { emailQueue } from './queues/email.queue';
 import { profileQueue } from './queues/profile.queue';
+import { webhookQueue } from './queues/webhook.queue';
+import { negotiationTimeoutQueue } from './queues/negotiation-timeout.queue';
+import { WebhookController } from './controllers/webhook.controller';
 import { NetworkMembershipEvents } from './events/network_membership.event';
 import { IntentEvents } from './events/intent.event';
+import { NegotiationEvents } from './events/negotiation.event';
 import { opportunityService } from './services/opportunity.service';
+import { webhookService } from './services/webhook.service';
 
 intentQueue.startWorker();
 opportunityQueue.startWorker();
@@ -51,6 +56,8 @@ notificationQueue.startWorker();
 profileQueue.startWorker();
 hydeQueue.startCrons();
 emailQueue.startWorker();
+webhookQueue.startWorker();
+negotiationTimeoutQueue.startWorker();
 
 NetworkMembershipEvents.onMemberAdded = (userId: string) => {
   profileQueue.addEnsureProfileHydeJob({ userId }).catch((err) => {
@@ -75,6 +82,123 @@ IntentEvents.onUpdated = (intentId: string, userId: string) => {
 IntentEvents.onArchived = (intentId: string, userId: string) => {
   log.job.from('IntentEvents').verbose('Intent archived, triggering maintenance', { intentId, userId });
   opportunityService.triggerMaintenance(userId, 'intent-archived');
+};
+
+// Subscribe to opportunity events to deliver webhooks
+opportunityService.onOpportunityEvent('created', async ({ opportunity }) => {
+  const actorUserIds = new Set<string>();
+  for (const actor of (opportunity.actors ?? []) as Array<{ userId?: string }>) {
+    if (actor.userId) actorUserIds.add(actor.userId);
+  }
+
+  for (const userId of actorUserIds) {
+    try {
+      const hooks = await webhookService.findByUserAndEvent(userId, 'opportunity.created');
+      for (const hook of hooks) {
+        await webhookQueue.addJob('deliver_webhook', {
+          webhookId: hook.id,
+          url: hook.url,
+          secret: hook.secret,
+          event: 'opportunity.created',
+          payload: {
+            opportunityId: opportunity.id,
+            status: opportunity.status,
+            actors: opportunity.actors,
+            createdAt: opportunity.createdAt,
+          },
+          timestamp: new Date().toISOString(),
+        }, { jobId: `webhook-opp-created-${hook.id}-${opportunity.id}` });
+      }
+    } catch (err) {
+      log.job.from('WebhookEvents').error('Failed to enqueue webhook for opportunity.created', {
+        userId,
+        opportunityId: opportunity.id,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+});
+
+// Subscribe to negotiation events to deliver webhooks
+NegotiationEvents.onStarted = async (data) => {
+  try {
+    const hooks = await webhookService.findByUserAndEvent(data.userId, 'negotiation.started');
+    for (const hook of hooks) {
+      await webhookQueue.addJob('deliver_webhook', {
+        webhookId: hook.id,
+        url: hook.url,
+        secret: hook.secret,
+        event: 'negotiation.started',
+        payload: {
+          negotiationId: data.negotiationId,
+          counterpartyId: data.counterpartyId,
+          counterpartyName: data.counterpartyName,
+        },
+        timestamp: new Date().toISOString(),
+      }, { jobId: `webhook-neg-started-${hook.id}-${data.negotiationId}` });
+    }
+  } catch (err) {
+    log.job.from('WebhookEvents').error('Failed to enqueue webhook for negotiation.started', {
+      userId: data.userId,
+      negotiationId: data.negotiationId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+};
+
+NegotiationEvents.onTurnReceived = async (data) => {
+  try {
+    const hooks = await webhookService.findByUserAndEvent(data.userId, 'negotiation.turn_received');
+    for (const hook of hooks) {
+      await webhookQueue.addJob('deliver_webhook', {
+        webhookId: hook.id,
+        url: hook.url,
+        secret: hook.secret,
+        event: 'negotiation.turn_received',
+        payload: {
+          negotiationId: data.negotiationId,
+          turnNumber: data.turnNumber,
+          counterpartyAction: data.counterpartyAction,
+          counterpartyMessage: data.counterpartyMessage,
+          deadline: data.deadline,
+        },
+        timestamp: new Date().toISOString(),
+      }, { jobId: `webhook-neg-turn-${hook.id}-${data.negotiationId}-${data.turnNumber}` });
+    }
+  } catch (err) {
+    log.job.from('WebhookEvents').error('Failed to enqueue webhook for negotiation.turn_received', {
+      userId: data.userId,
+      negotiationId: data.negotiationId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+};
+
+NegotiationEvents.onCompleted = async (data) => {
+  try {
+    const hooks = await webhookService.findByUserAndEvent(data.userId, 'negotiation.completed');
+    for (const hook of hooks) {
+      await webhookQueue.addJob('deliver_webhook', {
+        webhookId: hook.id,
+        url: hook.url,
+        secret: hook.secret,
+        event: 'negotiation.completed',
+        payload: {
+          negotiationId: data.negotiationId,
+          outcome: data.outcome,
+          finalScore: data.finalScore,
+          turnCount: data.turnCount,
+        },
+        timestamp: new Date().toISOString(),
+      }, { jobId: `webhook-neg-completed-${hook.id}-${data.negotiationId}` });
+    }
+  } catch (err) {
+    log.job.from('WebhookEvents').error('Failed to enqueue webhook for negotiation.completed', {
+      userId: data.userId,
+      negotiationId: data.negotiationId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
 };
 
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3001;
@@ -147,6 +271,7 @@ const integrationAdapter = new ComposioIntegrationAdapter();
 const integrationService = new IntegrationService(integrationAdapter, contactService);
 controllerInstances.set(IntegrationController, new IntegrationController(integrationService));
 controllerInstances.set(DebugController, new DebugController());
+controllerInstances.set(WebhookController, new WebhookController());
 const toolService = new ToolService(contactService, integrationService, integrationAdapter);
 controllerInstances.set(ToolController, new ToolController(toolService));
 
@@ -338,6 +463,8 @@ const shutdown = async () => {
     opportunityQueue.close(),
     notificationQueue.close(),
     emailQueue.close(),
+    webhookQueue.close(),
+    negotiationTimeoutQueue.close(),
   ]);
   logger.info('Workers closed');
   process.exit(0);

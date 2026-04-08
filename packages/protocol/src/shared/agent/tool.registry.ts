@@ -8,6 +8,8 @@ import { createOpportunityTools } from '../../opportunity/opportunity.tools.js';
 import { createUtilityTools } from './utility.tools.js';
 import { createIntegrationTools } from '../../integration/integration.tools.js';
 import { createContactTools } from '../../contact/contact.tools.js';
+import { createWebhookTools } from '../../webhook/webhook.tools.js';
+import { createNegotiationTools } from '../../negotiation/negotiation.tools.js';
 import { protocolLogger } from '../observability/protocol.logger.js';
 import { error } from './tool.helpers.js';
 
@@ -69,6 +71,8 @@ export function createToolRegistry(deps: ToolDeps): ToolRegistry {
   createUtilityTools(dt, deps);
   createIntegrationTools(dt, deps);
   createContactTools(dt, deps);
+  createWebhookTools(dt, deps);
+  createNegotiationTools(dt, deps);
 
   logger.verbose(`Tool registry created with ${registry.size} tools`);
   return registry;

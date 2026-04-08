@@ -49,6 +49,9 @@ function getOrCompileGraphs(deps: ReturnType<typeof createDefaultProtocolDeps>):
     deps.negotiationDatabase,
     new NegotiationProposer(),
     new NegotiationResponder(),
+    deps.webhookLookup,
+    deps.negotiationEvents,
+    deps.negotiationTimeoutQueue,
   ).createGraph();
   const opportunityGraph = new OpportunityGraphFactory(
     database, embedder, compiledHydeGraph,
@@ -121,21 +124,38 @@ const authResolver: McpAuthResolver = {
 
     const apiKey = request.headers.get('x-api-key');
     if (apiKey) {
+      // Better Auth apiKey plugin with enableSessionForAPIKeys resolves sessions
+      // from x-api-key headers via middleware. Forward the key to get-session.
       try {
-        const verifyRes = await fetch(`${BASE_URL}/api/auth/api-key/verify`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ key: apiKey }),
+        const sessionRes = await fetch(`${BASE_URL}/api/auth/get-session`, {
+          headers: { 'x-api-key': apiKey },
           signal: AbortSignal.timeout(5000),
         });
-        if (!verifyRes.ok) throw new Error(`API key verification failed: ${verifyRes.status}`);
-        const data = await verifyRes.json() as { valid: boolean; userId?: string; error?: string };
-        if (data.valid && data.userId) return data.userId;
-        throw new Error(data.error || 'Invalid API key');
+        if (sessionRes.ok) {
+          const data = await sessionRes.json() as { user?: { id?: string } } | null;
+          if (data?.user?.id) return data.user.id;
+        }
+      } catch { /* session lookup failed, try direct DB */ }
+
+      // Fallback: hash the key (SHA-256 + base64url, matching Better Auth) and look up in DB
+      try {
+        const hashBuffer = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(apiKey));
+        const hashed = btoa(String.fromCharCode(...new Uint8Array(hashBuffer)))
+          .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+        const drizzle = await import('../lib/drizzle/drizzle');
+        const { eq } = await import('drizzle-orm');
+        const { apikeys } = await import('../schemas/database.schema');
+        const [row] = await drizzle.default.select({ referenceId: apikeys.referenceId })
+          .from(apikeys)
+          .where(eq(apikeys.key, hashed))
+          .limit(1);
+        if (row?.referenceId) return row.referenceId;
       } catch (err) {
-        if (err instanceof Error && err.message.startsWith('API key verification failed')) throw err;
-        throw new Error(`API key authentication failed: ${err instanceof Error ? err.message : String(err)}`, { cause: err });
+        const msg = err instanceof Error ? err.message : String(err);
+        throw new Error(`API key authentication failed: ${msg}`, { cause: err });
       }
+
+      throw new Error('Invalid API key');
     }
 
     throw new Error('Authentication required: provide Bearer token or x-api-key header');
@@ -168,6 +188,11 @@ function getOrCreateMcpServer(): McpServer {
     contactService: deps.contactService,
     integrationImporter: deps.integrationImporter,
     enricher: deps.enricher,
+    negotiationDatabase: deps.negotiationDatabase,
+    webhook: deps.webhook,
+    webhookLookup: deps.webhookLookup,
+    negotiationEvents: deps.negotiationEvents,
+    negotiationTimeoutQueue: deps.negotiationTimeoutQueue,
     graphs,
   };
 

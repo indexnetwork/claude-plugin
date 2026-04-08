@@ -2,6 +2,7 @@ import { StateGraph } from "@langchain/langgraph";
 
 import { requestContext, type TraceEmitter } from "../shared/observability/request-context.js";
 import type { NegotiationDatabase } from "../shared/interfaces/database.interface.js";
+import type { WebhookLookup, NegotiationEventEmitter, NegotiationTimeoutQueue } from "../shared/interfaces/negotiation-events.interface.js";
 import { NegotiationGraphState, type NegotiationTurn, type NegotiationOutcome, type UserNegotiationContext, type SeedAssessment, type NegotiationGraphLike } from "./negotiation.state.js";
 import { protocolLogger } from "../shared/observability/protocol.logger.js";
 
@@ -17,6 +18,9 @@ interface NegotiationAgentLike {
   }): Promise<NegotiationTurn>;
 }
 
+/** Default timeout for external agent responses (24 hours). */
+const DEFAULT_EXTERNAL_TIMEOUT_MS = 24 * 60 * 60 * 1000;
+
 /**
  * Factory for the bilateral negotiation LangGraph state machine.
  * @remarks Accepts dependencies via constructor for testability.
@@ -26,10 +30,13 @@ export class NegotiationGraphFactory {
     private database: NegotiationDatabase,
     private proposer: NegotiationAgentLike,
     private responder: NegotiationAgentLike,
+    private webhookLookup?: WebhookLookup,
+    private eventEmitter?: NegotiationEventEmitter,
+    private timeoutQueue?: NegotiationTimeoutQueue,
   ) {}
 
   createGraph() {
-    const { database, proposer, responder } = this;
+    const { database, proposer, responder, webhookLookup, eventEmitter, timeoutQueue } = this;
 
     const initNode = async (state: typeof NegotiationGraphState.State) => {
       try {
@@ -63,9 +70,44 @@ export class NegotiationGraphFactory {
         }).filter(Boolean);
 
         const isSource = state.currentSpeaker === "source";
-        const agent = isSource ? proposer : responder;
         const ownUser = isSource ? state.sourceUser : state.candidateUser;
         const otherUser = isSource ? state.candidateUser : state.sourceUser;
+
+        // ── Yield check: if the active party has an external agent (webhook), pause ──
+        // Skip when yieldForExternal is false (e.g. chat-initiated negotiations need real-time results).
+        if (webhookLookup && state.yieldForExternal !== false) {
+          const hasExternalAgent = await webhookLookup.hasWebhookForEvent(ownUser.id, 'negotiation.turn_received');
+          if (hasExternalAgent) {
+            logger.info("[Graph:Turn] External agent available, yielding", { userId: ownUser.id, turnCount: state.turnCount });
+
+            await database.updateTaskState(state.taskId, "waiting_for_external");
+
+            // Determine the last counterparty action for the event payload
+            const lastTurnData = history[history.length - 1];
+            const deadline = new Date(Date.now() + DEFAULT_EXTERNAL_TIMEOUT_MS).toISOString();
+
+            eventEmitter?.emitTurnReceived({
+              negotiationId: state.taskId,
+              userId: ownUser.id,
+              turnNumber: state.turnCount + 1,
+              counterpartyAction: lastTurnData?.action ?? 'propose',
+              counterpartyMessage: lastTurnData?.assessment?.reasoning,
+              deadline,
+            });
+
+            // Enqueue timeout fallback (fire-and-forget to avoid blocking if Redis is down)
+            if (timeoutQueue) {
+              timeoutQueue.enqueueTimeout(state.taskId, state.turnCount, DEFAULT_EXTERNAL_TIMEOUT_MS)
+                .catch((err) => logger.error("[Graph:Turn] Failed to enqueue timeout", { taskId: state.taskId, error: err instanceof Error ? err.message : String(err) }));
+            }
+
+            // Return early — graph yields. No new message, no turn increment.
+            return { status: 'waiting_for_external' as const };
+          }
+        }
+
+        // ── No external agent: run the built-in AI agent ──
+        const agent = isSource ? proposer : responder;
         const senderId = `agent:${ownUser.id}`;
 
         const traceEmitter = requestContext.getStore()?.traceEmitter;
@@ -125,6 +167,8 @@ export class NegotiationGraphFactory {
     };
 
     const evaluateNode = (state: typeof NegotiationGraphState.State): string => {
+      // When the graph yielded for an external agent, go straight to finalize (no-op exit)
+      if (state.status === 'waiting_for_external') return "finalize";
       if (state.error) return "finalize";
       if (!state.lastTurn) return "finalize";
       if (state.lastTurn.action === "accept") return "finalize";
@@ -134,6 +178,12 @@ export class NegotiationGraphFactory {
     };
 
     const finalizeNode = async (state: typeof NegotiationGraphState.State) => {
+      // When yielding for an external agent, skip outcome persistence — the graph
+      // will be resumed via respond_to_negotiation or the timeout worker.
+      if (state.status === 'waiting_for_external') {
+        return {};
+      }
+
       const history: NegotiationTurn[] = state.messages.map((m) => {
         const dataPart = (m.parts as Array<{ kind?: string; data?: unknown }>).find((p) => p.kind === "data");
         return dataPart?.data as NegotiationTurn;
@@ -185,7 +235,7 @@ export class NegotiationGraphFactory {
         logger.error("[Graph:Finalize] Failed to persist outcome", { error: err });
       }
 
-      return { outcome };
+      return { outcome, status: 'completed' as const };
     };
 
     const workflow = new StateGraph(NegotiationGraphState)
@@ -237,9 +287,9 @@ export async function negotiateCandidates(
   sourceUser: UserNegotiationContext,
   candidates: NegotiationCandidate[],
   indexContext: { networkId: string; prompt: string },
-  opts?: { maxTurns?: number; traceEmitter?: TraceEmitter; indexContextOverrides?: Map<string, string> },
+  opts?: { maxTurns?: number; traceEmitter?: TraceEmitter; indexContextOverrides?: Map<string, string>; yieldForExternal?: boolean },
 ): Promise<NegotiationResult[]> {
-  const { maxTurns, traceEmitter, indexContextOverrides } = opts ?? {};
+  const { maxTurns, traceEmitter, indexContextOverrides, yieldForExternal } = opts ?? {};
 
   const results = await Promise.all(
     candidates.map(async (candidate) => {
@@ -262,6 +312,7 @@ export async function negotiateCandidates(
             valencyRole: candidate.valencyRole,
           },
           ...(maxTurns !== undefined && { maxTurns }),
+          ...(yieldForExternal !== undefined && { yieldForExternal }),
         });
 
         const durationMs = Date.now() - start;
@@ -314,11 +365,17 @@ export function createDefaultNegotiationGraph(deps: {
   database: NegotiationDatabase;
   proposer: NegotiationAgentLike;
   responder: NegotiationAgentLike;
+  webhookLookup?: WebhookLookup;
+  eventEmitter?: NegotiationEventEmitter;
+  timeoutQueue?: NegotiationTimeoutQueue;
 }) {
   const factory = new NegotiationGraphFactory(
     deps.database,
     deps.proposer,
     deps.responder,
+    deps.webhookLookup,
+    deps.eventEmitter,
+    deps.timeoutQueue,
   );
   return factory.createGraph();
 }

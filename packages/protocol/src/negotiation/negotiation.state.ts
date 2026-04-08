@@ -54,6 +54,8 @@ export interface NegotiationGraphLike {
     indexContext: { networkId: string; prompt: string };
     seedAssessment: Omit<SeedAssessment, "actors">;
     maxTurns?: number;
+    /** When false, always run the built-in AI agent instead of yielding for external agents (webhooks). Defaults to true. */
+    yieldForExternal?: boolean;
   }): Promise<{ outcome: NegotiationOutcome | null; messages?: NegotiationMessage[] }>;
 }
 
@@ -113,6 +115,24 @@ export const NegotiationGraphState = Annotation.Root({
   lastTurn: Annotation<NegotiationTurn | null>({
     reducer: (curr, next) => next ?? curr,
     default: () => null,
+  }),
+
+  /**
+   * Graph status. Tracks whether the negotiation is actively running, waiting
+   * for an external response (e.g. user input via MCP tool), or finished.
+   * - `active` — agents are exchanging turns (default)
+   * - `waiting_for_external` — graph has yielded; awaiting external response or timeout
+   * - `completed` — negotiation finalized (accept/reject/turn-cap)
+   */
+  status: Annotation<'active' | 'waiting_for_external' | 'completed'>({
+    reducer: (curr, next) => next ?? curr,
+    default: () => 'active' as const,
+  }),
+
+  /** When false, always run the built-in AI agent instead of yielding for external agents (webhooks). */
+  yieldForExternal: Annotation<boolean>({
+    reducer: (curr, next) => next ?? curr,
+    default: () => true,
   }),
 
   outcome: Annotation<NegotiationOutcome | null>({
