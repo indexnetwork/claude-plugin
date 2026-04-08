@@ -40,9 +40,12 @@ import { notificationQueue } from './queues/notification.queue';
 import { hydeQueue } from './queues/hyde.queue';
 import { emailQueue } from './queues/email.queue';
 import { profileQueue } from './queues/profile.queue';
+import { webhookQueue } from './queues/webhook.queue';
+import { WebhookController } from './controllers/webhook.controller';
 import { NetworkMembershipEvents } from './events/network_membership.event';
 import { IntentEvents } from './events/intent.event';
 import { opportunityService } from './services/opportunity.service';
+import { webhookService } from './services/webhook.service';
 
 intentQueue.startWorker();
 opportunityQueue.startWorker();
@@ -51,6 +54,7 @@ notificationQueue.startWorker();
 profileQueue.startWorker();
 hydeQueue.startCrons();
 emailQueue.startWorker();
+webhookQueue.startWorker();
 
 NetworkMembershipEvents.onMemberAdded = (userId: string) => {
   profileQueue.addEnsureProfileHydeJob({ userId }).catch((err) => {
@@ -76,6 +80,41 @@ IntentEvents.onArchived = (intentId: string, userId: string) => {
   log.job.from('IntentEvents').verbose('Intent archived, triggering maintenance', { intentId, userId });
   opportunityService.triggerMaintenance(userId, 'intent-archived');
 };
+
+// Subscribe to opportunity events to deliver webhooks
+opportunityService.onOpportunityEvent('created', async ({ opportunity }) => {
+  const actorUserIds = new Set<string>();
+  for (const actor of (opportunity.actors ?? []) as Array<{ userId?: string }>) {
+    if (actor.userId) actorUserIds.add(actor.userId);
+  }
+
+  for (const userId of actorUserIds) {
+    try {
+      const hooks = await webhookService.findByUserAndEvent(userId, 'opportunity.created');
+      for (const hook of hooks) {
+        await webhookQueue.addJob('deliver_webhook', {
+          webhookId: hook.id,
+          url: hook.url,
+          secret: hook.secret,
+          event: 'opportunity.created',
+          payload: {
+            opportunityId: opportunity.id,
+            status: opportunity.status,
+            actors: opportunity.actors,
+            createdAt: opportunity.createdAt,
+          },
+          timestamp: new Date().toISOString(),
+        }, { jobId: `webhook-opp-created-${hook.id}-${opportunity.id}` });
+      }
+    } catch (err) {
+      log.job.from('WebhookEvents').error('Failed to enqueue webhook for opportunity.created', {
+        userId,
+        opportunityId: opportunity.id,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+});
 
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3001;
 const GLOBAL_PREFIX = '/api';
@@ -147,6 +186,7 @@ const integrationAdapter = new ComposioIntegrationAdapter();
 const integrationService = new IntegrationService(integrationAdapter, contactService);
 controllerInstances.set(IntegrationController, new IntegrationController(integrationService));
 controllerInstances.set(DebugController, new DebugController());
+controllerInstances.set(WebhookController, new WebhookController());
 const toolService = new ToolService(contactService, integrationService, integrationAdapter);
 controllerInstances.set(ToolController, new ToolController(toolService));
 
@@ -338,6 +378,7 @@ const shutdown = async () => {
     opportunityQueue.close(),
     notificationQueue.close(),
     emailQueue.close(),
+    webhookQueue.close(),
   ]);
   logger.info('Workers closed');
   process.exit(0);

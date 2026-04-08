@@ -26,6 +26,8 @@ import { chatSessionService } from "./services/chat.service";
 import { contactService } from "./services/contact.service";
 import { IntegrationService } from "./services/integration.service";
 import { enrichUserProfile } from "./lib/parallel/parallel";
+import { webhookService } from "./services/webhook.service";
+import { WEBHOOK_EVENTS } from "./lib/webhook-events";
 import type { ProtocolDeps } from '@indexnetwork/protocol';
 
 /**
@@ -56,5 +58,13 @@ export function createDefaultProtocolDeps(): ProtocolDeps {
       createUserDatabase(db as unknown as ChatDatabaseAdapter, userId),
     createSystemDatabase: (db, userId, scope, emb) =>
       createSystemDatabase(db as unknown as ChatDatabaseAdapter, userId, scope, emb),
+    webhook: {
+      create: (userId: string, url: string, events: string[], description?: string) =>
+        webhookService.create(userId, url, events, description),
+      list: (userId: string) => webhookService.list(userId),
+      delete: (userId: string, webhookId: string) => webhookService.delete(userId, webhookId),
+      test: (userId: string, webhookId: string) => webhookService.test(userId, webhookId),
+      listEvents: () => [...WEBHOOK_EVENTS],
+    },
   };
 }
