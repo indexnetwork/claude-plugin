@@ -823,14 +823,20 @@ export default function FoundInTranslationPage() {
     };
 
     const description = 'Some things find you. Most don\'t. That is, until language became our new interface and agents became our calling cards.';
-    const url = 'https://index.network/found-in-translation';
+    const origin = window.location.origin;
+    const url = `${origin}/found-in-translation`;
+    const image = `${origin}/found-in-translation/found-in-translation-1-hero.png`;
 
     setMeta('description', description);
+    setMeta('og:type', 'article', 'property');
     setMeta('og:title', 'Found in Translation | Index Network', 'property');
     setMeta('og:description', description, 'property');
     setMeta('og:url', url, 'property');
+    setMeta('og:image', image, 'property');
+    setMeta('twitter:card', 'summary_large_image');
     setMeta('twitter:title', 'Found in Translation | Index Network');
     setMeta('twitter:description', description);
+    setMeta('twitter:image', image);
 
     return () => {
       document.title = prevTitle;
