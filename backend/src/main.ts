@@ -44,6 +44,7 @@ import { webhookQueue } from './queues/webhook.queue';
 import { WebhookController } from './controllers/webhook.controller';
 import { NetworkMembershipEvents } from './events/network_membership.event';
 import { IntentEvents } from './events/intent.event';
+import { NegotiationEvents } from './events/negotiation.event';
 import { opportunityService } from './services/opportunity.service';
 import { webhookService } from './services/webhook.service';
 
@@ -115,6 +116,88 @@ opportunityService.onOpportunityEvent('created', async ({ opportunity }) => {
     }
   }
 });
+
+// Subscribe to negotiation events to deliver webhooks
+NegotiationEvents.onStarted = async (data) => {
+  try {
+    const hooks = await webhookService.findByUserAndEvent(data.userId, 'negotiation.started');
+    for (const hook of hooks) {
+      await webhookQueue.addJob('deliver_webhook', {
+        webhookId: hook.id,
+        url: hook.url,
+        secret: hook.secret,
+        event: 'negotiation.started',
+        payload: {
+          negotiationId: data.negotiationId,
+          counterpartyId: data.counterpartyId,
+          counterpartyName: data.counterpartyName,
+        },
+        timestamp: new Date().toISOString(),
+      }, { jobId: `webhook-neg-started-${hook.id}-${data.negotiationId}` });
+    }
+  } catch (err) {
+    log.job.from('WebhookEvents').error('Failed to enqueue webhook for negotiation.started', {
+      userId: data.userId,
+      negotiationId: data.negotiationId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+};
+
+NegotiationEvents.onTurnReceived = async (data) => {
+  try {
+    const hooks = await webhookService.findByUserAndEvent(data.userId, 'negotiation.turn_received');
+    for (const hook of hooks) {
+      await webhookQueue.addJob('deliver_webhook', {
+        webhookId: hook.id,
+        url: hook.url,
+        secret: hook.secret,
+        event: 'negotiation.turn_received',
+        payload: {
+          negotiationId: data.negotiationId,
+          turnNumber: data.turnNumber,
+          counterpartyAction: data.counterpartyAction,
+          counterpartyMessage: data.counterpartyMessage,
+          deadline: data.deadline,
+        },
+        timestamp: new Date().toISOString(),
+      }, { jobId: `webhook-neg-turn-${hook.id}-${data.negotiationId}-${data.turnNumber}` });
+    }
+  } catch (err) {
+    log.job.from('WebhookEvents').error('Failed to enqueue webhook for negotiation.turn_received', {
+      userId: data.userId,
+      negotiationId: data.negotiationId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+};
+
+NegotiationEvents.onCompleted = async (data) => {
+  try {
+    const hooks = await webhookService.findByUserAndEvent(data.userId, 'negotiation.completed');
+    for (const hook of hooks) {
+      await webhookQueue.addJob('deliver_webhook', {
+        webhookId: hook.id,
+        url: hook.url,
+        secret: hook.secret,
+        event: 'negotiation.completed',
+        payload: {
+          negotiationId: data.negotiationId,
+          outcome: data.outcome,
+          finalScore: data.finalScore,
+          turnCount: data.turnCount,
+        },
+        timestamp: new Date().toISOString(),
+      }, { jobId: `webhook-neg-completed-${hook.id}-${data.negotiationId}` });
+    }
+  } catch (err) {
+    log.job.from('WebhookEvents').error('Failed to enqueue webhook for negotiation.completed', {
+      userId: data.userId,
+      negotiationId: data.negotiationId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+};
 
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3001;
 const GLOBAL_PREFIX = '/api';
