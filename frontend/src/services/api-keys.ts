@@ -27,8 +27,14 @@ export const createApiKeysService = (api: ReturnType<typeof useAuthenticatedAPI>
 
   /** List all API keys for the current user. */
   list: async (): Promise<ApiKeyInfo[]> => {
-    const response = await api.get<ApiKeyInfo[]>('/auth/api-key/list');
-    return response;
+    // Better Auth may return { keys: [...] } or an array directly
+    const response = await api.get<unknown>('/auth/api-key/list');
+    if (Array.isArray(response)) return response as ApiKeyInfo[];
+    if (response && typeof response === 'object' && 'keys' in response) {
+      const wrapped = response as { keys?: unknown };
+      if (Array.isArray(wrapped.keys)) return wrapped.keys as ApiKeyInfo[];
+    }
+    return [];
   },
 
   /** Permanently revoke an API key by ID. */

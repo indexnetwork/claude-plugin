@@ -166,19 +166,26 @@ export const apikeys = pgTable('apikey', {
   key: text('key').notNull(),
   userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
   referenceId: text('reference_id'),
-  createdAt: timestamp('created_at').defaultNow().notNull(),
-  updatedAt: timestamp('updated_at').defaultNow().notNull(),
-  expiresAt: timestamp('expires_at'),
+  configId: text('config_id').default('default'),
+  name: text('name'),
+  prefix: text('prefix'),
+  start: text('start'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  expiresAt: timestamp('expires_at', { withTimezone: true }),
   enabled: boolean('enabled').default(true).notNull(),
   rateLimitEnabled: boolean('rate_limit_enabled').default(false).notNull(),
+  rateLimitMax: integer('rate_limit_max'),
+  rateLimitTimeWindow: integer('rate_limit_time_window'),
   requestCount: integer('request_count').default(0).notNull(),
-}, (table) => ({
-  userIdIdx: index('apikey_user_id_idx').on(table.userId),
-}));
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// Domain tables
-// ═══════════════════════════════════════════════════════════════════════════════
+  remaining: integer('remaining'),
+  refillAmount: integer('refill_amount'),
+  refillInterval: integer('refill_interval'),
+  lastRefillAt: timestamp('last_refill_at', { withTimezone: true }),
+  lastRequest: timestamp('last_request', { withTimezone: true }),
+  metadata: text('metadata'),
+  permissions: text('permissions'),
+});
 
 export const userProfiles = pgTable('user_profiles', {
   id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
