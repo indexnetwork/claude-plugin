@@ -9,9 +9,9 @@ CLI_REMOTE="https://github.com/indexnetwork/cli.git"
 is_indexnetwork_remote() {
   local remote_url="$1"
 
-  [[ "$remote_url" =~ ^git@github\.com:indexnetwork/index(\.git)?$ ]] ||
-    [[ "$remote_url" =~ ^https://github\.com/indexnetwork/index(\.git)?$ ]] ||
-    [[ "$remote_url" =~ ^ssh://git@github\.com/indexnetwork/index(\.git)?$ ]]
+  [[ "$remote_url" =~ ^git@github\.com:indexnetwork/index/?(\.git)?$ ]] ||
+    [[ "$remote_url" =~ ^https://github\.com/indexnetwork/index/?(\.git)?$ ]] ||
+    [[ "$remote_url" =~ ^ssh://git@github\.com(:22)?/indexnetwork/index/?(\.git)?$ ]]
 }
 
 sync_subtree() {
@@ -36,7 +36,7 @@ sync_subtree() {
 
 while IFS=' ' read -r local_ref local_sha remote_ref remote_sha; do
   remote_name="$1"
-  remote_url="$(git remote get-url "$remote_name" 2>/dev/null || true)"
+  remote_url="$(git remote get-url --push "$remote_name" 2>/dev/null || true)"
 
   # Only sync when pushing to the canonical indexnetwork/index repository.
   is_indexnetwork_remote "$remote_url" || continue
