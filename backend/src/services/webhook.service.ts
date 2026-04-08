@@ -3,7 +3,7 @@ import { eq, and, sql } from 'drizzle-orm';
 
 import db from '../lib/drizzle/drizzle';
 import { webhooks } from '../schemas/database.schema';
-import { WEBHOOK_EVENTS, type WebhookEvent } from '../lib/webhook-events';
+import { WEBHOOK_EVENTS } from '../lib/webhook-events';
 import { log } from '../lib/log';
 
 const logger = log.service.from("WebhookService");
@@ -58,7 +58,7 @@ export class WebhookService {
       }
     } catch (err) {
       if (err instanceof Error && err.message.includes('HTTPS')) throw err;
-      throw new Error('Invalid webhook URL');
+      throw new Error('Invalid webhook URL', { cause: err });
     }
 
     const secret = crypto.randomBytes(32).toString('hex');
