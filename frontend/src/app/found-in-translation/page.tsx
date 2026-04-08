@@ -885,7 +885,7 @@ export default function FoundInTranslationPage() {
       </div>
 
       <div style={{ ...WRAP, padding: '1rem 2rem 1rem' }}>
-        <p data-fade style={P}>The thing is, computers are good at seeing what&apos;s already taken form. But human experience begins before inputs and outputs. As Edmund Husserl describes, consciousness is always oriented toward something, often before we know what the what is. It&apos;s like how the next opportunity ahead is often illegible to ourselves—until it arrives as the email we&apos;ve been waiting for.</p>
+        <p data-fade style={P}>The thing is, computers are good at seeing what&apos;s already taken form. But human experience begins before inputs and outputs. As Edmund Husserl describes, consciousness is always oriented toward something, often before we know what the <em>what</em> is. It&apos;s like how the next opportunity ahead is often illegible to ourselves—until it arrives as the email we&apos;ve been waiting for.</p>
         <p data-fade style={P}>As anyone who&apos;s ever looked for a new job knows, having the intent to switch jobs is easy. Expressing it in a way that&apos;s legible to others and successful in actually getting it is a different story.</p>
         <p data-fade style={P}>Of course, we try. We build and inhabit semantic structures together to achieve our goals. Or, we use our words.</p>
       </div>
