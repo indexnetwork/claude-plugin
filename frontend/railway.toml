@@ -1,0 +1,8 @@
+[build]
+watchPatterns = ["/frontend/**"]
+buildCommand = "bun run build:frontend"
+
+[deploy]
+startCommand = "cd frontend && bun run start"
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 10
