@@ -339,7 +339,8 @@ function SetupInstructions({ apiKey }: { apiKey?: string }) {
   const [expanded, setExpanded] = useState(false);
   const placeholder = apiKey || "YOUR_API_KEY";
 
-  const mcpUrl = `${window.location.origin}/api/mcp`;
+  const protocolUrl = import.meta.env.VITE_PROTOCOL_URL || "";
+  const mcpUrl = `${protocolUrl}/mcp`;
 
   const claudeConfig = JSON.stringify(
     {
