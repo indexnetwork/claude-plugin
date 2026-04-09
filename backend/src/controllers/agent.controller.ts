@@ -45,7 +45,15 @@ function jsonError(error: string, status: number) {
 }
 
 function parseErrorMessage(err: unknown): string {
-  return err instanceof Error ? err.message : 'Unexpected error';
+  if (!(err instanceof Error)) return 'Unexpected error';
+  // Drizzle wraps DB errors in DrizzleQueryError — check for the underlying cause
+  const cause = (err as Error & { cause?: unknown }).cause;
+  const causeObj = cause as Record<string, unknown> | undefined;
+  if (causeObj && typeof causeObj.code === 'string') {
+    logger.error('Database error in agent controller', { message: causeObj.message, code: causeObj.code, detail: causeObj.detail });
+    return 'Database error';
+  }
+  return err.message;
 }
 
 function errorStatus(err: unknown, fallback = 400): number {
