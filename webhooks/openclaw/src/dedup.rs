@@ -1,16 +1,50 @@
-use dashmap::DashSet;
-use std::sync::Arc;
+use dashmap::DashMap;
+use std::time::{Duration, Instant};
 
-pub struct SeenSet(Arc<DashSet<String>>);
+const TTL: Duration = Duration::from_secs(300); // 5 minutes
+
+pub struct SeenSet(DashMap<String, Instant>);
 
 impl SeenSet {
     pub fn new() -> Self {
-        SeenSet(Arc::new(DashSet::new()))
+        Self(DashMap::new())
+    }
+
+    /// Returns true if this signature was seen within TTL.
+    /// Always inserts/refreshes the entry.
+    pub fn check_and_insert(&self, sig: &str) -> bool {
+        let now = Instant::now();
+        if let Some(entry) = self.0.get(sig) {
+            if now.duration_since(*entry) < TTL {
+                return true; // duplicate within TTL
+            }
+        }
+        self.0.insert(sig.to_string(), now);
+        false
     }
 }
 
-impl Clone for SeenSet {
-    fn clone(&self) -> Self {
-        SeenSet(Arc::clone(&self.0))
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn new_signature_not_duplicate() {
+        let set = SeenSet::new();
+        assert!(!set.check_and_insert("sig-abc"));
+    }
+
+    #[test]
+    fn same_signature_is_duplicate() {
+        let set = SeenSet::new();
+        set.check_and_insert("sig-abc");
+        assert!(set.check_and_insert("sig-abc"));
+    }
+
+    #[test]
+    fn different_signatures_not_duplicate() {
+        let set = SeenSet::new();
+        set.check_and_insert("sig-abc");
+        assert!(!set.check_and_insert("sig-xyz"));
     }
 }
