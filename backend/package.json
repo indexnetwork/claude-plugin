@@ -5,7 +5,7 @@
   "private": true,
   "scripts": {
     "dev": "NODE_ENV=development bun --watch src/main.ts",
-    "build": "cd ../packages/protocol && bun install --frozen-lockfile && bun run build && cd - && tsc",
+    "build": "tsc",
     "start": "bun dist/main.js",
     "lint": "eslint src/",
     "db:generate": "drizzle-kit generate",
@@ -37,7 +37,7 @@
     "@bull-board/hono": "^6.15.0",
     "@composio/core": "^0.6.3",
     "@composio/langchain": "^0.6.3",
-    "@indexnetwork/protocol": "file:../packages/protocol",
+    "@indexnetwork/protocol": "workspace:*",
     "@langchain/core": "^1.1.17",
     "@langchain/langgraph": "^1.1.2",
     "@langchain/langgraph-checkpoint-postgres": "^1.0.0",
