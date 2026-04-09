@@ -28,6 +28,20 @@ export type * from "./shared/interfaces/integration.interface.js";
 export type * from "./shared/interfaces/queue.interface.js";
 export type * from "./shared/interfaces/scraper.interface.js";
 export type * from "./shared/interfaces/storage.interface.js";
+export type * from "./shared/interfaces/webhook.interface.js";
+export type * from "./shared/interfaces/negotiation-events.interface.js";
+export type { AgentDispatcher, AgentDispatchResult, NegotiationTurnPayload } from "./shared/interfaces/agent-dispatcher.interface.js";
+export type {
+  AgentRecord,
+  AgentTransportRecord,
+  AgentPermissionRecord,
+  AgentWithRelations,
+  CreateAgentInput,
+  CreateTransportInput,
+  GrantPermissionInput,
+  AgentDatabase,
+} from './shared/interfaces/agent.interface.js';
+export { SYSTEM_AGENT_IDS } from './shared/interfaces/agent.interface.js';
 
 // ─── Graph factories ──────────────────────────────────────────────────────────
 
@@ -60,8 +74,8 @@ export { IntentIndexer } from "./intent/intent.indexer.js";
 export { LensInferrer } from "./shared/hyde/lens.inferrer.js";
 export { NegotiationInsightsGenerator } from "./negotiation/negotiation.insights.generator.js";
 export type { NegotiationDigest } from "./negotiation/negotiation.insights.generator.js";
-export { NegotiationProposer } from "./negotiation/negotiation.proposer.js";
-export { NegotiationResponder } from "./negotiation/negotiation.responder.js";
+export { IndexNegotiator } from "./negotiation/negotiation.agent.js";
+export type { NegotiationAgentInput } from "./negotiation/negotiation.agent.js";
 export { OpportunityEvaluator } from "./opportunity/opportunity.evaluator.js";
 export type {
   EvaluatorInput,
@@ -104,6 +118,7 @@ export { stripUuids, stripIntroducerMentions } from "./opportunity/opportunity.p
 // ─── Tools ────────────────────────────────────────────────────────────────────
 
 export { createToolRegistry } from "./shared/agent/tool.registry.js";
+export { createAgentTools } from './agent/agent.tools.js';
 
 // ─── MCP ──────────────────────────────────────────────────────────────────────
 
@@ -115,6 +130,7 @@ export type { ScopedDepsFactory } from "./mcp/mcp.server.js";
 export type {
   UserNegotiationContext,
   NegotiationTurn,
+  NegotiationOutcome,
   SeedAssessment,
   NegotiationGraphLike,
 } from "./negotiation/negotiation.state.js";

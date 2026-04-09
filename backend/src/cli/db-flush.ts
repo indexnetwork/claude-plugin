@@ -35,7 +35,7 @@ function printResult(result: { ok: boolean; error?: string }, opts: GlobalOpts) 
 async function flushDatabase(): Promise<{ ok: boolean; error?: string }> {
   try {
     const tables = [
-      'intent_indexes',
+      'intent_networks',
       'artifacts',
       'messages',
       'tasks',
@@ -49,13 +49,24 @@ async function flushDatabase(): Promise<{ ok: boolean; error?: string }> {
       'intents',
       'files',
       'links',
-      'index_members',
-      'indexes',
+      'agent_permissions',
+      'agent_transports',
+      'agents',
+      'apikey',
+      'webhooks',
+      'network_integrations',
+      'personal_networks',
+      'network_members',
+      'networks',
       'users',
     ];
 
     for (const table of tables) {
-      await db.execute(sql.raw(`TRUNCATE TABLE ${table} CASCADE`));
+      try {
+        await db.execute(sql.raw(`TRUNCATE TABLE ${table} CASCADE`));
+      } catch {
+        // Table may not exist in this database — skip silently
+      }
     }
 
     return { ok: true };

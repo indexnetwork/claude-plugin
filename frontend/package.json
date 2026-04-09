@@ -1,12 +1,12 @@
 {
   "name": "frontend",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "license": "MIT",
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "build": "bun run build:blog && vite build",
     "build:blog": "bun run build-blog.ts",
-    "start": "vite preview",
+    "start": "bun server.ts",
     "lint": "eslint .",
     "test": "bun --bun vitest run",
     "test:watch": "bun --bun vitest",

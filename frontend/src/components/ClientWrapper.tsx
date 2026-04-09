@@ -14,7 +14,7 @@ export default function ClientWrapper({ children }: PropsWithChildren) {
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const { isAuthenticated } = useAuthContext();
 
-  const appRoutes = ['/', '/d', '/i', '/u', '/library', '/networks', '/mynetwork', '/chat', '/profile', '/agent'];
+  const appRoutes = ['/', '/d', '/i', '/u', '/library', '/networks', '/mynetwork', '/chat', '/profile', '/agents', '/agent'];
   const publicRoutes = ['/l', '/index', '/blog', '/about'];
   const bareRoutes = ['/onboarding', '/oauth/callback', '/found-in-translation'];
 
@@ -47,8 +47,8 @@ export default function ClientWrapper({ children }: PropsWithChildren) {
     pathname?.startsWith('/pages/'),
   [pathname, isAuthenticated]);
 
-  const isMessagesView = useMemo(() => 
-    pathname === '/chat' || (pathname?.includes('/chat') && pathname?.startsWith('/u/')),
+  const isMessagesView = useMemo(() =>
+    pathname === '/chat' || pathname?.startsWith('/chat/') || (pathname?.includes('/chat') && pathname?.startsWith('/u/')),
   [pathname]);
 
   if (isBareRoute) {

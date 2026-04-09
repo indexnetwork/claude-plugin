@@ -1,6 +1,5 @@
 {
   "lockfileVersion": 1,
-  "configVersion": 0,
   "workspaces": {
     "": {
       "name": "protocol",
@@ -12,7 +11,7 @@
         "@bull-board/hono": "^6.15.0",
         "@composio/core": "^0.6.3",
         "@composio/langchain": "^0.6.3",
-        "@indexnetwork/protocol": "^0.3.3",
+        "@indexnetwork/protocol": "0.4.0-rc.13.1",
         "@langchain/core": "^1.1.17",
         "@langchain/langgraph": "^1.1.2",
         "@langchain/langgraph-checkpoint-postgres": "^1.0.0",
@@ -297,7 +296,7 @@
 
     "@humanwhocodes/retry": ["@humanwhocodes/retry@0.4.3", "", {}, "sha512-bV0Tgo9K4hfPCek+aMAn81RppFKv2ySDQeMoSZuvTASywNTnVJCArCZE2FWqpvIatKu7VMRLWlR1EazvVhDyhQ=="],
 
-    "@indexnetwork/protocol": ["@indexnetwork/protocol@0.3.3", "", { "dependencies": { "@langchain/core": "^1.1.17", "@langchain/langgraph": "^1.1.2", "@langchain/langgraph-checkpoint-postgres": "^1.0.0", "@langchain/openai": "^1.2.3", "@modelcontextprotocol/server": "^2.0.0-alpha.2", "dotenv": "^16.3.1", "zod": "^3.22.4" } }, "sha512-V+kWp6IU2JnsW+v5Z5Ya4DchwOiASMhzDb9F0DOjU0f9jDU4V4Gn5JzPCBw43iKBbGtx2r0uuAOZHjBf3DypdA=="],
+    "@indexnetwork/protocol": ["@indexnetwork/protocol@0.4.0-rc.13.1", "", { "dependencies": { "@langchain/core": "^1.1.17", "@langchain/langgraph": "^1.1.2", "@langchain/langgraph-checkpoint-postgres": "^1.0.0", "@langchain/openai": "^1.2.3", "@modelcontextprotocol/server": "^2.0.0-alpha.2", "dotenv": "^16.3.1", "zod": "^3.22.4" } }, "sha512-L/SqE26XgCcfamOts4GckufihXOk1ZyGpaFoyHkIdsZUz4L/qNmWssJemoSvjI3z1AHtaUyfoXRNr723jH8fZg=="],
 
     "@ioredis/commands": ["@ioredis/commands@1.5.0", "", {}, "sha512-eUgLqrMf8nJkZxT24JvVRrQya1vZkQh8BBeYNwGDqa5I0VUi8ACx7uFvAaLxintokpTenkK6DASvo/bvNbBGow=="],
 

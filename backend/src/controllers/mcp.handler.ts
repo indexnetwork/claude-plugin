@@ -11,7 +11,7 @@ import {
 
 import { createDefaultProtocolDeps } from '../protocol-init';
 
-import { IntentGraphFactory, ProfileGraphFactory, OpportunityGraphFactory, HydeGraphFactory, NetworkGraphFactory, NetworkMembershipGraphFactory, IntentNetworkGraphFactory, NegotiationGraphFactory, HydeGenerator, LensInferrer, NegotiationProposer, NegotiationResponder, IntentIndexer, createMcpServer } from '@indexnetwork/protocol';
+import { IntentGraphFactory, ProfileGraphFactory, OpportunityGraphFactory, HydeGraphFactory, NetworkGraphFactory, NetworkMembershipGraphFactory, IntentNetworkGraphFactory, NegotiationGraphFactory, HydeGenerator, LensInferrer, IntentIndexer, createMcpServer } from '@indexnetwork/protocol';
 import type { HydeGraphDatabase, ToolDeps, McpAuthResolver, ScopedDepsFactory } from '@indexnetwork/protocol';
 
  
@@ -47,8 +47,8 @@ function getOrCompileGraphs(deps: ReturnType<typeof createDefaultProtocolDeps>):
   ).createGraph();
   const negotiationGraph = new NegotiationGraphFactory(
     deps.negotiationDatabase,
-    new NegotiationProposer(),
-    new NegotiationResponder(),
+    deps.agentDispatcher!,
+    deps.negotiationTimeoutQueue,
   ).createGraph();
   const opportunityGraph = new OpportunityGraphFactory(
     database, embedder, compiledHydeGraph,
@@ -78,8 +78,21 @@ const JWKS = createRemoteJWKSet(
   new URL(`${BASE_URL}/api/auth/jwks`),
 );
 
+function parseApiKeyMetadata(raw: string | null | undefined): { agentId?: string } {
+  if (!raw) {
+    return {};
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as { agentId?: unknown };
+    return typeof parsed.agentId === 'string' ? { agentId: parsed.agentId } : {};
+  } catch {
+    return {};
+  }
+}
+
 const authResolver: McpAuthResolver = {
-  async resolveUserId(request: Request): Promise<string> {
+  async resolveIdentity(request: Request): Promise<{ userId: string; agentId?: string }> {
     const authHeader = request.headers.get('Authorization');
     const [scheme, token] = authHeader?.split(/\s+/, 2) ?? [];
 
@@ -90,8 +103,8 @@ const authResolver: McpAuthResolver = {
         // JWT path: verify with JWKS (issued by the jwt() plugin for CLI/API use)
         try {
           const { payload } = await jwtVerify(token, JWKS);
-          if (typeof payload.id === 'string') return payload.id;
-          if (typeof payload.sub === 'string') return payload.sub;
+          if (typeof payload.id === 'string') return { userId: payload.id };
+          if (typeof payload.sub === 'string') return { userId: payload.sub };
           throw new Error('JWT payload missing user ID');
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
@@ -109,7 +122,7 @@ const authResolver: McpAuthResolver = {
           });
           if (res.ok) {
             const data = await res.json() as { userId?: string } | null;
-            if (data?.userId) return data.userId;
+            if (data?.userId) return { userId: data.userId };
           }
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
@@ -121,24 +134,78 @@ const authResolver: McpAuthResolver = {
 
     const apiKey = request.headers.get('x-api-key');
     if (apiKey) {
+      let sessionUserId: string | undefined;
+
       try {
-        const verifyRes = await fetch(`${BASE_URL}/api/auth/api-key/verify`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ key: apiKey }),
+        const sessionRes = await fetch(`${BASE_URL}/api/auth/get-session`, {
+          headers: { 'x-api-key': apiKey },
           signal: AbortSignal.timeout(5000),
         });
-        if (!verifyRes.ok) throw new Error(`API key verification failed: ${verifyRes.status}`);
-        const data = await verifyRes.json() as { valid: boolean; userId?: string; error?: string };
-        if (data.valid && data.userId) return data.userId;
-        throw new Error(data.error || 'Invalid API key');
+        if (sessionRes.ok) {
+          const data = await sessionRes.json() as { user?: { id?: string } } | null;
+          if (data?.user?.id) {
+            sessionUserId = data.user.id;
+          }
+        }
+      } catch { /* session lookup failed, try direct DB */ }
+
+      try {
+        const hashBuffer = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(apiKey));
+        const hashed = btoa(String.fromCharCode(...new Uint8Array(hashBuffer)))
+          .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+        const drizzle = await import('../lib/drizzle/drizzle');
+        const { eq } = await import('drizzle-orm');
+        const { apikeys } = await import('../schemas/database.schema');
+        const [row] = await drizzle.default.select({
+          referenceId: apikeys.referenceId,
+          userId: apikeys.userId,
+          enabled: apikeys.enabled,
+          expiresAt: apikeys.expiresAt,
+          metadata: apikeys.metadata,
+        })
+          .from(apikeys)
+          .where(eq(apikeys.key, hashed))
+          .limit(1);
+
+        if (row) {
+          if (!row.enabled) {
+            throw new Error('Invalid API key');
+          }
+
+          if (row.expiresAt && row.expiresAt.getTime() <= Date.now()) {
+            throw new Error('Invalid API key');
+          }
+
+          const userId = row.referenceId ?? row.userId ?? sessionUserId;
+          if (userId) {
+            const metadata = parseApiKeyMetadata(row.metadata);
+            return {
+              userId,
+              ...(metadata.agentId ? { agentId: metadata.agentId } : {}),
+            };
+          }
+        }
+
+        if (sessionUserId) {
+          return { userId: sessionUserId };
+        }
       } catch (err) {
-        if (err instanceof Error && err.message.startsWith('API key verification failed')) throw err;
-        throw new Error(`API key authentication failed: ${err instanceof Error ? err.message : String(err)}`, { cause: err });
+        const msg = err instanceof Error ? err.message : String(err);
+        if (msg === 'Invalid API key') {
+          throw err;
+        }
+        throw new Error(`API key authentication failed: ${msg}`, { cause: err });
       }
+
+      throw new Error('Invalid API key');
     }
 
     throw new Error('Authentication required: provide Bearer token or x-api-key header');
+  },
+
+  async resolveUserId(request: Request): Promise<string> {
+    const { userId } = await authResolver.resolveIdentity(request);
+    return userId;
   },
 };
 
@@ -168,6 +235,12 @@ function getOrCreateMcpServer(): McpServer {
     contactService: deps.contactService,
     integrationImporter: deps.integrationImporter,
     enricher: deps.enricher,
+    negotiationDatabase: deps.negotiationDatabase,
+    webhook: deps.webhook,
+    agentDispatcher: deps.agentDispatcher,
+    negotiationTimeoutQueue: deps.negotiationTimeoutQueue,
+    agentDatabase: deps.agentDatabase,
+    grantDefaultSystemPermissions: deps.grantDefaultSystemPermissions,
     graphs,
   };
 

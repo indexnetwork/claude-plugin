@@ -1,4 +1,4 @@
-import { pgTable, pgEnum, text, timestamp, bigint, boolean, json, jsonb, varchar, integer, uniqueIndex, index, doublePrecision, numeric, primaryKey } from 'drizzle-orm/pg-core';
+import { pgTable, pgEnum, text, timestamp, bigint, boolean, json, jsonb, integer, uniqueIndex, index, doublePrecision, numeric, primaryKey } from 'drizzle-orm/pg-core';
 import { vector } from 'drizzle-orm/pg-core';
 import { relations } from 'drizzle-orm';
 import type { Id } from '../types/common.types';
@@ -8,7 +8,11 @@ export const sourceType = pgEnum('source_type', ['file', 'integration', 'link', 
 export const intentModeEnum = pgEnum('intent_mode', ['REFERENTIAL', 'ATTRIBUTIVE']);
 export const speechActTypeEnum = pgEnum('speech_act_type', ['COMMISSIVE', 'DIRECTIVE']);
 export const intentStatusEnum = pgEnum('intent_status', ['ACTIVE', 'PAUSED', 'FULFILLED', 'EXPIRED']);
-export const opportunityStatusEnum = pgEnum('opportunity_status', ['latent', 'draft', 'pending', 'accepted', 'rejected', 'expired']);
+export const opportunityStatusEnum = pgEnum('opportunity_status', ['latent', 'draft', 'negotiating', 'pending', 'accepted', 'rejected', 'expired']);
+export const agentTypeEnum = pgEnum('agent_type', ['personal', 'system']);
+export const agentStatusEnum = pgEnum('agent_status', ['active', 'inactive']);
+export const transportChannelEnum = pgEnum('transport_channel', ['webhook', 'mcp']);
+export const permissionScopeEnum = pgEnum('permission_scope', ['global', 'node', 'network']);
 
 export interface OnboardingState {
   completedAt?: string;
@@ -157,9 +161,35 @@ export const oauthConsents = pgTable('oauth_consent', {
   userIdIdx: index('oauth_consent_user_id_idx').on(table.userId),
 }));
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// Domain tables
-// ═══════════════════════════════════════════════════════════════════════════════
+/**
+ * API keys for external agent authentication (Better Auth apiKey plugin).
+ * Keys are hashed before storage; the raw key is only returned on creation.
+ */
+export const apikeys = pgTable('apikey', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  key: text('key').notNull(),
+  userId: text('user_id').references(() => users.id, { onDelete: 'cascade' }),
+  referenceId: text('reference_id'),
+  configId: text('config_id').default('default'),
+  name: text('name'),
+  prefix: text('prefix'),
+  start: text('start'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  expiresAt: timestamp('expires_at', { withTimezone: true }),
+  enabled: boolean('enabled').default(true).notNull(),
+  rateLimitEnabled: boolean('rate_limit_enabled').default(false).notNull(),
+  rateLimitMax: integer('rate_limit_max'),
+  rateLimitTimeWindow: integer('rate_limit_time_window'),
+  requestCount: integer('request_count').default(0).notNull(),
+  remaining: integer('remaining'),
+  refillAmount: integer('refill_amount'),
+  refillInterval: integer('refill_interval'),
+  lastRefillAt: timestamp('last_refill_at', { withTimezone: true }),
+  lastRequest: timestamp('last_request', { withTimezone: true }),
+  metadata: text('metadata'),
+  permissions: text('permissions'),
+});
 
 export const userProfiles = pgTable('user_profiles', {
   id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
@@ -374,6 +404,73 @@ export type Link = typeof linksTable.$inferSelect;
 export type NewLink = typeof linksTable.$inferInsert;
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// Webhooks
+// ═══════════════════════════════════════════════════════════════════════════════
+
+export const webhooks = pgTable('webhooks', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  url: text('url').notNull(),
+  secret: text('secret').notNull(),
+  events: text('events').array().notNull(),
+  active: boolean('active').notNull().default(true),
+  description: text('description'),
+  failureCount: integer('failure_count').notNull().default(0),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  userIdIdx: index('webhooks_user_id_idx').on(table.userId),
+}));
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Agents
+// ═══════════════════════════════════════════════════════════════════════════════
+
+export const agents = pgTable('agents', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  ownerId: text('owner_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  description: text('description'),
+  type: agentTypeEnum('type').notNull().default('personal'),
+  status: agentStatusEnum('status').notNull().default('active'),
+  metadata: jsonb('metadata').$type<Record<string, unknown>>().default({}),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  deletedAt: timestamp('deleted_at', { withTimezone: true }),
+}, (table) => ({
+  ownerIdIdx: index('agents_owner_id_idx').on(table.ownerId),
+  typeIdx: index('agents_type_idx').on(table.type),
+}));
+
+export const agentTransports = pgTable('agent_transports', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  agentId: text('agent_id').notNull().references(() => agents.id, { onDelete: 'cascade' }),
+  channel: transportChannelEnum('channel').notNull(),
+  config: jsonb('config').$type<Record<string, unknown>>().default({}),
+  priority: integer('priority').notNull().default(0),
+  active: boolean('active').notNull().default(true),
+  failureCount: integer('failure_count').notNull().default(0),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  agentIdIdx: index('agent_transports_agent_id_idx').on(table.agentId),
+}));
+
+export const agentPermissions = pgTable('agent_permissions', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  agentId: text('agent_id').notNull().references(() => agents.id, { onDelete: 'cascade' }),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  scope: permissionScopeEnum('scope').notNull().default('global'),
+  scopeId: text('scope_id'),
+  actions: text('actions').array().notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  agentIdIdx: index('agent_permissions_agent_id_idx').on(table.agentId),
+  userIdIdx: index('agent_permissions_user_id_idx').on(table.userId),
+  agentUserIdx: index('agent_permissions_agent_user_idx').on(table.agentId, table.userId),
+}));
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // Relations
 // ═══════════════════════════════════════════════════════════════════════════════
 
@@ -468,6 +565,33 @@ export const intentNetworksRelations = relations(intentNetworks, ({ one }) => ({
   }),
 }));
 
+export const agentsRelations = relations(agents, ({ one, many }) => ({
+  owner: one(users, {
+    fields: [agents.ownerId],
+    references: [users.id],
+  }),
+  transports: many(agentTransports),
+  permissions: many(agentPermissions),
+}));
+
+export const agentTransportsRelations = relations(agentTransports, ({ one }) => ({
+  agent: one(agents, {
+    fields: [agentTransports.agentId],
+    references: [agents.id],
+  }),
+}));
+
+export const agentPermissionsRelations = relations(agentPermissions, ({ one }) => ({
+  agent: one(agents, {
+    fields: [agentPermissions.agentId],
+    references: [agents.id],
+  }),
+  user: one(users, {
+    fields: [agentPermissions.userId],
+    references: [users.id],
+  }),
+}));
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // Export types
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -494,5 +618,13 @@ export type PersonalNetwork = typeof personalNetworks.$inferSelect;
 export type NewPersonalNetwork = typeof personalNetworks.$inferInsert;
 export type NetworkIntegration = typeof networkIntegrations.$inferSelect;
 export type NewNetworkIntegration = typeof networkIntegrations.$inferInsert;
+export type Webhook = typeof webhooks.$inferSelect;
+export type NewWebhook = typeof webhooks.$inferInsert;
+export type Agent = typeof agents.$inferSelect;
+export type NewAgent = typeof agents.$inferInsert;
+export type AgentTransport = typeof agentTransports.$inferSelect;
+export type NewAgentTransport = typeof agentTransports.$inferInsert;
+export type AgentPermission = typeof agentPermissions.$inferSelect;
+export type NewAgentPermission = typeof agentPermissions.$inferInsert;
 
 export * from './conversation.schema';

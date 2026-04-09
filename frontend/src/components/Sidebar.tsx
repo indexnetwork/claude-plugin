@@ -28,7 +28,7 @@ export default function Sidebar() {
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const { user, signOut } = useAuthContext();
-  const { isConnected } = useConversation();
+  useConversation();
   const totalUnreadCount = 0; // Unread tracking out of scope for now
   const { sessionsVersion } = useAIChatSessions();
   const { clearChat } = useAIChat();
@@ -51,9 +51,9 @@ export default function Sidebar() {
   const isNetworksView = pathname?.startsWith('/networks');
   const isHistoryView = pathname?.startsWith('/d/');
   const isProfileView = pathname?.startsWith('/profile');
-  const isAgentView = pathname?.startsWith('/agent');
+  const isAgentsView = pathname?.startsWith('/agents') || pathname?.startsWith('/agent');
   const isMyNetworkView = pathname?.startsWith('/mynetwork');
-  const isHomeView = !isMessagesView && !isLibraryView && !isNetworksView && !isHistoryView && !isProfileView && !isAgentView && !isMyNetworkView;
+  const isHomeView = !isMessagesView && !isLibraryView && !isNetworksView && !isHistoryView && !isProfileView && !isAgentsView && !isMyNetworkView;
 
   // Get current AI session ID from pathname (e.g., /d/abc123 -> abc123)
   const currentSessionId = pathname?.match(/^\/d\/([^/]+)/)?.[1] || null;
@@ -301,15 +301,6 @@ export default function Sidebar() {
                 </button>
                 <button
                   className={`w-full px-4 py-2 text-left flex items-center gap-2.5 text-sm transition-colors ${
-                    isAgentView ? 'text-black font-medium bg-gray-50' : 'text-gray-700 hover:bg-gray-50'
-                  }`}
-                  onClick={() => { setUserDropdownOpen(false); navigate('/agent'); }}
-                >
-                  <Bot className="h-4 w-4 text-gray-400 flex-shrink-0" />
-                  Agent
-                </button>
-                <button
-                  className={`w-full px-4 py-2 text-left flex items-center gap-2.5 text-sm transition-colors ${
                     isLibraryView ? 'text-black font-medium bg-gray-50' : 'text-gray-700 hover:bg-gray-50'
                   }`}
                   onClick={() => { setUserDropdownOpen(false); navigate('/library'); }}
@@ -325,6 +316,15 @@ export default function Sidebar() {
                 >
                   <UserIcon className="h-4 w-4 text-gray-400 flex-shrink-0" />
                   Profile
+                </button>
+                <button
+                  className={`w-full px-4 py-2 text-left flex items-center gap-2.5 text-sm transition-colors ${
+                    isAgentsView ? 'text-black font-medium bg-gray-50' : 'text-gray-700 hover:bg-gray-50'
+                  }`}
+                  onClick={() => { setUserDropdownOpen(false); navigate('/agent'); }}
+                >
+                  <Bot className="h-4 w-4 text-gray-400 flex-shrink-0" />
+                  Agent
                 </button>
               </div>
 

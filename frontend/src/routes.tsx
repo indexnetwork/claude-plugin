@@ -1,4 +1,4 @@
-import { createBrowserRouter, Outlet, ScrollRestoration } from "react-router";
+import { createBrowserRouter, Navigate, Outlet, ScrollRestoration } from "react-router";
 
 import { AuthProvider } from "@/contexts/AuthContext";
 import { APIProvider } from "@/contexts/APIContext";
@@ -63,6 +63,10 @@ export const router = createBrowserRouter([
         lazy: () => import("@/app/chat/page"),
       },
       {
+        path: "/chat/:conversationId",
+        lazy: () => import("@/app/chat/[conversationId]/page"),
+      },
+      {
         path: "/d/:id",
         lazy: () => import("@/app/d/[id]/page"),
       },
@@ -75,8 +79,12 @@ export const router = createBrowserRouter([
         lazy: () => import("@/app/l/[code]/page"),
       },
       {
-        path: "/agent/:tab?",
-        lazy: () => import("@/app/agent/page"),
+        path: "/agents",
+        lazy: () => import("@/app/agents/page"),
+      },
+      {
+        path: "/agents/:id",
+        lazy: () => import("@/app/agents/[id]/page"),
       },
       {
         path: "/library/:tab?",
@@ -106,6 +114,7 @@ export const router = createBrowserRouter([
         path: "/profile",
         lazy: () => import("@/app/profile/page"),
       },
+      
       {
         path: "/s/:token",
         lazy: () => import("@/app/s/[token]/page"),
@@ -137,6 +146,14 @@ export const router = createBrowserRouter([
       {
         path: "/dev/intent-proposal",
         lazy: () => import("@/app/dev/intent-proposal/page"),
+      },
+      {
+        path: "/agent/:tab?",
+        lazy: () => import("@/app/agent/page"),
+      },
+      {
+        path: "/settings",
+        element: <Navigate to="/agents" replace />,
       },
       {
         path: "*",

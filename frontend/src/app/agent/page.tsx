@@ -256,9 +256,6 @@ export default function AgentPage() {
   const setActiveTab = (v: string) =>
     navigate(`/agent/${v}`, { replace: true });
 
-  // TODO: wire to preference/feedback endpoint when available
-  const handleFeedbackSubmit = () => {};
-
   useEffect(() => {
     if (!authLoading && !isAuthenticated) {
       navigate("/");

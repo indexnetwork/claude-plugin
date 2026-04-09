@@ -18,6 +18,10 @@ import type { ProfileEnricher } from "../interfaces/enrichment.interface.js";
 import type { IntentGraphQueue } from "../interfaces/queue.interface.js";
 import type { ChatSessionReader } from "../interfaces/chat-session.interface.js";
 import type { Embedder } from "../interfaces/embedder.interface.js";
+import type { AgentDatabase } from "../interfaces/agent.interface.js";
+import type { WebhookAdapter } from "../interfaces/webhook.interface.js";
+import type { NegotiationTimeoutQueue } from "../interfaces/negotiation-events.interface.js";
+import type { AgentDispatcher } from "../interfaces/agent-dispatcher.interface.js";
 
 /** Profile without embedding — used in resolved context to avoid bloating prompts and memory. */
 export type ProfileContext = Omit<ProfileDocument, "embedding"> | null;
@@ -65,6 +69,10 @@ export interface ResolvedToolContext {
   hasName: boolean;
   /** Chat session ID when tools are used in a chat; used for draft opportunities (context.conversationId). */
   sessionId?: string;
+  /** True when the request originates from an MCP transport (no interactive UI available). */
+  isMcp?: boolean;
+  /** Agent ID when the request originates from an API key linked to an agent. */
+  agentId?: string;
 }
 
 /**
@@ -121,6 +129,16 @@ export interface ToolContext {
   createSystemDatabase: (db: ChatGraphCompositeDatabase, userId: string, indexScope: string[], embedder?: Embedder) => SystemDatabase;
   /** Optional runtime LLM config. Pass to override env vars for API key, model, etc. */
   modelConfig?: ModelConfig;
+  /** Webhook adapter for managing webhook registrations (optional). */
+  webhook?: WebhookAdapter;
+  /** Manages negotiation timeout jobs (optional — enables AI fallback on external agent timeout). */
+  negotiationTimeoutQueue?: NegotiationTimeoutQueue;
+  /** Agent registry database adapter (optional — absent when host does not support agents). */
+  agentDatabase?: AgentDatabase;
+  /** Grants the default system-agent permissions after onboarding (optional). */
+  grantDefaultSystemPermissions?: (userId: string) => Promise<void>;
+  /** Dispatcher for routing negotiation turns to personal agents (optional — falls back to system AI). */
+  agentDispatcher?: AgentDispatcher;
 }
 
 /**
@@ -308,6 +326,18 @@ export interface ToolDeps {
     }>;
   };
   enricher: ProfileEnricher;
+  /** Database adapter for negotiation/conversation operations. */
+  negotiationDatabase: NegotiationDatabase;
+  /** Webhook adapter for managing webhook registrations (optional — absent when host does not support webhooks). */
+  webhook?: WebhookAdapter;
+  /** Manages negotiation timeout jobs (optional — enables AI fallback on external agent timeout). */
+  negotiationTimeoutQueue?: NegotiationTimeoutQueue;
+  /** Agent registry database adapter (optional — absent when host does not support agents). */
+  agentDatabase?: AgentDatabase;
+  /** Grants the default system-agent permissions after onboarding (optional). */
+  grantDefaultSystemPermissions?: (userId: string) => Promise<void>;
+  /** Dispatcher for routing negotiation turns to personal agents (optional — falls back to system AI). */
+  agentDispatcher?: AgentDispatcher;
   graphs: {
     profile: CompiledGraph;
     intent: CompiledGraph;

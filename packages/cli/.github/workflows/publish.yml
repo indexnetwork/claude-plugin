@@ -1,5 +1,5 @@
-# Publish @indexnetwork/cli to npm on every push to main.
-# Builds native binaries for all platforms, then publishes.
+# Publish @indexnetwork/cli prereleases from dev and stable releases from main.
+# Builds native binaries for all platforms before publishing.
 # Skips if the version in package.json is already on npm.
 #
 # Requires: GitHub repo secret INDEX_REPO_TOKEN (npm automation token).
@@ -8,6 +8,7 @@ name: Publish
 on:
   push:
     branches:
+      - dev
       - main
 
 concurrency:
@@ -22,13 +23,28 @@ jobs:
     outputs:
       skip: ${{ steps.check.outputs.skip }}
       version: ${{ steps.check.outputs.version }}
+      tag: ${{ steps.meta.outputs.tag }}
     steps:
       - uses: actions/checkout@v4
+      - name: Determine publish version and tag
+        id: meta
+        run: |
+          BASE_VERSION=$(node -p "require('./package.json').version")
+          if [ "${GITHUB_REF_NAME}" = "dev" ]; then
+            PUBLISH_VERSION="${BASE_VERSION}-rc.${GITHUB_RUN_NUMBER}.${GITHUB_RUN_ATTEMPT}"
+            NPM_TAG="rc"
+          else
+            PUBLISH_VERSION="${BASE_VERSION}"
+            NPM_TAG="latest"
+          fi
+
+          echo "version=${PUBLISH_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "tag=${NPM_TAG}" >> "$GITHUB_OUTPUT"
       - name: Check if version already published
         id: check
         run: |
-          VERSION=$(node -p "require('./package.json').version")
           NAME=$(node -p "require('./package.json').name")
+          VERSION="${{ steps.meta.outputs.version }}"
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           if npm view "${NAME}@${VERSION}" version &>/dev/null; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
@@ -127,19 +143,26 @@ jobs:
             chmod +x "npm/$dir/bin/index"
           done
 
+      - name: Rewrite package versions for publish
+        run: |
+          VERSION="${{ needs.check.outputs.version }}"
+
+          node -e "const fs=require('fs'); const path='package.json'; const pkg=JSON.parse(fs.readFileSync(path,'utf8')); pkg.version=process.argv[1]; Object.keys(pkg.optionalDependencies||{}).forEach(k=>pkg.optionalDependencies[k]=process.argv[1]); fs.writeFileSync(path, JSON.stringify(pkg, null, 2) + '\n');" "$VERSION"
+
+          for dir in linux-x64 linux-arm64 darwin-x64 darwin-arm64; do
+            node -e "const fs=require('fs'); const path='npm/' + process.argv[1] + '/package.json'; const pkg=JSON.parse(fs.readFileSync(path,'utf8')); pkg.version=process.argv[2]; fs.writeFileSync(path, JSON.stringify(pkg, null, 2) + '\n');" "$dir" "$VERSION"
+          done
+
       - name: Publish platform packages
         env:
           NODE_AUTH_TOKEN: ${{ secrets.INDEX_REPO_TOKEN }}
         run: |
-          VERSION="${{ needs.check.outputs.version }}"
           for dir in linux-x64 linux-arm64 darwin-x64 darwin-arm64; do
-            jq --arg v "$VERSION" '.version = $v' "npm/$dir/package.json" > "npm/$dir/package.json.tmp" \
-              && mv "npm/$dir/package.json.tmp" "npm/$dir/package.json"
             echo "Publishing @indexnetwork/cli-$dir..."
-            npm publish --access public "./npm/$dir"
+            npm publish --access public --tag "${{ needs.check.outputs.tag }}" "./npm/$dir"
           done
 
       - name: Publish main package
         env:
           NODE_AUTH_TOKEN: ${{ secrets.INDEX_REPO_TOKEN }}
-        run: npm publish --access public
+        run: npm publish --access public --tag "${{ needs.check.outputs.tag }}"

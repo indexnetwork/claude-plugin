@@ -14,7 +14,8 @@ import {
 import { EmbedderAdapter } from '../adapters/embedder.adapter';
 import { ScraperAdapter } from '../adapters/scraper.adapter';
 import { RedisCacheAdapter } from '../adapters/cache.adapter';
-import { IntentGraphFactory, ProfileGraphFactory, OpportunityGraphFactory, HydeGraphFactory, NetworkGraphFactory, NetworkMembershipGraphFactory, IntentNetworkGraphFactory, NegotiationGraphFactory, HydeGenerator, LensInferrer, NegotiationProposer, NegotiationResponder, IntentIndexer, resolveChatContext, createToolRegistry } from '@indexnetwork/protocol';
+import { IntentGraphFactory, ProfileGraphFactory, OpportunityGraphFactory, HydeGraphFactory, NetworkGraphFactory, NetworkMembershipGraphFactory, IntentNetworkGraphFactory, NegotiationGraphFactory, HydeGenerator, LensInferrer, IntentIndexer, resolveChatContext, createToolRegistry } from '@indexnetwork/protocol';
+import type { AgentDispatcher } from '@indexnetwork/protocol';
 import type { HydeGraphDatabase, ToolDeps, ContactServiceAdapter, IntegrationAdapter } from '@indexnetwork/protocol';
 import { intentQueue } from '../queues/intent.queue';
 import { enrichUserProfile } from '../lib/parallel/parallel';
@@ -78,6 +79,7 @@ export class ToolService {
       contactService: this.contactService,
       integrationImporter: this.integrationImporter,
       enricher: { enrichUserProfile },
+      negotiationDatabase: conversationDatabaseAdapter as unknown as ToolDeps['negotiationDatabase'],
       graphs,
     };
 
@@ -135,6 +137,7 @@ export class ToolService {
       contactService: this.contactService,
       integrationImporter: this.integrationImporter,
       enricher: { enrichUserProfile },
+      negotiationDatabase: conversationDatabaseAdapter as unknown as ToolDeps['negotiationDatabase'],
       graphs,
     };
 
@@ -170,10 +173,15 @@ export class ToolService {
       new LensInferrer(),
       new HydeGenerator(),
     ).createGraph();
+    // No-op dispatcher: ToolService is used for non-chat tool invocations.
+    // External agent yield is handled via the ProtocolDeps flow in tool.factory.ts and mcp.handler.ts.
+    const noOpDispatcher: AgentDispatcher = {
+      dispatch: async () => ({ handled: false, reason: 'no_agent' as const }),
+      hasPersonalAgent: async () => false,
+    };
     const negotiationGraph = new NegotiationGraphFactory(
-      conversationDatabaseAdapter,
-      new NegotiationProposer(),
-      new NegotiationResponder(),
+      conversationDatabaseAdapter as unknown as ConstructorParameters<typeof NegotiationGraphFactory>[0],
+      noOpDispatcher,
     ).createGraph();
     const opportunityGraph = new OpportunityGraphFactory(
       database,

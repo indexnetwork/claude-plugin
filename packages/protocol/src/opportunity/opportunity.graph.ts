@@ -1695,10 +1695,10 @@ export class OpportunityGraphFactory {
 
             return {
               userId,
-              score: opp.score,
               reasoning: opp.reasoning,
               valencyRole: candidateActor.role ?? 'peer',
               networkId: candidateActor.networkId as string,
+              ...(state.searchQuery?.trim() && { discoveryQuery: state.searchQuery.trim() }),
               candidateUser: {
                 id: userId,
                 intents: candidateIntents,
@@ -1730,12 +1730,14 @@ export class OpportunityGraphFactory {
           }),
         );
 
-        // Run negotiations per candidate with their actual index context
+        // Run negotiations per candidate with their actual index context.
+        // Chat-initiated discovery runs AI agents directly — no webhook yields.
         const acceptedResults = await negotiateCandidates(
           this.negotiationGraph, sourceUser, candidates,
           { networkId: '', prompt: '' }, // base context, overridden per-candidate below
           { maxTurns, traceEmitter: traceEmitter ?? undefined,
-            indexContextOverrides: indexContextMap },
+            indexContextOverrides: indexContextMap,
+            timeoutMs: isChatPath ? 30_000 : 24 * 60 * 60 * 1000 },
         );
 
         // Filter opportunities to only those with an opportunity outcome, update scores
@@ -1745,18 +1747,58 @@ export class OpportunityGraphFactory {
             const candidateActor = opp.actors.find(a => a.userId !== discoveryUserId);
             return candidateActor && acceptedMap.has(candidateActor.userId as string);
           })
-          .map(opp => {
-            const candidateActor = opp.actors.find(a => a.userId !== discoveryUserId);
-            const negResult = candidateActor && acceptedMap.get(candidateActor.userId as string);
-            return negResult ? { ...opp, score: negResult.negotiationScore } : opp;
-          });
+          .map(opp => opp);
+
+        // --- Build trace entries for Channel B (debug export) ---
+        const acceptedUserIds = new Set(acceptedResults.map(r => r.userId));
+        const negotiationDurationMs = Date.now() - graphStart;
+
+        const candidateTraceEntries = candidates.map(c => {
+          const accepted = acceptedUserIds.has(c.userId);
+          const result = accepted ? acceptedResults.find(r => r.userId === c.userId) : null;
+          const name = c.candidateUser.profile?.name ?? c.userId;
+          const outcome = accepted ? 'accepted' : 'rejected';
+          return {
+            node: 'negotiate_candidate',
+            detail: `${name}: ${outcome}`,
+            data: {
+              userId: c.userId,
+              name,
+              outcome,
+              turns: result?.turnCount ?? 0,
+            },
+          };
+        });
+
+        const acceptedCount = acceptedResults.length;
+        const rejectedCount = candidates.length - acceptedCount;
+        const negotiateTrace = [
+          {
+            node: 'negotiate',
+            detail: `${candidates.length} candidate(s) -> ${acceptedCount} accepted, ${rejectedCount} rejected`,
+            data: {
+              durationMs: negotiationDurationMs,
+              candidateCount: candidates.length,
+              acceptedCount,
+              rejectedCount,
+            },
+          },
+          ...candidateTraceEntries,
+        ];
 
         traceEmitter?.({ type: "graph_end", name: "Negotiation graph", durationMs: Date.now() - graphStart });
-        return { evaluatedOpportunities: updatedOpportunities };
+        return { evaluatedOpportunities: updatedOpportunities, trace: negotiateTrace };
       } catch (err) {
         logger.error("[Graph:Negotiate] Negotiation stage failed", { error: err });
         traceEmitter?.({ type: "graph_end", name: "Negotiation graph", durationMs: Date.now() - graphStart });
-        return { evaluatedOpportunities: [] };
+        return {
+          evaluatedOpportunities: [],
+          trace: [{
+            node: 'negotiate',
+            detail: 'Negotiation failed',
+            data: { durationMs: Date.now() - graphStart, error: true },
+          }],
+        };
       }
     };
 

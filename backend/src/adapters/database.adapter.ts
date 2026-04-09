@@ -350,7 +350,7 @@ export class IntentDatabaseAdapter {
 
   async getIntentsInIndexForMember(userId: string, indexNameOrId: string): Promise<ActiveIntentRow[]> {
     const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    let networkId: string | null = null;
+    let networkId: string | null;
 
     if (uuidRegex.test(indexNameOrId.trim())) {
       const membership = await db
@@ -844,7 +844,7 @@ export class ChatDatabaseAdapter {
 
   async getIntentsInIndexForMember(userId: string, indexNameOrId: string): Promise<ActiveIntentRow[]> {
     const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    let networkId: string | null = null;
+    let networkId: string | null;
 
     if (uuidRegex.test(indexNameOrId.trim())) {
       const membership = await db
@@ -2577,7 +2577,7 @@ export class ChatDatabaseAdapter {
   }
   async updateOpportunityStatus(
     id: string,
-    status: 'latent' | 'draft' | 'pending' | 'accepted' | 'rejected' | 'expired'
+    status: 'latent' | 'draft' | 'negotiating' | 'pending' | 'accepted' | 'rejected' | 'expired'
   ): Promise<OpportunityRow | null> {
     return this.opportunityAdapter.updateOpportunityStatus(id, status);
   }
@@ -2587,12 +2587,12 @@ export class ChatDatabaseAdapter {
   async getOpportunityBetweenActors(
     actorIds: string[],
     networkId: string
-  ): Promise<{ id: Id<'opportunities'>; status: 'latent' | 'draft' | 'pending' | 'accepted' | 'rejected' | 'expired' } | null> {
+  ): Promise<{ id: Id<'opportunities'>; status: 'latent' | 'draft' | 'negotiating' | 'pending' | 'accepted' | 'rejected' | 'expired' } | null> {
     return this.opportunityAdapter.getOpportunityBetweenActors(actorIds, networkId);
   }
   async findOverlappingOpportunities(
     actorUserIds: Id<'users'>[],
-    options?: { excludeStatuses?: ('latent' | 'draft' | 'pending' | 'accepted' | 'rejected' | 'expired')[] }
+    options?: { excludeStatuses?: ('latent' | 'draft' | 'negotiating' | 'pending' | 'accepted' | 'rejected' | 'expired')[] }
   ): Promise<OpportunityRow[]> {
     return this.opportunityAdapter.findOverlappingOpportunities(actorUserIds, options);
   }
@@ -3492,7 +3492,7 @@ interface OpportunityRow {
   interpretation: schema.OpportunityInterpretation;
   context: schema.OpportunityContext;
   confidence: string;
-  status: 'latent' | 'draft' | 'pending' | 'accepted' | 'rejected' | 'expired';
+  status: 'latent' | 'draft' | 'negotiating' | 'pending' | 'accepted' | 'rejected' | 'expired';
   createdAt: Date;
   updatedAt: Date;
   expiresAt: Date | null;
@@ -3505,7 +3505,7 @@ interface CreateOpportunityInput {
   interpretation: schema.OpportunityInterpretation;
   context: schema.OpportunityContext;
   confidence: string;
-  status?: 'latent' | 'draft' | 'pending' | 'accepted' | 'rejected' | 'expired';
+  status?: 'latent' | 'draft' | 'negotiating' | 'pending' | 'accepted' | 'rejected' | 'expired';
   expiresAt?: Date;
 }
 
@@ -3665,7 +3665,7 @@ export class OpportunityDatabaseAdapter {
 
   async updateOpportunityStatus(
     id: string,
-    status: 'latent' | 'draft' | 'pending' | 'accepted' | 'rejected' | 'expired'
+    status: 'latent' | 'draft' | 'negotiating' | 'pending' | 'accepted' | 'rejected' | 'expired'
   ): Promise<OpportunityRow | null> {
     const [row] = await db
       .update(opportunities)
@@ -3807,12 +3807,12 @@ export class OpportunityDatabaseAdapter {
 
   async findOverlappingOpportunities(
     actorUserIds: Id<'users'>[],
-    options?: { excludeStatuses?: ('latent' | 'draft' | 'pending' | 'accepted' | 'rejected' | 'expired')[] }
+    options?: { excludeStatuses?: ('latent' | 'draft' | 'negotiating' | 'pending' | 'accepted' | 'rejected' | 'expired')[] }
   ): Promise<OpportunityRow[]> {
     if (actorUserIds.length === 0) return [];
     const mergedExcludeStatuses = [
       ...new Set([...(options?.excludeStatuses ?? [])]),
-    ] as ('latent' | 'draft' | 'pending' | 'accepted' | 'rejected' | 'expired')[];
+    ] as ('latent' | 'draft' | 'negotiating' | 'pending' | 'accepted' | 'rejected' | 'expired')[];
     const statusCondition =
       mergedExcludeStatuses.length > 0
         ? notInArray(opportunities.status, mergedExcludeStatuses)
@@ -5193,6 +5193,8 @@ export interface ResolvedParticipant {
   participantType: 'user' | 'agent';
   name: string | null;
   avatar: string | null;
+  /** For agent participants, the display name of the user the agent acts on behalf of. */
+  ownerName?: string | null;
 }
 
 /** Summary returned by getConversationsForUser. */
@@ -5341,27 +5343,58 @@ export class ConversationDatabaseAdapter {
 
     // Resolve user names/avatars for participants
     const userIds = [...new Set(allParticipants.filter(p => p.participantType === 'user').map(p => p.participantId))];
+    // Also resolve owner users behind agent: participants
+    const agentOwnerIds = [...new Set(
+      allParticipants
+        .filter(p => p.participantType === 'agent' && p.participantId.startsWith('agent:'))
+        .map(p => p.participantId.slice('agent:'.length)),
+    )];
+    const allUserIds = [...new Set([...userIds, ...agentOwnerIds])];
     const userMap = new Map<string, { name: string; avatar: string | null }>();
-    if (userIds.length > 0) {
+    if (allUserIds.length > 0) {
       const users = await db
         .select({ id: schema.users.id, name: schema.users.name, avatar: schema.users.avatar })
         .from(schema.users)
-        .where(inArray(schema.users.id, userIds));
+        .where(inArray(schema.users.id, allUserIds));
       for (const u of users) {
         userMap.set(u.id, { name: u.name, avatar: u.avatar });
       }
     }
 
+    // Resolve the system negotiator agent name (used for all A2A conversation participants).
+    // Well-known UUID from agent.database.adapter.ts SYSTEM_AGENT_IDS.negotiator.
+    let systemNegotiatorName = 'Index Negotiator';
+    const negotiatorRow = await db
+      .select({ name: schema.agents.name })
+      .from(schema.agents)
+      .where(eq(schema.agents.id, '00000000-0000-0000-0000-000000000002'))
+      .limit(1);
+    if (negotiatorRow.length > 0) {
+      systemNegotiatorName = negotiatorRow[0].name;
+    }
+
     const participantsByConv = new Map<string, ResolvedParticipant[]>();
     for (const p of allParticipants) {
       const list = participantsByConv.get(p.conversationId) ?? [];
-      const userInfo = userMap.get(p.participantId);
-      list.push({
-        participantId: p.participantId,
-        participantType: p.participantType,
-        name: userInfo?.name ?? (p.participantType === 'agent' ? 'Agent' : null),
-        avatar: userInfo?.avatar ?? null,
-      });
+      if (p.participantType === 'agent' && p.participantId.startsWith('agent:')) {
+        const ownerId = p.participantId.slice('agent:'.length);
+        const ownerInfo = userMap.get(ownerId);
+        list.push({
+          participantId: p.participantId,
+          participantType: p.participantType,
+          name: systemNegotiatorName,
+          avatar: ownerInfo?.avatar ?? null,
+          ownerName: ownerInfo?.name ?? null,
+        });
+      } else {
+        const userInfo = userMap.get(p.participantId);
+        list.push({
+          participantId: p.participantId,
+          participantType: p.participantType,
+          name: userInfo?.name ?? null,
+          avatar: userInfo?.avatar ?? null,
+        });
+      }
       participantsByConv.set(p.conversationId, list);
     }
 
@@ -5893,6 +5926,114 @@ export class ConversationDatabaseAdapter {
       .orderBy(schema.artifacts.createdAt);
   }
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // NegotiationDatabase query methods (used by negotiation MCP tools)
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Lists negotiation tasks where the given user is source or candidate.
+   * Matches sourceUserId or candidateUserId in task metadata JSON.
+   * @param userId - The user ID to filter by
+   * @param options - Optional state filter
+   * @returns Array of task records with metadata
+   */
+  async getTasksForUser(userId: string, options?: { state?: string }): Promise<Array<{
+    id: string;
+    conversationId: string;
+    state: string;
+    metadata: Record<string, unknown> | null;
+    createdAt: Date;
+    updatedAt: Date;
+  }>> {
+    const conditions = [
+      sql`${schema.tasks.metadata}->>'type' = 'negotiation'`,
+      or(
+        sql`${schema.tasks.metadata}->>'sourceUserId' = ${userId}`,
+        sql`${schema.tasks.metadata}->>'candidateUserId' = ${userId}`,
+      ),
+    ];
+
+    if (options?.state) {
+      conditions.push(eq(schema.tasks.state, options.state as typeof schema.taskStateEnum.enumValues[number]));
+    }
+
+    const rows = await db
+      .select()
+      .from(schema.tasks)
+      .where(and(...conditions))
+      .orderBy(desc(schema.tasks.createdAt));
+
+    return rows.map((r) => ({
+      id: r.id,
+      conversationId: r.conversationId,
+      state: r.state as string,
+      metadata: (r.metadata as Record<string, unknown> | null) ?? null,
+      createdAt: r.createdAt,
+      updatedAt: r.updatedAt,
+    }));
+  }
+
+  /**
+   * Gets all messages for a conversation, ordered by creation time (ascending).
+   * Used by negotiation tools to reconstruct turn history.
+   * @param conversationId - The conversation to fetch messages for
+   * @returns Array of message records
+   */
+  async getMessagesForConversation(conversationId: string): Promise<Array<{
+    id: string;
+    senderId: string;
+    role: 'user' | 'agent';
+    parts: unknown[];
+    createdAt: Date;
+  }>> {
+    const rows = await db
+      .select({
+        id: schema.messages.id,
+        senderId: schema.messages.senderId,
+        role: schema.messages.role,
+        parts: schema.messages.parts,
+        createdAt: schema.messages.createdAt,
+      })
+      .from(schema.messages)
+      .where(eq(schema.messages.conversationId, conversationId))
+      .orderBy(asc(schema.messages.createdAt));
+
+    return rows.map((r) => ({
+      ...r,
+      parts: (r.parts as unknown[]) ?? [],
+    }));
+  }
+
+  /**
+   * Gets artifacts for a task (e.g. negotiation outcome).
+   * Alias for getArtifacts with the interface name expected by NegotiationDatabase.
+   * @param taskId - The task to fetch artifacts for
+   * @returns Array of artifact records
+   */
+  async getArtifactsForTask(taskId: string): Promise<Array<{
+    id: string;
+    name: string | null;
+    parts: unknown[];
+    metadata: Record<string, unknown> | null;
+  }>> {
+    const rows = await db
+      .select({
+        id: schema.artifacts.id,
+        name: schema.artifacts.name,
+        parts: schema.artifacts.parts,
+        metadata: schema.artifacts.metadata,
+      })
+      .from(schema.artifacts)
+      .where(eq(schema.artifacts.taskId, taskId))
+      .orderBy(schema.artifacts.createdAt);
+
+    return rows.map((r) => ({
+      ...r,
+      parts: (r.parts as unknown[]) ?? [],
+      metadata: (r.metadata as Record<string, unknown> | null) ?? null,
+    }));
+  }
+
   /**
    * Retrieves messages for multiple tasks in a single query.
    * @param taskIds - Task IDs to fetch messages for
@@ -6271,7 +6412,7 @@ export class ConversationDatabaseAdapter {
    * Get chat messages for a session, reconstructing the backward-compatible ChatMessage shape.
    */
   async getChatSessionMessages(sessionId: string, limit?: number): Promise<ChatMessage[]> {
-    let query = db.select()
+    const query = db.select()
       .from(schema.messages)
       .where(eq(schema.messages.conversationId, sessionId))
       .orderBy(asc(schema.messages.createdAt));

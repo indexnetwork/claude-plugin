@@ -1,4 +1,4 @@
-import { createContext, useContext, useRef, ReactNode } from 'react';
+import { createContext, useContext, useMemo, ReactNode } from 'react';
 import { useAuthenticatedAPI } from '@/lib/api';
 import { createIndexesService } from '@/services/networks';
 import { createIntentsService } from '@/services/intents';
@@ -13,6 +13,8 @@ import { createAdminService } from '@/services/admin';
 import { createUsersService } from '@/services/users';
 import { createOpportunitiesService } from '@/services/opportunities';
 import { createConversationService } from '@/services/conversation';
+import { createApiKeysService } from '@/services/api-keys';
+import { createAgentsService } from '@/services/agents';
 
 export interface APIContextType {
   indexesService: ReturnType<typeof createIndexesService>;
@@ -28,39 +30,35 @@ export interface APIContextType {
   usersService: ReturnType<typeof createUsersService>;
   opportunitiesService: ReturnType<typeof createOpportunitiesService>;
   conversationService: ReturnType<typeof createConversationService>;
+  apiKeysService: ReturnType<typeof createApiKeysService>;
+  agentsService: ReturnType<typeof createAgentsService>;
 }
 
 const APIContext = createContext<APIContextType | undefined>(undefined);
 
 export function APIProvider({ children }: { children: ReactNode }) {
   const api = useAuthenticatedAPI();
-  
-  // Recreate services when api changes to ensure they use the current authenticated API
-  const servicesRef = useRef<APIContextType | null>(null);
-  const apiRef = useRef(api);
-  
-  // Check if api has changed
-  if (!servicesRef.current || apiRef.current !== api) {
-    servicesRef.current = {
-      indexesService: createIndexesService(api),
-      intentsService: createIntentsService(api),
-      connectionsService: createConnectionsService(api),
-      synthesisService: createSynthesisService(api),
-      discoverService: createDiscoverService(api),
-      filesService: createFilesService(api),
-      linksService: createLinksService(api),
-      authService: createAuthService(api),
-      integrationsService: createIntegrationsService(api),
-      adminService: createAdminService(api),
-      usersService: createUsersService(api),
-      opportunitiesService: createOpportunitiesService(api),
-      conversationService: createConversationService(api)
-    };
-    apiRef.current = api;
-  }
+
+  const services = useMemo(() => ({
+    indexesService: createIndexesService(api),
+    intentsService: createIntentsService(api),
+    connectionsService: createConnectionsService(api),
+    synthesisService: createSynthesisService(api),
+    discoverService: createDiscoverService(api),
+    filesService: createFilesService(api),
+    linksService: createLinksService(api),
+    authService: createAuthService(api),
+    integrationsService: createIntegrationsService(api),
+    adminService: createAdminService(api),
+    usersService: createUsersService(api),
+    opportunitiesService: createOpportunitiesService(api),
+    conversationService: createConversationService(api),
+    apiKeysService: createApiKeysService(api),
+    agentsService: createAgentsService(api),
+  }), [api]);
 
   return (
-    <APIContext.Provider value={servicesRef.current}>
+    <APIContext.Provider value={services}>
       {children}
     </APIContext.Provider>
   );
@@ -74,7 +72,6 @@ export function useAPI() {
   return context;
 }
 
-// Convenience hooks for direct service access
 export function useNetworks() {
   const { indexesService } = useAPI();
   return indexesService;
@@ -133,4 +130,14 @@ export function useOpportunities() {
 export function useConversations() {
   const { conversationService } = useAPI();
   return conversationService;
+}
+
+export function useApiKeys() {
+  const { apiKeysService } = useAPI();
+  return apiKeysService;
+}
+
+export function useAgents() {
+  const { agentsService } = useAPI();
+  return agentsService;
 }

@@ -99,12 +99,17 @@ const server = createMcpServer(
 
 ## Publishing
 
-Publishing is handled via CI. Tag a release to trigger the workflow:
+Publishing is handled via CI:
 
 ```bash
-git tag protocol-vX.Y.Z
-git push upstream protocol-vX.Y.Z
+# dev pushes publish an rc prerelease
+git push <remote> dev
+
+# main pushes publish the stable release if the package version is new
+git push <remote> main
 ```
+
+`dev` publishes prerelease versions derived from `package.json` using npm's `rc` tag, for example `0.4.0-rc.123.1`. `main` publishes the base version from `package.json` to `latest`.
 
 Or publish manually from `packages/protocol/`:
 

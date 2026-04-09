@@ -4,7 +4,7 @@
 
 export interface ConversationSummary {
   id: string;
-  participants: { participantId: string; participantType: 'user' | 'agent'; name: string | null; avatar: string | null }[];
+  participants: { participantId: string; participantType: 'user' | 'agent'; name: string | null; avatar: string | null; ownerName?: string | null }[];
   lastMessage: { parts: unknown[]; senderId: string; createdAt: string } | null;
   metadata: { title?: string; shareToken?: string } | null;
   lastMessageAt: string | null;
@@ -24,6 +24,12 @@ export const createConversationService = (api: ReturnType<typeof import('../lib/
   /** List all conversations for the authenticated user. */
   getConversations: async (): Promise<ConversationSummary[]> => {
     const response = await api.get<{ conversations: ConversationSummary[] }>('/conversations');
+    return response.conversations;
+  },
+
+  /** List A2A negotiation conversations for the authenticated user. */
+  getNegotiations: async (): Promise<ConversationSummary[]> => {
+    const response = await api.get<{ conversations: ConversationSummary[] }>('/conversations/negotiations');
     return response.conversations;
   },
 
