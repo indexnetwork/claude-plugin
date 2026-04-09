@@ -19,7 +19,8 @@ pub fn verify_signature(secret: &str, body: &[u8], header: &str) -> bool {
         Err(_) => return false,
     };
     mac.update(body);
-    // verify_slice uses constant-time comparison internally
+    // verify_slice uses the `subtle` crate internally for constant-time comparison,
+    // preventing timing-based signature oracle attacks.
     mac.verify_slice(&provided).is_ok()
 }
 

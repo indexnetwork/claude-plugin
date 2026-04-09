@@ -18,7 +18,7 @@ pub async fn handle(
     // 1. Extract and verify signature
     let sig = match headers.get("x-index-signature").and_then(|v| v.to_str().ok()) {
         Some(s) => s.to_string(),
-        None => return StatusCode::UNAUTHORIZED,
+        None => return StatusCode::BAD_REQUEST,
     };
 
     if !verify_signature(&state.secret, &body, &sig) {
@@ -121,6 +121,18 @@ mod tests {
             .await;
 
         assert_eq!(resp.status_code(), 200);
+    }
+
+    #[tokio::test]
+    async fn missing_signature_header_returns_400() {
+        let server = make_server("testsecret");
+        let body = b"{\"event\":\"negotiation.turn_received\",\"timestamp\":\"t\",\"payload\":{}}";
+        let resp = server
+            .post("/index/webhook")
+            .bytes(body.as_ref().into())
+            .await;
+
+        assert_eq!(resp.status_code(), 400);
     }
 
     #[tokio::test]

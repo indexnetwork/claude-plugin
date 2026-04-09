@@ -60,9 +60,11 @@ mod tests {
     }
 
     #[test]
-    fn negotiation_turn_is_relevant() {
-        let e = make_event("negotiation.turn_received", json!({}));
-        assert!(is_relevant(&e));
+    fn all_relevant_events_are_accepted() {
+        for name in &["negotiation.started", "negotiation.turn_received", "negotiation.completed"] {
+            let e = make_event(name, json!({}));
+            assert!(is_relevant(&e), "{name} should be relevant");
+        }
     }
 
     #[test]

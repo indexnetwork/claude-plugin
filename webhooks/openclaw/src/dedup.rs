@@ -32,6 +32,13 @@ impl SeenSet {
         self.0.insert(sig.to_string(), now);
         false
     }
+
+    /// Removes all entries whose TTL has expired.
+    /// Called periodically by a background task to bound memory usage.
+    pub fn sweep(&self) {
+        let now = Instant::now();
+        self.0.retain(|_, inserted_at| now.duration_since(*inserted_at) < TTL);
+    }
 }
 
 impl Default for SeenSet {

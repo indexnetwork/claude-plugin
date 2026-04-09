@@ -6,6 +6,7 @@ mod verify;
 use axum::{Router, routing::post};
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::net::TcpListener;
 
 use dedup::SeenSet;
@@ -30,6 +31,18 @@ async fn main() {
         secret,
         seen: SeenSet::new(),
     });
+
+    // Background task: evict expired dedup entries every 60 seconds to bound memory.
+    {
+        let seen = Arc::clone(&state);
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(60));
+            loop {
+                interval.tick().await;
+                seen.seen.sweep();
+            }
+        });
+    }
 
     let app = Router::new()
         .route("/index/webhook", post(handler::handle))
