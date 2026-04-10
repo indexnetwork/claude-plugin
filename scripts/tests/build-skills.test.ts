@@ -93,6 +93,13 @@ describe('substituteTokens', () => {
     }
   });
 
+  test('detects unreplaced tokens with lowercase or mixed-case names', () => {
+    const template = 'hello {{mcp_name}} and {{Mixed-Case}}';
+    expect(() => substituteTokens(template, TOKENS.main)).toThrow(
+      /Unreplaced tokens/,
+    );
+  });
+
   test('preserves non-token braces and brackets verbatim', () => {
     const template = 'No tokens here, plain text with {single} and [brackets].';
     expect(substituteTokens(template, TOKENS.main)).toBe(

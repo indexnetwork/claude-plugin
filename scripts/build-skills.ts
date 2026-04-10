@@ -87,7 +87,7 @@ export function substituteTokens(template: string, tokens: TokenSet): string {
   for (const [key, value] of Object.entries(tokens)) {
     output = output.replaceAll(`{{${key}}}`, value);
   }
-  const leftover = output.match(/\{\{[A-Z_]+\}\}/g);
+  const leftover = output.match(/\{\{[^{}]+\}\}/g);
   if (leftover) {
     const distinct = [...new Set(leftover)].join(', ');
     throw new Error(`Unreplaced tokens in template: ${distinct}`);
