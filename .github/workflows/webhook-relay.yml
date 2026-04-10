@@ -1,0 +1,71 @@
+name: Webhook Relay Release
+
+on:
+  push:
+    branches: [dev, main]
+    paths:
+      - 'webhooks/openclaw/**'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install musl tools
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -qy musl-tools
+
+      - name: Install Rust (stable, musl target)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+
+      - name: Build
+        working-directory: webhooks/openclaw
+        run: cargo build --release --target x86_64-unknown-linux-musl
+
+      - name: Prepare binary
+        run: |
+          cp webhooks/openclaw/target/x86_64-unknown-linux-musl/release/index-webhook \
+             index-webhook-x86_64-unknown-linux-musl
+
+      - name: Read version
+        id: version
+        working-directory: webhooks/openclaw
+        run: |
+          VERSION=$(grep '^version' Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      # dev branch: publish/overwrite rolling pre-release
+      - name: Publish dev pre-release
+        if: github.ref == 'refs/heads/dev'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete webhook-relay-dev --yes 2>/dev/null || true
+          gh release create webhook-relay-dev \
+            --title "Webhook Relay (dev)" \
+            --notes "Latest dev build. Not for production use." \
+            --prerelease \
+            index-webhook-x86_64-unknown-linux-musl
+
+      # main branch: publish stable release (skips if tag already exists)
+      - name: Publish stable release
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="webhook-relay-v${{ steps.version.outputs.version }}"
+          if gh release view "$TAG" 2>/dev/null; then
+            echo "Release $TAG already exists — skipping."
+          else
+            gh release create "$TAG" \
+              --title "Webhook Relay v${{ steps.version.outputs.version }}" \
+              --notes "Stable release of the Index Network webhook relay for OpenClaw." \
+              index-webhook-x86_64-unknown-linux-musl
+          fi

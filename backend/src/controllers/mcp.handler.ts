@@ -253,7 +253,7 @@ function getOrCreateMcpServer(): McpServer {
     },
   };
 
-  mcpServer = createMcpServer(toolDeps, authResolver, scopedDepsFactory);
+  mcpServer = createMcpServer(toolDeps, authResolver, scopedDepsFactory, process.env.WEBHOOK_RELAY_URL);
   logger.info('MCP server initialized');
   return mcpServer;
 }
