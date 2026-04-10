@@ -105,14 +105,19 @@ function SetupInstructions({ apiKey }: { apiKey?: string }) {
     headers:
       x-api-key: ${placeholder}`;
 
-  const openclawConfig = `openclaw plugins install indexnetwork-openclaw-plugin \\
-  --marketplace https://github.com/indexnetwork/openclaw-plugin
+  const openclawConfig = `Please set up the Index Network plugin for me. Run these two commands:
 
-openclaw mcp set index-network '${JSON.stringify({
-    url: mcpUrl,
-    transport: 'streamable-http',
-    headers: { 'x-api-key': placeholder },
-  })}'`;
+1. Install the plugin:
+   openclaw plugins install indexnetwork-openclaw-plugin --marketplace https://github.com/indexnetwork/openclaw-plugin
+
+2. Register the MCP server:
+   openclaw mcp set index-network '${JSON.stringify({
+     url: mcpUrl,
+     transport: 'streamable-http',
+     headers: { 'x-api-key': placeholder },
+   })}'
+
+Once both commands succeed, confirm the plugin is installed and the index-network MCP server is registered.`;
 
   return (
     <div className="border border-gray-200 rounded-sm" onClick={(e) => e.stopPropagation()}>
@@ -133,7 +138,7 @@ openclaw mcp set index-network '${JSON.stringify({
             <CodeBlock code={hermesConfig} label="Hermes Agent" />
           </div>
           <div>
-            <CodeBlock code={openclawConfig} label="OpenClaw" />
+            <CodeBlock code={openclawConfig} label="OpenClaw (paste into agent chat)" />
           </div>
         </div>
       )}
