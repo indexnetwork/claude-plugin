@@ -5,6 +5,8 @@ use axum::{
     response::IntoResponse,
 };
 use std::sync::Arc;
+use std::time::Duration;
+use tokio::time::timeout;
 
 use crate::AppState;
 use crate::verify::verify_signature;
@@ -62,7 +64,21 @@ pub async fn handle(
         {
             Ok(mut child) => {
                 tracing::info!("openclaw agent spawned");
-                let _ = child.wait().await;
+                match timeout(Duration::from_secs(30), child.wait()).await {
+                    Ok(Ok(status)) if status.success() => {
+                        tracing::info!("openclaw agent exited successfully");
+                    }
+                    Ok(Ok(status)) => {
+                        tracing::warn!("openclaw agent exited with non-zero status: {status}");
+                    }
+                    Ok(Err(err)) => {
+                        tracing::error!("failed waiting for openclaw agent: {err}");
+                    }
+                    Err(_elapsed) => {
+                        tracing::warn!("openclaw agent timed out after 30s; killing process");
+                        let _ = child.kill().await;
+                    }
+                }
             }
             Err(err) => tracing::error!("failed to spawn openclaw agent: {err}"),
         }

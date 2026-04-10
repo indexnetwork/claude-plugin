@@ -22,6 +22,7 @@ async fn main() {
 
     let secret = std::env::var("INDEX_WEBHOOK_SECRET")
         .expect("INDEX_WEBHOOK_SECRET must be set");
+    assert!(!secret.trim().is_empty(), "INDEX_WEBHOOK_SECRET must not be empty");
     let port: u16 = std::env::var("PORT")
         .unwrap_or_else(|_| "3000".into())
         .parse()

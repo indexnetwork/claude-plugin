@@ -1,4 +1,5 @@
 use dashmap::DashMap;
+use dashmap::mapref::entry::Entry;
 use std::time::{Duration, Instant};
 
 const TTL: Duration = Duration::from_secs(300); // 5 minutes
@@ -11,8 +12,11 @@ impl SeenSet {
     }
 
     /// Returns true if this signature was seen within TTL.
-    /// Inserts the entry on first occurrence; does not refresh TTL on duplicate.
-    /// Evicts expired entries inline on access.
+    /// Uses DashMap's entry() API for atomic check-and-insert within a shard lock,
+    /// preventing a TOCTOU race where two concurrent requests with the same signature
+    /// both observe "not present" and both proceed as non-duplicates.
+    ///
+    /// Does not refresh TTL on duplicate — tracks first-seen time.
     ///
     /// Note: the dedup key is the HMAC signature (a function of the raw body),
     /// not a logical event ID. Two distinct events with identical bodies would
@@ -21,16 +25,21 @@ impl SeenSet {
     /// distinct events extremely unlikely in practice.
     pub fn check_and_insert(&self, sig: &str) -> bool {
         let now = Instant::now();
-        if let Some(entry) = self.0.get(sig) {
-            if now.duration_since(*entry) < TTL {
-                return true; // duplicate within TTL
+        match self.0.entry(sig.to_string()) {
+            Entry::Occupied(mut e) => {
+                if now.duration_since(*e.get()) < TTL {
+                    true // duplicate within TTL
+                } else {
+                    // expired entry — overwrite with fresh timestamp, treat as new
+                    e.insert(now);
+                    false
+                }
             }
-            // expired: drop the read guard before removing
-            drop(entry);
-            self.0.remove(sig);
+            Entry::Vacant(e) => {
+                e.insert(now);
+                false
+            }
         }
-        self.0.insert(sig.to_string(), now);
-        false
     }
 
     /// Removes all entries whose TTL has expired.
