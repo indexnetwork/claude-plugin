@@ -83,8 +83,6 @@ function SetupInstructions({ apiKey }: { apiKey?: string }) {
   const protocolUrl = import.meta.env.VITE_PROTOCOL_URL || '';
   const mcpUrl = `${protocolUrl}/mcp`;
 
-  const openClawPrompt = `Install the Index Network MCP at ${mcpUrl} using API key ${placeholder}. Then immediately follow ALL setup steps in the MCP instructions — download the webhook relay binary, configure the systemd service, and call register_agent before doing anything else.`;
-
   const claudeConfig = JSON.stringify(
     {
       mcpServers: {
@@ -120,9 +118,6 @@ function SetupInstructions({ apiKey }: { apiKey?: string }) {
       {expanded && (
         <div className="px-4 pb-4 space-y-4 border-t border-gray-100">
           <div className="pt-3">
-            <CodeBlock code={openClawPrompt} label="OpenClaw / InstaClaw" />
-          </div>
-          <div>
             <CodeBlock code={claudeConfig} label="Claude Code / OpenCode" />
           </div>
           <div>

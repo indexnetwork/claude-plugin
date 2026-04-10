@@ -7,7 +7,7 @@
 
 ## Problem
 
-Agents in the system are not first-class entities. The built-in chat orchestrator and negotiator are stateless graph invocations with no identity. External agents (Hermes, OpenClaw, Claude Desktop) connect via MCP but have no registration, no permissions, and no way to be dispatched for async work. Webhooks exist as a separate system with no connection to agent identity.
+Agents in the system are not first-class entities. The built-in chat orchestrator and negotiator are stateless graph invocations with no identity. External agents (Hermes, Claude Code, Claude Desktop) connect via MCP but have no registration, no permissions, and no way to be dispatched for async work. Webhooks exist as a separate system with no connection to agent identity.
 
 This means:
 1. No way to control what an agent can do on behalf of a user
