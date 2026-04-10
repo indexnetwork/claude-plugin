@@ -43,12 +43,47 @@ function permissionLabel(action: string): string {
   }
 }
 
+function CodeBlock({ code, label }: { code: string; label: string }) {
+  const [copied, setCopied] = useState(false);
+
+  async function handleCopy(e: React.MouseEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    try {
+      await navigator.clipboard.writeText(code);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch { /* silent */ }
+  }
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-2">
+        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">{label}</p>
+        <button
+          type="button"
+          onClick={handleCopy}
+          className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-700 transition-colors"
+        >
+          {copied ? <Check className="w-3 h-3 text-green-600" /> : <Copy className="w-3 h-3" />}
+          {copied ? 'Copied' : 'Copy'}
+        </button>
+      </div>
+      <pre className="bg-gray-50 border border-gray-200 rounded-sm p-3 text-xs text-gray-700 overflow-x-auto font-mono select-text whitespace-pre-wrap break-all">
+        {code}
+      </pre>
+    </div>
+  );
+}
+
 function SetupInstructions({ apiKey }: { apiKey?: string }) {
   const [expanded, setExpanded] = useState(false);
   const placeholder = apiKey || 'YOUR_API_KEY';
 
   const protocolUrl = import.meta.env.VITE_PROTOCOL_URL || '';
   const mcpUrl = `${protocolUrl}/mcp`;
+
+  const openClawPrompt = `Install the Index Network MCP at ${mcpUrl} using API key ${placeholder}. Follow the setup instructions included in the MCP.`;
 
   const claudeConfig = JSON.stringify(
     {
@@ -73,7 +108,7 @@ function SetupInstructions({ apiKey }: { apiKey?: string }) {
       x-api-key: ${placeholder}`;
 
   return (
-    <div className="border border-gray-200 rounded-sm">
+    <div className="border border-gray-200 rounded-sm" onClick={(e) => e.stopPropagation()}>
       <button
         type="button"
         onClick={(e) => { e.preventDefault(); e.stopPropagation(); setExpanded(!expanded); }}
@@ -85,20 +120,13 @@ function SetupInstructions({ apiKey }: { apiKey?: string }) {
       {expanded && (
         <div className="px-4 pb-4 space-y-4 border-t border-gray-100">
           <div className="pt-3">
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
-              Claude Code / OpenCode
-            </p>
-            <pre className="bg-gray-50 border border-gray-200 rounded-sm p-3 text-xs text-gray-700 overflow-x-auto font-mono">
-              {claudeConfig}
-            </pre>
+            <CodeBlock code={openClawPrompt} label="OpenClaw / InstaClaw" />
           </div>
           <div>
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
-              Hermes Agent
-            </p>
-            <pre className="bg-gray-50 border border-gray-200 rounded-sm p-3 text-xs text-gray-700 overflow-x-auto font-mono">
-              {hermesConfig}
-            </pre>
+            <CodeBlock code={claudeConfig} label="Claude Code / OpenCode" />
+          </div>
+          <div>
+            <CodeBlock code={hermesConfig} label="Hermes Agent" />
           </div>
         </div>
       )}
@@ -376,11 +404,11 @@ export default function AgentsPage() {
                       const createdKeyForAgent = newlyCreatedKey?.agentId === agent.id ? newlyCreatedKey.key : null;
 
                       return (
-                        <Link key={agent.id} to={`/agents/${agent.id}`} className="block border border-gray-200 rounded-sm p-4 bg-white space-y-4 hover:bg-gray-50 transition-colors cursor-pointer">
+                        <div key={agent.id} className="border border-gray-200 rounded-sm p-4 bg-white space-y-4">
                           <div className="flex items-start justify-between gap-4">
-                            <div>
+                            <Link to={`/agents/${agent.id}`} className="group flex-1 min-w-0">
                               <div className="flex items-center gap-2">
-                                <h3 className="font-medium text-gray-900">{agent.name}</h3>
+                                <h3 className="font-medium text-gray-900 group-hover:underline">{agent.name}</h3>
                                 <span className={`text-xs px-2 py-0.5 rounded-full ${
                                   agent.status === 'active' ? 'bg-green-50 text-green-700' : 'bg-gray-100 text-gray-500'
                                 }`}>
@@ -388,8 +416,8 @@ export default function AgentsPage() {
                                 </span>
                               </div>
                               {agent.description ? <p className="text-sm text-gray-500 mt-1">{agent.description}</p> : null}
-                            </div>
-                            <Button variant="outline" onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleDeleteAgent(agent); }}>
+                            </Link>
+                            <Button variant="outline" onClick={() => handleDeleteAgent(agent)}>
                               <Trash2 className="w-4 h-4 mr-1" />
                               Delete
                             </Button>
@@ -462,7 +490,7 @@ export default function AgentsPage() {
 
                             <SetupInstructions apiKey={createdKeyForAgent ?? undefined} />
                           </div>
-                        </Link>
+                        </div>
                       );
                     })}
                   </div>
