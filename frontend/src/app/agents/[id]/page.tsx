@@ -395,6 +395,15 @@ function SetupInstructions({ apiKey }: { apiKey?: string }) {
     headers:
       x-api-key: ${placeholder}`;
 
+  const openclawConfig = `openclaw plugins install indexnetwork-openclaw-plugin \\
+  --marketplace https://github.com/indexnetwork/openclaw-plugin
+
+openclaw mcp set index-network '${JSON.stringify({
+    url: mcpUrl,
+    transport: "streamable-http",
+    headers: { "x-api-key": placeholder },
+  })}'`;
+
   return (
     <div className="border border-gray-200 rounded-sm">
       <button
@@ -412,6 +421,9 @@ function SetupInstructions({ apiKey }: { apiKey?: string }) {
           </div>
           <div>
             <CodeBlock code={hermesConfig} label="Hermes Agent" />
+          </div>
+          <div>
+            <CodeBlock code={openclawConfig} label="OpenClaw" />
           </div>
         </div>
       )}
