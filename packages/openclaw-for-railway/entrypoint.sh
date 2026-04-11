@@ -63,4 +63,24 @@ fi
 
 envsubst < "$OPENCLAW_RAILWAY_TEMPLATE_DIR/config.json5.template" > "$XDG_CONFIG_HOME/config.json5"
 
+# Patch openclaw.json on every boot to allow the Railway public domain as
+# a Control UI origin. `openclaw onboard` writes a default config that
+# leaves gateway.controlUi.allowedOrigins unset, so the Control UI rejects
+# the browser's origin with "origin not allowed". Running this every boot
+# means changing RAILWAY_PUBLIC_DOMAIN + redeploy is the only knob — no
+# drift, no manual dashboard edits.
+if [ -n "${RAILWAY_PUBLIC_DOMAIN:-}" ] && [ -f "$HOME/.openclaw/openclaw.json" ]; then
+  node -e '
+    const fs = require("fs");
+    const p = process.env.HOME + "/.openclaw/openclaw.json";
+    const config = JSON.parse(fs.readFileSync(p, "utf8"));
+    config.gateway = config.gateway || {};
+    config.gateway.controlUi = config.gateway.controlUi || {};
+    config.gateway.controlUi.enabled = true;
+    config.gateway.controlUi.allowedOrigins = ["https://" + process.env.RAILWAY_PUBLIC_DOMAIN];
+    fs.writeFileSync(p, JSON.stringify(config, null, 2));
+    console.log("[openclaw-for-railway] patched controlUi.allowedOrigins for https://" + process.env.RAILWAY_PUBLIC_DOMAIN);
+  '
+fi
+
 exec node dist/index.js gateway --bind lan --port "$PORT" --allow-unconfigured
