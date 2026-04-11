@@ -15,9 +15,14 @@ RUN if ! command -v envsubst >/dev/null 2>&1; then \
       && rm -rf /var/lib/apt/lists/*; \
     fi
 
-COPY --chown=node:node config.json5.template /opt/openclaw-railway/config.json5.template
-COPY --chown=node:node --chmod=0755 entrypoint.sh /opt/openclaw-railway/entrypoint.sh
+COPY config.json5.template /opt/openclaw-railway/config.json5.template
+COPY --chmod=0755 entrypoint.sh /opt/openclaw-railway/entrypoint.sh
 
-USER node
+# Intentionally NOT dropping to USER node. Railway mounts the persistent
+# volume at /data as root-owned, and volume mounts shadow any pre-chown done
+# in the image. Running the entrypoint as root lets mkdir "$XDG_CONFIG_HOME"
+# succeed against the freshly-mounted volume. Root-inside-container is not
+# root-on-host; the real trust boundaries (gateway token, hooks token,
+# keyring password, CORS allowedOrigins) are unaffected.
 
 ENTRYPOINT ["/opt/openclaw-railway/entrypoint.sh"]
