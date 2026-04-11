@@ -97,7 +97,7 @@ The following packages are git subtrees tracked to external repos. **Syncing is 
 
 #### packages/openclaw-plugin/ → indexnetwork/openclaw-plugin
 
-The `@indexnetwork/openclaw-plugin` package — a thin bootstrap that registers the Index Network MCP server. Behavioral guidance lives in the MCP server's `MCP_INSTRUCTIONS`, not in the plugin. The `skills/openclaw/SKILL.md` shipped inside the package is generated from `packages/protocol/skills/openclaw/SKILL.md.template` by `scripts/build-skills.ts` — edit the template, re-run the build, then commit both the template and the materialized output.
+The `@indexnetwork/openclaw-plugin` package — an OpenClaw plugin that (a) registers the Index Network MCP server via a bootstrap skill, and (b) hosts a plugin-authed HTTP webhook route (`POST /index-network/webhook`) that receives `negotiation.turn_received` and `negotiation.completed` events from Index Network and dispatches silent (or delivered) subagents via `api.runtime.subagent.run` to respond on the user's behalf. Behavioral guidance for the negotiation subagent lives in the MCP server's `MCP_INSTRUCTIONS`, not in the plugin. The `skills/openclaw/SKILL.md` shipped inside the package is generated from `packages/protocol/skills/openclaw/SKILL.md.template` by `scripts/build-skills.ts` — edit the template, re-run the build, then commit both the template and the materialized output.
 
 ```bash
 # Manual push if the hook failed (use dev or main)
@@ -154,7 +154,7 @@ index/
 ├── packages/
 │   ├── protocol/        # @indexnetwork/protocol NPM package — subtree → indexnetwork/protocol
 │   ├── cli/             # @indexnetwork/cli — Bun, TypeScript — subtree → indexnetwork/cli
-│   └── openclaw-plugin/ # @indexnetwork/openclaw-plugin — bootstrap skill, subtree → indexnetwork/openclaw-plugin
+│   └── openclaw-plugin/ # @indexnetwork/openclaw-plugin — bootstrap + negotiation webhook, subtree → indexnetwork/openclaw-plugin
 ├── frontend/          # Vite + React Router v7 SPA with React 19
 ├── docs/              # Project documentation (design/, domain/, guides/, specs/)
 └── scripts/           # Worktree helpers, hooks, dev launcher
