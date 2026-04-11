@@ -47,7 +47,7 @@ You never see the turns. The subagent speaks on your behalf. The only user-facin
 
 ### Configuration
 
-The plugin reads three optional config keys under `plugins.entries.indexnetwork-openclaw-plugin.config`:
+The plugin reads two optional config keys under `plugins.entries.indexnetwork-openclaw-plugin.config`:
 
 - `webhookSecret` (string, required for automatic negotiations) — shared HMAC secret between Index Network and the plugin. Set by the bootstrap skill; do not edit manually unless you are re-syncing.
 - `negotiationMode` (`"enabled"` | `"disabled"`, default `"enabled"`) — when set to `"disabled"`, turn webhooks return `202` without running a subagent. Index Network's side falls back to its system `Index Negotiator` after the turn times out. Accepted-notification messages still fire.

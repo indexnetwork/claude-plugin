@@ -38,7 +38,7 @@ describe('turnPrompt', () => {
     expect(output).toContain('counterpartyMessage: none');
   });
 
-  test('omits propose-guidance wording when turnNumber > 1', () => {
+  test('renders full action guidance for mid-negotiation turns', () => {
     const payload = {
       negotiationId: 'neg-abc-123',
       turnNumber: 5,

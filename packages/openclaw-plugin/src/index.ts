@@ -45,6 +45,18 @@ const WEBHOOK_PATH = '/index-network/webhook';
 const TURN_EVENT = 'negotiation.turn_received';
 const COMPLETED_EVENT = 'negotiation.completed';
 
+/**
+ * OpenClaw plugin entry point. Registers a single plugin-authed HTTP route
+ * (`POST /index-network/webhook`) that dispatches inbound Index Network
+ * events to the turn or completed handler based on the `x-index-event`
+ * header. Reads `webhookSecret` and `negotiationMode` from
+ * `api.pluginConfig`; logs a warning at registration time if the secret is
+ * missing so operators notice before live traffic arrives.
+ *
+ * @param api - The OpenClaw plugin API provided by the host. `pluginConfig`,
+ *   `logger`, `runtime.subagent.run`, and `registerHttpRoute` are used.
+ * @returns Nothing. The side effect is the registered HTTP route.
+ */
 export default function register(api: OpenClawPluginApi): void {
   const secret = typeof api.pluginConfig.webhookSecret === 'string'
     ? api.pluginConfig.webhookSecret

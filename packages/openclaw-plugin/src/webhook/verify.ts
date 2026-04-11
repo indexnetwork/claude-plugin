@@ -11,6 +11,18 @@ import type { IncomingMessage } from 'node:http';
  *
  * Returns the inner `payload` on success, `null` on any verification failure.
  * Uses timing-safe comparison and never throws.
+ *
+ * @typeParam T - Shape of the inner `payload` object expected by the caller.
+ *   No runtime validation is performed — callers must treat the returned
+ *   value as untrusted input.
+ * @param req - Raw incoming HTTP request. Both headers and the body stream
+ *   are consumed.
+ * @param secret - Shared HMAC-SHA256 secret. An empty string short-circuits
+ *   to `null` so a missing secret cannot be validated-away.
+ * @param expectedEvent - Event name the caller requires. Must match both the
+ *   `x-index-event` header and the `event` field in the JSON wrapper.
+ * @returns The inner `payload` on success, or `null` on any verification
+ *   failure (bad signature, wrong event, malformed body, etc.). Never throws.
  */
 export async function verifyAndParse<T = unknown>(
   req: IncomingMessage,

@@ -7,6 +7,11 @@ import type { NegotiationTurnReceivedPayload } from '../webhook/types.js';
  *
  * The prompt is intentionally plain text — it is the entire instruction set
  * for the turn handler. Editing it does not require an OpenClaw restart.
+ *
+ * @param payload - The `negotiation.turn_received` webhook payload. Fields
+ *   `negotiationId`, `turnNumber`, `counterpartyAction`, `counterpartyMessage`,
+ *   and `deadline` are embedded verbatim in the turn-context block.
+ * @returns The task prompt string passed to `api.runtime.subagent.run`.
  */
 export function turnPrompt(payload: NegotiationTurnReceivedPayload): string {
   const counterpartyMessage = payload.counterpartyMessage ?? 'none';
