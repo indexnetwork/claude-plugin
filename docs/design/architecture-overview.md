@@ -3,7 +3,7 @@ title: "Architecture Overview"
 type: design
 tags: [architecture, layering, agents, data-flow, protocol, langgraph]
 created: 2026-03-26
-updated: 2026-04-06
+updated: 2026-04-11
 ---
 
 # Architecture Overview
@@ -25,7 +25,7 @@ index/
   packages/
     protocol/        @indexnetwork/protocol NPM package (agent graphs, interfaces, tools)
     cli/             CLI client (@indexnetwork/cli, Bun, TypeScript)
-    openclaw-plugin/ indexnetwork-openclaw-plugin (bootstrap skill for OpenClaw hosts)
+    openclaw-plugin/ indexnetwork-openclaw-plugin (bootstrap skill + negotiation webhook handler for OpenClaw hosts)
 ```
 
 **Protocol** is the backend: an Express.js server running on the Bun runtime (port 3001). It hosts the API, LangGraph-based agent system, database layer, job queues, and event infrastructure.
@@ -236,15 +236,37 @@ Tools are the capabilities exposed to the chat agent. They bridge the agent loop
 
 ### Agent Registry
 
-The protocol now includes an agent registry that sits beside the chat tool stack and negotiation system:
+The protocol includes an agent registry that sits beside the chat tool stack and the negotiation system. It gives every actor in the system — system agents like `Index Chat Orchestrator` and `Index Negotiator`, as well as user-owned personal agents connected from OpenClaw, Claude Code, Codex, or any MCP-capable runtime — a first-class database identity that can be authenticated, authorized, and dispatched against.
 
-- `agents` stores personal and system agent identities
-- `agent_transports` stores delivery channels such as `webhook` and `mcp`
-- `agent_permissions` stores the actions an agent may perform for a user, optionally scoped by network or node
+#### Tables
 
-System agents are seeded with fixed UUIDs and granted default permissions during onboarding. Personal agents are user-owned records exposed through the `/api/agents` controller family. MCP requests resolve an authenticated `userId` and optional `agentId` from API key metadata, allowing downstream tools to reason about both the acting user and the concrete agent identity.
+- `agents` stores personal and system agent identities (`type: 'system' | 'personal'`, `ownerId`, `status`).
+- `agent_transports` stores delivery channels. Two channels are supported today: `webhook` (HTTP POST with HMAC) and `mcp` (the agent pulls work by connecting to the MCP server with an API key bound to its identity).
+- `agent_permissions` stores the actions an agent may perform for a user (e.g. `manage:intents`, `manage:negotiations`), optionally scoped to a network or node.
 
-The legacy `webhooks` table is still present for API compatibility. Runtime webhook delivery now prefers authorized agent-registry webhook transports, falling back to legacy `webhooks` only when no eligible agent transport exists. The `AgentDeliveryService` orchestrates this dual-path dispatch. Transport eligibility requires both the agent permission (e.g. `manage:negotiations`) and the transport's `config.events` subscription to match the target event — this "dual gate" model ensures only subscribed, authorized agents receive deliveries.
+System agents are seeded with fixed UUIDs and granted their default permissions during onboarding. Personal agents are user-owned records exposed through the `/api/agents` controller family (see `docs/specs/api-reference.md`).
+
+#### MCP auth resolver
+
+MCP requests authenticate via an `x-api-key` header. The resolver reads the Better Auth `metadata.agentId` stored on the token and hands back `{ userId, agentId }` to the MCP server factory. Tool handlers receive both on the `ResolvedToolContext`, so every tool call is attributable to a concrete agent identity — not just a user. MCP callers without a resolved `agentId` are blocked from all tools except `register_agent`, `read_docs`, and `scrape_url` by the agent-registration gate inside `createMcpServer`.
+
+#### Dual-gate transport eligibility
+
+Runtime delivery flows through the `AgentDeliveryService`. For each event it must find a transport that passes **both** gates:
+
+1. **Permission gate** — the agent has a matching `agent_permissions` row for the action implied by the event (e.g. `negotiation.turn_received` requires `manage:negotiations`).
+2. **Event-subscription gate** — the transport's `config.events` array includes the event name.
+
+Eligible webhook transports are delivered to in priority order with HMAC-signed requests; MCP transports are served by the MCP server whenever the agent connects. If no agent-registry transport qualifies, the service falls back to the legacy `webhooks` table for backwards compatibility. This fallback exists because older integrations used ad-hoc webhook URLs before the agent registry landed — it will be removed once those migrate.
+
+#### Personal agent dispatch (negotiation)
+
+During a negotiation turn, the `AgentDispatcher` decides whom to call:
+
+1. Look up the user's personal agent in the registry. If it has an active, eligible transport for `negotiation.turn_received`, target it.
+2. Otherwise fall back to the system `Index Negotiator`.
+
+The dispatcher runs in two tiers. Short-tier dispatches (≤60 s) block synchronously on the turn result. Long-tier dispatches send the event to the personal agent and **suspend** the negotiation graph; the graph is later resumed when the agent responds via the `respond_to_negotiation` MCP tool. The openclaw-plugin is the reference implementation of a personal agent webhook handler — it verifies HMAC, launches a silent subagent tagged with a `index:negotiation:`-prefixed session key, and lets the subagent's MCP tool calls drive the response. See `docs/domain/negotiation.md` for the full turn protocol.
 
 ### How They Compose
 

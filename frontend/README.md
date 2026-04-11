@@ -1,32 +1,39 @@
-Index Network frontend — Next.js 15 App with React 19. Bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Index Network Frontend
+
+Single-page application for Index Network. Built with **Vite**, **React Router v7**, **React 19**, **Tailwind CSS 4**, and **Radix UI**.
 
 For project overview and full dev commands, see the [root README](../README.md) and [CLAUDE.md](../CLAUDE.md).
 
 ## Getting Started
 
-First, run the development server:
-
 ```bash
-bun run dev
+bun install            # from the repo root
+bun run dev            # start the Vite dev server
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+In development, Vite proxies `/api/*` to the protocol backend on port `3001`. The dev server listens on port `3000` (configured in `vite.config.ts`).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Environment
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Copy `.env.example` to `.env` and adjust as needed. See `src/env.ts` for the list of variables consumed by the app.
 
-## Learn More
+The frontend uses [Better Auth](https://www.better-auth.com/) for session-based authentication. When developing against a local backend, make sure the frontend origin is listed in the backend's Better Auth `trustedOrigins` config or you will see `invalid_origin` errors on login.
 
-To learn more about Next.js, take a look at the following resources:
+## Structure
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```
+src/
+  app/          Page components (lazy-loaded route modules)
+  components/   Reusable React components
+  contexts/     React Context providers
+  services/     Typed fetch wrappers for the backend API
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Scripts
 
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+| Command | Description |
+|---------|-------------|
+| `bun run dev` | Start Vite dev server with API proxy |
+| `bun run build` | Build blog assets then run a Vite production build |
+| `bun run start` | Start Vite preview server against the built bundle |
+| `bun run lint` | Run ESLint |

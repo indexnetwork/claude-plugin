@@ -543,19 +543,36 @@ Soft-delete a personal agent and deactivate its transports.
 
 ### POST /api/agents/:id/transports
 
-Add a transport to an owned personal agent.
+Add a transport to an owned personal agent. Two channels are supported today: `webhook` (HTTP POST delivery with HMAC) and `mcp` (the agent connects to the Index Network MCP server and pulls work itself).
 
-**Request body**:
+**Request body (webhook channel)**:
 ```json
 {
   "channel": "webhook",
   "config": {
     "url": "https://example.com/webhook",
-    "secret": "optional-secret"
+    "secret": "optional-secret",
+    "events": ["negotiation.turn_received", "negotiation.completed"]
   },
   "priority": 0
 }
 ```
+
+- `config.url` — absolute HTTPS URL the backend posts event payloads to.
+- `config.secret` — optional shared secret. When set, the backend signs each delivery with an HMAC-SHA256 header (`X-Index-Signature`) using this value.
+- `config.events` — array of event names this transport is subscribed to. A transport only receives deliveries for events in this array, on top of the agent permission check. Known events: `negotiation.turn_received`, `negotiation.completed`. This is the "dual gate" eligibility model — a transport must have both the permission and the event subscription to receive a delivery.
+- `priority` — integer ordering hint when multiple transports on the same agent are eligible for the same event (higher priority delivered first).
+
+**Request body (mcp channel)**:
+```json
+{
+  "channel": "mcp",
+  "config": {},
+  "priority": 0
+}
+```
+
+MCP transports carry no URL — the agent authenticates with an API key bound to its identity (see `POST /api/agents/:id/tokens`) and consumes work through the MCP server.
 
 **Response**:
 ```json

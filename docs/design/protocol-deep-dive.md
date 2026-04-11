@@ -1,9 +1,9 @@
 ---
 title: "Protocol Deep Dive"
 type: design
-tags: [protocol, langgraph, agents, graphs, tools, hyde, opportunity, intent, profile, negotiation]
+tags: [protocol, langgraph, agents, graphs, tools, hyde, opportunity, intent, profile, negotiation, mcp]
 created: 2026-03-26
-updated: 2026-04-06
+updated: 2026-04-11
 ---
 
 # Protocol Deep Dive
@@ -452,6 +452,66 @@ Tools that modify or delete data (update_intent, delete_intent, update_index, de
 ### Auto-discovery on intent creation
 
 When `create_intent` successfully creates an intent, it automatically triggers opportunity discovery by calling `create_opportunities` with the new intent context. This ensures fresh intents immediately produce relevant matches.
+
+## 5a. MCP Server
+
+The protocol exposes every registered chat tool over the Model Context Protocol via `createMcpServer` in `packages/protocol/src/mcp/mcp.server.ts`. This is the surface that external runtimes — OpenClaw, Claude Code, Codex, Cursor — speak to when they act on behalf of a user.
+
+### Factory signature
+
+```typescript
+createMcpServer(
+  deps: ToolDeps,
+  authResolver: McpAuthResolver,
+  scopedDepsFactory: ScopedDepsFactory,
+): McpServer
+```
+
+- `deps` — the same shared tool dependencies used by the chat agent (database, embedder, scraper, graphs, …).
+- `authResolver` — reads the HTTP request and returns `{ userId, agentId }`. Callers pass an `x-api-key` header; the resolver looks up the key via Better Auth and reads `metadata.agentId` off the stored token. Requests without an `agentId` are rejected at the gate below.
+- `scopedDepsFactory` — creates per-request `userDb` and `systemDb` scoped to the caller's index memberships, so every tool call runs against the caller's actual data perimeter.
+
+### Tool loop
+
+Every registered tool goes through the same lifecycle on every call:
+
+1. Extract the HTTP request from `ServerContext.http.req`.
+2. Resolve `{ userId, agentId }` via the auth resolver.
+3. Build the `ResolvedToolContext`, set `isMcp = true` and attach `agentId`.
+4. Run the agent-registration gate: unless the tool is on the exempt list (`register_agent`, `read_docs`, `scrape_url`), a missing `agentId` produces an `Agent not registered` error that tells the caller to register first.
+5. Build per-request scoped databases via `scopedDepsFactory` and rebuild the tool registry with them.
+6. Validate arguments against the tool's original Zod schema.
+7. Invoke the raw tool handler with `{ context, query: validatedArgs }`.
+8. Return the handler's formatted string as an MCP text content block.
+
+Errors are trapped and returned as MCP error responses so a single failing tool never breaks the server session.
+
+### MCP_INSTRUCTIONS — the canonical behavioral contract
+
+`MCP_INSTRUCTIONS` is a long template string passed into the `McpServer` constructor as `instructions`. Every MCP client that connects receives it automatically and is expected to follow it for the session. It is the **single canonical home** for Index Network agent behavior — voice, banned vocabulary, the entity model, the discovery-first rule, personal-index scoping, output rules, and the **Negotiation turn mode** block. Plugin skill files, CLI wrappers, and marketplace manifests do not redefine this guidance; they defer to what ships in `MCP_INSTRUCTIONS`.
+
+When `MCP_INSTRUCTIONS` changes, every connected runtime picks up the new guidance on its next session — no plugin or skill release is needed.
+
+### Negotiation turn mode
+
+One section of `MCP_INSTRUCTIONS` ("Negotiation turn mode") switches the caller into a background-subagent stance when the caller's session key is prefixed `index:negotiation:`. A subagent in this mode is told to:
+
+- Fetch the full negotiation via `get_negotiation`.
+- Read the user's profile and intents via `read_user_profiles` and `read_intents`.
+- Submit its response via `respond_to_negotiation` — never produce user-facing output, never ask clarifying questions, prefer conservative actions when ambiguous.
+
+This is how personal agents participate in bilateral negotiation. The openclaw-plugin webhook handler launches subagents with an `index:negotiation:`-prefixed session key, and the MCP_INSTRUCTIONS contract does the rest — the plugin itself has no negotiation-specific prompt of its own.
+
+The key negotiation-facing MCP tools are:
+
+| Tool | Purpose |
+|------|---------|
+| `get_negotiation` | Returns the full turn history and assessment seed for a negotiation |
+| `list_negotiations` | Lists negotiations awaiting a response from this agent's user |
+| `respond_to_negotiation` | Submits a turn (propose / counter / accept / reject / question) with reasoning and suggested roles |
+| `add_webhook_transport` | Lets a bootstrap skill register the caller's own webhook URL, secret, and event subscriptions (`negotiation.turn_received`, `negotiation.completed`) on the acting personal agent, enabling automatic background negotiation handling |
+
+`add_webhook_transport` is how a runtime plugin (for example the openclaw-plugin bootstrap skill) turns itself into an event sink for the agent registry without the user manually visiting the web UI. It writes an `agent_transports` row with `channel: 'webhook'` under the acting `agentId` and is subject to the same dual-gate eligibility check as any other transport.
 
 ## 6. HyDE System
 

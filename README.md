@@ -68,7 +68,7 @@ Unlike traditional matching systems that operate on profile similarity, Index tr
 
 1. **Intent Graph**: Structured intent storage with semantic embeddings, speech act validation, and index-based access control. Intents are first-class entities with quality scores (semantic entropy, felicity conditions) ensuring high-signal inputs.
 
-2. **Opportunity Engine**: Multi-dimensional detection system that generates hypothetical documents (HyDE) across 6 relationship strategies, evaluates candidates against trust/timing/value/alignment thresholds, and produces scored opportunities with dual-perspective interpretations.
+2. **Opportunity Engine**: Multi-dimensional detection system that generates hypothetical documents (HyDE) across LLM-inferred search lenses, evaluates candidates against trust/timing/value/alignment thresholds, and produces scored opportunities with dual-perspective interpretations.
 
 3. **Discovery Layer**: Privacy-preserving presentation system with bilateral negotiation. Two AI agents (proposer and responder) debate each candidate match before it becomes a real opportunity. Each party receives synthesized insights about potential connections without exposure to raw private data.
 
