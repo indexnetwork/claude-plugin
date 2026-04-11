@@ -28,7 +28,11 @@ if [ -n "${OPENCLAW_PROVIDER:-}" ] && { [ ! -f "$MARKER" ] || [ "${OPENCLAW_REON
   case "$OPENCLAW_PROVIDER" in
     openai)
       : "${OPENAI_API_KEY:?OPENAI_API_KEY required when OPENCLAW_PROVIDER=openai}"
-      openclaw onboard --non-interactive --mode local \
+      # --accept-risk is required by openclaw onboard --non-interactive whenever
+      # the gateway binds to a non-loopback address. On Railway we bind to
+      # 0.0.0.0 so public ingress works; the real auth boundary is the
+      # 64-char OPENCLAW_GATEWAY_TOKEN, not the bind mode.
+      openclaw onboard --non-interactive --mode local --accept-risk \
         --auth-choice openai-api-key \
         --openai-api-key "$OPENAI_API_KEY" \
         --gateway-port "$PORT" \
@@ -36,7 +40,7 @@ if [ -n "${OPENCLAW_PROVIDER:-}" ] && { [ ! -f "$MARKER" ] || [ "${OPENCLAW_REON
       ;;
     gemini)
       : "${GEMINI_API_KEY:?GEMINI_API_KEY required when OPENCLAW_PROVIDER=gemini}"
-      openclaw onboard --non-interactive --mode local \
+      openclaw onboard --non-interactive --mode local --accept-risk \
         --auth-choice gemini-api-key \
         --gemini-api-key "$GEMINI_API_KEY" \
         --gateway-port "$PORT" \
