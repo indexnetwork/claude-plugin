@@ -2,7 +2,8 @@
 
 # Thin overlay on the official OpenClaw image. No OpenClaw build step —
 # we only add the Railway-specific entrypoint and config template.
-FROM openclaw/openclaw:latest
+# OpenClaw publishes pre-built images to GitHub Container Registry (not Docker Hub).
+FROM ghcr.io/openclaw/openclaw:latest
 
 USER root
 

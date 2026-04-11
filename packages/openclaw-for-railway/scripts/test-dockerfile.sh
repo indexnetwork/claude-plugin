@@ -18,9 +18,10 @@ else
   echo "WARN: hadolint not installed, skipping static analysis"
 fi
 
-# Sanity-check the FROM line references the official image.
-grep -qE '^FROM openclaw/openclaw(:[^ ]+)?$' "$DOCKERFILE" || {
-  echo "FAIL: Dockerfile must FROM openclaw/openclaw"
+# Sanity-check the FROM line references the official image on GHCR.
+# OpenClaw publishes to ghcr.io/openclaw/openclaw — Docker Hub's openclaw/openclaw does not exist.
+grep -qE '^FROM ghcr\.io/openclaw/openclaw(:[^ ]+)?$' "$DOCKERFILE" || {
+  echo "FAIL: Dockerfile must FROM ghcr.io/openclaw/openclaw"
   exit 1
 }
 
