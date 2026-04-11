@@ -140,7 +140,7 @@
     },
     "packages/openclaw-plugin": {
       "name": "indexnetwork-openclaw-plugin",
-      "version": "0.4.0",
+      "version": "0.4.2",
       "devDependencies": {
         "@types/node": "^22.0.0",
         "typescript": "^5.5.0",

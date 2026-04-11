@@ -17,7 +17,13 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { resolveTargetEnv, substituteTokens, build, TOKENS } from '../build-skills.js';
+import {
+  resolveTargetEnv,
+  substituteTokens,
+  build,
+  resolveOutputPaths,
+  TOKENS,
+} from '../build-skills.js';
 
 describe('resolveTargetEnv', () => {
   test('defaults to main when no CLI flag or env var', () => {
@@ -157,5 +163,21 @@ describe('build', () => {
   test('propagates substitution errors', () => {
     writeFileSync(templatePath, 'bad {{UNKNOWN}}');
     expect(() => build('main', templatePath, [output1])).toThrow(/Unreplaced tokens/);
+  });
+});
+
+describe('resolveOutputPaths', () => {
+  test('writes main skill output under the main skill name', () => {
+    expect(resolveOutputPaths('main', '/repo')).toEqual([
+      '/repo/skills/index-network/SKILL.md',
+      '/repo/packages/openclaw-plugin/skills/index-network/SKILL.md',
+    ]);
+  });
+
+  test('writes dev skill output under the dev skill name', () => {
+    expect(resolveOutputPaths('dev', '/repo')).toEqual([
+      '/repo/skills/index-network-dev/SKILL.md',
+      '/repo/packages/openclaw-plugin/skills/index-network-dev/SKILL.md',
+    ]);
   });
 });

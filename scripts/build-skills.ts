@@ -6,8 +6,8 @@
  *   packages/protocol/skills/openclaw/SKILL.md.template
  *
  * Destinations:
- *   - skills/openclaw/SKILL.md                             (repo-root workspace dev copy, gitignored)
- *   - packages/openclaw-plugin/skills/openclaw/SKILL.md    (plugin payload, committed for subtree push)
+ *   - skills/<skill-name>/SKILL.md                          (repo-root workspace dev copy, gitignored)
+ *   - packages/openclaw-plugin/skills/<skill-name>/SKILL.md (plugin payload, committed for subtree push)
  *
  * Target environment (one of "main" | "dev") is resolved in this order:
  *   1. --env=<main|dev> CLI flag
@@ -51,13 +51,19 @@ const TEMPLATE_PATH = join(
   REPO_ROOT,
   'packages/protocol/skills/openclaw/SKILL.md.template',
 );
-const OUTPUT_PATHS = [
-  join(REPO_ROOT, 'skills/openclaw/SKILL.md'),
-  join(REPO_ROOT, 'packages/openclaw-plugin/skills/openclaw/SKILL.md'),
-];
-
 function isTargetEnv(value: string): value is TargetEnv {
   return value === 'main' || value === 'dev';
+}
+
+export function resolveOutputPaths(
+  targetEnv: TargetEnv,
+  repoRoot = REPO_ROOT,
+): string[] {
+  const skillName = TOKENS[targetEnv].MCP_NAME;
+  return [
+    join(repoRoot, 'skills', skillName, 'SKILL.md'),
+    join(repoRoot, 'packages/openclaw-plugin/skills', skillName, 'SKILL.md'),
+  ];
 }
 
 export function resolveTargetEnv(
@@ -115,5 +121,5 @@ export function build(
 if (import.meta.main) {
   const targetEnv = resolveTargetEnv(process.argv.slice(2), process.env);
   console.log(`[build-skills] target env: ${targetEnv}`);
-  build(targetEnv, TEMPLATE_PATH, OUTPUT_PATHS);
+  build(targetEnv, TEMPLATE_PATH, resolveOutputPaths(targetEnv));
 }

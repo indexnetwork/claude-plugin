@@ -83,7 +83,7 @@ Subagent runs are logged by OpenClaw's standard subagent logging. Users who want
 - `src/index.ts` — plugin entry point: registers HTTP routes for negotiation webhooks
 - `src/webhook/` — HMAC verifier and webhook payload types
 - `src/prompts/` — canonical prompts for the turn-handler and accepted-notifier subagents
-- `skills/openclaw/SKILL.md` — bootstrap skill (generated from the monorepo template)
+- `skills/index-network/SKILL.md` — bootstrap skill (generated from the monorepo template)
 
 Behavioral guidance (voice, vocabulary, entity model, discovery-first rule, output rules) lives in the MCP server's `instructions` field and is delivered automatically on connect — not in this skill file.
 
