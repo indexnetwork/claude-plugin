@@ -25,7 +25,7 @@ index/
   packages/
     protocol/        @indexnetwork/protocol NPM package (agent graphs, interfaces, tools)
     cli/             CLI client (@indexnetwork/cli, Bun, TypeScript)
-    openclaw-plugin/ @indexnetwork/openclaw-plugin (bootstrap skill for OpenClaw hosts)
+    openclaw-plugin/ indexnetwork-openclaw-plugin (bootstrap skill for OpenClaw hosts)
 ```
 
 **Protocol** is the backend: an Express.js server running on the Bun runtime (port 3001). It hosts the API, LangGraph-based agent system, database layer, job queues, and event infrastructure.

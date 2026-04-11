@@ -1,4 +1,4 @@
-# @indexnetwork/openclaw-plugin
+# indexnetwork-openclaw-plugin
 
 Index Network — find the right people and let them find you.
 
