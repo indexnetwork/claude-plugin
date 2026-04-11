@@ -71,11 +71,12 @@ export class WebhookQueue {
    *
    * @param name - Job name
    * @param data - Webhook delivery payload
+   * @param attemptsMade - Current BullMQ retry counter (starts at 1 on first attempt)
    */
-  async processJob(name: string, data: WebhookJobData): Promise<void> {
+  async processJob(name: string, data: WebhookJobData, attemptsMade = 1): Promise<void> {
     switch (name) {
       case 'deliver_webhook':
-        await this.handleDelivery(data);
+        await this.handleDelivery(data, attemptsMade);
         break;
       default:
         this.queueLogger.warn(`[WebhookProcessor] Unknown job name: ${name}`);
@@ -90,7 +91,7 @@ export class WebhookQueue {
 
     const processor = async (job: Job<WebhookJobData>) => {
       this.queueLogger.info(`[WebhookProcessor] Processing job ${job.id} (${job.name})`);
-      await this.processJob(job.name, job.data);
+      await this.processJob(job.name, job.data, job.attemptsMade);
     };
 
     this.worker = QueueFactory.createWorker<WebhookJobData>(QUEUE_NAME, processor);
@@ -133,8 +134,18 @@ export class WebhookQueue {
 
   /**
    * Deliver a webhook: POST the payload with HMAC-SHA256 signature.
+   *
+   * On any non-2xx response, timeout, or network error, emits a structured
+   * per-attempt failure log (`[WebhookJob] Delivery attempt failed`) with
+   * `{ webhookId, event, url, attemptsMade, ...outcome }` before re-throwing
+   * so BullMQ sees the failure and schedules a retry. `recordFailure` is
+   * called by the `queueEvents.on('failed')` handler after all retries are
+   * exhausted; this method only logs the per-attempt diagnostic detail.
    */
-  private async handleDelivery(data: WebhookJobData): Promise<void> {
+  private async handleDelivery(
+    data: WebhookJobData,
+    attemptsMade: number,
+  ): Promise<void> {
     const { webhookId, url, secret, event, payload, timestamp } = data;
 
     const body = JSON.stringify({ event, payload, timestamp });
@@ -157,15 +168,56 @@ export class WebhookQueue {
 
       if (response.ok) {
         await webhookService.recordSuccess(webhookId);
-        this.logger.info('[WebhookJob] Delivered successfully', { webhookId, event, status: response.status });
-      } else {
-        const text = await response.text().catch(() => '');
-        throw new Error(`Webhook delivery failed: HTTP ${response.status} - ${text.slice(0, 200)}`);
+        this.logger.info('[WebhookJob] Delivered successfully', {
+          webhookId,
+          event,
+          url,
+          status: response.status,
+          attemptsMade,
+        });
+        return;
       }
+
+      const responseBody = (await response.text().catch(() => '')).slice(0, 500);
+      this.logger.warn('[WebhookJob] Delivery attempt failed', {
+        webhookId,
+        event,
+        url,
+        status: response.status,
+        responseBody,
+        attemptsMade,
+      });
+      throw new Error(
+        `Webhook delivery failed: HTTP ${response.status} - ${responseBody.slice(0, 200)}`,
+      );
     } catch (err) {
       if (err instanceof Error && err.name === 'AbortError') {
-        throw new Error(`Webhook delivery timed out after 5s: ${url}`);
+        this.logger.warn('[WebhookJob] Delivery attempt failed', {
+          webhookId,
+          event,
+          url,
+          errorCode: 'timeout',
+          attemptsMade,
+        });
+        throw new Error(`Webhook delivery timed out after 5s: ${url}`, { cause: err });
       }
+      // Already-logged application-level failure re-thrown above; pass it
+      // through without double-logging.
+      if (err instanceof Error && err.message.startsWith('Webhook delivery failed: HTTP ')) {
+        throw err;
+      }
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      const errorCode = err instanceof Error && 'code' in err
+        ? String((err as { code?: unknown }).code ?? 'unknown')
+        : 'unknown';
+      this.logger.warn('[WebhookJob] Delivery attempt failed', {
+        webhookId,
+        event,
+        url,
+        errorCode,
+        errorMessage,
+        attemptsMade,
+      });
       throw err;
     } finally {
       clearTimeout(timeout);
