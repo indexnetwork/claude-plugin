@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 # entrypoint.sh — runs at container boot on Railway.
 #
 #   1. Ensure volume layout.
@@ -95,4 +95,40 @@ if [ -n "${RAILWAY_PUBLIC_DOMAIN:-}" ] && [ -f "$HOME/.openclaw/openclaw.json" ]
   '
 fi
 
-exec node dist/index.js gateway --bind lan --port "$PORT" --allow-unconfigured
+# --- process supervision ---
+#
+# OpenClaw's SIGUSR1 "full process restart" (triggered by hot-reloadable config
+# changes like adding the Telegram channel) forks a replacement node process
+# and then exits the parent, on the assumption that an external supervisor
+# will notice the exit and keep the replacement alive. If we `exec node` as
+# pid 1, that parent-exit tears down the container and takes the replacement
+# with it. Railway's own restart policy caps at 10 retries and gives up.
+#
+# Keeping bash as pid 1 lets us survive these restarts: when the original node
+# exits after fork-spawning a detached replacement, the new pid is reparented
+# to us, and `wait -n` keeps blocking until *every* gateway process is gone.
+# Only then do we exit non-zero and let Railway's outer restart policy start
+# a fresh container.
+cleanup() {
+  if [ -n "${GATEWAY_PID:-}" ]; then
+    kill -TERM "$GATEWAY_PID" 2>/dev/null || true
+  fi
+  wait 2>/dev/null || true
+  exit 0
+}
+trap cleanup TERM INT
+
+node dist/index.js gateway --bind lan --port "$PORT" --allow-unconfigured &
+GATEWAY_PID=$!
+
+# `wait -n` reports child exit codes; rc=127 means no children remain.
+# Temporarily disable set -e so a non-zero child exit doesn't kill the loop.
+set +e
+while true; do
+  wait -n 2>/dev/null
+  [ $? -eq 127 ] && break
+done
+set -e
+
+echo "[openclaw-for-railway] no gateway processes remain; exiting so Railway restarts the container" >&2
+exit 1

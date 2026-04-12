@@ -10,9 +10,10 @@ if [ ! -f "$ENTRYPOINT" ]; then
   exit 1
 fi
 
-# Static analysis: shellcheck
+# Static analysis: shellcheck (script is now #!/bin/bash because we rely on
+# `wait -n` to survive OpenClaw's self-restart — see entrypoint.sh)
 if command -v shellcheck >/dev/null 2>&1; then
-  shellcheck --shell=sh "$ENTRYPOINT" || { echo "FAIL: shellcheck reported issues"; exit 1; }
+  shellcheck --shell=bash "$ENTRYPOINT" || { echo "FAIL: shellcheck reported issues"; exit 1; }
 else
   echo "WARN: shellcheck not installed, skipping static analysis"
 fi
@@ -67,7 +68,10 @@ export OPENCLAW_HOME_DIR="$TMPROOT/home"
 # Rebind the template install path via env var so the entrypoint reads the tmp copy.
 export OPENCLAW_RAILWAY_TEMPLATE_DIR="$TMPROOT/opt/openclaw-railway"
 
-PATH="$MOCK_BIN:$PATH" sh "$ENTRYPOINT"
+# The mock node exits immediately, so the supervisor loop drains and the
+# entrypoint exits 1 to signal Railway to restart. That's the correct
+# behaviour here — swallow it under set -e.
+PATH="$MOCK_BIN:$PATH" bash "$ENTRYPOINT" || true
 
 # Assertion 1: onboarding ran once
 grep -q 'onboard --non-interactive' "$MOCK_CALL_LOG" || { echo "FAIL: openclaw onboard not invoked"; cat "$MOCK_CALL_LOG"; exit 1; }
@@ -86,7 +90,7 @@ grep -q 'gateway --bind lan --port 18789' "$NODE_CALL_LOG" || { echo "FAIL: gate
 # --- second run: marker should suppress onboarding ---
 : > "$MOCK_CALL_LOG"
 : > "$NODE_CALL_LOG"
-PATH="$MOCK_BIN:$PATH" sh "$ENTRYPOINT"
+PATH="$MOCK_BIN:$PATH" bash "$ENTRYPOINT" || true
 
 if grep -q 'onboard' "$MOCK_CALL_LOG"; then
   echo "FAIL: onboarding re-ran on second boot when marker exists"
@@ -97,7 +101,7 @@ fi
 # --- third run with OPENCLAW_REONBOARD=1: onboarding should re-run ---
 : > "$MOCK_CALL_LOG"
 : > "$NODE_CALL_LOG"
-OPENCLAW_REONBOARD=1 PATH="$MOCK_BIN:$PATH" sh "$ENTRYPOINT"
+OPENCLAW_REONBOARD=1 PATH="$MOCK_BIN:$PATH" bash "$ENTRYPOINT" || true
 grep -q 'onboard' "$MOCK_CALL_LOG" || { echo "FAIL: REONBOARD=1 did not force re-onboarding"; exit 1; }
 
 echo "OK: entrypoint passes all assertions (onboard once, skip on marker, force with REONBOARD)"
