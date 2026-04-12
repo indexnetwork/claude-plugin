@@ -74,7 +74,7 @@ envsubst < "$OPENCLAW_RAILWAY_TEMPLATE_DIR/config.json5.template" > "$XDG_CONFIG
 # runtime npm deps, so no build step is required.
 if [ -n "${INDEX_NETWORK_MCP_URL:-}" ]; then
   : "${INDEX_NETWORK_PLUGIN_REPO:=https://github.com/indexnetwork/openclaw-plugin}"
-  : "${INDEX_NETWORK_PLUGIN_REF:=main}"
+  : "${INDEX_NETWORK_PLUGIN_REF:=dev}"
   PLUGINS_ROOT="$XDG_CONFIG_HOME/plugins"
   PLUGIN_DIR="$PLUGINS_ROOT/indexnetwork-openclaw-plugin"
 
@@ -140,6 +140,7 @@ if [ -f "$HOME/.openclaw/openclaw.json" ] && { [ -n "${RAILWAY_PUBLIC_DOMAIN:-}"
 
     if (process.env.INDEX_NETWORK_MCP_URL) {
       config.mcp = config.mcp || {};
+      config.mcp.servers = config.mcp.servers || {};
       const entry = {
         url: process.env.INDEX_NETWORK_MCP_URL,
         transport: "streamable-http",
@@ -147,8 +148,8 @@ if [ -f "$HOME/.openclaw/openclaw.json" ] && { [ -n "${RAILWAY_PUBLIC_DOMAIN:-}"
       if (process.env.INDEX_NETWORK_API_KEY) {
         entry.headers = { "x-api-key": process.env.INDEX_NETWORK_API_KEY };
       }
-      config.mcp["index-network"] = entry;
-      touched.push("mcp.index-network -> " + process.env.INDEX_NETWORK_MCP_URL + (process.env.INDEX_NETWORK_API_KEY ? " (with x-api-key)" : " (no headers)"));
+      config.mcp.servers["index-network"] = entry;
+      touched.push("mcp.servers.index-network -> " + process.env.INDEX_NETWORK_MCP_URL + (process.env.INDEX_NETWORK_API_KEY ? " (with x-api-key)" : " (no headers)"));
     }
 
     // Compare against a normalized round-trip of the original to avoid
