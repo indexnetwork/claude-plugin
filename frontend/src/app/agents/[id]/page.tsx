@@ -395,19 +395,17 @@ function SetupInstructions({ apiKey }: { apiKey?: string }) {
     headers:
       x-api-key: ${placeholder}`;
 
-  const openclawConfig = `Please set up the Index Network plugin for me. Run these two commands:
+  const openclawInstall = `openclaw plugins install indexnetwork-openclaw-plugin --marketplace https://github.com/indexnetwork/openclaw-plugin`;
 
-1. Install the plugin:
-   openclaw plugins install indexnetwork-openclaw-plugin --marketplace https://github.com/indexnetwork/openclaw-plugin
+  const openclawMcp = `openclaw mcp set index-network '${JSON.stringify({
+    url: mcpUrl,
+    transport: "streamable-http",
+    headers: { "x-api-key": placeholder },
+  })}'`;
 
-2. Register the MCP server:
-   openclaw mcp set index-network '${JSON.stringify({
-     url: mcpUrl,
-     transport: "streamable-http",
-     headers: { "x-api-key": placeholder },
-   })}'
+  const openclawGatewayUrl = `openclaw config set plugins.entries.indexnetwork-openclaw-plugin.config.gatewayUrl https://<your-gateway-base-url>`;
 
-Once both commands succeed, confirm the plugin is installed and the index-network MCP server is registered.`;
+  const openclawWebhookSecret = `openclaw config set plugins.entries.indexnetwork-openclaw-plugin.config.webhookSecret "$(openssl rand -hex 32)"`;
 
   return (
     <div className="border border-gray-200 rounded-sm">
@@ -427,8 +425,12 @@ Once both commands succeed, confirm the plugin is installed and the index-networ
           <div>
             <CodeBlock code={hermesConfig} label="Hermes Agent" />
           </div>
-          <div>
-            <CodeBlock code={openclawConfig} label="OpenClaw (paste into agent chat)" />
+          <div className="space-y-3">
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">OpenClaw</p>
+            <CodeBlock code={openclawInstall} label="1. Install plugin" />
+            <CodeBlock code={openclawMcp} label="2. Register MCP server" />
+            <CodeBlock code={openclawGatewayUrl} label="3. Set gateway URL (for webhooks)" />
+            <CodeBlock code={openclawWebhookSecret} label="4. Set webhook secret" />
           </div>
         </div>
       )}
