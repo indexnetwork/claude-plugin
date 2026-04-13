@@ -4,6 +4,11 @@ import { AuthGuard, type AuthenticatedUser } from '../guards/auth.guard';
 import { log } from '../lib/log';
 import { Controller, Delete, Get, Patch, Post, UseGuards } from '../lib/router/router.decorators';
 import { agentService } from '../services/agent.service';
+import {
+  negotiationPollingService,
+  NotFoundError,
+  ConflictError,
+} from '../services/negotiation-polling.service';
 
 const logger = log.controller.from('agent');
 
@@ -40,6 +45,18 @@ const createTokenSchema = z.object({
   name: z.string().optional(),
 });
 
+const respondNegotiationSchema = z.object({
+  action: z.enum(['propose', 'accept', 'reject', 'counter', 'question']),
+  message: z.string().nullable().optional(),
+  assessment: z.object({
+    reasoning: z.string(),
+    suggestedRoles: z.object({
+      ownUser: z.enum(['agent', 'patient', 'peer']),
+      otherUser: z.enum(['agent', 'patient', 'peer']),
+    }),
+  }),
+});
+
 function jsonError(error: string, status: number) {
   return Response.json({ error }, { status });
 }
@@ -57,6 +74,8 @@ function parseErrorMessage(err: unknown): string {
 }
 
 function errorStatus(err: unknown, fallback = 400): number {
+  if (err instanceof NotFoundError) return 404;
+  if (err instanceof ConflictError) return 409;
   const message = parseErrorMessage(err);
   if (message === 'Agent not found' || message === 'Transport not found' || message === 'Permission not found' || message === 'Token not found') {
     return 404;
@@ -341,7 +360,7 @@ export class AgentController {
 
   @Delete('/:id/tokens/:tokenId')
   @UseGuards(AuthGuard)
-  async revokeToken(req: Request, user: AuthenticatedUser, params?: RouteParams) {
+  async revokeToken(_req: Request, user: AuthenticatedUser, params?: RouteParams) {
     const agentId = params?.id;
     const tokenId = params?.tokenId;
     if (!agentId || !tokenId) {
@@ -352,6 +371,53 @@ export class AgentController {
       await agentService.revokeToken(agentId, tokenId, user.id);
       return new Response(null, { status: 204 });
     } catch (err) {
+      return jsonError(parseErrorMessage(err), errorStatus(err));
+    }
+  }
+
+  @Post('/:id/negotiations/pickup')
+  @UseGuards(AuthGuard)
+  async pickupNegotiation(_req: Request, user: AuthenticatedUser, params?: RouteParams) {
+    const agentId = params?.id;
+    if (!agentId) {
+      return jsonError('Agent ID is required', 400);
+    }
+
+    try {
+      const result = await negotiationPollingService.pickup(agentId, user.id);
+      if (!result) {
+        return new Response(null, { status: 204 });
+      }
+      return Response.json(result);
+    } catch (err) {
+      return jsonError(parseErrorMessage(err), errorStatus(err));
+    }
+  }
+
+  @Post('/:id/negotiations/:negotiationId/respond')
+  @UseGuards(AuthGuard)
+  async respondNegotiation(req: Request, user: AuthenticatedUser, params?: RouteParams) {
+    const agentId = params?.id;
+    const negotiationId = params?.negotiationId;
+    if (!agentId || !negotiationId) {
+      return jsonError('Agent ID and negotiation ID are required', 400);
+    }
+
+    const body = await parseBody(req, respondNegotiationSchema);
+    if (body instanceof Response) {
+      return body;
+    }
+
+    try {
+      const result = await negotiationPollingService.respond(agentId, user.id, negotiationId, body);
+      return Response.json(result);
+    } catch (err) {
+      if (err instanceof NotFoundError) {
+        return jsonError(err.message, 404);
+      }
+      if (err instanceof ConflictError) {
+        return jsonError(err.message, 409);
+      }
       return jsonError(parseErrorMessage(err), errorStatus(err));
     }
   }
