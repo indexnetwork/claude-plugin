@@ -399,16 +399,11 @@ export class AgentDatabaseAdapter implements AgentRegistryStore {
         .where(inArray(schema.agentPermissions.agentId, agentIds)),
     ]);
 
-    const transportsByAgent = this.groupTransportsByAgent(transportRows);
-    const activeTransportAgentIds = new Set(transportRows.map((row) => row.agentId));
-
-    return this.mapAgentsWithRelations(agentRows, transportRows, allPermissionRows, { redactSecret: false }).filter((agent) => {
-      if (agent.type === 'system') {
-        return true;
-      }
-
-      return activeTransportAgentIds.has(agent.id) || (transportsByAgent.get(agent.id)?.length ?? 0) > 0;
-    });
+    // Polling model: personal agents authenticate to /agents/:id/pickup with their API
+    // key and do not require a DB-registered transport row. Any active, authorized agent
+    // is dispatch-eligible — the dispatcher parks turns in `waiting_for_agent` and the
+    // agent pulls them. We return all active, authorized agents regardless of transports.
+    return this.mapAgentsWithRelations(agentRows, transportRows, allPermissionRows, { redactSecret: false });
   }
 
   getSystemAgentIds(): AgentSystemIds {

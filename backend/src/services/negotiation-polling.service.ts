@@ -7,7 +7,7 @@ import { conversationDatabaseAdapter } from '../adapters/database.adapter';
 import { negotiationTimeoutQueue } from '../queues/negotiation-timeout.queue';
 import { negotiationClaimTimeoutQueue } from '../queues/negotiation-claim-timeout.queue';
 import { log } from '../lib/log';
-import type { NegotiationTurn } from '@indexnetwork/protocol';
+import type { NegotiationTurn, UserNegotiationContext, SeedAssessment } from '@indexnetwork/protocol';
 
 const logger = log.service.from('NegotiationPollingService');
 
@@ -45,6 +45,21 @@ export interface PickupResult {
     history: Array<{ turnNumber: number; agent: 'source' | 'candidate'; action: string; message: string | null | undefined }>;
     counterpartyAction: string;
   };
+  /**
+   * Full negotiation context, mirroring what the in-process system agent
+   * receives as its `NegotiationAgentInput`. `ownUser`/`otherUser` are
+   * projected to the claiming user's perspective. Populated on turns parked
+   * with turn context; `null` only for legacy tasks created before
+   * context persistence landed.
+   */
+  context: {
+    ownUser: UserNegotiationContext;
+    otherUser: UserNegotiationContext;
+    indexContext: { networkId: string; prompt?: string };
+    seedAssessment: SeedAssessment;
+    isDiscoverer: boolean;
+    discoveryQuery?: string;
+  } | null;
 }
 
 export interface RespondInput {
@@ -59,6 +74,20 @@ export interface RespondInput {
   };
 }
 
+/**
+ * Absolute (source/candidate) view of the negotiation context, persisted by
+ * {@link NegotiationGraphFactory} when a turn is parked for polling. Projected
+ * to ownUser/otherUser at pickup/get_negotiation time using the claiming
+ * user's id.
+ */
+interface PersistedTurnContext {
+  sourceUser: UserNegotiationContext;
+  candidateUser: UserNegotiationContext;
+  indexContext: { networkId: string; prompt?: string };
+  seedAssessment: SeedAssessment;
+  discoveryQuery?: string;
+}
+
 /** Shape of the task metadata JSONB for negotiation tasks. */
 interface NegotiationTaskMetadata {
   type: 'negotiation';
@@ -66,6 +95,7 @@ interface NegotiationTaskMetadata {
   candidateUserId: string;
   maxTurns?: number;
   opportunityId?: string;
+  turnContext?: PersistedTurnContext;
 }
 
 /** Default maximum turns before a negotiation is force-finalized. */
@@ -125,7 +155,7 @@ export class NegotiationPollingService {
         agentId,
         taskId: existingClaim.id,
       });
-      return this.buildPickupResult(existingClaim);
+      return this.buildPickupResult(existingClaim, userId);
     }
 
     // 2. Find oldest task in waiting_for_agent where user is source or candidate
@@ -192,7 +222,7 @@ export class NegotiationPollingService {
     });
 
     // 6. Return pickup result
-    return this.buildPickupResult(claimed);
+    return this.buildPickupResult(claimed, userId);
   }
 
   /**
@@ -323,9 +353,14 @@ export class NegotiationPollingService {
 
   /**
    * Builds a {@link PickupResult} from a task row.
-   * Loads the opportunity (if referenced) and reconstructs turn history.
+   * Loads the opportunity (if referenced), reconstructs turn history, and
+   * projects the persisted absolute turn context into ownUser/otherUser
+   * from the claiming user's perspective.
+   *
+   * @param task - Claimed task row
+   * @param userId - The user whose agent is claiming this turn (drives ownUser/otherUser projection)
    */
-  private async buildPickupResult(task: convSchema.Task): Promise<PickupResult> {
+  private async buildPickupResult(task: convSchema.Task, userId: string): Promise<PickupResult> {
     const meta = task.metadata as NegotiationTaskMetadata;
 
     // Load opportunity if referenced
@@ -379,6 +414,24 @@ export class NegotiationPollingService {
     const claimedAt = task.claimedAt ?? new Date();
     const deadline = new Date(claimedAt.getTime() + CLAIM_TIMEOUT_MS);
 
+    // Project persisted source/candidate context into own/other perspective
+    // for the claiming user. Null when the task was parked before turn
+    // context persistence was added (pre-migration tasks).
+    let context: PickupResult['context'] = null;
+    if (meta.turnContext) {
+      const isSource = meta.sourceUserId === userId;
+      const ownUser = isSource ? meta.turnContext.sourceUser : meta.turnContext.candidateUser;
+      const otherUser = isSource ? meta.turnContext.candidateUser : meta.turnContext.sourceUser;
+      context = {
+        ownUser,
+        otherUser,
+        indexContext: meta.turnContext.indexContext,
+        seedAssessment: meta.turnContext.seedAssessment,
+        isDiscoverer: isSource,
+        ...(meta.turnContext.discoveryQuery && { discoveryQuery: meta.turnContext.discoveryQuery }),
+      };
+    }
+
     return {
       negotiationId: task.conversationId,
       taskId: task.id,
@@ -389,6 +442,7 @@ export class NegotiationPollingService {
         history,
         counterpartyAction,
       },
+      context,
     };
   }
 

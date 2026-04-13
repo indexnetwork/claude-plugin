@@ -170,6 +170,7 @@ async function poll(
       history: Array<{ turnNumber: number; agent: string; action: string; message?: string | null }>;
       counterpartyAction: string;
     };
+    context: import('./prompts/turn.prompt.js').TurnContext | null;
   };
 
   const inflightKey = `${turn.taskId}:${turn.turn.number}`;
@@ -195,6 +196,7 @@ async function poll(
         counterpartyAction: turn.turn.counterpartyAction,
         counterpartyMessage: lastEntry?.message ?? null,
         deadline: turn.turn.deadline,
+        context: turn.context,
       }),
       deliver: false,
     });
