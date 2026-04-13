@@ -66,14 +66,16 @@ bun install
 
 ```
 index/
-├── backend/           # Backend API and agent engine (Bun, Express, TypeScript)
+├── backend/             # Backend API and agent engine (Bun, Express, TypeScript)
+├── frontend/            # Vite + React Router v7 SPA (React 19, Tailwind CSS 4)
 ├── packages/
-│   └── protocol/      # @indexnetwork/protocol NPM package (graphs, agents, tools)
-├── frontend/          # Vite + React Router v7 SPA (React 19, Tailwind CSS 4)
-├── cli/               # CLI client (@indexnetwork/cli) — Bun, TypeScript
-├── scripts/           # Worktree helpers, hooks, dev launcher
-├── package.json       # Root workspace config
-└── CLAUDE.md          # Comprehensive project reference
+│   ├── protocol/        # @indexnetwork/protocol NPM package (graphs, agents, tools)
+│   ├── cli/             # @indexnetwork/cli — CLI client, Bun, TypeScript
+│   └── openclaw-plugin/ # indexnetwork-openclaw-plugin (bootstrap + negotiation webhook handler)
+├── docs/                # Project documentation (design, domain, specs, guides)
+├── scripts/             # Worktree helpers, hooks, dev launcher
+├── package.json         # Root workspace config
+└── CLAUDE.md            # Comprehensive project reference
 ```
 
 ## Environment setup

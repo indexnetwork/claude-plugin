@@ -335,6 +335,37 @@ function NegotiationInsightsTab({ userId }: { userId: string }) {
   );
 }
 
+function CodeBlock({ code, label }: { code: string; label: string }) {
+  const [copied, setCopied] = useState(false);
+
+  async function handleCopy() {
+    try {
+      await navigator.clipboard.writeText(code);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch { /* silent */ }
+  }
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-2">
+        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">{label}</p>
+        <button
+          type="button"
+          onClick={handleCopy}
+          className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-700 transition-colors"
+        >
+          {copied ? <Check className="w-3 h-3 text-green-600" /> : <Copy className="w-3 h-3" />}
+          {copied ? "Copied" : "Copy"}
+        </button>
+      </div>
+      <pre className="bg-gray-50 border border-gray-200 rounded-sm p-3 text-xs text-gray-700 overflow-x-auto font-mono select-text whitespace-pre-wrap break-all">
+        {code}
+      </pre>
+    </div>
+  );
+}
+
 function SetupInstructions({ apiKey }: { apiKey?: string }) {
   const [expanded, setExpanded] = useState(false);
   const placeholder = apiKey || "YOUR_API_KEY";
@@ -364,6 +395,18 @@ function SetupInstructions({ apiKey }: { apiKey?: string }) {
     headers:
       x-api-key: ${placeholder}`;
 
+  const openclawInstall = `openclaw plugins install indexnetwork-openclaw-plugin --marketplace https://github.com/indexnetwork/openclaw-plugin`;
+
+  const openclawMcp = `openclaw mcp set index-network '${JSON.stringify({
+    url: mcpUrl,
+    transport: "streamable-http",
+    headers: { "x-api-key": placeholder },
+  })}'`;
+
+  const openclawGatewayUrl = `openclaw config set plugins.entries.indexnetwork-openclaw-plugin.config.gatewayUrl https://<your-gateway-base-url>`;
+
+  const openclawWebhookSecret = `openclaw config set plugins.entries.indexnetwork-openclaw-plugin.config.webhookSecret "$(openssl rand -hex 32)"`;
+
   return (
     <div className="border border-gray-200 rounded-sm">
       <button
@@ -377,20 +420,17 @@ function SetupInstructions({ apiKey }: { apiKey?: string }) {
       {expanded && (
         <div className="px-4 pb-4 space-y-4 border-t border-gray-100">
           <div className="pt-3">
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
-              Claude Code / OpenCode
-            </p>
-            <pre className="bg-gray-50 border border-gray-200 rounded-sm p-3 text-xs text-gray-700 overflow-x-auto font-mono">
-              {claudeConfig}
-            </pre>
+            <CodeBlock code={claudeConfig} label="Claude Code / OpenCode" />
           </div>
           <div>
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
-              Hermes Agent
-            </p>
-            <pre className="bg-gray-50 border border-gray-200 rounded-sm p-3 text-xs text-gray-700 overflow-x-auto font-mono">
-              {hermesConfig}
-            </pre>
+            <CodeBlock code={hermesConfig} label="Hermes Agent" />
+          </div>
+          <div className="space-y-3">
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">OpenClaw</p>
+            <CodeBlock code={openclawInstall} label="1. Install plugin" />
+            <CodeBlock code={openclawMcp} label="2. Register MCP server" />
+            <CodeBlock code={openclawGatewayUrl} label="3. Set gateway URL (for webhooks)" />
+            <CodeBlock code={openclawWebhookSecret} label="4. Set webhook secret" />
           </div>
         </div>
       )}

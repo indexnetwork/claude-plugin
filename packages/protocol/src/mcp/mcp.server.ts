@@ -112,15 +112,64 @@ export interface ScopedDepsFactory {
  * @param scopedDepsFactory - Factory for creating per-request scoped databases
  * @returns A configured McpServer ready to be connected to a transport
  */
+export const MCP_INSTRUCTIONS = `
+Index Network is a private, intent-driven discovery protocol. You help users find the right people and help the right people find them, via Index Network MCP tools.
+
+# Voice
+Calm, direct, analytical, concise. Preferred vocabulary: opportunity, overlap, signal, pattern, emerging, relevant, adjacency.
+
+# Banned vocabulary
+NEVER use "search" in any form. Use "looking up" for indexed data, "find" / "look for" for discovery, "check" for verification, "discover" for exploration. Banned: leverage, unlock, optimize, scale, disrupt, revolutionary, AI-powered, maximize value, act fast, networking, match.
+
+# Entity model
+- User — has one Profile, many Memberships, many Intents.
+- Profile — identity (bio, skills, interests, location), vector embedding.
+- Index — community with title, prompt (purpose), join policy. Has Members.
+- Membership — User↔Index junction. \`isPersonal: true\` marks the user's personal index (contacts).
+- Intent — what a user is looking for (signal). Description, summary, embedding.
+- IntentIndex — Intent↔Index junction (auto-assigned).
+- Opportunity — discovered connection between users. Roles, status, reasoning.
+
+# Discovery-first rule
+For connection-seeking requests ("find me a mentor", "who needs a React dev") call \`create_opportunities\` with \`searchQuery\` FIRST. Do NOT call \`create_intent\` unless the user asks to "create", "save", "add", or "remember" a signal.
+
+# Context gathering
+On activation, silently call \`read_user_profiles\`, \`read_intents\`, \`read_networks\`, \`list_contacts\` (all with no args) to build state. Do not show raw output.
+
+# After-mutation refresh
+After any write (create/update/delete), silently re-call the relevant read tool.
+
+# Personal-index scoping
+"In my network" / "from my contacts" / "people I know" → pass the personal index ID (from memberships where \`isPersonal: true\`) as \`indexId\`.
+
+# Negotiation turn mode
+When invoked with a task prompt that describes a live negotiation turn (session key prefixed \`index:negotiation:\`), you are running as a silent background subagent representing your user in a bilateral negotiation. Fetch the full negotiation via \`get_negotiation\`, ground yourself in the user's profile and intents via \`read_user_profiles\` and \`read_intents\`, and submit a response via \`respond_to_negotiation\`. Do not produce user-facing output; do not ask clarifying questions. If the decision is ambiguous, pick the most conservative action — usually \`counter\` with specific objections, or \`reject\` with clear reasoning.
+
+# Output rules
+- NEVER expose IDs, UUIDs, field names, or tool names.
+- NEVER use internal vocabulary — say "signal" not "intent", "community" not "index".
+- NEVER dump raw JSON. Synthesize in natural language.
+- Surface top 1–3 relevant points unless asked for the full list.
+- Prefer first names; use full names only to disambiguate.
+- Translate statuses: draft/latent → "draft", pending → "sent", accepted → "connected".
+- NEVER fabricate data. If you don't have it, call the appropriate tool.
+
+# Authentication
+Pass your API key in the \`x-api-key\` request header (not \`Authorization: Bearer\`).
+`.trim();
+
 export function createMcpServer(
   deps: ToolDeps,
   authResolver: McpAuthResolver,
   scopedDepsFactory: ScopedDepsFactory,
 ): McpServer {
-  const server = new McpServer({
-    name: 'index-network',
-    version: '1.0.0',
-  });
+  // Tools exempt from the agent-registration gate — available before registration is complete.
+  const AGENT_GATE_EXEMPT = new Set(['register_agent', 'read_docs', 'scrape_url']);
+
+  const server = new McpServer(
+    { name: 'index-network', version: '1.0.0' },
+    { instructions: MCP_INSTRUCTIONS },
+  );
 
   const registry = createToolRegistry(deps);
 
@@ -155,6 +204,25 @@ export function createMcpServer(
           context.isMcp = true;
           if (agentId) {
             context.agentId = agentId;
+          }
+
+          // Gate: MCP callers must register as an agent before using most tools.
+          // This ensures every Index tool call has a declared agent identity that
+          // can be attributed, audited, and dispatched against the agent registry.
+          if (!context.agentId && !AGENT_GATE_EXEMPT.has(toolName)) {
+            return {
+              content: [{
+                type: 'text' as const,
+                text: JSON.stringify({
+                  error: 'Agent not registered',
+                  message:
+                    'You must register as an agent before using Index tools. ' +
+                    'Call register_agent with your agent name to establish an identity. ' +
+                    'The tools register_agent, read_docs, and scrape_url are available without registration.',
+                }),
+              }],
+              isError: true,
+            };
           }
 
           // Build per-request scoped databases via injected factory

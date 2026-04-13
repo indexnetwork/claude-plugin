@@ -95,16 +95,16 @@ git push <indexnetwork-remote> main
 
 The following packages are git subtrees tracked to external repos. **Syncing is automatic** — the `scripts/hooks/pre-push` hook detects commits touching each prefix and runs `git subtree push` whenever you push `dev` or `main` to the canonical `indexnetwork/index` repo, regardless of whether that remote is named `origin`, `upstream`, or something else. Subtree branches stay aligned with the monorepo branch (`dev` -> `dev`, `main` -> `main`).
 
-#### packages/claude-plugin/ → indexnetwork/claude-plugin
+#### packages/openclaw-plugin/ → indexnetwork/openclaw-plugin
 
-Contains **skills only** (markdown files) — no code, no build step. Checked in as regular files — no special init needed after cloning.
+The `indexnetwork-openclaw-plugin` package — an OpenClaw plugin that (a) registers the Index Network MCP server via a bootstrap skill, and (b) hosts a plugin-authed HTTP webhook route (`POST /index-network/webhook`) that receives `negotiation.turn_received` and `negotiation.completed` events from Index Network and dispatches silent (or delivered) subagents via `api.runtime.subagent.run` to respond on the user's behalf. Behavioral guidance for the negotiation subagent lives in the MCP server's `MCP_INSTRUCTIONS`, not in the plugin. The `skills/index-network/SKILL.md` shipped inside the package is generated from `packages/protocol/skills/openclaw/SKILL.md.template` by `scripts/build-skills.ts` — edit the template, re-run the build, then commit both the template and the materialized output.
 
 ```bash
 # Manual push if the hook failed (use dev or main)
-git subtree push --prefix=packages/claude-plugin https://github.com/indexnetwork/claude-plugin.git <branch>
+git subtree push --prefix=packages/openclaw-plugin https://github.com/indexnetwork/openclaw-plugin.git <branch>
 
-# Pull if upstream was edited directly (avoid — always edit via this repo)
-git subtree pull --squash --prefix=packages/claude-plugin https://github.com/indexnetwork/claude-plugin.git <branch>
+# Pull if external repo was edited directly (avoid — always edit via this repo)
+git subtree pull --squash --prefix=packages/openclaw-plugin https://github.com/indexnetwork/openclaw-plugin.git <branch>
 ```
 
 #### packages/protocol/ → indexnetwork/protocol
@@ -152,9 +152,9 @@ For full architecture details see `docs/design/architecture-overview.md` and `do
 index/
 ├── backend/           # Backend API & Agent Engine (Bun, Express, TypeScript)
 ├── packages/
-│   ├── protocol/      # @indexnetwork/protocol NPM package — subtree → indexnetwork/protocol
-│   ├── cli/           # @indexnetwork/cli — Bun, TypeScript — subtree → indexnetwork/cli
-│   └── claude-plugin/ # Claude plugin (skills-only, subtree → indexnetwork/claude-plugin)
+│   ├── protocol/        # @indexnetwork/protocol NPM package — subtree → indexnetwork/protocol
+│   ├── cli/             # @indexnetwork/cli — Bun, TypeScript — subtree → indexnetwork/cli
+│   └── openclaw-plugin/ # indexnetwork-openclaw-plugin — bootstrap + negotiation webhook, subtree → indexnetwork/openclaw-plugin
 ├── frontend/          # Vite + React Router v7 SPA with React 19
 ├── docs/              # Project documentation (design/, domain/, guides/, specs/)
 └── scripts/           # Worktree helpers, hooks, dev launcher
