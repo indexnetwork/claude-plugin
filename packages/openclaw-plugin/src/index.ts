@@ -20,10 +20,25 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { OpenClawPluginApi } from './plugin-api.js';
 import { turnPrompt } from './prompts/turn.prompt.js';
 
-/** Polling interval: 30 seconds. */
+/** Base polling interval: 30 seconds. */
 const POLL_INTERVAL_MS = 30_000;
 
+/** Max backoff multiplier (caps at ~8 minutes). */
+const MAX_BACKOFF_MULTIPLIER = 16;
+
 const POLL_PATH = '/index-network/poll';
+
+/** Tracks in-flight turns so we don't re-launch subagents for already-claimed work. */
+const inflight = new Set<string>();
+
+/** Prevents double-registration when OpenClaw calls register() more than once. */
+let registered = false;
+
+/** Current backoff multiplier — increases on consecutive failures, resets on success. */
+let backoffMultiplier = 1;
+
+/** Handle returned by setInterval, stored so tests can inspect or clear it. */
+let pollTimer: ReturnType<typeof setInterval> | null = null;
 
 /**
  * OpenClaw plugin entry point. Registers an internal HTTP route for polling
@@ -32,6 +47,12 @@ const POLL_PATH = '/index-network/poll';
  * @param api - The OpenClaw plugin API provided by the host.
  */
 export default function register(api: OpenClawPluginApi): void {
+  if (registered) {
+    api.logger.debug('Index Network plugin already registered, skipping duplicate call.');
+    return;
+  }
+  registered = true;
+
   const agentId = readConfig(api, 'agentId');
   const apiKey = readConfig(api, 'apiKey');
 
@@ -46,7 +67,8 @@ export default function register(api: OpenClawPluginApi): void {
   const gatewayPort = process.env.OPENCLAW_GATEWAY_PORT || '18789';
   const gatewayToken = readGatewayToken();
 
-  // Register the poll route — this gives us a request scope for subagent.run
+  // Route MUST use auth: 'gateway' (not 'plugin') — subagent.run() requires
+  // operator.write scope, which only gateway-authed routes receive.
   api.registerHttpRoute({
     path: POLL_PATH,
     auth: 'gateway',
@@ -86,10 +108,23 @@ export default function register(api: OpenClawPluginApi): void {
     });
   };
 
-  setInterval(triggerPoll, POLL_INTERVAL_MS);
+  // Schedule polling with dynamic backoff
+  const scheduleNext = () => {
+    const delay = POLL_INTERVAL_MS * backoffMultiplier;
+    pollTimer = setTimeout(() => {
+      triggerPoll();
+      scheduleNext();
+    }, delay);
+  };
 
-  // First poll after a short delay to let the gateway fully start
-  setTimeout(triggerPoll, 5_000);
+  scheduleNext();
+
+  // First poll after a short delay to let the gateway fully start.
+  // This initial poll also runs a reachability check on the backend.
+  setTimeout(() => {
+    checkBackendReachability(api, baseUrl);
+    triggerPoll();
+  }, 5_000);
 }
 
 async function poll(
@@ -109,13 +144,21 @@ async function poll(
     signal: AbortSignal.timeout(10_000),
   });
 
-  if (res.status === 204) return; // nothing pending
+  if (res.status === 204) {
+    // Nothing pending — reset backoff on successful communication
+    backoffMultiplier = 1;
+    return;
+  }
 
   if (!res.ok) {
     const body = await res.text().catch(() => '');
     api.logger.warn(`Pickup request failed: ${res.status} ${body}`);
+    increaseBackoff(api);
     return;
   }
+
+  // Successful pickup — reset backoff
+  backoffMultiplier = 1;
 
   const turn = (await res.json()) as {
     negotiationId: string;
@@ -129,26 +172,64 @@ async function poll(
     };
   };
 
+  const inflightKey = `${turn.taskId}:${turn.turn.number}`;
+  if (inflight.has(inflightKey)) {
+    api.logger.debug(`Turn ${inflightKey} already in-flight, skipping.`);
+    return;
+  }
+  inflight.add(inflightKey);
+
   api.logger.info(`Negotiation turn picked up: ${turn.taskId} turn ${turn.turn.number}`);
 
   const lastEntry = turn.turn.history.length > 0
     ? turn.turn.history[turn.turn.history.length - 1]
     : null;
 
-  await api.runtime.subagent.run({
-    sessionKey: `index:negotiation:${turn.negotiationId}`,
-    idempotencyKey: `index:turn:${turn.taskId}:${turn.turn.number}`,
-    message: turnPrompt({
-      negotiationId: turn.taskId,
-      turnNumber: turn.turn.number,
-      counterpartyAction: turn.turn.counterpartyAction,
-      counterpartyMessage: lastEntry?.message ?? null,
-      deadline: turn.turn.deadline,
-    }),
-    deliver: false,
-  });
+  try {
+    await api.runtime.subagent.run({
+      sessionKey: `index:negotiation:${turn.negotiationId}`,
+      idempotencyKey: `index:turn:${turn.taskId}:${turn.turn.number}`,
+      message: turnPrompt({
+        negotiationId: turn.taskId,
+        turnNumber: turn.turn.number,
+        counterpartyAction: turn.turn.counterpartyAction,
+        counterpartyMessage: lastEntry?.message ?? null,
+        deadline: turn.turn.deadline,
+      }),
+      deliver: false,
+    });
+    api.logger.info(`Subagent launched for negotiation ${turn.taskId}`);
+  } catch (err) {
+    // Remove from in-flight so it can be retried on the next poll
+    inflight.delete(inflightKey);
+    increaseBackoff(api);
+    throw err;
+  }
+}
 
-  api.logger.info(`Subagent launched for negotiation ${turn.taskId}`);
+function increaseBackoff(api: OpenClawPluginApi): void {
+  if (backoffMultiplier < MAX_BACKOFF_MULTIPLIER) {
+    backoffMultiplier = Math.min(backoffMultiplier * 2, MAX_BACKOFF_MULTIPLIER);
+    api.logger.info(
+      `Backing off — next poll in ${(POLL_INTERVAL_MS * backoffMultiplier / 1000).toFixed(0)}s`,
+    );
+  }
+}
+
+/**
+ * One-time startup check: verifies the backend is reachable. Logs an
+ * actionable warning if it isn't, so users catch misconfigurations early.
+ */
+function checkBackendReachability(api: OpenClawPluginApi, baseUrl: string): void {
+  fetch(`${baseUrl}/api/health`, {
+    method: 'GET',
+    signal: AbortSignal.timeout(5_000),
+  }).catch(() => {
+    api.logger.warn(
+      `Cannot reach Index Network backend at ${baseUrl}. ` +
+      `Check that the backend is running and protocolUrl is correct in plugin config.`,
+    );
+  });
 }
 
 function readConfig(api: OpenClawPluginApi, key: string): string {
@@ -165,5 +246,19 @@ function readGatewayToken(): string {
     return config?.gateway?.auth?.token ?? '';
   } catch {
     return '';
+  }
+}
+
+/**
+ * Reset module-level state. Exposed for tests only — not part of public API.
+ * @internal
+ */
+export function _resetForTesting(): void {
+  registered = false;
+  backoffMultiplier = 1;
+  inflight.clear();
+  if (pollTimer) {
+    clearTimeout(pollTimer);
+    pollTimer = null;
   }
 }

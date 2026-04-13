@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test';
 
-import register from '../index.js';
+import register, { _resetForTesting } from '../index.js';
 import type {
   OpenClawPluginApi,
   SubagentRunOptions,
@@ -34,16 +34,19 @@ function buildFakeApi(config: Record<string, unknown>): FakeApi {
       },
     },
     logger,
+    registerHttpRoute: mock(() => {}),
   };
 
   return { api, subagentCalls, logger };
 }
 
 describe('register(api)', () => {
-  let fake: FakeApi;
+  afterEach(() => {
+    _resetForTesting();
+  });
 
   test('logs warning and does not start polling without agentId/apiKey', () => {
-    fake = buildFakeApi({});
+    const fake = buildFakeApi({});
     register(fake.api);
 
     expect(fake.logger.warn).toHaveBeenCalled();
@@ -51,10 +54,25 @@ describe('register(api)', () => {
   });
 
   test('logs info and starts polling with agentId and apiKey', () => {
-    fake = buildFakeApi({ agentId: 'agent-1', apiKey: 'key-1' });
+    const fake = buildFakeApi({ agentId: 'agent-1', apiKey: 'key-1' });
     register(fake.api);
 
     expect(fake.logger.warn).not.toHaveBeenCalled();
     expect(fake.logger.info).toHaveBeenCalled();
+  });
+
+  test('prevents duplicate registration', () => {
+    const fake = buildFakeApi({ agentId: 'agent-1', apiKey: 'key-1' });
+    register(fake.api);
+    register(fake.api);
+
+    // info should only be called once for "polling started"
+    const infoCalls = fake.logger.info.mock.calls.filter(
+      (call: unknown[]) => typeof call[0] === 'string' && call[0].includes('polling started'),
+    );
+    expect(infoCalls.length).toBe(1);
+
+    // debug should log the duplicate skip
+    expect(fake.logger.debug).toHaveBeenCalled();
   });
 });
