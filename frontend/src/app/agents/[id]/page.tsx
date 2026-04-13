@@ -366,9 +366,10 @@ function CodeBlock({ code, label }: { code: string; label: string }) {
   );
 }
 
-function SetupInstructions({ apiKey }: { apiKey?: string }) {
+function SetupInstructions({ apiKey, agentId }: { apiKey?: string; agentId?: string }) {
   const [expanded, setExpanded] = useState(false);
-  const placeholder = apiKey || "YOUR_API_KEY";
+  const keyPlaceholder = apiKey || "YOUR_API_KEY";
+  const agentPlaceholder = agentId || "YOUR_AGENT_ID";
 
   const protocolUrl = import.meta.env.VITE_PROTOCOL_URL || "";
   const mcpUrl = `${protocolUrl}/mcp`;
@@ -380,7 +381,7 @@ function SetupInstructions({ apiKey }: { apiKey?: string }) {
           type: "http",
           url: mcpUrl,
           headers: {
-            "x-api-key": placeholder,
+            "x-api-key": keyPlaceholder,
           },
         },
       },
@@ -393,15 +394,17 @@ function SetupInstructions({ apiKey }: { apiKey?: string }) {
   - name: index-network
     url: ${mcpUrl}
     headers:
-      x-api-key: ${placeholder}`;
+      x-api-key: ${keyPlaceholder}`;
 
   const openclawInstall = `openclaw plugins install indexnetwork-openclaw-plugin --marketplace https://github.com/indexnetwork/openclaw-plugin`;
 
   const openclawMcp = `openclaw mcp set index-network '${JSON.stringify({
     url: mcpUrl,
     transport: "streamable-http",
-    headers: { "x-api-key": placeholder },
+    headers: { "x-api-key": keyPlaceholder },
   })}'`;
+
+  const openclawConfigure = `openclaw plugins configure indexnetwork-openclaw-plugin --set agentId=${agentPlaceholder} --set apiKey=${keyPlaceholder} --set protocolUrl=${protocolUrl || "http://localhost:3001"}`;
 
   return (
     <div className="border border-gray-200 rounded-sm">
@@ -425,6 +428,7 @@ function SetupInstructions({ apiKey }: { apiKey?: string }) {
             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">OpenClaw</p>
             <CodeBlock code={openclawInstall} label="1. Install plugin" />
             <CodeBlock code={openclawMcp} label="2. Register MCP server" />
+            <CodeBlock code={openclawConfigure} label="3. Configure plugin (enables negotiation polling)" />
           </div>
         </div>
       )}
@@ -550,7 +554,7 @@ function ApiKeysTab({ agent }: { agent: Agent }) {
             </Button>
           </div>
           <div className="mt-3">
-            <SetupInstructions apiKey={createdKey} />
+            <SetupInstructions apiKey={createdKey} agentId={agent.id} />
           </div>
           <button
             onClick={() => { setCreatedKey(null); setCopied(false); }}
@@ -643,7 +647,7 @@ function ApiKeysTab({ agent }: { agent: Agent }) {
         </div>
       )}
 
-      {!createdKey && keys.length > 0 && <SetupInstructions />}
+      {!createdKey && keys.length > 0 && <SetupInstructions agentId={agent.id} />}
 
       <AlertDialog.Root open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
         <AlertDialog.Portal>
