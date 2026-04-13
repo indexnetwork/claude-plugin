@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
-import { Bot, Check, ChevronDown, ChevronRight, Copy, KeyRound, Loader2, Plus, Trash2, Zap } from 'lucide-react';
+import { Bot, Check, ChevronDown, ChevronRight, Copy, KeyRound, Loader2, Plus, Trash2 } from 'lucide-react';
 
 import ClientLayout from '@/components/ClientLayout';
 import { ContentContainer } from '@/components/layout';
@@ -113,10 +113,6 @@ function SetupInstructions({ apiKey }: { apiKey?: string }) {
     headers: { 'x-api-key': placeholder },
   })}'`;
 
-  const openclawGatewayUrl = `openclaw config set plugins.entries.indexnetwork-openclaw-plugin.config.gatewayUrl https://<your-gateway-base-url>`;
-
-  const openclawWebhookSecret = `openclaw config set plugins.entries.indexnetwork-openclaw-plugin.config.webhookSecret "$(openssl rand -hex 32)"`;
-
   return (
     <div className="border border-gray-200 rounded-sm" onClick={(e) => e.stopPropagation()}>
       <button
@@ -139,8 +135,6 @@ function SetupInstructions({ apiKey }: { apiKey?: string }) {
             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">OpenClaw</p>
             <CodeBlock code={openclawInstall} label="1. Install plugin" />
             <CodeBlock code={openclawMcp} label="2. Register MCP server" />
-            <CodeBlock code={openclawGatewayUrl} label="3. Set gateway URL (for webhooks)" />
-            <CodeBlock code={openclawWebhookSecret} label="4. Set webhook secret" />
           </div>
         </div>
       )}
@@ -163,7 +157,6 @@ export default function AgentsPage() {
   const [newlyCreatedKey, setNewlyCreatedKey] = useState<{ agentId: string; key: string } | null>(null);
   const [copiedKey, setCopiedKey] = useState(false);
   const [generatingForAgentId, setGeneratingForAgentId] = useState<string | null>(null);
-  const [testingForAgentId, setTestingForAgentId] = useState<string | null>(null);
   const [keysVersion, setKeysVersion] = useState(0);
 
   useEffect(() => {
@@ -276,18 +269,6 @@ export default function AgentsPage() {
       success('Agent deleted');
     } catch (err) {
       error('Failed to delete agent', err instanceof Error ? err.message : undefined);
-    }
-  }
-
-  async function handleTestWebhook(agent: Agent) {
-    setTestingForAgentId(agent.id);
-    try {
-      const result = await agentsService.testWebhooks(agent.id);
-      success(`Test delivery queued to ${result.delivered} transport(s).`);
-    } catch (err) {
-      error('Failed to test webhook', err instanceof Error ? err.message : undefined);
-    } finally {
-      setTestingForAgentId(null);
     }
   }
 
@@ -445,22 +426,6 @@ export default function AgentsPage() {
                               {agent.description ? <p className="text-sm text-gray-500 mt-1">{agent.description}</p> : null}
                             </Link>
                             <div className="flex items-center gap-2">
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                disabled={
-                                  testingForAgentId === agent.id ||
-                                  !agent.transports.some((t) => t.channel === 'webhook' && t.active)
-                                }
-                                onClick={() => handleTestWebhook(agent)}
-                              >
-                                {testingForAgentId === agent.id ? (
-                                  <Loader2 className="w-4 h-4 animate-spin mr-1" />
-                                ) : (
-                                  <Zap className="w-4 h-4 mr-1" />
-                                )}
-                                Test webhook
-                              </Button>
                               <Button variant="outline" onClick={() => handleDeleteAgent(agent)}>
                                 <Trash2 className="w-4 h-4 mr-1" />
                                 Delete

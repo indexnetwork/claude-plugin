@@ -1,19 +1,20 @@
-import type { NegotiationTurnReceivedPayload } from '../webhook/types.js';
+export interface TurnPayload {
+  negotiationId: string;
+  turnNumber: number;
+  counterpartyAction: string;
+  counterpartyMessage?: string | null;
+  deadline: string;
+}
 
 /**
  * Builds the task prompt passed to `api.runtime.subagent.run` when a
- * negotiation turn webhook lands. The subagent uses this prompt to decide
- * what action to submit via `respond_to_negotiation`.
+ * negotiation turn is picked up via polling. The subagent uses this prompt
+ * to decide what action to submit via `respond_to_negotiation`.
  *
- * The prompt is intentionally plain text — it is the entire instruction set
- * for the turn handler. Editing it does not require an OpenClaw restart.
- *
- * @param payload - The `negotiation.turn_received` webhook payload. Fields
- *   `negotiationId`, `turnNumber`, `counterpartyAction`, `counterpartyMessage`,
- *   and `deadline` are embedded verbatim in the turn-context block.
+ * @param payload - The turn context from the pickup response.
  * @returns The task prompt string passed to `api.runtime.subagent.run`.
  */
-export function turnPrompt(payload: NegotiationTurnReceivedPayload): string {
+export function turnPrompt(payload: TurnPayload): string {
   const counterpartyMessage = payload.counterpartyMessage ?? 'none';
   return `You are handling a live bilateral negotiation turn on behalf of your user on the Index Network.
 

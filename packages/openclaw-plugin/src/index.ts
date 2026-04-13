@@ -1,204 +1,169 @@
 /**
  * Index Network — OpenClaw plugin entry point.
  *
- * Registers a single plugin-authed HTTP route on the OpenClaw gateway:
+ * Polls the Index Network backend for pending negotiation turns via:
  *
- *   POST /index-network/webhook
+ *   POST /agents/:agentId/negotiations/pickup
  *
- * Index Network's agent registry creates one agent with at most one webhook
- * transport that subscribes to multiple event types. The plugin therefore
- * exposes one URL and dispatches internally by reading the `X-Index-Event`
- * header:
+ * Because `api.runtime.subagent.run()` is request-scoped in OpenClaw (only
+ * available inside an HTTP route handler), the plugin registers a route at
+ * `POST /index-network/poll` and the background interval triggers it via a
+ * local fetch. This gives each poll cycle a proper request scope.
  *
- *   - negotiation.turn_received  → silent subagent (deliver: false) runs the
- *                                  turn handler prompt. The subagent calls
- *                                  `get_negotiation` + `respond_to_negotiation`
- *                                  on the parent's Index Network MCP pool.
- *   - negotiation.completed      → if outcome.hasOpportunity is true, a
- *                                  delivered subagent (deliver: true) posts
- *                                  one short message to the user's last
- *                                  active channel. Non-accepted outcomes are
- *                                  ACKed silently.
- *
- * HMAC verification uses the shared secret from
- * `plugins.entries.indexnetwork-openclaw-plugin.config.webhookSecret`,
- * stored by the bootstrap skill.
- *
- * The subagent inherits the parent OpenClaw instance's MCP connection to
- * the Index Network MCP server, so it can call `get_negotiation`,
- * `read_user_profiles`, `read_intents`, and `respond_to_negotiation` on
- * behalf of the user without re-authenticating.
+ * When a turn is found, dispatches a silent subagent that calls
+ * `get_negotiation` + `respond_to_negotiation` on the parent's Index Network
+ * MCP pool to decide and submit the response.
  */
 
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
 import type { OpenClawPluginApi } from './plugin-api.js';
 import { turnPrompt } from './prompts/turn.prompt.js';
-import { acceptedPrompt } from './prompts/accepted.prompt.js';
-import type {
-  NegotiationCompletedPayload,
-  NegotiationTurnReceivedPayload,
-} from './webhook/types.js';
-import { verifyAndParse } from './webhook/verify.js';
 
-const WEBHOOK_PATH = '/index-network/webhook';
-const TURN_EVENT = 'negotiation.turn_received';
-const COMPLETED_EVENT = 'negotiation.completed';
+/** Polling interval: 30 seconds. */
+const POLL_INTERVAL_MS = 30_000;
+
+const POLL_PATH = '/index-network/poll';
 
 /**
- * OpenClaw plugin entry point. Registers a single plugin-authed HTTP route
- * (`POST /index-network/webhook`) that dispatches inbound Index Network
- * events to the turn or completed handler based on the `x-index-event`
- * header. Reads `webhookSecret` and `negotiationMode` from `api.pluginConfig`
- * on every request so that rotating the secret via
- * `openclaw config set` takes effect without a plugin reload. Logs a warning
- * at registration time if the secret is missing so operators notice before
- * live traffic arrives; inbound webhooks are still rejected until one is set.
+ * OpenClaw plugin entry point. Registers an internal HTTP route for polling
+ * and starts a background interval that triggers it.
  *
- * @param api - The OpenClaw plugin API provided by the host. `pluginConfig`,
- *   `logger`, `runtime.subagent.run`, and `registerHttpRoute` are used.
- * @returns Nothing. The side effect is the registered HTTP route.
+ * @param api - The OpenClaw plugin API provided by the host.
  */
 export default function register(api: OpenClawPluginApi): void {
-  if (!readSecret(api)) {
+  const agentId = readConfig(api, 'agentId');
+  const apiKey = readConfig(api, 'apiKey');
+
+  if (!agentId || !apiKey) {
     api.logger.warn(
-      'Index Network webhook secret is not configured — all inbound webhooks will be rejected until bootstrap completes.',
-      { plugin: api.id },
+      'Index Network polling requires agentId and apiKey in plugin config. Polling will not start.',
     );
+    return;
   }
 
-  api.registerHttpRoute({
-    path: WEBHOOK_PATH,
-    auth: 'plugin',
-    match: 'exact',
-    // Read secret and negotiationMode on every request so that rotating
-    // webhookSecret via `openclaw config set` takes effect without a
-    // plugin reload. Caching at register time silently breaks rotation.
-    handler: async (req, res) => {
-      const eventHeader = readHeader(req.headers['x-index-event']);
-      const secret = readSecret(api);
-      const negotiationMode = readNegotiationMode(api);
+  const baseUrl = readConfig(api, 'protocolUrl') || 'http://localhost:3001';
+  const gatewayPort = process.env.OPENCLAW_GATEWAY_PORT || '18789';
+  const gatewayToken = readGatewayToken();
 
-      if (eventHeader === TURN_EVENT) {
-        return handleTurn(api, req, res, secret, negotiationMode);
+  // Register the poll route — this gives us a request scope for subagent.run
+  api.registerHttpRoute({
+    path: POLL_PATH,
+    auth: 'gateway',
+    match: 'exact',
+    handler: async (req, res) => {
+      try {
+        await poll(api, baseUrl, agentId, apiKey);
+        res.statusCode = 200;
+        res.end('ok');
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        api.logger.error(`Poll handler error: ${msg}`);
+        res.statusCode = 500;
+        res.end(msg);
       }
-      if (eventHeader === COMPLETED_EVENT) {
-        return handleCompleted(api, req, res, secret);
-      }
-      return badRequest(res);
+      return true;
     },
   });
+
+  api.logger.info('Index Network polling started', {
+    plugin: api.id,
+    agentId,
+    intervalMs: POLL_INTERVAL_MS,
+  });
+
+  // Trigger polling via self-POST to the registered route
+  const triggerPoll = () => {
+    const url = `http://127.0.0.1:${gatewayPort}${POLL_PATH}`;
+    fetch(url, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${gatewayToken}`,
+      },
+      signal: AbortSignal.timeout(30_000),
+    }).catch((err) => {
+      api.logger.error(`Poll trigger failed: ${err instanceof Error ? err.message : String(err)}`);
+    });
+  };
+
+  setInterval(triggerPoll, POLL_INTERVAL_MS);
+
+  // First poll after a short delay to let the gateway fully start
+  setTimeout(triggerPoll, 5_000);
 }
 
-function readSecret(api: OpenClawPluginApi): string {
-  return typeof api.pluginConfig.webhookSecret === 'string'
-    ? api.pluginConfig.webhookSecret
-    : '';
-}
-
-function readNegotiationMode(api: OpenClawPluginApi): string {
-  return typeof api.pluginConfig.negotiationMode === 'string'
-    ? api.pluginConfig.negotiationMode
-    : 'enabled';
-}
-
-async function handleTurn(
+async function poll(
   api: OpenClawPluginApi,
-  req: IncomingMessage,
-  res: ServerResponse,
-  secret: string,
-  negotiationMode: string,
-): Promise<boolean> {
-  const payload = await verifyAndParse<NegotiationTurnReceivedPayload>(
-    req,
-    secret,
-    TURN_EVENT,
-  );
-  if (!payload) return reject(res);
+  baseUrl: string,
+  agentId: string,
+  apiKey: string,
+): Promise<void> {
+  const negotiationMode = readConfig(api, 'negotiationMode') || 'enabled';
+  if (negotiationMode === 'disabled') return;
 
-  if (negotiationMode === 'disabled') {
-    return accept(res);
+  const pickupUrl = `${baseUrl}/api/agents/${agentId}/negotiations/pickup`;
+
+  const res = await fetch(pickupUrl, {
+    method: 'POST',
+    headers: { 'x-api-key': apiKey },
+    signal: AbortSignal.timeout(10_000),
+  });
+
+  if (res.status === 204) return; // nothing pending
+
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    api.logger.warn(`Pickup request failed: ${res.status} ${body}`);
+    return;
   }
 
+  const turn = (await res.json()) as {
+    negotiationId: string;
+    taskId: string;
+    opportunity: { id: string; reasoning: string } | null;
+    turn: {
+      number: number;
+      deadline: string;
+      history: Array<{ turnNumber: number; agent: string; action: string; message?: string | null }>;
+      counterpartyAction: string;
+    };
+  };
+
+  api.logger.info(`Negotiation turn picked up: ${turn.taskId} turn ${turn.turn.number}`);
+
+  const lastEntry = turn.turn.history.length > 0
+    ? turn.turn.history[turn.turn.history.length - 1]
+    : null;
+
+  await api.runtime.subagent.run({
+    sessionKey: `index:negotiation:${turn.negotiationId}`,
+    idempotencyKey: `index:turn:${turn.taskId}:${turn.turn.number}`,
+    message: turnPrompt({
+      negotiationId: turn.taskId,
+      turnNumber: turn.turn.number,
+      counterpartyAction: turn.turn.counterpartyAction,
+      counterpartyMessage: lastEntry?.message ?? null,
+      deadline: turn.turn.deadline,
+    }),
+    deliver: false,
+  });
+
+  api.logger.info(`Subagent launched for negotiation ${turn.taskId}`);
+}
+
+function readConfig(api: OpenClawPluginApi, key: string): string {
+  const val = api.pluginConfig[key];
+  return typeof val === 'string' ? val : '';
+}
+
+function readGatewayToken(): string {
   try {
-    await api.runtime.subagent.run({
-      sessionKey: `index:negotiation:${payload.negotiationId}`,
-      message: turnPrompt(payload),
-      deliver: false,
-    });
-  } catch (err) {
-    api.logger.error('Failed to launch turn subagent', {
-      plugin: api.id,
-      negotiationId: payload.negotiationId,
-      error: err instanceof Error ? err.message : String(err),
-    });
-    return fail(res);
+    const fs = require('node:fs');
+    const path = require('node:path');
+    const configPath = path.join(process.env.HOME || '', '.openclaw', 'openclaw.json');
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+    return config?.gateway?.auth?.token ?? '';
+  } catch {
+    return '';
   }
-
-  return accept(res);
-}
-
-async function handleCompleted(
-  api: OpenClawPluginApi,
-  req: IncomingMessage,
-  res: ServerResponse,
-  secret: string,
-): Promise<boolean> {
-  const payload = await verifyAndParse<NegotiationCompletedPayload>(
-    req,
-    secret,
-    COMPLETED_EVENT,
-  );
-  if (!payload) return reject(res);
-
-  if (payload.outcome?.hasOpportunity !== true) {
-    return accept(res);
-  }
-
-  try {
-    await api.runtime.subagent.run({
-      sessionKey: `index:event:${payload.negotiationId}`,
-      message: acceptedPrompt(payload),
-      deliver: true,
-    });
-  } catch (err) {
-    api.logger.error('Failed to launch accepted subagent', {
-      plugin: api.id,
-      negotiationId: payload.negotiationId,
-      error: err instanceof Error ? err.message : String(err),
-    });
-    return fail(res);
-  }
-
-  return accept(res);
-}
-
-function readHeader(raw: string | string[] | undefined): string | null {
-  if (typeof raw === 'string') return raw;
-  if (Array.isArray(raw) && raw.length > 0) return raw[0] ?? null;
-  return null;
-}
-
-function accept(res: ServerResponse): boolean {
-  res.statusCode = 202;
-  res.end('accepted');
-  return true;
-}
-
-function reject(res: ServerResponse): boolean {
-  res.statusCode = 401;
-  res.end('invalid signature');
-  return true;
-}
-
-function badRequest(res: ServerResponse): boolean {
-  res.statusCode = 400;
-  res.end('unknown or missing x-index-event header');
-  return true;
-}
-
-function fail(res: ServerResponse): boolean {
-  res.statusCode = 500;
-  res.end('internal error');
-  return true;
 }

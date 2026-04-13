@@ -403,10 +403,6 @@ function SetupInstructions({ apiKey }: { apiKey?: string }) {
     headers: { "x-api-key": placeholder },
   })}'`;
 
-  const openclawGatewayUrl = `openclaw config set plugins.entries.indexnetwork-openclaw-plugin.config.gatewayUrl https://<your-gateway-base-url>`;
-
-  const openclawWebhookSecret = `openclaw config set plugins.entries.indexnetwork-openclaw-plugin.config.webhookSecret "$(openssl rand -hex 32)"`;
-
   return (
     <div className="border border-gray-200 rounded-sm">
       <button
@@ -429,8 +425,6 @@ function SetupInstructions({ apiKey }: { apiKey?: string }) {
             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">OpenClaw</p>
             <CodeBlock code={openclawInstall} label="1. Install plugin" />
             <CodeBlock code={openclawMcp} label="2. Register MCP server" />
-            <CodeBlock code={openclawGatewayUrl} label="3. Set gateway URL (for webhooks)" />
-            <CodeBlock code={openclawWebhookSecret} label="4. Set webhook secret" />
           </div>
         </div>
       )}

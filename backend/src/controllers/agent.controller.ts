@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { AuthGuard, type AuthenticatedUser } from '../guards/auth.guard';
+import { AuthGuard, AuthOrApiKeyGuard, type AuthenticatedUser } from '../guards/auth.guard';
 import { log } from '../lib/log';
 import { Controller, Delete, Get, Patch, Post, UseGuards } from '../lib/router/router.decorators';
 import { agentService } from '../services/agent.service';
@@ -351,7 +351,7 @@ export class AgentController {
   }
 
   @Post('/:id/negotiations/pickup')
-  @UseGuards(AuthGuard)
+  @UseGuards(AuthOrApiKeyGuard)
   async pickupNegotiation(_req: Request, user: AuthenticatedUser, params?: RouteParams) {
     const agentId = params?.id;
     if (!agentId) {
@@ -370,7 +370,7 @@ export class AgentController {
   }
 
   @Post('/:id/negotiations/:negotiationId/respond')
-  @UseGuards(AuthGuard)
+  @UseGuards(AuthOrApiKeyGuard)
   async respondNegotiation(req: Request, user: AuthenticatedUser, params?: RouteParams) {
     const agentId = params?.id;
     const negotiationId = params?.negotiationId;
