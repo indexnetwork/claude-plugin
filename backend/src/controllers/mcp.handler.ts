@@ -236,7 +236,6 @@ function getOrCreateMcpServer(): McpServer {
     integrationImporter: deps.integrationImporter,
     enricher: deps.enricher,
     negotiationDatabase: deps.negotiationDatabase,
-    webhook: deps.webhook,
     agentDispatcher: deps.agentDispatcher,
     negotiationTimeoutQueue: deps.negotiationTimeoutQueue,
     agentDatabase: deps.agentDatabase,
