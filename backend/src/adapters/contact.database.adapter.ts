@@ -5,7 +5,7 @@
  * ChatDatabaseAdapter do not interfere with ContactService integration tests.
  */
 
-import { eq, and, inArray, isNull, isNotNull, or, ilike, sql } from 'drizzle-orm';
+import { asc, eq, and, inArray, isNull, isNotNull, or, ilike, sql } from 'drizzle-orm';
 import * as schema from '../schemas/database.schema';
 import db from '../lib/drizzle/drizzle';
 
@@ -290,6 +290,7 @@ export class ContactDatabaseAdapter {
         isNull(schema.users.deletedAt),
         or(ilike(schema.users.name, pattern), ilike(schema.users.email, pattern)),
       ))
+      .orderBy(asc(schema.users.name), asc(schema.users.email))
       .limit(limit);
 
     return rows.map((row) => ({

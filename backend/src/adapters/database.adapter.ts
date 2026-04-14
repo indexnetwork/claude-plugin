@@ -6411,7 +6411,10 @@ export class ConversationDatabaseAdapter {
         and(
           eq(schema.conversationParticipants.participantId, userId),
           eq(schema.conversationParticipants.participantType, 'user'),
-          isNull(schema.conversationParticipants.hiddenAt),
+          or(
+            isNull(schema.conversationParticipants.hiddenAt),
+            gt(schema.conversations.lastMessageAt, schema.conversationParticipants.hiddenAt),
+          ),
           inArray(schema.conversations.id, chatSessionIds),
         ),
       )
@@ -6481,7 +6484,6 @@ export class ConversationDatabaseAdapter {
           eq(schema.conversationParticipants.conversationId, sessionId),
           eq(schema.conversationParticipants.participantId, userId),
           eq(schema.conversationParticipants.participantType, 'user'),
-          isNull(schema.conversationParticipants.hiddenAt),
         ),
       )
       .limit(1);
@@ -6525,10 +6527,10 @@ export class ConversationDatabaseAdapter {
       .select()
       .from(schema.messages)
       .where(eq(schema.messages.conversationId, sessionId))
-      .orderBy(asc(schema.messages.createdAt))
+      .orderBy(desc(schema.messages.createdAt))
       .limit(messageLimit);
 
-    const messages = msgRows.map((msg) => {
+    const messages = msgRows.reverse().map((msg) => {
       const parts = msg.parts as Array<{ type?: string; text?: string }>;
       const content =
         parts?.find((p) => p?.type === 'text' && typeof p.text === 'string')?.text
