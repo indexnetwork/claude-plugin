@@ -842,6 +842,31 @@ export class ChatDatabaseAdapter {
     }
   }
 
+  async searchOwnIntents(
+    userId: string,
+    q: string,
+    limit: number,
+  ): Promise<Array<{ id: string; payload: string; summary: string | null; createdAt: Date }>> {
+    const pattern = `%${q.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+    return db
+      .select({
+        id: schema.intents.id,
+        payload: schema.intents.payload,
+        summary: schema.intents.summary,
+        createdAt: schema.intents.createdAt,
+      })
+      .from(schema.intents)
+      .where(
+        and(
+          eq(schema.intents.userId, userId),
+          isNull(schema.intents.archivedAt),
+          or(ilike(schema.intents.payload, pattern), ilike(schema.intents.summary, pattern)),
+        ),
+      )
+      .orderBy(desc(schema.intents.createdAt))
+      .limit(limit);
+  }
+
   async getIntentsInIndexForMember(userId: string, indexNameOrId: string): Promise<ActiveIntentRow[]> {
     const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     let networkId: string | null;
@@ -4818,6 +4843,7 @@ export function createUserDatabase(db: ChatDatabaseAdapter, authUserId: string) 
     // Intent Operations
     // ─────────────────────────────────────────────────────────────────────────────
     getActiveIntents: () => db.getActiveIntents(authUserId),
+    searchOwnIntents: (q: string, limit: number) => db.searchOwnIntents(authUserId, q, limit),
     getIntent: async (intentId: string) => {
       // Enforce ownership by checking userId on returned intent
       const intent = await db.getIntent(intentId);
