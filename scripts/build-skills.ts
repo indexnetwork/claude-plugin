@@ -101,6 +101,19 @@ export function substituteTokens(template: string, tokens: TokenSet): string {
   return output;
 }
 
+/**
+ * Replaces partial placeholders (e.g. {{CORE_GUIDANCE}}) with their content
+ * before env-specific token substitution runs. Unknown keys are left as-is so
+ * substituteTokens can catch genuinely unreplaced tokens.
+ */
+export function injectPartials(template: string, partials: Record<string, string>): string {
+  let output = template;
+  for (const [key, value] of Object.entries(partials)) {
+    output = output.replaceAll(`{{${key}}}`, value);
+  }
+  return output;
+}
+
 export function build(
   targetEnv: TargetEnv,
   templatePath: string,

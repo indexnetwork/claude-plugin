@@ -20,6 +20,7 @@ import { join } from 'node:path';
 import {
   resolveTargetEnv,
   substituteTokens,
+  injectPartials,
   build,
   resolveOutputPaths,
   TOKENS,
@@ -111,6 +112,33 @@ describe('substituteTokens', () => {
     expect(substituteTokens(template, TOKENS.main)).toBe(
       'No tokens here, plain text with {single} and [brackets].',
     );
+  });
+});
+
+describe('injectPartials', () => {
+  test('replaces a known partial key', () => {
+    const result = injectPartials('before {{CORE_GUIDANCE}} after', { CORE_GUIDANCE: 'injected' });
+    expect(result).toBe('before injected after');
+  });
+
+  test('replaces the same partial multiple times', () => {
+    const result = injectPartials('{{CORE_GUIDANCE}} and {{CORE_GUIDANCE}}', { CORE_GUIDANCE: 'x' });
+    expect(result).toBe('x and x');
+  });
+
+  test('leaves unmatched keys untouched (substituteTokens handles them)', () => {
+    const result = injectPartials('{{UNKNOWN}}', { CORE_GUIDANCE: 'x' });
+    expect(result).toBe('{{UNKNOWN}}');
+  });
+
+  test('handles empty partials map', () => {
+    const result = injectPartials('{{FOO}}', {});
+    expect(result).toBe('{{FOO}}');
+  });
+
+  test('partial value containing braces does not cause false token errors', () => {
+    const result = injectPartials('{{CORE_GUIDANCE}}', { CORE_GUIDANCE: 'plain text, no tokens' });
+    expect(result).toBe('plain text, no tokens');
   });
 });
 
