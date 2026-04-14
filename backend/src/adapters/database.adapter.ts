@@ -842,6 +842,31 @@ export class ChatDatabaseAdapter {
     }
   }
 
+  async searchOwnIntents(
+    userId: string,
+    q: string,
+    limit: number,
+  ): Promise<Array<{ id: string; payload: string; summary: string | null; createdAt: Date }>> {
+    const pattern = `%${q.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+    return db
+      .select({
+        id: schema.intents.id,
+        payload: schema.intents.payload,
+        summary: schema.intents.summary,
+        createdAt: schema.intents.createdAt,
+      })
+      .from(schema.intents)
+      .where(
+        and(
+          eq(schema.intents.userId, userId),
+          isNull(schema.intents.archivedAt),
+          or(ilike(schema.intents.payload, pattern), ilike(schema.intents.summary, pattern)),
+        ),
+      )
+      .orderBy(desc(schema.intents.createdAt))
+      .limit(limit);
+  }
+
   async getIntentsInIndexForMember(userId: string, indexNameOrId: string): Promise<ActiveIntentRow[]> {
     const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     let networkId: string | null;
@@ -4818,6 +4843,7 @@ export function createUserDatabase(db: ChatDatabaseAdapter, authUserId: string) 
     // Intent Operations
     // ─────────────────────────────────────────────────────────────────────────────
     getActiveIntents: () => db.getActiveIntents(authUserId),
+    searchOwnIntents: (q: string, limit: number) => db.searchOwnIntents(authUserId, q, limit),
     getIntent: async (intentId: string) => {
       // Enforce ownership by checking userId on returned intent
       const intent = await db.getIntent(intentId);
@@ -6343,6 +6369,191 @@ export class ConversationDatabaseAdapter {
     const metaMap = new Map<string, ChatConversationMeta>(metaRows.map((m) => [m.conversationId, m.metadata as ChatConversationMeta]));
 
     return rows.map((conv) => this._toChatSession(conv, userId, metaMap.get(conv.id) ?? null));
+  }
+
+  /**
+   * List chat session summaries for a user, ordered by most recent activity.
+   * Mirrors `getUserChatSessions` but returns the `ChatSessionSummary` shape
+   * expected by `ChatSessionReader`.
+   *
+   * @param userId - The user whose sessions to list
+   * @param limit - Maximum number of sessions to return (default 25)
+   * @returns Array of chat session summaries
+   */
+  async listChatSessionSummaries(
+    userId: string,
+    limit = 25,
+  ): Promise<Array<{ sessionId: string; title: string | null; messageCount: number; lastMessageAt: Date | null; createdAt: Date }>> {
+    // Subquery: conversation IDs that include the system agent
+    const chatSessionIds = db
+      .select({ conversationId: schema.conversationParticipants.conversationId })
+      .from(schema.conversationParticipants)
+      .where(
+        and(
+          eq(schema.conversationParticipants.participantId, SYSTEM_AGENT_ID),
+          eq(schema.conversationParticipants.participantType, 'agent'),
+        ),
+      );
+
+    const rows = await db
+      .select({
+        id: schema.conversations.id,
+        lastMessageAt: schema.conversations.lastMessageAt,
+        createdAt: schema.conversations.createdAt,
+        updatedAt: schema.conversations.updatedAt,
+      })
+      .from(schema.conversationParticipants)
+      .innerJoin(
+        schema.conversations,
+        eq(schema.conversationParticipants.conversationId, schema.conversations.id),
+      )
+      .where(
+        and(
+          eq(schema.conversationParticipants.participantId, userId),
+          eq(schema.conversationParticipants.participantType, 'user'),
+          or(
+            isNull(schema.conversationParticipants.hiddenAt),
+            gt(schema.conversations.lastMessageAt, schema.conversationParticipants.hiddenAt),
+          ),
+          inArray(schema.conversations.id, chatSessionIds),
+        ),
+      )
+      .orderBy(desc(schema.conversations.updatedAt))
+      .limit(limit);
+
+    if (rows.length === 0) return [];
+
+    const convIds = rows.map((r) => r.id);
+
+    // Batch-fetch metadata (titles)
+    const metaRows = await db
+      .select()
+      .from(schema.conversationMetadata)
+      .where(inArray(schema.conversationMetadata.conversationId, convIds));
+    const metaMap = new Map<string, ChatConversationMeta>(
+      metaRows.map((m) => [m.conversationId, m.metadata as ChatConversationMeta]),
+    );
+
+    // Batch-fetch message counts
+    const countRows = await db
+      .select({
+        conversationId: schema.messages.conversationId,
+        cnt: count(schema.messages.id),
+      })
+      .from(schema.messages)
+      .where(inArray(schema.messages.conversationId, convIds))
+      .groupBy(schema.messages.conversationId);
+    const countMap = new Map<string, number>(countRows.map((r) => [r.conversationId, Number(r.cnt)]));
+
+    return rows.map((conv) => ({
+      sessionId: conv.id,
+      title: (metaMap.get(conv.id)?.title) ?? null,
+      messageCount: countMap.get(conv.id) ?? 0,
+      lastMessageAt: conv.lastMessageAt ?? conv.updatedAt,
+      createdAt: conv.createdAt,
+    }));
+  }
+
+  /**
+   * Get full detail for a single chat session, including messages.
+   * Returns null if the user does not participate or it is not a chat session.
+   *
+   * @param userId - The requesting user
+   * @param sessionId - The conversation ID
+   * @param messageLimit - Maximum messages to return (default 50)
+   * @returns Session detail or null
+   */
+  async getChatSessionDetail(
+    userId: string,
+    sessionId: string,
+    messageLimit = 50,
+  ): Promise<{
+    sessionId: string;
+    title: string | null;
+    messageCount: number;
+    lastMessageAt: Date | null;
+    createdAt: Date;
+    messages: Array<{ role: string; content: string; createdAt: Date }>;
+  } | null> {
+    // Verify user participation
+    const [userParticipant] = await db
+      .select({ participantId: schema.conversationParticipants.participantId })
+      .from(schema.conversationParticipants)
+      .where(
+        and(
+          eq(schema.conversationParticipants.conversationId, sessionId),
+          eq(schema.conversationParticipants.participantId, userId),
+          eq(schema.conversationParticipants.participantType, 'user'),
+        ),
+      )
+      .limit(1);
+
+    if (!userParticipant) return null;
+
+    // Verify system agent participation (i.e. it's a chat session, not a DM)
+    const [agentParticipant] = await db
+      .select({ participantId: schema.conversationParticipants.participantId })
+      .from(schema.conversationParticipants)
+      .where(
+        and(
+          eq(schema.conversationParticipants.conversationId, sessionId),
+          eq(schema.conversationParticipants.participantId, SYSTEM_AGENT_ID),
+          eq(schema.conversationParticipants.participantType, 'agent'),
+        ),
+      )
+      .limit(1);
+
+    if (!agentParticipant) return null;
+
+    // Fetch conversation row
+    const [conv] = await db
+      .select({
+        id: schema.conversations.id,
+        lastMessageAt: schema.conversations.lastMessageAt,
+        createdAt: schema.conversations.createdAt,
+        updatedAt: schema.conversations.updatedAt,
+      })
+      .from(schema.conversations)
+      .where(eq(schema.conversations.id, sessionId))
+      .limit(1);
+
+    if (!conv) return null;
+
+    // Fetch metadata
+    const meta = await this._getConvMeta(sessionId);
+
+    // Fetch messages (limited)
+    const msgRows = await db
+      .select()
+      .from(schema.messages)
+      .where(eq(schema.messages.conversationId, sessionId))
+      .orderBy(desc(schema.messages.createdAt))
+      .limit(messageLimit);
+
+    const messages = msgRows.reverse().map((msg) => {
+      const parts = msg.parts as Array<{ type?: string; text?: string }>;
+      const content =
+        parts?.find((p) => p?.type === 'text' && typeof p.text === 'string')?.text
+        ?? parts?.find((p) => typeof p?.text === 'string')?.text
+        ?? '';
+      const role = msg.role === 'agent' ? 'assistant' : msg.role;
+      return { role, content, createdAt: msg.createdAt };
+    });
+
+    // Count all messages (not limited)
+    const [{ totalCount }] = await db
+      .select({ totalCount: count(schema.messages.id) })
+      .from(schema.messages)
+      .where(eq(schema.messages.conversationId, sessionId));
+
+    return {
+      sessionId: conv.id,
+      title: meta?.title ?? null,
+      messageCount: Number(totalCount),
+      lastMessageAt: conv.lastMessageAt ?? conv.updatedAt,
+      createdAt: conv.createdAt,
+      messages,
+    };
   }
 
   /**
