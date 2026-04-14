@@ -1,4 +1,0 @@
-# Build artifacts
-.env.test
-dist/
-node_modules/
